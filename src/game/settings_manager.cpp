@@ -97,6 +97,7 @@ bool SettingsManager::load() {
             const auto& a = root["appearance"];
             settings_.tableTheme = static_cast<TableThemeId>(std::clamp(a["tableTheme"].asInt(0), 0, static_cast<int>(TableThemeId::Count) - 1));
             settings_.deckTheme = static_cast<DeckThemeId>(std::clamp(a["deckTheme"].asInt(0), 0, static_cast<int>(DeckThemeId::Count) - 1));
+            settings_.guiTheme = static_cast<GuiThemeStyle>(std::clamp(a["guiTheme"].asInt(static_cast<int>(GuiThemeStyle::ClockworkEngine)), 0, 1));
             settings_.cardWear = static_cast<CardWearLevel>(std::clamp(a["cardWear"].asInt(static_cast<int>(CardWearLevel::Pristine)), 0, static_cast<int>(CardWearLevel::Count) - 1));
             settings_.cardStock = static_cast<CardStock>(std::clamp(a["cardStock"].asInt(static_cast<int>(CardStock::None)), 0, static_cast<int>(CardStock::Count) - 1));
             settings_.cardCorners = static_cast<CardCornerStyle>(std::clamp(a["cardCorners"].asInt(0), 0, static_cast<int>(CardCornerStyle::Count) - 1));
@@ -150,6 +151,7 @@ bool SettingsManager::save() {
     json::Object a;
     a["tableTheme"] = static_cast<int>(settings_.tableTheme);
     a["deckTheme"] = static_cast<int>(settings_.deckTheme);
+    a["guiTheme"] = static_cast<int>(settings_.guiTheme);
     a["cardWear"] = static_cast<int>(settings_.cardWear);
     a["cardStock"] = static_cast<int>(settings_.cardStock);
     a["cardCorners"] = static_cast<int>(settings_.cardCorners);

@@ -13,24 +13,24 @@
 
 ## The Crucible
 
-**SolEngine** is an alchemical ode to tactile solitaire classics like *Hardwood Solitaire III* and the boundless variations of *PySolFC*, resurrected through modern **WebGPU** compute and fragment sorcery.
+**SolEngine** is an ode to solitaire classics like *Hardwood Solitaire III* and the boundless monolith of *PySolFC*, resurrected through modern **WebGPU** compute and fragment sorcery.
 
-Every shuffle is deterministic and powered by a seed. Easily replay games via seeds. Built-in solver ensures solvable games and allows walkthrough of gameplay to facilitate learning new dynamics.
+Every shuffle is deterministic, powered by an editable seed. Easily replay games via seeds. Built-in solver can ensure solvable games (depending on variant) and allows walkthrough of gameplay to facilitate learning new dynamics.
 
 Play instantly in your browser:  
 👉 **[Launch SolEngine](https://maddestlabs.github.io/solengine/)**
 
 ---
 
-## Core Alchemy
+## The Core
 
 ### The Scripted Pantheon
-SolEngine is built around **Eatscript**—a declarative, byte-forged scripting dialect where game logic, layout topology, and card movement rules are lit fiery hot:
+SolEngine is built around **Eatscript**: a declarative, Pythonic scripting dialect where game logic, layout topology, and card movement are define:
 - **Classic Solitaries:** *Klondike (Draw 1 & 3)*, *FreeCell*, *Spider (1, 2, & 4 Suits)*, *Yukon*.
 - **Custom Variations:** Craft your own game rules directly into existence via `.eats` scripts—define tableaux, cell constraints, foundation ranks, reserve cascades, and victory conditions.
 
 ### Procedural API
-Table backgrounds in SolEngine are forged in WebGPU fragment shaders while SVG and bitmap images can both be used alongside a drawing API.
+Table backgrounds in SolEngine are forged in WebGPU fragment shaders while card faces and card backs can be designed with bitmaps, vector API, rendered via shader code or any combination of these.
 
 ### Classic Hardwood Ergonomics
 - **One-Tap / Right-Click Smart Moves:** Hover or select any card or substack and single-click to immediately route it along its mathematically optimal trajectory to Foundations or Tableau columns.
@@ -38,7 +38,7 @@ Table backgrounds in SolEngine are forged in WebGPU fragment shaders while SVG a
 - **Elevation Shadow Casters:** Cards in flight elevate dynamically above the board, casting soft, spring-damped drop shadows that react to card velocity and height.
 
 ### Procedural Foley Audio
-Built with the power of `miniaudio`, sound is synthesized dynamically rather than looped from samples.
+Embued with the power of `miniaudio`, sound is synthesized dynamically and can likewise be designed via Eatscript.
 
 ---
 

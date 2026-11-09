@@ -8,7 +8,11 @@ const PRECACHE_ASSETS = [
     './solengine.js',
     './solengine.wasm',
     './solengine.data',
-    './manifest.json'
+    './manifest.json',
+    './favicon.ico',
+    './app_icon.png',
+    './icon-192.png',
+    './icon-512.png'
 ];
 
 function ensureCoopCoepHeaders(response) {

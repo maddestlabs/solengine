@@ -10,6 +10,8 @@
 #include "solengine/ui/settings_dialog.hpp"
 #include "solengine/ui/loading_dialog.hpp"
 #include "solengine/ui/game_browser_dialog.hpp"
+#include "solengine/ui/clockwork_theme.hpp"
+#include "solengine/ui/app_icon_data.hpp"
 #include "solengine/game_definition.hpp"
 #include "eatsbits/ui/glyph/vector_font.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
@@ -1245,6 +1247,32 @@ void drawCarvedButton(
     bool highlighted,
     const ThemePalette& pal
 ) {
+    if (SettingsManager::instance().settings().guiTheme == GuiThemeStyle::ClockworkEngine) {
+        clockwork_ui::drawBrassButton(r, b.x, b.y, b.w, b.h, 4.0f, b.label, hovered, highlighted, 10.5f);
+        if (b.iconId != SvgIconId::None) {
+            constexpr float iconSize = 16.0f;
+            const bool hasLabel = (b.label != nullptr && b.label[0] != '\0');
+            float iconX = hasLabel ? (b.x + 6.0f) : (b.x + (b.w - iconSize) * 0.5f);
+            float iconY = b.y + (b.h - iconSize) * 0.5f;
+            const auto& cpal = clockwork_ui::palette();
+            float iconR = (hovered || highlighted) ? cpal.furnaceCoreR : cpal.brassBrightR;
+            float iconG = (hovered || highlighted) ? cpal.furnaceCoreG : cpal.brassBrightG;
+            float iconB = (hovered || highlighted) ? cpal.furnaceCoreB : cpal.brassBrightB;
+            SvgIconRenderer::instance().renderIcon(r, b.iconId, iconX, iconY, iconSize, iconSize, iconR, iconG, iconB, 1.0f);
+        }
+        if (b.id == BtnVariant) {
+            // Flanking brass gears beside game variant, matching the clockwork mockup
+            const auto& cpal = clockwork_ui::palette();
+            clockwork_ui::drawGear(r, b.x - 7.0f, b.y + b.h * 0.5f, 9.0f, 7.0f, 4.5f, 8, 0.4f,
+                                   cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.95f,
+                                   cpal.brassBrightR, cpal.brassBrightG, cpal.brassBrightB, 1.0f, 4, 2.5f);
+            clockwork_ui::drawGear(r, b.x + b.w + 7.0f, b.y + b.h * 0.5f, 9.0f, 7.0f, 4.5f, 8, -0.4f,
+                                   cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.95f,
+                                   cpal.brassBrightR, cpal.brassBrightG, cpal.brassBrightB, 1.0f, 4, 2.5f);
+        }
+        return;
+    }
+
     const float bgBoost = hovered ? 0.08f : 0.0f;
     r.drawRoundedRectGradient(
         b.x, b.y, b.w, b.h, 5.0f,
@@ -1303,6 +1331,12 @@ void drawMenuOrbButton(
     const float cx = b.x + b.w * 0.5f;
     const float cy = b.y + b.h * 0.5f;
     const float radius = b.w * 0.5f;
+
+    if (SettingsManager::instance().settings().guiTheme == GuiThemeStyle::ClockworkEngine) {
+        clockwork_ui::drawClockworkMenuOrb(r, cx, cy, radius, hovered, menuOpen, 0.0f);
+        return;
+    }
+
     const float alpha = (hovered || menuOpen) ? 0.95f : 0.42f;
 
     r.drawCircleDropShadow(cx, cy, radius, 4.0f, light, alpha * 0.45f);
@@ -1322,12 +1356,19 @@ void drawMenuOrbButton(
         r.drawLine(cx - xSize, cy - xSize, cx + xSize, cy + xSize, rimR, rimG, rimB, alpha, 2.2f);
         r.drawLine(cx - xSize, cy + xSize, cx + xSize, cy - xSize, rimR, rimG, rimB, alpha, 2.2f);
     } else {
-        // 3 sleek horizontal menu bars
-        const float barW = radius * 0.95f;
-        const float barH = 2.0f;
-        r.drawRect(cx - barW * 0.5f, cy - 6.0f, barW, barH, rimR, rimG, rimB, alpha);
-        r.drawRect(cx - barW * 0.5f, cy - 1.0f, barW, barH, rimR, rimG, rimB, alpha);
-        r.drawRect(cx - barW * 0.5f, cy + 4.0f, barW, barH, rimR, rimG, rimB, alpha);
+        // SolEngine Clockwork 'S' insignia
+        const float fontSize = radius * 0.75f;
+        const float txtW = eatsbits::ui::glyph::getVectorTextWidth(fontSize, "S");
+        // Subtle drop shadow
+        eatsbits::ui::glyph::drawVectorText(
+            r, "S", cx - txtW * 0.5f + 1.0f, cy - fontSize * 0.5f + 1.0f, fontSize,
+            0.0f, 0.0f, 0.0f, alpha * 0.65f
+        );
+        // Foreground glyph
+        eatsbits::ui::glyph::drawVectorText(
+            r, "S", cx - txtW * 0.5f, cy - fontSize * 0.5f, fontSize,
+            rimR, rimG, rimB, alpha
+        );
     }
 }
 
@@ -1802,14 +1843,19 @@ void TableRenderer::renderBoard(
             const float popW = (maxX - minX) + 16.0f;
             const float popH = (maxY - minY) + 16.0f;
 
-            r.drawRectDropShadow(popX, popY, popW, popH, 8.0f, 12.0f, light, 0.55f);
-            r.drawRoundedRectGradient(
-                popX, popY, popW, popH, 8.0f,
-                pal.woodR0 + 0.05f, pal.woodG0 + 0.04f, pal.woodB0 + 0.03f,
-                pal.woodR1 + 0.02f, pal.woodG1 + 0.02f, pal.woodB1 + 0.02f,
-                0.98f, 4
-            );
-            r.drawRoundedRectOutline(popX, popY, popW, popH, 8.0f, pal.trimR, pal.trimG, pal.trimB, 0.90f, 1.5f, 4);
+            if (SettingsManager::instance().settings().guiTheme == GuiThemeStyle::ClockworkEngine) {
+                clockwork_ui::drawHudClockworkChassis(r, popX, popY, popW, popH,
+                                                      static_cast<float>(board.moveCount()), 0.0f);
+            } else {
+                r.drawRectDropShadow(popX, popY, popW, popH, 8.0f, 12.0f, light, 0.55f);
+                r.drawRoundedRectGradient(
+                    popX, popY, popW, popH, 8.0f,
+                    pal.woodR0 + 0.05f, pal.woodG0 + 0.04f, pal.woodB0 + 0.03f,
+                    pal.woodR1 + 0.02f, pal.woodG1 + 0.02f, pal.woodB1 + 0.02f,
+                    0.98f, 4
+                );
+                r.drawRoundedRectOutline(popX, popY, popW, popH, 8.0f, pal.trimR, pal.trimG, pal.trimB, 0.90f, 1.5f, 4);
+            }
 
             for (size_t i = 1; i < btns.size(); ++i) {
                 const auto& b = btns[i];
@@ -3853,6 +3899,17 @@ int TableRenderer::runInteractiveWindow(
         glfwTerminate();
         return 1;
     }
+
+#if !defined(__EMSCRIPTEN__)
+    // Set native desktop window and taskbar icon
+    {
+        GLFWimage glfwIcon;
+        glfwIcon.width = solengine::clockwork_icon::kAppIconWidth;
+        glfwIcon.height = solengine::clockwork_icon::kAppIconHeight;
+        glfwIcon.pixels = const_cast<unsigned char*>(solengine::clockwork_icon::kAppIconRgba64);
+        glfwSetWindowIcon(window, 1, &glfwIcon);
+    }
+#endif
 
 #if defined(__EMSCRIPTEN__)
     EM_ASM({

@@ -114,6 +114,7 @@ add_library(solengine_render STATIC
     src/ui/settings_dialog.cpp
     src/ui/loading_dialog.cpp
     src/ui/game_browser_dialog.cpp
+    src/ui/clockwork_theme.cpp
 )
 target_include_directories(solengine_render PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -152,7 +153,19 @@ if(EMSCRIPTEN)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/web/sw.js"
             "${CMAKE_BINARY_DIR}/sw.js"
-        COMMENT "Copying PWA manifest, service worker, and index.html to web root"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/app_icon.png"
+            "${CMAKE_BINARY_DIR}/app_icon.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/favicon.ico"
+            "${CMAKE_BINARY_DIR}/favicon.ico"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-192.png"
+            "${CMAKE_BINARY_DIR}/icon-192.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-512.png"
+            "${CMAKE_BINARY_DIR}/icon-512.png"
+        COMMENT "Copying PWA manifest, service worker, icons, and index.html to web root"
     )
 else()
     target_link_libraries(solengine_render PUBLIC solengine_core eats_proctex_core glfw)
@@ -164,7 +177,16 @@ else()
     endif()
 
     # 5. Main SolEngine Executable
-    add_executable(solengine src/main.cpp)
+    if(WIN32)
+        add_executable(solengine WIN32 src/main.cpp src/solengine.rc)
+        if(MSVC)
+            set_target_properties(solengine PROPERTIES
+                LINK_FLAGS "/ENTRY:mainCRTStartup"
+            )
+        endif()
+    else()
+        add_executable(solengine src/main.cpp)
+    endif()
     target_link_libraries(solengine PRIVATE solengine_render)
 
     if(WIN32)

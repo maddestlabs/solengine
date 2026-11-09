@@ -17,6 +17,7 @@ struct AppSettings {
     GameVariant variant{GameVariant::KlondikeDraw1};
     TableThemeId tableTheme{TableThemeId::PastelTan};
     DeckThemeId deckTheme{DeckThemeId::SolEnshade};
+    GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
     CardWearLevel cardWear{CardWearLevel::Pristine};
     CardStock cardStock{CardStock::None};
     CardCornerStyle cardCorners{CardCornerStyle::Auto};

@@ -1,5 +1,6 @@
 #include "solengine/ui/settings_dialog.hpp"
 #include "solengine/ui/svg_icon_renderer.hpp"
+#include "solengine/ui/clockwork_theme.hpp"
 #include "solengine/table_renderer.hpp"
 #include "solengine/solitaire_board.hpp"
 #include "solengine/audio_foley.hpp"
@@ -64,74 +65,108 @@ void SettingsDialog::render(
 
     // 2. Responsive dialog chassis dimensions (centered modal on desktop; full-width pull-down drawer on mobile)
     const bool isMobile = (screenW < 640.0f) || (screenW < screenH);
+    const bool isClockwork = (tempSettings_.guiTheme == GuiThemeStyle::ClockworkEngine);
+    const auto& cpal = clockwork_ui::palette();
+
     if (isMobile) {
         dialogX_ = 0.0f;
         dialogY_ = 0.0f;
         dialogW_ = screenW;
         dialogH_ = std::min(screenH * 0.94f, 620.0f);
 
-        eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 1.0f};
-        r.drawRectDropShadow(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, 22.0f, light, 0.70f);
-        r.drawRoundedRectGradient(
-            dialogX_, dialogY_, dialogW_, dialogH_, 12.0f,
-            pal.woodR0 + 0.06f, pal.woodG0 + 0.05f, pal.woodB0 + 0.04f,
-            pal.woodR1 + 0.02f, pal.woodG1 + 0.02f, pal.woodB1 + 0.02f,
-            0.98f, 6
-        );
-        r.drawRoundedRectOutline(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, pal.trimR, pal.trimG, pal.trimB, 0.95f, 1.8f, 6);
+        if (isClockwork) {
+            clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, true, false, 0.0f);
+        } else {
+            eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 1.0f};
+            r.drawRectDropShadow(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, 22.0f, light, 0.70f);
+            r.drawRoundedRectGradient(
+                dialogX_, dialogY_, dialogW_, dialogH_, 12.0f,
+                pal.woodR0 + 0.06f, pal.woodG0 + 0.05f, pal.woodB0 + 0.04f,
+                pal.woodR1 + 0.02f, pal.woodG1 + 0.02f, pal.woodB1 + 0.02f,
+                0.98f, 6
+            );
+            r.drawRoundedRectOutline(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, pal.trimR, pal.trimG, pal.trimB, 0.95f, 1.8f, 6);
+        }
 
         // Ergonomic mobile pull-down / swipe-up handle pill at bottom edge
         const float handleW = 46.0f;
         const float handleH = 4.0f;
         const float handleX = (screenW - handleW) * 0.5f;
         const float handleY = dialogH_ - 8.0f;
-        r.drawRoundedRect(handleX, handleY, handleW, handleH, 2.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 2);
+        r.drawRoundedRect(handleX, handleY, handleW, handleH, 2.0f, isClockwork ? cpal.brassBrightR : pal.trimR, isClockwork ? cpal.brassBrightG : pal.trimG, isClockwork ? cpal.brassBrightB : pal.trimB, 0.70f, 2);
     } else {
         dialogW_ = std::clamp(screenW * 0.72f, 540.0f, 740.0f);
         dialogH_ = std::clamp(screenH * 0.78f, 440.0f, 580.0f);
         dialogX_ = (screenW - dialogW_) * 0.5f;
         dialogY_ = (screenH - dialogH_) * 0.5f;
 
-        eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 1.0f};
-        r.drawRectDropShadow(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, 22.0f, light, 0.65f);
-        r.drawRoundedRectGradient(
-            dialogX_, dialogY_, dialogW_, dialogH_, 10.0f,
-            pal.woodR0 + 0.06f, pal.woodG0 + 0.05f, pal.woodB0 + 0.04f,
-            pal.woodR1 + 0.02f, pal.woodG1 + 0.02f, pal.woodB1 + 0.02f,
-            0.98f, 6
-        );
-        r.drawRoundedRectOutline(dialogX_, dialogY_, dialogW_, dialogH_, 10.0f, pal.trimR, pal.trimG, pal.trimB, 0.95f, 1.8f, 6);
+        if (isClockwork) {
+            clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, true, true, 0.0f);
+        } else {
+            eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 1.0f};
+            r.drawRectDropShadow(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, 22.0f, light, 0.65f);
+            r.drawRoundedRectGradient(
+                dialogX_, dialogY_, dialogW_, dialogH_, 10.0f,
+                pal.woodR0 + 0.06f, pal.woodG0 + 0.05f, pal.woodB0 + 0.04f,
+                pal.woodR1 + 0.02f, pal.woodG1 + 0.02f, pal.woodB1 + 0.02f,
+                0.98f, 6
+            );
+            r.drawRoundedRectOutline(dialogX_, dialogY_, dialogW_, dialogH_, 10.0f, pal.trimR, pal.trimG, pal.trimB, 0.95f, 1.8f, 6);
+        }
     }
 
     // 3. Header Bar with SVG Gear Icon and Close Button [X]
     const float headerH = 48.0f;
-    r.drawRoundedRect(dialogX_, dialogY_, dialogW_, headerH, 10.0f, pal.woodR0 + 0.02f, pal.woodG0 + 0.01f, pal.woodB0 + 0.01f, 0.95f, 6);
-    r.drawLine(dialogX_, dialogY_ + headerH, dialogX_ + dialogW_, dialogY_ + headerH, pal.trimR, pal.trimG, pal.trimB, 0.60f, 1.2f);
+    if (isClockwork) {
+        r.drawRoundedRect(dialogX_, dialogY_, dialogW_, headerH, 10.0f, cpal.chassisDarkR, cpal.chassisDarkG, cpal.chassisDarkB, 0.90f, 6);
+        r.drawLine(dialogX_, dialogY_ + headerH, dialogX_ + dialogW_, dialogY_ + headerH, cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.75f, 1.2f);
 
-    eatsbits::ui::glyph::drawVectorText(r, "O", dialogX_ + 16.0f, dialogY_ + 17.0f, 14.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
-    eatsbits::ui::glyph::drawVectorText(
-        r, "SOLITAIRE ENGINE PREFERENCES & GAME SETTINGS", dialogX_ + 36.0f, dialogY_ + 17.0f, 14.0f,
-        pal.accentR, pal.accentG, pal.accentB, 1.0f
-    );
+        // Spherical brass ornament boss at top-left
+        r.drawCircleRadial3StopGradient(
+            dialogX_ + 24.0f, dialogY_ + 24.0f, 8.5f,
+            cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f,
+            cpal.brassBrightR, cpal.brassBrightG, cpal.brassBrightB, 1.0f,
+            cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 1.0f,
+            -2.5f, -2.5f, 0.45f, 20
+        );
+
+        eatsbits::ui::glyph::drawVectorText(
+            r, "SOLITAIRE ENGINE PREFERENCES & GAME SETTINGS", dialogX_ + 40.0f, dialogY_ + 17.5f, 13.0f,
+            cpal.furnaceCoreR, cpal.furnaceCoreG, cpal.furnaceCoreB, 1.0f
+        );
+    } else {
+        r.drawRoundedRect(dialogX_, dialogY_, dialogW_, headerH, 10.0f, pal.woodR0 + 0.02f, pal.woodG0 + 0.01f, pal.woodB0 + 0.01f, 0.95f, 6);
+        r.drawLine(dialogX_, dialogY_ + headerH, dialogX_ + dialogW_, dialogY_ + headerH, pal.trimR, pal.trimG, pal.trimB, 0.60f, 1.2f);
+
+        eatsbits::ui::glyph::drawVectorText(r, "O", dialogX_ + 16.0f, dialogY_ + 17.0f, 14.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        eatsbits::ui::glyph::drawVectorText(
+            r, "SOLITAIRE ENGINE PREFERENCES & GAME SETTINGS", dialogX_ + 36.0f, dialogY_ + 17.0f, 14.0f,
+            pal.accentR, pal.accentG, pal.accentB, 1.0f
+        );
+    }
 
     // Close Button [X] in top-right
     const float closeBtnSize = 28.0f;
     const float closeBtnX = dialogX_ + dialogW_ - closeBtnSize - 12.0f;
     const float closeBtnY = dialogY_ + (headerH - closeBtnSize) * 0.5f;
     bool closeHovered = (mouseX >= closeBtnX && mouseX <= closeBtnX + closeBtnSize && mouseY >= closeBtnY && mouseY <= closeBtnY + closeBtnSize);
-    r.drawRoundedRect(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, closeHovered ? 0.35f : 0.20f, 0.12f, 0.12f, 0.90f, 4);
-    r.drawRoundedRectOutline(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, pal.trimR, pal.trimG, pal.trimB, closeHovered ? 1.0f : 0.60f, 1.2f, 4);
-    float closeXTextW = eatsbits::ui::glyph::getVectorTextWidth(13.0f, "X");
-    eatsbits::ui::glyph::drawVectorText(
-        r, "X",
-        closeBtnX + (closeBtnSize - closeXTextW) * 0.5f,
-        closeBtnY + (closeBtnSize - 13.0f) * 0.5f,
-        13.0f,
-        closeHovered ? 1.0f : 0.92f,
-        closeHovered ? 0.95f : 0.88f,
-        closeHovered ? 0.90f : 0.82f,
-        1.0f
-    );
+    if (isClockwork) {
+        clockwork_ui::drawPewterButton(r, closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, "X", closeHovered, false, 13.0f);
+    } else {
+        r.drawRoundedRect(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, closeHovered ? 0.35f : 0.20f, 0.12f, 0.12f, 0.90f, 4);
+        r.drawRoundedRectOutline(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, pal.trimR, pal.trimG, pal.trimB, closeHovered ? 1.0f : 0.60f, 1.2f, 4);
+        float closeXTextW = eatsbits::ui::glyph::getVectorTextWidth(13.0f, "X");
+        eatsbits::ui::glyph::drawVectorText(
+            r, "X",
+            closeBtnX + (closeBtnSize - closeXTextW) * 0.5f,
+            closeBtnY + (closeBtnSize - 13.0f) * 0.5f,
+            13.0f,
+            closeHovered ? 1.0f : 0.92f,
+            closeHovered ? 0.95f : 0.88f,
+            closeHovered ? 0.90f : 0.82f,
+            1.0f
+        );
+    }
 
     // 4. Tab Navigation Bar (4 tabs)
     const float tabY = dialogY_ + headerH + 10.0f;
@@ -144,29 +179,68 @@ void SettingsDialog::render(
         bool isActive = (currentTab_ == t);
         bool isHovered = (mouseX >= tx && mouseX <= tx + tabW - 4.0f && mouseY >= tabY && mouseY <= tabY + tabH);
 
-        r.drawRoundedRectGradient(
-            tx, tabY, tabW - 4.0f, tabH, 5.0f,
-            isActive ? (pal.woodR0 + 0.14f) : (pal.woodR0 + 0.03f + (isHovered ? 0.05f : 0.0f)),
-            isActive ? (pal.woodG0 + 0.12f) : (pal.woodG0 + 0.02f + (isHovered ? 0.04f : 0.0f)),
-            isActive ? (pal.woodB0 + 0.10f) : (pal.woodB0 + 0.02f + (isHovered ? 0.03f : 0.0f)),
-            pal.woodR1, pal.woodG1, pal.woodB1,
-            0.95f, 4
-        );
-        r.drawRoundedRectOutline(
-            tx, tabY, tabW - 4.0f, tabH, 5.0f,
-            isActive ? pal.accentR : pal.trimR,
-            isActive ? pal.accentG : pal.trimG,
-            isActive ? pal.accentB : pal.trimB,
-            isActive ? 1.0f : 0.50f, isActive ? 1.6f : 1.0f, 4
-        );
+        if (isClockwork) {
+            if (isActive) {
+                // Active tab has copper pipe contour looping over it as seen in mockup
+                clockwork_ui::drawPipe(r, tx, tabY - 2.0f, tx + tabW - 4.0f, tabY - 2.0f, 4.5f, true, true);
+                r.drawRoundedRectGradient(
+                    tx, tabY, tabW - 4.0f, tabH, 5.0f,
+                    cpal.chassisLightR + 0.14f, cpal.chassisLightG + 0.12f, cpal.chassisLightB + 0.10f,
+                    cpal.chassisDarkR + 0.08f, cpal.chassisDarkG + 0.07f, cpal.chassisDarkB + 0.06f,
+                    0.98f, 4
+                );
+                r.drawRoundedRectOutline(
+                    tx, tabY, tabW - 4.0f, tabH, 5.0f,
+                    cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 1.0f, 1.8f, 4
+                );
+            } else {
+                r.drawRoundedRectGradient(
+                    tx, tabY, tabW - 4.0f, tabH, 5.0f,
+                    cpal.chassisDarkR + (isHovered ? 0.08f : 0.03f),
+                    cpal.chassisDarkG + (isHovered ? 0.07f : 0.02f),
+                    cpal.chassisDarkB + (isHovered ? 0.06f : 0.02f),
+                    cpal.chassisDarkR, cpal.chassisDarkG, cpal.chassisDarkB,
+                    0.95f, 4
+                );
+                r.drawRoundedRectOutline(
+                    tx, tabY, tabW - 4.0f, tabH, 5.0f,
+                    cpal.brassMidR, cpal.brassMidG, cpal.brassMidB,
+                    isHovered ? 0.90f : 0.50f, isHovered ? 1.4f : 1.0f, 4
+                );
+            }
 
-        float tabTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, tabNames[t]);
-        eatsbits::ui::glyph::drawVectorText(
-            r, tabNames[t], tx + (tabW - 4.0f - tabTxtW) * 0.5f, tabY + 10.0f, 11.0f,
-            isActive ? pal.accentR : 0.88f,
-            isActive ? pal.accentG : 0.85f,
-            isActive ? pal.accentB : 0.80f, 1.0f
-        );
+            float tabTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, tabNames[t]);
+            eatsbits::ui::glyph::drawVectorText(
+                r, tabNames[t], tx + (tabW - 4.0f - tabTxtW) * 0.5f, tabY + 10.0f, 11.0f,
+                isActive ? cpal.furnaceCoreR : (isHovered ? cpal.brassHighlightR : cpal.brassBrightR),
+                isActive ? cpal.furnaceCoreG : (isHovered ? cpal.brassHighlightG : cpal.brassBrightG),
+                isActive ? cpal.furnaceCoreB : (isHovered ? cpal.brassHighlightB : cpal.brassBrightB), 1.0f
+            );
+        } else {
+            r.drawRoundedRectGradient(
+                tx, tabY, tabW - 4.0f, tabH, 5.0f,
+                isActive ? (pal.woodR0 + 0.14f) : (pal.woodR0 + 0.03f + (isHovered ? 0.05f : 0.0f)),
+                isActive ? (pal.woodG0 + 0.12f) : (pal.woodG0 + 0.02f + (isHovered ? 0.04f : 0.0f)),
+                isActive ? (pal.woodB0 + 0.10f) : (pal.woodB0 + 0.02f + (isHovered ? 0.03f : 0.0f)),
+                pal.woodR1, pal.woodG1, pal.woodB1,
+                0.95f, 4
+            );
+            r.drawRoundedRectOutline(
+                tx, tabY, tabW - 4.0f, tabH, 5.0f,
+                isActive ? pal.accentR : pal.trimR,
+                isActive ? pal.accentG : pal.trimG,
+                isActive ? pal.accentB : pal.trimB,
+                isActive ? 1.0f : 0.50f, isActive ? 1.6f : 1.0f, 4
+            );
+
+            float tabTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, tabNames[t]);
+            eatsbits::ui::glyph::drawVectorText(
+                r, tabNames[t], tx + (tabW - 4.0f - tabTxtW) * 0.5f, tabY + 10.0f, 11.0f,
+                isActive ? pal.accentR : 0.88f,
+                isActive ? pal.accentG : 0.85f,
+                isActive ? pal.accentB : 0.80f, 1.0f
+            );
+        }
     }
 
     // 5. Main Tab Content Area
@@ -175,12 +249,21 @@ void SettingsDialog::render(
     const float contentW = dialogW_ - 32.0f;
     const float contentH = dialogH_ - (headerH + tabH + 74.0f);
 
-    r.drawRoundedRect(contentX, contentY, contentW, contentH, 6.0f, pal.woodR0 + 0.02f, pal.woodG0 + 0.015f, pal.woodB0 + 0.01f, 0.90f, 4);
-    r.drawRoundedRectOutline(contentX, contentY, contentW, contentH, 6.0f, pal.trimR, pal.trimG, pal.trimB, 0.45f, 1.0f, 4);
+    if (isClockwork) {
+        r.drawRoundedRect(contentX, contentY, contentW, contentH, 6.0f, cpal.panelBedR, cpal.panelBedG, cpal.panelBedB, 0.94f, 4);
+        r.drawRoundedRectOutline(contentX, contentY, contentW, contentH, 6.0f, cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 0.75f, 1.2f, 4);
+    } else {
+        r.drawRoundedRect(contentX, contentY, contentW, contentH, 6.0f, pal.woodR0 + 0.02f, pal.woodG0 + 0.015f, pal.woodB0 + 0.01f, 0.90f, 4);
+        r.drawRoundedRectOutline(contentX, contentY, contentW, contentH, 6.0f, pal.trimR, pal.trimG, pal.trimB, 0.45f, 1.0f, 4);
+    }
 
     float curY = contentY + 16.0f;
     auto drawSectionHeader = [&](const char* title) {
-        eatsbits::ui::glyph::drawVectorText(r, title, contentX + 16.0f, curY, 12.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        if (isClockwork) {
+            eatsbits::ui::glyph::drawVectorText(r, title, contentX + 16.0f, curY, 12.0f, cpal.furnaceCoreR, cpal.furnaceCoreG, cpal.furnaceCoreB, 1.0f);
+        } else {
+            eatsbits::ui::glyph::drawVectorText(r, title, contentX + 16.0f, curY, 12.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        }
         curY += 24.0f;
     };
 
@@ -284,6 +367,11 @@ void SettingsDialog::render(
             bool nextHov = (mouseX >= nextX && mouseX <= nextX + btnW && mouseY >= curY && mouseY <= curY + rowH);
             bool centerHov = (mouseX >= labelX && mouseX <= labelX + labelW && mouseY >= curY && mouseY <= curY + rowH);
 
+            if (isClockwork) {
+                clockwork_ui::drawStepperBar(r, rowX, curY, rowW, rowH, text, prevHov, nextHov, centerHov);
+                return;
+            }
+
             // Left [ < ] button
             r.drawRoundedRect(rowX, curY, btnW, rowH, 4.0f,
                               pal.woodR0 + 0.05f + (prevHov ? 0.08f : 0.0f),
@@ -353,6 +441,11 @@ void SettingsDialog::render(
         // 2. Deck Theme
         std::string deckStr = "Deck: " + std::string(CardTextureCache::deckThemeName(tempSettings_.deckTheme));
         drawStepper(deckStr);
+        curY += rowH + rowGap;
+
+        // 2b. UI Theme
+        std::string uiThemeStr = "UI Theme: " + std::string(tempSettings_.guiTheme == GuiThemeStyle::ClockworkEngine ? "CLOCKWORK ENGINE" : "CLASSIC");
+        drawStepper(uiThemeStr);
         curY += rowH + 10.0f;
 
         // Section: Card Materials and Condition
@@ -380,43 +473,59 @@ void SettingsDialog::render(
         devTrackH_ = 28.0f;
         devTrackY_ = curY;
 
-        r.drawRoundedRect(devTrackX_, devTrackY_, devTrackW_, devTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
-        r.drawRoundedRectOutline(devTrackX_, devTrackY_, devTrackW_, devTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
-
-        float devFillW = (devTrackW_ - 4.0f) * tempSettings_.cardDeviation;
-        if (devFillW > 0.0f) {
-            r.drawRoundedRect(devTrackX_ + 2.0f, devTrackY_ + 2.0f, devFillW, devTrackH_ - 4.0f, 3.0f,
-                              pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
-        }
-
-        // Distinctive thumb indicator knob
-        float thumbX = devTrackX_ + 2.0f + devFillW;
-        r.drawRoundedRect(thumbX - 4.0f, devTrackY_ - 1.0f, 8.0f, devTrackH_ + 2.0f, 3.0f,
-                          pal.accentR, pal.accentG, pal.accentB, 0.98f, 3);
-        r.drawRoundedRectOutline(thumbX - 4.0f, devTrackY_ - 1.0f, 8.0f, devTrackH_ + 2.0f, 3.0f,
-                                 pal.trimR, pal.trimG, pal.trimB, 0.90f, 1.0f, 3);
-
         int devPct = static_cast<int>(std::round(tempSettings_.cardDeviation * 100.0f));
-        char devStr[80];
-        if (tempSettings_.cardDeviation <= 0.005f) {
-            std::snprintf(devStr, sizeof(devStr), "DEVIATION: 0%% (NEAT: 0px, 0.0 deg)");
-        } else {
-            float posPx = tempSettings_.cardDeviation * 10.0f;
-            float angDeg = tempSettings_.cardDeviation * 5.0f;
-            std::snprintf(devStr, sizeof(devStr), "DEVIATION: %d%% (+-%.1fpx, +-%.1f deg)", devPct, posPx, angDeg);
-        }
-        eatsbits::ui::glyph::drawVectorText(r, devStr, devTrackX_ + 10.0f, devTrackY_ + 8.5f, 11.0f, 0.98f, 0.95f, 0.88f, 1.0f);
-
-        // Quick Preset / Reset button [PRESET 25%] or [ZERO 0%]
         const float devBtnX = devTrackX_ + devTrackW_ + 12.0f;
         const float devBtnW = 104.0f;
         bool devBtnHov = (mouseX >= devBtnX && mouseX <= devBtnX + devBtnW && mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_);
-        r.drawRoundedRect(devBtnX, devTrackY_, devBtnW, devTrackH_, 4.0f,
-                          pal.woodR0 + 0.06f + (devBtnHov ? 0.08f : 0.0f), pal.woodG0 + 0.05f, pal.woodB0 + 0.04f, 0.95f, 4);
-        r.drawRoundedRectOutline(devBtnX, devTrackY_, devBtnW, devTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
         const char* devBtnLabel = (tempSettings_.cardDeviation <= 0.005f) ? "PRESET 25%" : "ZERO 0%";
-        float devBtnTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, devBtnLabel);
-        eatsbits::ui::glyph::drawVectorText(r, devBtnLabel, devBtnX + (devBtnW - devBtnTxtW) * 0.5f, devTrackY_ + 8.5f, 11.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+
+        if (isClockwork) {
+            bool knobHovered = (mouseX >= devTrackX_ && mouseX <= devTrackX_ + devTrackW_ && mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_);
+            clockwork_ui::drawGlassSlider(r, devTrackX_, devTrackY_, devTrackW_, devTrackH_, tempSettings_.cardDeviation, nullptr, knobHovered, 0.0f);
+
+            char devStr[80];
+            if (tempSettings_.cardDeviation <= 0.005f) {
+                std::snprintf(devStr, sizeof(devStr), "DEVIATION: 0%% (NEAT)");
+            } else {
+                float posPx = tempSettings_.cardDeviation * 10.0f;
+                float angDeg = tempSettings_.cardDeviation * 5.0f;
+                std::snprintf(devStr, sizeof(devStr), "DEVIATION: %d%% (+-%.1fpx, +-%.1f deg)", devPct, posPx, angDeg);
+            }
+            eatsbits::ui::glyph::drawVectorText(r, devStr, devTrackX_ + 14.0f, devTrackY_ + 8.5f, 10.5f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+            clockwork_ui::drawPewterButton(r, devBtnX, devTrackY_, devBtnW, devTrackH_, 4.0f, devBtnLabel, devBtnHov, false, 11.0f);
+        } else {
+            r.drawRoundedRect(devTrackX_, devTrackY_, devTrackW_, devTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
+            r.drawRoundedRectOutline(devTrackX_, devTrackY_, devTrackW_, devTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+
+            float devFillW = (devTrackW_ - 4.0f) * tempSettings_.cardDeviation;
+            if (devFillW > 0.0f) {
+                r.drawRoundedRect(devTrackX_ + 2.0f, devTrackY_ + 2.0f, devFillW, devTrackH_ - 4.0f, 3.0f,
+                                  pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
+            }
+
+            // Distinctive thumb indicator knob
+            float thumbX = devTrackX_ + 2.0f + devFillW;
+            r.drawRoundedRect(thumbX - 4.0f, devTrackY_ - 1.0f, 8.0f, devTrackH_ + 2.0f, 3.0f,
+                              pal.accentR, pal.accentG, pal.accentB, 0.98f, 3);
+            r.drawRoundedRectOutline(thumbX - 4.0f, devTrackY_ - 1.0f, 8.0f, devTrackH_ + 2.0f, 3.0f,
+                                     pal.trimR, pal.trimG, pal.trimB, 0.90f, 1.0f, 3);
+
+            char devStr[80];
+            if (tempSettings_.cardDeviation <= 0.005f) {
+                std::snprintf(devStr, sizeof(devStr), "DEVIATION: 0%% (NEAT: 0px, 0.0 deg)");
+            } else {
+                float posPx = tempSettings_.cardDeviation * 10.0f;
+                float angDeg = tempSettings_.cardDeviation * 5.0f;
+                std::snprintf(devStr, sizeof(devStr), "DEVIATION: %d%% (+-%.1fpx, +-%.1f deg)", devPct, posPx, angDeg);
+            }
+            eatsbits::ui::glyph::drawVectorText(r, devStr, devTrackX_ + 10.0f, devTrackY_ + 8.5f, 11.0f, 0.98f, 0.95f, 0.88f, 1.0f);
+
+            r.drawRoundedRect(devBtnX, devTrackY_, devBtnW, devTrackH_, 4.0f,
+                              pal.woodR0 + 0.06f + (devBtnHov ? 0.08f : 0.0f), pal.woodG0 + 0.05f, pal.woodB0 + 0.04f, 0.95f, 4);
+            r.drawRoundedRectOutline(devBtnX, devTrackY_, devBtnW, devTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+            float devBtnTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, devBtnLabel);
+            eatsbits::ui::glyph::drawVectorText(r, devBtnLabel, devBtnX + (devBtnW - devBtnTxtW) * 0.5f, devTrackY_ + 8.5f, 11.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        }
 
         // Subtext explaining scale
         curY += 34.0f;
@@ -522,24 +631,36 @@ void SettingsDialog::render(
         volTrackW_ = 280.0f;
         volTrackH_ = 26.0f;
         volTrackY_ = curY;
-        r.drawRoundedRect(volTrackX_, volTrackY_, volTrackW_, volTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
-        r.drawRoundedRectOutline(volTrackX_, volTrackY_, volTrackW_, volTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
 
-        float fillW = (volTrackW_ - 4.0f) * tempSettings_.masterVolume;
-        r.drawRoundedRect(volTrackX_ + 2.0f, volTrackY_ + 2.0f, fillW, volTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
         int volPct = static_cast<int>(std::round(tempSettings_.masterVolume * 100.0f));
         std::string volStr = "VOLUME: " + std::to_string(volPct) + "%";
-        eatsbits::ui::glyph::drawVectorText(r, volStr.c_str(), volTrackX_ + 10.0f, volTrackY_ + 7.5f, 11.0f, 0.98f, 0.95f, 0.88f, 1.0f);
+
+        if (isClockwork) {
+            bool volHov = (mouseX >= volTrackX_ && mouseX <= volTrackX_ + volTrackW_ && mouseY >= volTrackY_ && mouseY <= volTrackY_ + volTrackH_);
+            clockwork_ui::drawGlassSlider(r, volTrackX_, volTrackY_, volTrackW_, volTrackH_, tempSettings_.masterVolume, nullptr, volHov, 0.0f);
+            eatsbits::ui::glyph::drawVectorText(r, volStr.c_str(), volTrackX_ + 14.0f, volTrackY_ + 7.5f, 11.0f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+        } else {
+            r.drawRoundedRect(volTrackX_, volTrackY_, volTrackW_, volTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
+            r.drawRoundedRectOutline(volTrackX_, volTrackY_, volTrackW_, volTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+
+            float fillW = (volTrackW_ - 4.0f) * tempSettings_.masterVolume;
+            r.drawRoundedRect(volTrackX_ + 2.0f, volTrackY_ + 2.0f, fillW, volTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, volStr.c_str(), volTrackX_ + 10.0f, volTrackY_ + 7.5f, 11.0f, 0.98f, 0.95f, 0.88f, 1.0f);
+        }
 
         // Mute toggle button
         const float muteBtnX = volTrackX_ + volTrackW_ + 12.0f;
         const float muteBtnW = 100.0f;
         bool muteHov = (mouseX >= muteBtnX && mouseX <= muteBtnX + muteBtnW && mouseY >= curY && mouseY <= curY + volTrackH_);
-        r.drawRoundedRect(muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, pal.woodR0 + 0.06f + (muteHov ? 0.08f : 0.0f), pal.woodG0 + 0.05f, pal.woodB0 + 0.04f, 0.95f, 4);
-        r.drawRoundedRectOutline(muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, tempSettings_.muted ? 0.85f : pal.trimR, tempSettings_.muted ? 0.35f : pal.trimG, tempSettings_.muted ? 0.35f : pal.trimB, 0.80f, 1.2f, 4);
         const char* muteLabel = tempSettings_.muted ? "MUTED" : "UNMUTED";
-        float muteTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, muteLabel);
-        eatsbits::ui::glyph::drawVectorText(r, muteLabel, muteBtnX + (muteBtnW - muteTxtW) * 0.5f, curY + (volTrackH_ - 11.0f) * 0.5f, 11.0f, tempSettings_.muted ? 0.90f : 0.95f, tempSettings_.muted ? 0.45f : 0.92f, tempSettings_.muted ? 0.45f : 0.85f, 1.0f);
+        if (isClockwork) {
+            clockwork_ui::drawPewterButton(r, muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, muteLabel, muteHov, tempSettings_.muted, 11.0f);
+        } else {
+            r.drawRoundedRect(muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, pal.woodR0 + 0.06f + (muteHov ? 0.08f : 0.0f), pal.woodG0 + 0.05f, pal.woodB0 + 0.04f, 0.95f, 4);
+            r.drawRoundedRectOutline(muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, tempSettings_.muted ? 0.85f : pal.trimR, tempSettings_.muted ? 0.35f : pal.trimG, tempSettings_.muted ? 0.35f : pal.trimB, 0.80f, 1.2f, 4);
+            float muteTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, muteLabel);
+            eatsbits::ui::glyph::drawVectorText(r, muteLabel, muteBtnX + (muteBtnW - muteTxtW) * 0.5f, curY + (volTrackH_ - 11.0f) * 0.5f, 11.0f, tempSettings_.muted ? 0.90f : 0.95f, tempSettings_.muted ? 0.45f : 0.92f, tempSettings_.muted ? 0.45f : 0.85f, 1.0f);
+        }
 
         curY += 40.0f;
 
@@ -557,9 +678,13 @@ void SettingsDialog::render(
             float lx = contentX + 16.0f + l * (lightBtnW + 8.0f);
             bool isSel = (tempSettings_.lightingPreset == lightVals[l]);
             bool lHov = (mouseX >= lx && mouseX <= lx + lightBtnW && mouseY >= curY && mouseY <= curY + 28.0f);
-            r.drawRoundedRect(lx, curY, lightBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (lHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-            r.drawRoundedRectOutline(lx, curY, lightBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-            eatsbits::ui::glyph::drawVectorText(r, lightModes[l], lx + 8.0f, curY + 8.0f, 9.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            if (isClockwork) {
+                clockwork_ui::drawBrassButton(r, lx, curY, lightBtnW, 28.0f, 4.0f, lightModes[l], lHov, isSel, 9.5f);
+            } else {
+                r.drawRoundedRect(lx, curY, lightBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (lHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(lx, curY, lightBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                eatsbits::ui::glyph::drawVectorText(r, lightModes[l], lx + 8.0f, curY + 8.0f, 9.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            }
         }
 
         curY += 40.0f;
@@ -573,28 +698,42 @@ void SettingsDialog::render(
         darkTrackY_ = curY;
         darkTrackW_ = halfSliderW;
         darkTrackH_ = 26.0f;
-        r.drawRoundedRect(darkTrackX_, darkTrackY_, darkTrackW_, darkTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
-        r.drawRoundedRectOutline(darkTrackX_, darkTrackY_, darkTrackW_, darkTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+
         float darkNorm = std::clamp(tempSettings_.sceneDarkness / 0.85f, 0.0f, 1.0f);
-        float darkFillW = (darkTrackW_ - 4.0f) * darkNorm;
-        r.drawRoundedRect(darkTrackX_ + 2.0f, darkTrackY_ + 2.0f, darkFillW, darkTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
         int darkPct = static_cast<int>(std::round(tempSettings_.sceneDarkness * 100.0f));
         std::string darkStr = "SCENE DARKNESS: " + std::to_string(darkPct) + "%";
-        eatsbits::ui::glyph::drawVectorText(r, darkStr.c_str(), darkTrackX_ + 10.0f, darkTrackY_ + 7.5f, 10.5f, 0.98f, 0.95f, 0.88f, 1.0f);
 
         // Light Strength slider (0% .. 200%)
         lightStrTrackX_ = darkTrackX_ + darkTrackW_ + sliderGap;
         lightStrTrackY_ = curY;
         lightStrTrackW_ = halfSliderW;
         lightStrTrackH_ = 26.0f;
-        r.drawRoundedRect(lightStrTrackX_, lightStrTrackY_, lightStrTrackW_, lightStrTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
-        r.drawRoundedRectOutline(lightStrTrackX_, lightStrTrackY_, lightStrTrackW_, lightStrTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+
         float lightNorm = std::clamp(tempSettings_.lightStrength / 2.0f, 0.0f, 1.0f);
-        float lightFillW = (lightStrTrackW_ - 4.0f) * lightNorm;
-        r.drawRoundedRect(lightStrTrackX_ + 2.0f, lightStrTrackY_ + 2.0f, lightFillW, lightStrTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
         int lightPct = static_cast<int>(std::round(tempSettings_.lightStrength * 100.0f));
         std::string lightStr = "LIGHT STRENGTH: " + std::to_string(lightPct) + "%";
-        eatsbits::ui::glyph::drawVectorText(r, lightStr.c_str(), lightStrTrackX_ + 10.0f, lightStrTrackY_ + 7.5f, 10.5f, 0.98f, 0.95f, 0.88f, 1.0f);
+
+        if (isClockwork) {
+            bool darkHov = (mouseX >= darkTrackX_ && mouseX <= darkTrackX_ + darkTrackW_ && mouseY >= darkTrackY_ && mouseY <= darkTrackY_ + darkTrackH_);
+            clockwork_ui::drawGlassSlider(r, darkTrackX_, darkTrackY_, darkTrackW_, darkTrackH_, darkNorm, nullptr, darkHov, 0.0f);
+            eatsbits::ui::glyph::drawVectorText(r, darkStr.c_str(), darkTrackX_ + 14.0f, darkTrackY_ + 7.5f, 10.5f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+
+            bool lightHov = (mouseX >= lightStrTrackX_ && mouseX <= lightStrTrackX_ + lightStrTrackW_ && mouseY >= lightStrTrackY_ && mouseY <= lightStrTrackY_ + lightStrTrackH_);
+            clockwork_ui::drawGlassSlider(r, lightStrTrackX_, lightStrTrackY_, lightStrTrackW_, lightStrTrackH_, lightNorm, nullptr, lightHov, 0.0f);
+            eatsbits::ui::glyph::drawVectorText(r, lightStr.c_str(), lightStrTrackX_ + 14.0f, lightStrTrackY_ + 7.5f, 10.5f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+        } else {
+            r.drawRoundedRect(darkTrackX_, darkTrackY_, darkTrackW_, darkTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
+            r.drawRoundedRectOutline(darkTrackX_, darkTrackY_, darkTrackW_, darkTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+            float darkFillW = (darkTrackW_ - 4.0f) * darkNorm;
+            r.drawRoundedRect(darkTrackX_ + 2.0f, darkTrackY_ + 2.0f, darkFillW, darkTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, darkStr.c_str(), darkTrackX_ + 10.0f, darkTrackY_ + 7.5f, 10.5f, 0.98f, 0.95f, 0.88f, 1.0f);
+
+            r.drawRoundedRect(lightStrTrackX_, lightStrTrackY_, lightStrTrackW_, lightStrTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
+            r.drawRoundedRectOutline(lightStrTrackX_, lightStrTrackY_, lightStrTrackW_, lightStrTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+            float lightFillW = (lightStrTrackW_ - 4.0f) * lightNorm;
+            r.drawRoundedRect(lightStrTrackX_ + 2.0f, lightStrTrackY_ + 2.0f, lightFillW, lightStrTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, lightStr.c_str(), lightStrTrackX_ + 10.0f, lightStrTrackY_ + 7.5f, 10.5f, 0.98f, 0.95f, 0.88f, 1.0f);
+        }
 
         curY += 34.0f;
         eatsbits::ui::glyph::drawVectorText(r, "Subtle scene darkness + elevated light strength creates a warm, natural overhead vignette.", contentX + 16.0f, curY, 9.5f, 0.70f, 0.68f, 0.62f, 0.85f);
@@ -606,19 +745,26 @@ void SettingsDialog::render(
     const float resetBtnH = 32.0f;
     const float resetBtnX = dialogX_ + 16.0f;
     bool resetHov = (mouseX >= resetBtnX && mouseX <= resetBtnX + resetBtnW && mouseY >= footerY && mouseY <= footerY + resetBtnH);
-    r.drawRoundedRect(resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, pal.woodR0 + 0.05f + (resetHov ? 0.07f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
-    r.drawRoundedRectOutline(resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
-    float resetTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, "RESET DEFAULTS");
-    eatsbits::ui::glyph::drawVectorText(r, "RESET DEFAULTS", resetBtnX + (resetBtnW - resetTxtW) * 0.5f, footerY + (resetBtnH - 11.0f) * 0.5f, 11.0f, 0.88f, 0.85f, 0.80f, 1.0f);
 
     const float applyBtnW = 160.0f;
     const float applyBtnH = 32.0f;
     const float applyBtnX = dialogX_ + dialogW_ - applyBtnW - 16.0f;
     bool applyHov = (mouseX >= applyBtnX && mouseX <= applyBtnX + applyBtnW && mouseY >= footerY && mouseY <= footerY + applyBtnH);
-    r.drawRoundedRect(applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, pal.woodR0 + 0.12f + (applyHov ? 0.10f : 0.0f), pal.woodG0 + 0.10f, pal.woodB0 + 0.08f, 0.98f, 4);
-    r.drawRoundedRectOutline(applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f, 1.6f, 4);
-    float applyTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.5f, "APPLY & CLOSE");
-    eatsbits::ui::glyph::drawVectorText(r, "APPLY & CLOSE", applyBtnX + (applyBtnW - applyTxtW) * 0.5f, footerY + (applyBtnH - 11.5f) * 0.5f, 11.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+
+    if (isClockwork) {
+        clockwork_ui::drawPewterButton(r, resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, "RESET DEFAULTS", resetHov, false, 11.0f);
+        clockwork_ui::drawFurnaceButton(r, applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, "APPLY & CLOSE", applyHov, false, 11.5f);
+    } else {
+        r.drawRoundedRect(resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, pal.woodR0 + 0.05f + (resetHov ? 0.07f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
+        r.drawRoundedRectOutline(resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+        float resetTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, "RESET DEFAULTS");
+        eatsbits::ui::glyph::drawVectorText(r, "RESET DEFAULTS", resetBtnX + (resetBtnW - resetTxtW) * 0.5f, footerY + (resetBtnH - 11.0f) * 0.5f, 11.0f, 0.88f, 0.85f, 0.80f, 1.0f);
+
+        r.drawRoundedRect(applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, pal.woodR0 + 0.12f + (applyHov ? 0.10f : 0.0f), pal.woodG0 + 0.10f, pal.woodB0 + 0.08f, 0.98f, 4);
+        r.drawRoundedRectOutline(applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f, 1.6f, 4);
+        float applyTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.5f, "APPLY & CLOSE");
+        eatsbits::ui::glyph::drawVectorText(r, "APPLY & CLOSE", applyBtnX + (applyBtnW - applyTxtW) * 0.5f, footerY + (applyBtnH - 11.5f) * 0.5f, 11.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+    }
 }
 
 bool SettingsDialog::handleMouseButton(
@@ -808,6 +954,16 @@ bool SettingsDialog::handleMouseButton(
                 tempSettings_.deckTheme = static_cast<DeckThemeId>((static_cast<uint8_t>(tempSettings_.deckTheme) + 1u) % count);
             }
             foley.triggerSound(FoleySound::CardSlide, 0.8f);
+            return true;
+        }
+        curY += rowH + rowGap;
+
+        // 2b. UI Theme
+        if (testStepper(stepDelta)) {
+            tempSettings_.guiTheme = (tempSettings_.guiTheme == GuiThemeStyle::ClockworkEngine)
+                ? GuiThemeStyle::Classic
+                : GuiThemeStyle::ClockworkEngine;
+            foley.triggerSound(FoleySound::WoodClick, 0.8f);
             return true;
         }
         curY += rowH + 10.0f + 24.0f; // Row 2 + spacing + header

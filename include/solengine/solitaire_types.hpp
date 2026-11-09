@@ -94,6 +94,11 @@ enum class MenuDisplayMode : uint8_t {
     IconOnly    = 2  // Minimalist Icon-only toolbar
 };
 
+enum class GuiThemeStyle : uint8_t {
+    Classic         = 0, // Traditional warm hardwood / flat vector chrome
+    ClockworkEngine = 1  // Tactile Horological Brass, Boilerplate Iron & Steam Gauge GUI
+};
+
 enum class TableThemeId : uint8_t {
     PastelTan             = 0, // Solid warm pastel tan / craft paper table
     EmeraldLawn           = 1, // Green linen canvas weave (ambientCG Fabric035 / classic felt)
