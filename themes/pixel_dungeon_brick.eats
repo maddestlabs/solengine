@@ -1,0 +1,60 @@
+# SolEngine Procedural Background Theme — Pixel Dungeon Brick
+# Pure Eatscript Bytecode Shader: Retro 16-bit dungeon cobble brick wall with dithered slate blocks
+
+sol.set_theme({
+    id: "pixel_dungeon_brick",
+    name: "Pixel Dungeon Brick",
+    author: "SolEngine / Eatscript",
+    description: "Retro 16-bit dungeon cobble brick wall with dithered slate blocks and deep mortar joints",
+    version: 2,
+    procedural: true
+})
+
+def pixel_dungeon_shader(u, v, nx, ny, in_r, in_g, in_b):
+    # 1. Pixel grid quantization (crisp pixel cells)
+    px_x = floor((nx + 1.0) * 80.0) / 80.0
+    px_y = floor((ny + 1.0) * 50.0) / 50.0
+
+    # 2. Staggered brick row coordinates
+    row = floor(px_y * 12.0)
+    col_shift = (row % 2) * 0.5
+    brick_x = (px_x * 8.0) + col_shift
+    cell_x = brick_x - floor(brick_x)
+    cell_y = (px_y * 12.0) - row
+
+    # Mortar crevices
+    is_mortar = (cell_x < 0.08) or (cell_y < 0.10)
+
+    # 3. Chipped stone noise per brick
+    stone_id = row * 37.0 + floor(brick_x)
+    stone_fuzz = (fbm(px_x * 40.0 + stone_id, px_y * 40.0) - 0.5) * 0.15
+
+    # 4. Pixel dither checker
+    dither = ((floor((nx + 1.0) * 80.0) + floor((ny + 1.0) * 50.0)) % 2) * 0.04
+
+    # 5. Endesga32 Dungeon Slate Palette
+    if is_mortar:
+        base_r = 0.09
+        base_g = 0.08
+        base_b = 0.14
+    else:
+        # Stone block relief
+        top_hl = smoothstep(0.75, 0.95, cell_y) * 0.12
+        luma = 0.22 + stone_fuzz + top_hl + dither
+        base_r = luma * 0.70
+        base_g = luma * 0.82
+        base_b = luma * 1.15
+
+    dist = hypot(nx * 0.95, ny)
+    vignette = smoothstep(1.35, 0.40, dist)
+
+    r = clamp(base_r * vignette, 0.0, 1.0)
+    g = clamp(base_g * vignette, 0.0, 1.0)
+    b = clamp(base_b * vignette, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ctx.fill_rect(0, 0, w, h, "#181425")
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#262b44", 2.0)
+    ctx.apply_shader("pixel_dungeon_shader", intensity=1.0)

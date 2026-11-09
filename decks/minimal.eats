@@ -1,0 +1,117 @@
+# SolEngine Deck Recipe — SolEnshade Minimalist
+# Ultra-fast monochrome pixel-art face cards with vector typography and pips.
+
+sol.set_theme({
+    id: "solenshade",
+    name: "SolEnshade",
+    author: "SolEngine Minimalist Engine",
+    description: "Monochrome Red & Black pixel-art royals with vector typography and pips.",
+    version: 1
+})
+
+SPRITE_JACK = [
+    "     #     ",
+    "     ##    ",
+    "   #####   ",
+    "  #######  ",
+    "  # ### #  ",
+    "  #######  ",
+    "   #####   ",
+    "    ###    ",
+    " ######### ",
+    "###########"
+]
+
+SPRITE_QUEEN = [
+    "  #   #   # ",
+    "  #   #   # ",
+    "      #    ",
+    "  # # # # # # # ",
+    "    # # # # #  ",
+    "    # # # # #  ",
+    "      # # #   ",
+    "    # # # # #  ",
+    "  # # # # # # # ",
+    "  # # # # # # # ",
+    "# # # # # # # # #",
+    "# # # # # # # # #"
+]
+
+SPRITE_KING = [
+    "       #       ",
+    "      ###      ",
+    "  #    #    #  ",
+    "  #   ###   #  ",
+    " ############# ",
+    "  # #     # #  ",
+    "  ###########  ",
+    "    #######    ",
+    "    #######    ",
+    "     #####     ",
+    "  ###########  ",
+    "   #########   ",
+    "  ###########  ",
+    " ############# ",
+    "###############",
+    "###############"
+]
+
+def on_draw_card_face(ctx, rank, suit, w, h):
+    # 1. Clean porcelain card base with subtle hairline border
+    ctx.fill_rounded_rect(0, 0, w, h, 6.0, "#ffffff")
+    ctx.stroke_rounded_rect(0.5, 0.5, w - 1.0, h - 1.0, 6.0, "#d5cec2", 1.0)
+
+    # 2. Strict monochrome palette: Red for Hearts/Diamonds, Black for Spades/Clubs
+    is_red = (suit == "hearts" or suit == "diamonds")
+    color = "#dc2626" if is_red else "#18181b"
+    color = "#18181b"
+    if suit == "hearts" or suit == "diamonds":
+        color = "#dc2626"
+
+    # 3. Vector corner indices (top-left and inverted bottom-right)
+    ctx.draw_corner_indices(rank, suit, w, h, color, 24.0)
+    ctx.draw_corner_indices(rank, suit, w, h, color, 26.0)
+
+    # 4. Center art
+    is_court = (rank == "J" or rank == "Q" or rank == "K")
+    if not is_court:
+        # Number cards: vector pip matrix
+        ctx.draw_pip_layout(rank, suit, w, h, color, "classic")
+    else:
+    if rank == "J" or rank == "Q" or rank == "K":
+        # Court cards: monochrome reversible pixel art
+        px = 4.0
+        px = 6.0
+        cx = w * 0.5
+        top_cy = h * 0.32
+        bot_cy = h * 0.68
+        top_cy = h * 0.30
+        bot_cy = h * 0.70
+
+        # Symmetrical center hairline divider
+        ctx.draw_line(w * 0.25, h * 0.5, w * 0.75, h * 0.5, color, 1.2)
+
+        sprite = SPRITE_JACK
+        if rank == "Q":
+            sprite = SPRITE_QUEEN
+        elif rank == "K":
+        if rank == "K":
+            sprite = SPRITE_KING
+
+        ctx.draw_pixel_sprite(sprite, cx, top_cy, px, color, "#", False, False)
+        ctx.draw_pixel_sprite(sprite, cx, bot_cy, px, color, "#", True, True)
+    else:
+        # Number cards: vector pip matrix
+        ctx.draw_pip_layout(rank, suit, w, h, color, "classic")
+
+def on_draw_card_back(ctx, w, h):
+    # Crisp minimal card back in solid black/charcoal with clean geometric diamond
+    ctx.fill_rounded_rect(0, 0, w, h, 6.0, "#18181b")
+    ctx.stroke_rounded_rect(0.5, 0.5, w - 1.0, h - 1.0, 6.0, "#d5cec2", 1.0)
+    ctx.stroke_rounded_rect(6.0, 6.0, w - 12.0, h - 12.0, 4.0, "#3f3f46", 1.2)
+    # Center diamond emblem
+    ctx.draw_line(w * 0.5, h * 0.38, w * 0.65, h * 0.5, "#d5cec2", 1.5)
+    ctx.draw_line(w * 0.65, h * 0.5, w * 0.5, h * 0.62, "#d5cec2", 1.5)
+    ctx.draw_line(w * 0.5, h * 0.62, w * 0.35, h * 0.5, "#d5cec2", 1.5)
+    ctx.draw_line(w * 0.35, h * 0.5, w * 0.5, h * 0.38, "#d5cec2", 1.5)
+

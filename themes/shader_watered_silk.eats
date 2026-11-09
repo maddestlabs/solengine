@@ -1,0 +1,51 @@
+# SolEngine Custom Background Theme — Watered Silk (Silk Moiré)
+# Mathematical wave interference grating generating an undulating wood-grain textile shimmer
+
+sol.set_theme({
+    id: "shader_watered_silk",
+    name: "Watered Silk",
+    author: "SolEngine / Eatscript",
+    description: "Deep royal blue moire silk table with undulating textile wave interference",
+    version: 1,
+    procedural: true
+})
+
+def silk_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Dual high-frequency sine grating interference
+    warp = sin(nx * 3.5) * 6.0 + fbm(nx * 8.0, ny * 8.0) * 4.0
+    w1 = sin(ny * 140.0 + warp)
+    w2 = sin((ny * 0.985 + nx * 0.035) * 140.0)
+
+    # Moiré interference band
+    moire = w1 * w2
+    shimmer = 0.5 + 0.5 * moire
+
+    # 2. Deep royal sapphire palette
+    base_r = 0.06 + shimmer * 0.08
+    base_g = 0.12 + shimmer * 0.14
+    base_b = 0.32 + shimmer * 0.28
+
+    # 3. Micro textile yarn grain
+    grain = (fbm(nx * 48.0, ny * 48.0) - 0.5) * 0.04
+
+    # 4. Vignette falloff
+    vignette = smoothstep(1.35, 0.42, dist)
+
+    r = clamp((base_r + grain) * vignette, 0.0, 1.0)
+    g = clamp((base_g + grain) * vignette, 0.0, 1.0)
+    b = clamp((base_b + grain) * vignette, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base deep sapphire
+    ctx.fill_rect(0, 0, w, h, "#0a1324")
+
+    # 2. Silver filigree table perimeter border
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#607494", 2.0)
+
+    # 3. Full-canvas silk moiré shader
+    ctx.apply_shader("silk_shader", intensity=1.0)
+

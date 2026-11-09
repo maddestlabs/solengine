@@ -1,0 +1,25 @@
+# =============================================================================
+# SolEngine Game Variant: Pyramid (.eats)
+# =============================================================================
+# The iconic pairing elimination solitaire.
+# 28 cards dealt in a 7-row pyramid. Uncovered pairs summing to 13 are removed.
+# Kings (rank 13) clear singly.
+
+name = "Pyramid"
+family = "Pyramid"
+category = "ADDING"
+layout = "pyramid"
+description = "Legendary pairing solitaire. Match exposed cards summing to 13 (A+Q, 2+J, etc.); Kings clear alone."
+decks = 1
+tableaus = 7
+foundations = 1
+freecells = 0
+
+tableau_deal_counts = [1, 2, 3, 4, 5, 6, 7]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+stock_deal_mode = "waste_draw_1"
+stock_deal_count = 1
+max_redeals = 2
+

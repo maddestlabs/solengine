@@ -1,0 +1,18 @@
+# =============================================================================
+# SolEngine Game Variant: Klondike (Draw 3) (.eats)
+# =============================================================================
+name = "Klondike (Draw 3)"
+family = "Klondike"
+category = "KLONDIKE"
+description = "Tournament standard. Cards drawn in packets of three with unlimited redeals."
+decks = 1
+tableaus = 7
+foundations = 4
+freecells = 0
+tableau_deal_counts = [1, 2, 3, 4, 5, 6, 7]
+tableau_all_face_up = False
+foundation_starter_card = False
+stock_deal_mode = "waste_draw_3"
+stock_deal_count = 3
+max_redeals = -1
+

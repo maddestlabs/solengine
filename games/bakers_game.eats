@@ -1,0 +1,37 @@
+# =============================================================================
+# SolEngine Game Variant: Baker's Game (.eats)
+# =============================================================================
+# The pure-skill forefather of FreeCell invented by C.L. Baker.
+# Tableau builds strictly by the SAME SUIT instead of alternating colors.
+
+name = "Baker's Game"
+family = "FreeCell"
+category = "FREECELL"
+description = "The historical predecessor to FreeCell. Strict same-suit tableau building; pure intellect."
+decks = 1
+tableaus = 8
+foundations = 4
+freecells = 4
+
+# Deal configuration: 52 cards all face up across 8 columns
+tableau_deal_counts = [7, 7, 7, 7, 6, 6, 6, 6]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+# No stock
+stock_deal_mode = "none"
+stock_deal_count = 0
+max_redeals = 0
+
+def can_drop_tableau(dest_card, moving_card):
+    """Tableaux build down by the SAME SUIT. Empty spaces accept any card."""
+    if dest_card.is_empty:
+        return True
+    return (dest_card.suit == moving_card.suit) and (dest_card.rank == moving_card.rank + 1)
+
+def can_drop_foundation(foundation_card, moving_card):
+    """Foundations build up by same suit from Ace to King."""
+    if foundation_card.is_empty:
+        return moving_card.rank == 1 # Ace
+    return (foundation_card.suit == moving_card.suit) and (moving_card.rank == foundation_card.rank + 1)
+

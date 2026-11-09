@@ -1,0 +1,71 @@
+# SolEngine Deck Recipe — Royal Casino Noir
+# Demonstrates procedural card rendering via the Eatscript Card Canvas API.
+
+sol.set_theme({
+    id: "royal_casino",
+    name: "Royal Casino Noir",
+    author: "SolEngine Procedural Engine",
+    description: "Hand-crafted procedural deck with gold borders and classic vector pips.",
+    version: 1
+})
+
+def on_draw_card_face(ctx, rank, suit, w, h):
+    # 1. Warm ivory card stock plate with soft gold border
+    ctx.fill_rounded_rect(0, 0, w, h, 8.0, "#fdfbf7")
+    ctx.stroke_rounded_rect(0, 0, w, h, 8.0, "#d4af37", 1.5)
+    ctx.stroke_rounded_rect(4.0, 4.0, w - 8.0, h - 8.0, 5.0, "#e8dfd0", 0.8)
+
+    # 2. Luxury suit palette: Imperial Crimson for red suits, Midnight Charcoal for black suits
+    is_red = (suit == "hearts" or suit == "diamonds")
+    pip_color = "#1a1c23"
+    if is_red:
+        pip_color = "#b2182b"
+
+    # 3. Corner indices (top-left & 180-degree inverted bottom-right)
+    classic_deck.draw_corner_indices(ctx, rank, suit, w, h, pip_color, 24.0)
+
+    # 4. Center art: Court portraits for J, Q, K; pre-arranged pip matrices for number cards
+    is_court = (rank == "J" or rank == "Q" or rank == "K")
+    if is_court:
+        margin_x = w * 0.16
+        margin_y = h * 0.13
+        inner_w = w - margin_x * 2.0
+        inner_h = h - margin_y * 2.0
+
+        # Gold court frame
+        ctx.fill_rect(margin_x, margin_y, inner_w, inner_h, "#faf6ee")
+        ctx.stroke_rect(margin_x, margin_y, inner_w, inner_h, "#d4af37", 1.2)
+        ctx.stroke_rect(margin_x + 3.0, margin_y + 3.0, inner_w - 6.0, inner_h - 6.0, pip_color, 0.6)
+
+        # Draw the classic court card figure inside the frame
+        classic_deck.draw_court(ctx, rank, suit, margin_x + 4.0, margin_y + 4.0, inner_w - 8.0, inner_h - 8.0)
+    else:
+        # Number cards: draw pre-arranged pip layout
+        classic_deck.draw_pip_layout(ctx, rank, suit, w, h, pip_color, "classic")
+
+def on_draw_card_back(ctx, w, h):
+    # 1. Midnight navy card back with double gold rim
+    ctx.fill_rounded_rect(0, 0, w, h, 8.0, "#0c1527")
+    ctx.stroke_rounded_rect(0, 0, w, h, 8.0, "#d4af37", 1.8)
+    ctx.stroke_rounded_rect(5.0, 5.0, w - 10.0, h - 10.0, 5.0, "#233554", 1.0)
+    ctx.stroke_rounded_rect(8.0, 8.0, w - 16.0, h - 16.0, 3.5, "#d4af37", 0.8)
+
+    # 2. Concentric geometric rosette
+    cx = w * 0.5
+    cy = h * 0.5
+
+    ctx.stroke_circle(cx, cy, 45.0, "#d4af37", 1.2)
+    ctx.stroke_circle(cx, cy, 38.0, "#1f3b64", 1.0)
+    ctx.stroke_circle(cx, cy, 28.0, "#d4af37", 0.8)
+    ctx.fill_circle(cx, cy, 18.0, "#0c1527")
+    ctx.stroke_circle(cx, cy, 18.0, "#d4af37", 1.0)
+
+    # 3. Center golden spade emblem
+    classic_deck.draw_suit(ctx, "spades", cx, cy, 22.0, "#d4af37")
+
+    # 4. Corner accent stars
+    corner_inset = 16.0
+    for px in [corner_inset, w - corner_inset]:
+        for py in [corner_inset, h - corner_inset]:
+            ctx.stroke_circle(px, py, 4.0, "#d4af37", 0.8)
+

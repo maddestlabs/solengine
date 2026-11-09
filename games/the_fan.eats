@@ -1,0 +1,23 @@
+# =============================================================================
+# SolEngine Game Variant: The Fan (.eats)
+# =============================================================================
+# Classic Fan solitaire. 18 fans (17 of 3 cards, 1 of 1 card) dealt face up.
+# Build down in the same suit; single card movement; Kings fill empty fans.
+
+name = "The Fan"
+family = "Fan"
+category = "FREECELL"
+layout = "fan_grid"
+description = "18 fans of cards. Build down in suit; Kings only can fill empty spaces; pure puzzle of skill."
+decks = 1
+tableaus = 18
+foundations = 4
+freecells = 0
+
+tableau_deal_counts = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+stock_deal_mode = "none"
+max_redeals = 0
+

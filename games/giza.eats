@@ -1,0 +1,24 @@
+# =============================================================================
+# SolEngine Game Variant: Giza (.eats)
+# =============================================================================
+# Michael Keller's acclaimed open-tableau variant of Pyramid.
+# All 52 cards are dealt face up (28 in the pyramid, 24 in 8 reserve columns of 3).
+# Pure game of skill and foresight.
+
+name = "Giza"
+family = "Pyramid"
+category = "ADDING"
+layout = "pyramid"
+description = "Open Pyramid variant by Michael Keller. All 52 cards are face up; match pairs summing to 13."
+decks = 1
+tableaus = 7
+foundations = 1
+freecells = 8
+
+tableau_deal_counts = [1, 2, 3, 4, 5, 6, 7]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+stock_deal_mode = "none"
+max_redeals = 0
+

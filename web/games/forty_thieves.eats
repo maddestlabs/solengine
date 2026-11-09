@@ -1,0 +1,41 @@
+# =============================================================================
+# SolEngine Game Variant: Forty Thieves (.eats)
+# =============================================================================
+# Napoleon at St. Helena. Two-deck classic with strict same-suit builds
+# and single-card transfers. High difficulty and deep strategic reward.
+
+name = "Forty Thieves"
+family = "FortyThieves"
+category = "POPULAR"
+description = "Two-deck classic. 10 tableaus of 4 cards; build down in same suit; single card movement only."
+decks = 2
+tableaus = 10
+foundations = 8
+freecells = 0
+
+# Deal configuration: 10 columns of 4 cards face-up (40 cards total)
+tableau_deal_counts = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+# Stock configuration: 64 cards, draw 1 to waste, 0 redeals
+stock_deal_mode = "waste_draw_1"
+stock_deal_count = 1
+max_redeals = 0
+
+def can_drop_tableau(dest_card, moving_card):
+    """Tableaux build down by the SAME SUIT. Empty spaces accept any card."""
+    if dest_card.is_empty:
+        return True
+    return (dest_card.suit == moving_card.suit) and (dest_card.rank == moving_card.rank + 1)
+
+def can_lift_sequence(cards):
+    """In Forty Thieves, only one card may be moved at a time."""
+    return len(cards) <= 1
+
+def can_drop_foundation(foundation_card, moving_card):
+    """Foundations build up by same suit from Ace to King."""
+    if foundation_card.is_empty:
+        return moving_card.rank == 1 # Ace
+    return (foundation_card.suit == moving_card.suit) and (moving_card.rank == foundation_card.rank + 1)
+

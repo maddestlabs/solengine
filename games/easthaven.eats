@@ -1,0 +1,53 @@
+# =============================================================================
+# SolEngine Game Variant: Easthaven (.eats)
+# =============================================================================
+# A fast-paced fusion of Klondike tableau rules with Spider-style stock deals.
+# 7 columns with 3 cards each (2 down, 1 up).
+# Tapping stock deals 1 card to each column simultaneously.
+
+name = "Easthaven"
+family = "Klondike"
+category = "KLONDIKE"
+description = "Klondike mechanics with Spider stock deals. Tap stock to deal one card to all 7 columns."
+decks = 1
+tableaus = 7
+foundations = 4
+freecells = 0
+
+# Deal configuration: 7 columns of 3 cards each (21 cards dealt initially)
+tableau_deal_counts = [3, 3, 3, 3, 3, 3, 3]
+tableau_all_face_up = False
+foundation_starter_card = False
+
+# Stock configuration: 31 cards, deals 1 card to all 7 columns
+stock_deal_mode = "deal_to_all_columns"
+stock_deal_count = 7
+max_redeals = 0
+
+def can_drop_tableau(dest_card, moving_card):
+    """Tableaux build down in alternating colors. Empty spaces accept Kings only."""
+    if dest_card.is_empty:
+        return moving_card.rank == 13 # King
+    is_moving_red = (moving_card.suit == 1 or moving_card.suit == 2)
+    is_dest_red = (dest_card.suit == 1 or dest_card.suit == 2)
+    return (is_moving_red != is_dest_red) and (dest_card.rank == moving_card.rank + 1)
+
+def can_lift_sequence(cards):
+    """Moving multiple cards requires alternating colors and descending ranks."""
+    if len(cards) <= 1:
+        return True
+    for i in range(len(cards) - 1):
+        c1 = cards[i]
+        c2 = cards[i + 1]
+        c1_red = (c1.suit == 1 or c1.suit == 2)
+        c2_red = (c2.suit == 1 or c2.suit == 2)
+        if c1_red == c2_red or c1.rank != c2.rank + 1:
+            return False
+    return True
+
+def can_drop_foundation(foundation_card, moving_card):
+    """Foundations build up by same suit from Ace to King."""
+    if foundation_card.is_empty:
+        return moving_card.rank == 1 # Ace
+    return (foundation_card.suit == moving_card.suit) and (moving_card.rank == foundation_card.rank + 1)
+

@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Solitaire Engine (WebGPU)</title>
+    
+    <!-- PWA & Mobile Web App Meta -->
+    <meta name="application-name" content="Solitaire Engine">
+    <meta name="apple-mobile-web-app-title" content="SolEngine">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0d140e">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="High-fidelity procedural Solitaire board game built in C++20 and WebGPU with PBR table lighting and custom Eatscript decks.">
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Montserrat:wght@400;500;600&family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background-color: #0b110c;
+            color: #e2e8f0;
+            font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle at 50% 40%, #152619 0%, #080d09 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        canvas#canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            outline: none;
+            cursor: default;
+            touch-action: none;
+        }
+
+        /* Luxury Gold/Emerald Loading Screen */
+        #app-loading-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0a0f0b;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        #app-loading-screen.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .sol-loader-box {
+            background: radial-gradient(circle at center, #18281b 0%, #0d170f 100%);
+            border: 2px solid #3c5440;
+            border-radius: 14px;
+            padding: 36px 52px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 215, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 90vw;
+            box-sizing: border-box;
+        }
+
+        .sol-title {
+            font-family: 'Cinzel', serif;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            color: #e8d08c;
+            text-shadow: 0 2px 10px rgba(232, 208, 140, 0.25);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+
+        .sol-subtitle {
+            font-size: 11px;
+            letter-spacing: 2px;
+            color: #7da582;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+
+        .sol-progress-track {
+            width: 280px;
+            height: 6px;
+            background-color: #090e0a;
+            border-radius: 3px;
+            overflow: hidden;
+            border: 1px solid #233927;
+            position: relative;
+            margin-bottom: 16px;
+        }
+
+        .sol-progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #bfa15f, #f5e29f, #bfa15f);
+            background-size: 200% 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease-out;
+            animation: shimmer 2s infinite linear;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .sol-status-text {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 11px;
+            color: #8da692;
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+
+        .sol-status-text.error-msg {
+            color: #ef4444;
+            max-width: 320px;
+            margin-top: 10px;
+        }
+
+        /* Drag-and-Drop Glow Overlay */
+        #drop-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 25, 15, 0.88);
+            border: 4px dashed #e8d08c;
+            box-sizing: border-box;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            pointer-events: none;
+            backdrop-filter: blur(4px);
+        }
+
+        #drop-overlay.active {
+            display: flex;
+        }
+
+        .drop-title {
+            font-family: 'Cinzel', serif;
+            font-size: 24px;
+            color: #e8d08c;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+        }
+
+        .drop-desc {
+            font-size: 13px;
+            color: #9cb8a1;
+        }
+
+        /* Toast Notification */
+        #sol-toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: #142217;
+            border: 1px solid #4a6b4f;
+            color: #f1f5f9;
+            padding: 10px 22px;
+            border-radius: 8px;
+            font-size: 13px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease;
+            opacity: 0;
+            z-index: 10001;
+            pointer-events: none;
+        }
+
+        #sol-toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .sol-web-btn {
+            background: rgba(13, 23, 15, 0.88);
+            border: 1px solid #3c5440;
+            color: #d1d5db;
+            font-family: 'Cinzel', serif;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+            outline: none;
+        }
+
+        .sol-web-btn:hover {
+            border-color: #d4af37;
+            color: #f3e5ab;
+            background: rgba(22, 38, 25, 0.95);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.75);
+        }
+
+        .sol-web-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Modal Dialog for Gist / URL Import */
+        #sol-modal-backdrop {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(5, 8, 6, 0.75);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10002;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+        }
+
+        #sol-modal-backdrop.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .sol-modal-box {
+            background: radial-gradient(circle at center, #18281b 0%, #0d170f 100%);
+            border: 2px solid #4a664f;
+            border-radius: 12px;
+            padding: 24px 30px;
+            width: 460px;
+            max-width: 90vw;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .sol-modal-title {
+            font-family: 'Cinzel', serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: #e8d08c;
+            letter-spacing: 2px;
+            text-align: center;
+        }
+
+        .sol-modal-desc {
+            font-size: 12px;
+            color: #94a3b8;
+            line-height: 1.5;
+            text-align: center;
+        }
+
+        .sol-modal-input {
+            width: 100%;
+            background: rgba(8, 13, 9, 0.85);
+            border: 1px solid #3c5440;
+            border-radius: 6px;
+            padding: 10px 14px;
+            color: #f0fdf4;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 12px;
+            outline: none;
+            box-sizing: border-box;
+            transition: border-color 0.2s ease;
+        }
+
+        .sol-modal-input:focus {
+            border-color: #d4af37;
+        }
+
+        .sol-modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="canvas" tabindex="-1"></canvas>
+    </div>
+
+    <!-- Drag & Drop Overlay -->
+    <div id="drop-overlay">
+        <div class="drop-title">IMPORT CUSTOM ASSET</div>
+        <div class="drop-desc">Drop .eats card deck or table theme to hot-swap</div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="sol-toast">Notification</div>
+
+    <!-- Luxury Loading Screen -->
+    <div id="app-loading-screen">
+        <div class="sol-loader-box">
+            <div class="sol-title">Solitaire Engine</div>
+            <div class="sol-subtitle">Procedural WebGPU Solitaire</div>
+            <div class="sol-progress-track">
+                <div class="sol-progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="sol-status-text" id="status-text">INITIALIZING WEBGPU...</div>
+        </div>
+    </div>
+
+    <!-- Hidden File Picker for manual file loading -->
+    <input type="file" id="eats-file-picker" accept=".eats,.jpg,.jpeg,.png,.svg" style="display: none;">
+
+    <!-- Gist / URL Modal Dialog -->
+    <div id="sol-modal-backdrop">
+        <div class="sol-modal-box">
+            <div class="sol-modal-title">LOAD .EATS RECIPE</div>
+            <div class="sol-modal-desc">
+                Enter a GitHub repo URL, Gist ID, deck name (e.g. <span style="color:#e8d08c; font-family:'Roboto Mono',monospace;">baroque_arches</span>), or any raw link:
+            </div>
+            <input type="text" id="sol-modal-url-input" class="sol-modal-input" placeholder="e.g. baroque_arches, github.com/.../baroque_arches.eats, or Gist ID">
+            <div class="sol-modal-actions">
+                <button id="btn-modal-cancel" class="sol-web-btn">Cancel</button>
+                <button id="btn-modal-submit" class="sol-web-btn" style="border-color:#d4af37; color:#fef08a;">Load Recipe</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const statusText = document.getElementById('status-text');
+        const progressFill = document.getElementById('progress-fill');
+        const dropOverlay = document.getElementById('drop-overlay');
+        const toast = document.getElementById('sol-toast');
+        const filePicker = document.getElementById('eats-file-picker');
+
+        function showToast(msg, durationMs = 3500) {
+            toast.innerText = msg;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, durationMs);
+        }
+
+        window.hideAppLoadingScreen = function() {
+            const screen = document.getElementById('app-loading-screen');
+            if (screen) {
+                screen.classList.add('fade-out');
+                setTimeout(() => screen.remove(), 600);
+            }
+        };
+
+        // WebGPU Device Acquisition
+        let webgpuDevicePromise = null;
+        if (navigator.gpu) {
+            webgpuDevicePromise = navigator.gpu.requestAdapter().then((adapter) => {
+                if (!adapter) throw new Error('No compatible GPUAdapter found.');
+                return adapter.requestDevice();
+            }).catch((err) => {
+                console.error('[WebGPU] Failed to acquire device:', err);
+                statusText.className = 'sol-status-text error-msg';
+                statusText.innerText = 'Failed to acquire WebGPU device: ' + err.message;
+                return null;
+            });
+        } else {
+            statusText.className = 'sol-status-text error-msg';
+            statusText.innerText = 'WebGPU is not supported in this browser. Please use a modern browser (Chrome 113+, Edge 113+) with hardware acceleration enabled.';
+        }
+
+        // Drag & Drop Bridge for .eats Files
+        let dragCounter = 0;
+        window.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            dragCounter++;
+            dropOverlay.classList.add('active');
+        });
+        window.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                dropOverlay.classList.remove('active');
+            }
+        });
+        window.addEventListener('dragover', (e) => e.preventDefault());
+
+        window.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            dragCounter = 0;
+            dropOverlay.classList.remove('active');
+
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                await handleEatsFile(file);
+            }
+        });
+
+        async function handleEatsFile(file) {
+            const lower = file.name.toLowerCase();
+            const isValid = lower.endsWith('.eats') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.svg');
+            if (!isValid) {
+                showToast('Please drop a valid .eats, .jpg, .png, or .svg file.');
+                return;
+            }
+
+            try {
+                showToast('Loading ' + file.name + ' ...');
+                const buf = await file.arrayBuffer();
+                const data = new Uint8Array(buf);
+
+                // Write into Emscripten virtual filesystem (MEMFS)
+                if (typeof FS !== 'undefined') {
+                    try { FS.mkdir('/decks'); } catch (err) {}
+                    try { FS.mkdir('/user'); } catch (err) {}
+                    const vPath = '/user/' + file.name;
+                    FS.writeFile(vPath, data);
+
+                    // Call exported C ABI
+                    if (typeof Module !== 'undefined' && Module.ccall) {
+                        const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], [vPath]);
+                        if (ok) {
+                            showToast('Successfully loaded: ' + file.name);
+                        } else {
+                            showToast('Failed to parse: ' + file.name);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('[Drop Error]', err);
+                showToast('Error importing file: ' + err.message);
+            }
+        }
+
+        function resolveDeckUrl(input) {
+            let s = input.trim();
+            // 1. Shorthand single deck name (e.g. "baroque_arches" or "baroque_arches.eats")
+            if (!s.includes('/') && !s.includes(':')) {
+                const stem = s.endsWith('.eats') ? s.slice(0, -5) : s;
+                return {
+                    primary: `./decks/${stem}.eats`,
+                    fallback: `https://raw.githubusercontent.com/maddestlabs/solengine/main/decks/${stem}.eats`,
+                    filename: `${stem}.eats`
+                };
+            }
+            // 2. Relative decks/ path (e.g. "decks/baroque_arches.eats" or "./decks/baroque_arches.eats")
+            if (s.startsWith('./decks/') || s.startsWith('decks/')) {
+                const fname = s.split('/').pop().split('?')[0];
+                return {
+                    primary: `./decks/${fname}`,
+                    fallback: `https://raw.githubusercontent.com/maddestlabs/solengine/main/decks/${fname}`,
+                    filename: fname
+                };
+            }
+            // 3. GitHub Web blob URL -> raw.githubusercontent.com
+            // e.g. https://github.com/maddestlabs/solengine/blob/main/decks/baroque_arches.eats
+            if (s.includes('github.com/') && s.includes('/blob/')) {
+                const rawUrl = s.replace('github.com/', 'raw.githubusercontent.com/').replace('/blob/', '/');
+                const fname = rawUrl.split('/').pop().split('?')[0];
+                return { primary: rawUrl, fallback: null, filename: fname };
+            }
+            // 4. Shorthand GitHub repo path: user/repo/...
+            if (!s.startsWith('http://') && !s.startsWith('https://') && s.includes('/')) {
+                const parts = s.split('/');
+                let rawUrl = '';
+                if (parts.length >= 4 && (parts[2] === 'main' || parts[2] === 'master')) {
+                    rawUrl = `https://raw.githubusercontent.com/${s}`;
+                } else if (parts.length >= 3) {
+                    rawUrl = `https://raw.githubusercontent.com/${parts[0]}/${parts[1]}/main/${parts.slice(2).join('/')}`;
+                }
+                if (rawUrl) {
+                    const fname = rawUrl.split('/').pop().split('?')[0];
+                    return { primary: rawUrl, fallback: null, filename: fname };
+                }
+            }
+            // 5. Standard raw URL
+            const fname = s.split('/').pop().split('?')[0] || 'imported.eats';
+            return { primary: s, fallback: null, filename: fname };
+        }
+
+        async function loadEatsFromUrl(urlInput, displayName = '') {
+            const resolved = resolveDeckUrl(urlInput);
+            let filename = displayName || resolved.filename;
+            if (!filename.endsWith('.eats')) filename += '.eats';
+
+            showToast('Downloading ' + filename + ' ...', 10000);
+
+            try {
+                let response = await fetch(resolved.primary);
+                if (!response.ok && resolved.fallback) {
+                    console.warn(`[Web Loader] Primary ${resolved.primary} returned HTTP ${response.status}; retrying via GitHub repo fallback: ${resolved.fallback}`);
+                    showToast(`Fetching ${filename} from GitHub repo...`, 6000);
+                    response = await fetch(resolved.fallback);
+                }
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                }
+
+                const contentLength = response.headers.get('content-length');
+                const total = contentLength ? parseInt(contentLength, 10) : 0;
+                let loaded = 0;
+                let data;
+
+                if (response.body && total > 0) {
+                    const reader = response.body.getReader();
+                    const chunks = [];
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                        loaded += value.length;
+                        const pct = Math.round((loaded / total) * 100);
+                        const mbLoaded = (loaded / (1024 * 1024)).toFixed(1);
+                        const mbTotal = (total / (1024 * 1024)).toFixed(1);
+                        showToast(`Downloading ${filename} (${mbLoaded}/${mbTotal} MB, ${pct}%)...`, 3000);
+                    }
+                    data = new Uint8Array(loaded);
+                    let offset = 0;
+                    for (const chunk of chunks) {
+                        data.set(chunk, offset);
+                        offset += chunk.length;
+                    }
+                } else {
+                    const buf = await response.arrayBuffer();
+                    data = new Uint8Array(buf);
+                }
+
+                showToast('Parsing & building GPU atlas for ' + filename + ' ...', 8000);
+
+                if (typeof FS !== 'undefined') {
+                    try { FS.mkdir('/decks'); } catch (err) {}
+                    try { FS.mkdir('/user'); } catch (err) {}
+                    const vPath = '/decks/' + filename;
+                    FS.writeFile(vPath, data);
+
+                    if (typeof Module !== 'undefined' && Module.ccall) {
+                        const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], [vPath]);
+                        if (ok) {
+                            showToast('Successfully loaded: ' + filename, 4000);
+                            return true;
+                        } else {
+                            showToast('Failed to parse ' + filename, 5000);
+                            return false;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('[Remote Load Error]', err);
+                showToast('Failed to load ' + filename + ': ' + err.message, 5000);
+                return false;
+            }
+        }
+
+        async function loadFromGist(gistParam) {
+            let gistId = gistParam.trim();
+            if (gistId.includes('githubusercontent.com') && gistId.includes('/raw/')) {
+                return await loadEatsFromUrl(gistId);
+            }
+            const match = gistId.match(/([a-f0-9]{20,32})/i) || gistId.match(/\/([a-f0-9]+)$/i);
+            if (match) {
+                gistId = match[1];
+            }
+
+            showToast('Querying GitHub Gist ' + gistId + '...', 6000);
+            try {
+                const resp = await fetch(`https://api.github.com/gists/${gistId}`);
+                if (!resp.ok) throw new Error(`GitHub Gist API error: ${resp.status}`);
+                const gistData = await resp.json();
+                const files = gistData.files;
+                let targetFile = null;
+                for (const fname in files) {
+                    if (fname.endsWith('.eats')) {
+                        targetFile = files[fname];
+                        break;
+                    }
+                }
+                if (!targetFile) {
+                    const firstKey = Object.keys(files)[0];
+                    targetFile = files[firstKey];
+                }
+                if (targetFile && targetFile.raw_url) {
+                    return await loadEatsFromUrl(targetFile.raw_url, targetFile.filename);
+                } else {
+                    throw new Error('No valid file found in Gist.');
+                }
+            } catch (err) {
+                console.error('[Gist Error]', err);
+                showToast('Error loading Gist: ' + err.message, 5000);
+                return false;
+            }
+        }
+
+        let isBaroqueActive = false;
+        window.loadBaroqueDeck = async function() {
+            const btnLabel = document.getElementById('btn-baroque-label');
+            const btn = document.getElementById('btn-load-baroque');
+
+            if (isBaroqueActive) {
+                if (typeof FS !== 'undefined' && typeof Module !== 'undefined' && Module.ccall) {
+                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['decks/classic.eats']);
+                    if (ok) {
+                        isBaroqueActive = false;
+                        if (btnLabel) btnLabel.innerText = 'Baroque Arches';
+                        if (btn) btn.classList.remove('active-steampunk');
+                        showToast('Switched to Classic SVG Deck.');
+                        return;
+                    }
+                }
+            }
+
+            if (typeof FS !== 'undefined') {
+                let exists = false;
+                try {
+                    const stat = FS.stat('/decks/baroque_arches.eats');
+                    if (stat && stat.size > 0) exists = true;
+                } catch (e) {}
+
+                if (exists && typeof Module !== 'undefined' && Module.ccall) {
+                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['/decks/baroque_arches.eats']);
+                    if (ok) {
+                        isBaroqueActive = true;
+                        if (btnLabel) btnLabel.innerText = 'Classic SVG Deck';
+                        if (btn) btn.classList.add('active-steampunk');
+                        showToast('Activated Baroque Arches Deck.');
+                        return;
+                    }
+                }
+            }
+
+            const success = await loadEatsFromUrl('baroque_arches', 'baroque_arches.eats');
+            if (success) {
+                isBaroqueActive = true;
+                if (btnLabel) btnLabel.innerText = 'Classic SVG Deck';
+                if (btn) btn.classList.add('active-steampunk');
+            }
+        };
+
+        window.loadDeckByName = async function(name) {
+            const cleanName = name.replace(/\.eats$/, '');
+            return await loadEatsFromUrl(cleanName, cleanName + '.eats');
+        };
+
+        let isSteampunkActive = false;
+        window.loadSteampunkDeck = async function() {
+            const btnLabel = document.getElementById('btn-steampunk-label');
+            const btn = document.getElementById('btn-load-steampunk');
+
+            // If already downloaded and active, toggle back to Classic
+            if (isSteampunkActive) {
+                if (typeof FS !== 'undefined' && typeof Module !== 'undefined' && Module.ccall) {
+                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['decks/classic.eats']);
+                    if (ok) {
+                        isSteampunkActive = false;
+                        if (btnLabel) btnLabel.innerText = 'Steampunk Deck';
+                        if (btn) btn.classList.remove('active-steampunk');
+                        showToast('Switched to Classic SVG Deck.');
+                        return;
+                    }
+                }
+            }
+
+            // Check if steampunk.eats is already present in MEMFS
+            if (typeof FS !== 'undefined') {
+                let exists = false;
+                try {
+                    const stat = FS.stat('/decks/steampunk.eats');
+                    if (stat && stat.size > 0) exists = true;
+                } catch (e) {}
+
+                if (exists && typeof Module !== 'undefined' && Module.ccall) {
+                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['/decks/steampunk.eats']);
+                    if (ok) {
+                        isSteampunkActive = true;
+                        if (btnLabel) btnLabel.innerText = 'Classic SVG Deck';
+                        if (btn) btn.classList.add('active-steampunk');
+                        showToast('Activated Steampunk Deck.');
+                        return;
+                    }
+                }
+            }
+
+            // Otherwise, stream download from static ./decks/steampunk.eats (with GitHub repo fallback)
+            const success = await loadEatsFromUrl('steampunk', 'steampunk.eats');
+            if (success) {
+                isSteampunkActive = true;
+                if (btnLabel) btnLabel.innerText = 'Classic SVG Deck';
+                if (btn) btn.classList.add('active-steampunk');
+            }
+        };
+
+        window.loadAnimeDeck = async function() {
+            // Check if anime.eats is already present in MEMFS
+            if (typeof FS !== 'undefined') {
+                let exists = false;
+                try {
+                    const stat = FS.stat('/decks/anime.eats');
+                    if (stat && stat.size > 0) exists = true;
+                } catch (e) {}
+
+                if (exists && typeof Module !== 'undefined' && Module.ccall) {
+                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['/decks/anime.eats']);
+                    if (ok) {
+                        showToast('Activated Anime Celestia Deck.');
+                        return;
+                    }
+                }
+            }
+
+            // Otherwise, stream download from static ./decks/anime.eats
+            const success = await loadEatsFromUrl('./decks/anime.eats', 'anime.eats');
+            if (success) {
+                showToast('Activated Anime Celestia Deck.');
+            }
+        };
+
+        window.loadCyberpunkDeck = async function() {
+            // Check if cyberpunk.eats is already present in MEMFS
+            if (typeof FS !== 'undefined') {
+                let exists = false;
+                try {
+                    const stat = FS.stat('/decks/cyberpunk.eats');
+                    if (stat && stat.size > 0) exists = true;
+                } catch (e) {}
+
+                if (exists && typeof Module !== 'undefined' && Module.ccall) {
+                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['/decks/cyberpunk.eats']);
+                    if (ok) {
+                        showToast('Activated Cyberpunk Neon Deck.');
+                        return;
+                    }
+                }
+            }
+
+            // Otherwise, stream download from static ./decks/cyberpunk.eats
+            const success = await loadEatsFromUrl('./decks/cyberpunk.eats', 'cyberpunk.eats');
+            if (success) {
+                showToast('Activated Cyberpunk Neon Deck.');
+            }
+        };
+
+        function setupWebControls() {
+            const modal = document.getElementById('sol-modal-backdrop');
+            const btnCancelModal = document.getElementById('btn-modal-cancel');
+            const btnSubmitModal = document.getElementById('btn-modal-submit');
+            const urlInput = document.getElementById('sol-modal-url-input');
+
+            window.openImportModal = function() {
+                if (modal) {
+                    modal.classList.add('active');
+                    if (urlInput) {
+                        urlInput.value = '';
+                        setTimeout(() => urlInput.focus(), 100);
+                    }
+                }
+            };
+
+            window.closeImportModal = function() {
+                if (modal) modal.classList.remove('active');
+            };
+
+            // Keyboard shortcut: Ctrl+O or Cmd+O opens import modal
+            window.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+                    e.preventDefault();
+                    window.openImportModal();
+                }
+            });
+
+            if (btnCancelModal && modal) {
+                btnCancelModal.addEventListener('click', window.closeImportModal);
+            }
+
+            if (modal) {
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) window.closeImportModal();
+                });
+            }
+
+            if (btnSubmitModal && urlInput) {
+                const submitAction = async () => {
+                    const val = urlInput.value.trim();
+                    if (!val) return;
+                    window.closeImportModal();
+                    if (val.includes('gist.github.com') || (!val.startsWith('http') && val.length >= 20 && !val.includes('/'))) {
+                        await loadFromGist(val);
+                    } else {
+                        await loadEatsFromUrl(val);
+                    }
+                };
+                btnSubmitModal.addEventListener('click', submitAction);
+                urlInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') submitAction();
+                    if (e.key === 'Escape') window.closeImportModal();
+                });
+            }
+        }
+
+        async function processUrlParameters() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('gist')) {
+                const gist = params.get('gist');
+                await loadFromGist(gist);
+            } else if (params.has('url')) {
+                const url = params.get('url');
+                await loadEatsFromUrl(url);
+            } else if (params.has('deck')) {
+                const deck = params.get('deck').toLowerCase();
+                if (deck === 'steampunk') {
+                    await window.loadSteampunkDeck();
+                }
+            }
+        }
+
+        // Emscripten Module Config
+        var Module = {
+            preRun: [
+                function() {
+                    if (webgpuDevicePromise) {
+                        Module.addRunDependency('webgpu-device');
+                        webgpuDevicePromise.then((device) => {
+                            if (device) {
+                                Module.preinitializedWebGPUDevice = device;
+                                console.log('[WebGPU] Module preinitialized device ready:', device);
+                            }
+                            Module.removeRunDependency('webgpu-device');
+                        }).catch((err) => {
+                            console.error('[WebGPU] Device dependency error:', err);
+                            Module.removeRunDependency('webgpu-device');
+                        });
+                    }
+                }
+            ],
+            postRun: [
+                function() {
+                    window.hideAppLoadingScreen();
+                    setupWebControls();
+                    processUrlParameters();
+                }
+            ],
+            print: function(text) {
+                console.log('[SolEngine]', text);
+            },
+            printErr: function(text) {
+                console.error('[SolEngine Error]', text);
+            },
+            canvas: (function() {
+                return document.getElementById('canvas');
+            })(),
+            setStatus: function(text) {
+                if (text && text.length > 0 && statusText) {
+                    statusText.innerText = text.toUpperCase();
+                }
+            },
+            totalDependencies: 0,
+            monitorRunDependencies: function(left) {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+                const pct = this.totalDependencies ? Math.round(((this.totalDependencies - left) / this.totalDependencies) * 100) : 100;
+                if (progressFill) progressFill.style.width = pct + '%';
+                Module.setStatus(left ? 'LOADING ASSETS... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')' : 'STARTING ENGINE...');
+            }
+        };
+
+        window.onerror = function(event) {
+            if (statusText) {
+                statusText.className = 'sol-status-text error-msg';
+                statusText.innerText = 'INITIALIZATION ERROR: ' + event;
+            }
+        };
+
+        // Service Worker for Offline PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').then((reg) => {
+                    console.log('[SolEngine PWA] Registered with scope:', reg.scope);
+                }).catch((err) => {
+                    console.warn('[SolEngine PWA] ServiceWorker registration failed:', err);
+                });
+            });
+        }
+
+        // Mobile Soft Keyboard Input Bridge
+        const mobileSearchInput = document.getElementById('sol-mobile-search-input');
+        if (mobileSearchInput) {
+            mobileSearchInput.addEventListener('input', function(e) {
+                if (typeof Module !== 'undefined' && Module.ccall) {
+                    Module.ccall('solengine_set_search_query', null, ['string'], [e.target.value]);
+                }
+            });
+            mobileSearchInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    mobileSearchInput.blur();
+                }
+            });
+        }
+
+        window.openMobileKeyboard = function(initialText) {
+            if (!mobileSearchInput) return;
+            mobileSearchInput.value = initialText || '';
+            mobileSearchInput.focus();
+            if (mobileSearchInput.setSelectionRange) {
+                const len = mobileSearchInput.value.length;
+                mobileSearchInput.setSelectionRange(len, len);
+            }
+        };
+
+        window.closeMobileKeyboard = function() {
+            if (!mobileSearchInput) return;
+            mobileSearchInput.blur();
+        };
+    </script>
+    <input id="sol-mobile-search-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+           style="position: fixed; top: -100px; left: -100px; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;">
+    {{{ SCRIPT }}}
+</body>
+</html>
+

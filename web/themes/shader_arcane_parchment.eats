@@ -1,0 +1,51 @@
+# SolEngine Custom Background Theme — Arcane Parchment
+# Weathered medieval vellum with organic tea-stained foxing spots, fiber grain, and scorched edges
+
+sol.set_theme({
+    id: "shader_arcane_parchment",
+    name: "Arcane Parchment",
+    author: "SolEngine / Eatscript",
+    description: "Ancient aged manuscript parchment with organic tea-stain foxing and scorched edges",
+    version: 1,
+    procedural: true
+})
+
+def parchment_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.90, ny)
+
+    # 1. Warm illuminated vellum base
+    vellum_fbm = fbm(nx * 4.5, ny * 4.5) * 0.12
+    base_luma = 0.88 + vellum_fbm
+
+    # 2. Organic aging spots / foxing (fungal moisture stains on antique paper)
+    spots1 = smoothstep(0.70, 0.78, fbm(nx * 14.0, ny * 14.0)) * 0.18
+    spots2 = smoothstep(0.72, 0.80, fbm(nx * 28.0 + 4.1, ny * 28.0 + 2.7)) * 0.14
+    foxing = spots1 + spots2
+
+    # 3. Scorched medieval edge vignette
+    edge_burn = smoothstep(1.35, 0.35, dist)
+    parchment_luma = (base_luma - foxing) * (0.45 + 0.55 * edge_burn)
+
+    # 4. Antique sepia color ramp (warm amber gold highlights to dark burnt umber edges)
+    edge_dark = 1.0 - edge_burn
+    pr = parchment_luma * 0.94 - edge_dark * 0.14
+    pg = parchment_luma * 0.84 - edge_dark * 0.22
+    pb = parchment_luma * 0.68 - edge_dark * 0.30
+
+    # 5. Fine rag paper grain
+    grain = (random() - 0.5) * 0.035
+
+    # Composite with drawn ink markings from canvas
+    ink_shadow = (1.0 - in_r) * 0.75
+    r = clamp(pr - ink_shadow + grain, 0.0, 1.0)
+    g = clamp(pg - ink_shadow + grain, 0.0, 1.0)
+    b = clamp(pb - ink_shadow + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base parchment color
+    ctx.fill_rect(0, 0, w, h, "#e8d8be")
+
+    # 3. Run aged parchment shader
+    ctx.apply_shader("parchment_shader", intensity=1.0)
+

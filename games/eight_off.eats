@@ -1,0 +1,42 @@
+# =============================================================================
+# SolEngine Game Variant: Eight Off (.eats)
+# =============================================================================
+# The grand precursor of FreeCell with 8 reserve free cells.
+# Tableau builds strictly by the SAME SUIT.
+# Empty spaces may ONLY be filled by Kings!
+
+name = "Eight Off"
+family = "FreeCell"
+category = "FREECELL"
+description = "FreeCell ancestor with 8 reserve cells. Strict same-suit building; Kings to empty spaces."
+decks = 1
+tableaus = 8
+foundations = 4
+freecells = 8
+
+# Deal configuration: 8 columns of 6 cards each (48 cards dealt face-up, 4 in cells)
+tableau_deal_counts = [6, 6, 6, 6, 6, 6, 6, 6]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+# No stock
+stock_deal_mode = "none"
+stock_deal_count = 0
+max_redeals = 0
+
+def can_drop_tableau(dest_card, moving_card):
+    """Tableaux build down by SAME SUIT. Empty spaces accept Kings only."""
+    if dest_card.is_empty:
+        return moving_card.rank == 13 # King
+    return (dest_card.suit == moving_card.suit) and (dest_card.rank == moving_card.rank + 1)
+
+def can_lift_sequence(cards):
+    """Single card transfers standard."""
+    return len(cards) <= 1
+
+def can_drop_foundation(foundation_card, moving_card):
+    """Foundations build up by same suit from Ace to King."""
+    if foundation_card.is_empty:
+        return moving_card.rank == 1 # Ace
+    return (foundation_card.suit == moving_card.suit) and (moving_card.rank == foundation_card.rank + 1)
+

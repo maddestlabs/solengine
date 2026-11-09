@@ -1,0 +1,114 @@
+# SolEngine Deck Recipe — Polychrome CRT (Holographic Foil Shader + Trinitron CRT + Bloom + Glitch)
+# Showcases:
+# 1. Custom Eatscript Bytecode Pixel Shader (`polychrome_foil_shader`) computing thin-film rainbow interference
+#    from the 3D `height` buffer (`reliefElevation_`), perspective synthwave horizon grid, and `sdf_suit` laser rings
+# 2. 3D Bas-Relief & Faceted Crystal Gem Shading (`ctx.apply_finish(style="relief")`)
+# 3. Chained Post-Process Shader Filters:
+#    - `ctx.apply_filter("bloom")` for phosphor halation
+#    - `ctx.apply_filter("crt")` for Trinitron barrel curvature, RGB aperture-grille subpixel triads & scanlines
+#    - `ctx.apply_filter("vhs_glitch")` on Court cards (`J`, `Q`, `K`) for subtle analog tracking chromatic aberration
+
+sol.set_theme({
+    id: "shader_holo_synthwave",
+    name: "Polychrome CRT",
+    author: "SolEngine Bytecode Shader VM",
+    description: "Iridescent polychrome holographic foil cards with perspective laser grids, Trinitron CRT scanlines, and neon bloom.",
+    version: 1,
+    corner_radius: 8.0
+})
+
+def polychrome_foil_shader(u, v, nx, ny, in_r, in_g, in_b, height, mask, rank, suit, is_red):
+    # 1. recessed cyber-grid in the dark card bed (where mask < 0.2)
+    horizon_y = abs(ny) + 0.18
+    grid_u = abs(fract((nx / horizon_y) * 1.8) - 0.5)
+    grid_v = abs(fract((1.2 / horizon_y) + rank * 0.15) - 0.5)
+    grid_line = max(1.0 - smoothstep(0.02, 0.08, grid_u), 1.0 - smoothstep(0.02, 0.08, grid_v)) * clamp(abs(ny) * 0.9, 0.0, 1.0)
+
+    # 2. Concentric neon SDF suit radar pulse in the card center
+    d_suit = sdf_suit(nx * 1.9, ny * 1.9, suit)
+    radar_rings = (0.5 + 0.5 * sin(d_suit * 28.0 - rank * 0.8)) * exp(-abs(d_suit) * 3.8)
+
+    neon_r = mix(0.08, 1.00, is_red)
+    neon_g = mix(0.88, 0.16, is_red)
+    neon_b = mix(1.00, 0.68, is_red)
+
+    bg_r = in_r + (grid_line * 0.22 + radar_rings * 0.35) * neon_r * (1.0 - mask)
+    bg_g = in_g + (grid_line * 0.22 + radar_rings * 0.35) * neon_g * (1.0 - mask)
+    bg_b = in_b + (grid_line * 0.28 + radar_rings * 0.35) * neon_b * (1.0 - mask)
+
+    # 3. Thin-film polychrome holographic rainbow foil across raised 3D relief & gems (`height` > 0.2)
+    phase = (u * 1.4 - v * 1.1) * 6.28318 + height * 5.2 + suit * 1.57 + rank * 0.35
+    holo_r = 0.52 + 0.48 * sin(phase)
+    holo_g = 0.52 + 0.48 * sin(phase + 2.094)
+    holo_b = 0.52 + 0.48 * sin(phase + 4.188)
+
+    foil_mix = clamp((height - 0.25) * 0.42 * mask, 0.0, 0.52)
+    return [mix(bg_r, holo_r, foil_mix), mix(bg_g, holo_g, foil_mix), mix(bg_b, holo_b, foil_mix)]
+
+def on_draw_card_face(ctx, rank, suit, w, h):
+    is_red   = (suit == "hearts" or suit == "diamonds")
+    is_court = (rank == "J" or rank == "Q" or rank == "K")
+    is_ace   = (rank == "A")
+    cx = w * 0.5
+    cy = h * 0.5
+
+    chrome_sil  = "#b8c4d8"
+    chrome_hi   = "#f0f6ff"
+    neon_pink   = "#e01a68"
+    neon_cyan   = "#1488a8"
+    pip_col     = neon_cyan
+    if is_red:
+        pip_col = neon_pink
+
+    # 1. Deep Cyber-Obsidian Card Bed
+    ctx.fill_rounded_rect(0, 0, w, h, 8.0, "#0b0d14")
+    ctx.stroke_rounded_rect(2.0, 2.0, w - 4.0, h - 4.0, 6.5, "#1e2638", 1.5)
+
+    rx = w * 0.38
+    ry = h * 0.40
+
+    # 2. Chrome Arches, Trellis & Faceted Crystal Pips
+    if is_ace:
+        ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style="oval_clasp", gold_color=chrome_sil, accent_color=chrome_hi, line_width=2.5)
+        ctx.draw_gem_pip(suit=suit, cx=cx, cy=cy, size=w * 0.36, gem_color=pip_col, gold_color=chrome_sil, style="faceted_gem")
+    elif is_court:
+        ctx.draw_baroque_court_bust(rank=rank, suit=suit, cx=cx, cy=cy, rx=rx * 0.95, ry=ry * 0.95, gold_color=chrome_sil, silver_color=chrome_hi, gem_color=neon_pink)
+        ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx * 0.95, ry=ry * 0.95, style="oval_clasp", gold_color=chrome_sil, accent_color=chrome_hi, line_width=2.5)
+    else:
+        ctx.draw_pip_trellis(rank=rank, suit=suit, card_w=w, card_h=h, gold_color=chrome_sil, silver_color="#526078")
+        ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style="oval_clasp", gold_color=chrome_sil, accent_color=chrome_hi, line_width=2.4)
+        ctx.draw_pip_layout(rank, suit, w, h, color=pip_col, variant="baroque_gem")
+
+    # 3. Corner Indices
+    idx_col = "#5ce1e6"
+    if is_red:
+        idx_col = "#ff5c8a"
+    ctx.set_elevation(0.82, 1.0)
+    ctx.draw_corner_indices(rank, suit, w, h, color=idx_col, font_size=24.0)
+    ctx.reset_elevation()
+
+    # 4. 3D Relief Lighting -> Custom Polychrome Foil Shader -> Bloom -> CRT Scanline Pass
+    ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=46.0, ao_intensity=1.40, relief_depth=3.5)
+    ctx.apply_shader("polychrome_foil_shader", rank=rank, suit=suit, intensity=1.0)
+    if is_court:
+        ctx.apply_filter("vhs_glitch", intensity=0.35, aberration=2.2, jitter=0.45)
+    ctx.apply_filter("bloom", intensity=0.65, threshold=0.56, radius=9.0)
+    ctx.apply_filter("crt", intensity=0.55, curvature=0.06, scanlines=0.34)
+
+def on_draw_card_back(ctx, w, h):
+    cx = w * 0.5
+    cy = h * 0.5
+    chrome_sil = "#b8c4d8"
+    chrome_hi  = "#f0f6ff"
+
+    ctx.fill_rounded_rect(0, 0, w, h, 8.0, "#0b0d14")
+    ctx.repeat_beads(inset=12.0, radius=2.3, spacing=8.0, color=chrome_sil)
+    ctx.draw_baroque_arch(cx=cx, cy=cy, rx=w * 0.34, ry=h * 0.32, style="oval_clasp", gold_color=chrome_sil, accent_color=chrome_hi, line_width=2.6)
+    ctx.draw_baroque_spade(cx, cy, size=w * 0.28, body_color="#141824", filigree_color=chrome_sil, accent_color=chrome_hi)
+    ctx.draw_gem_pip(suit="diamonds", cx=cx, cy=cy - 6.0, size=26.0, gem_color="#e01a68", gold_color=chrome_sil, style="faceted_gem")
+
+    ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=46.0, ao_intensity=1.45, relief_depth=3.6)
+    ctx.apply_shader("polychrome_foil_shader", rank=1, suit="spades", intensity=1.0)
+    ctx.apply_filter("bloom", intensity=0.65, threshold=0.56, radius=9.0)
+    ctx.apply_filter("crt", intensity=0.55, curvature=0.06, scanlines=0.34)
+

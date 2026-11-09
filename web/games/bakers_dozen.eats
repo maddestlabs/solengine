@@ -1,0 +1,23 @@
+# =============================================================================
+# SolEngine Game Variant: Baker's Dozen (.eats)
+# =============================================================================
+# Acclaimed historical open solitaire. 13 columns of 4 cards dealt face up.
+# Kings automatically sink to the bottom of their column on deal.
+# Build down in rank regardless of suit; spaces cannot be refilled.
+
+name = "Baker's Dozen"
+family = "Baker's Dozen"
+category = "FREECELL"
+description = "13 columns of 4 open cards. Build down regardless of suit; Kings sink to column bottom; spaces remain empty."
+decks = 1
+tableaus = 13
+foundations = 4
+freecells = 0
+
+tableau_deal_counts = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+stock_deal_mode = "none"
+max_redeals = 0
+

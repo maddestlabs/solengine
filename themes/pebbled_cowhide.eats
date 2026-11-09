@@ -1,0 +1,52 @@
+# SolEngine Procedural Background Theme — Pebbled Cowhide
+# Pure Eatscript Bytecode Shader: Embossed pebble grain cowhide leather with warm burnished crests
+
+sol.set_theme({
+    id: "pebbled_cowhide",
+    name: "Pebbled Cowhide",
+    author: "SolEngine / Eatscript",
+    description: "Embossed pebble grain cowhide leather with warm burnished crests and rich shadowed crevices",
+    version: 2,
+    procedural: true
+})
+
+def pebbled_leather_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Macro hide stretch & subtle folds
+    macro_fold = fbm(px * 0.005, py * 0.005) * 0.15
+
+    # 2. Dual-scale pebble grain harmonics (1:1 scale: ~8-10px pebble grain cells)
+    p1 = sin(px * 0.65 + sin(py * 0.65) * 0.8)
+    p2 = sin(py * 0.65 + sin(px * 0.65) * 0.8)
+    pebble_coarse = (p1 * p2) * 0.5 + 0.5
+
+    p3 = sin(px * 1.30) * sin(py * 1.30)
+    pebble_fine = p3 * 0.5 + 0.5
+
+    pebble = pebble_coarse * 0.7 + pebble_fine * 0.3
+
+    # 3. Epidermal pore micro-texture
+    pores = (fbm(px * 0.15, py * 0.15) - 0.5) * 0.05
+
+    # 4. Burnished Cognac Leather Palette:
+    # Crevice shadow (#1c1208) -> Body (#332014) -> Burnished crest highlight (#543522)
+    t = pebble + macro_fold + pores
+    base_r = mix(0.12, 0.34, t)
+    base_g = mix(0.07, 0.20, t)
+    base_b = mix(0.04, 0.13, t)
+
+    # 5. Vignette falloff
+    vignette = smoothstep(1.35, 0.40, dist)
+    grain = (random() - 0.5) * 0.01
+
+    r = clamp(base_r * vignette + grain, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ctx.fill_rect(0, 0, w, h, "#1c1208")
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#4a2d18", 2.0)
+    ctx.apply_shader("pebbled_leather_shader", intensity=1.0)

@@ -1,0 +1,44 @@
+# Assets & prompt tooling
+assets/
+
+# Build and temporary output directories
+build/
+build-web/
+bin/
+out/
+_site/
+decks/*.bin
+decks/*.png
+
+# CMake & Ninja artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+.ninja_deps
+.ninja_log
+
+# Editor and IDE configurations
+.vscode/
+.vs/
+*.sln
+*.vcxproj*
+
+# OS specific artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python dev cache
+__pycache__/
+*.pyc
+
+# Compilation objects & debug symbols
+*.o
+*.obj
+*.d
+*.pdb
+*.lib
+
+# Preserve bundled desktop WebGPU libraries
+!third_party/wgpu/lib/wgpu_native.dll
+!third_party/wgpu/lib/wgpu_native.dll.lib

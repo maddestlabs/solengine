@@ -1,0 +1,45 @@
+# =============================================================================
+# SolEngine Game Variant: TriPeaks (.eats)
+# =============================================================================
+# Addictive fast-paced elimination game related to Golf.
+# Tableaux are arranged in three overlapping triangular peaks.
+# Foundation builds adjacent (+-1) ranks with optional wrapping.
+
+name = "TriPeaks"
+family = "Golf"
+category = "GOLF"
+description = "Fast-paced peak elimination. Stack cards +-1 rank onto foundation waste; streak bonuses."
+decks = 1
+tableaus = 7
+foundations = 1
+freecells = 0
+
+# Deal configuration: 28 cards across pyramid levels
+tableau_deal_counts = [4, 4, 4, 4, 4, 4, 4]
+tableau_all_face_up = False
+foundation_starter_card = True
+
+# Stock configuration: 23 cards, deals 1 card directly to foundation waste
+stock_deal_mode = "deal_to_foundation"
+stock_deal_count = 1
+max_redeals = 0
+
+def can_drop_foundation(foundation_card, moving_card):
+    """Adjacent rank matching (+-1). Optional King/Ace wrapping."""
+    if foundation_card.is_empty:
+        return True
+    f_rank = foundation_card.rank
+    m_rank = moving_card.rank
+    if m_rank == f_rank + 1 or m_rank == f_rank - 1:
+        return True
+    # Wrap King to Ace and Ace to King
+    if (f_rank == 13 and m_rank == 1) or (f_rank == 1 and m_rank == 13):
+        return True
+    return False
+
+def can_move_tableau_to_tableau():
+    return False
+
+def can_lift_tableau(column_cards, card_index):
+    return card_index == (len(column_cards) - 1)
+

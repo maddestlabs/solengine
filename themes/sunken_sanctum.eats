@@ -1,0 +1,57 @@
+# SolEngine Procedural Background Theme — Sunken Sanctum
+# Pure Eatscript Bytecode Shader: Polished black obsidian with glowing cyan aether veining
+
+sol.set_theme({
+    id: "ambientcg_onyx013",
+    name: "Sunken Sanctum",
+    author: "SolEngine / Eatscript",
+    description: "Polished black obsidian stone with deep teal body and electric cyan mineral veining",
+    version: 2,
+    procedural: true
+})
+
+def sanctum_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Domain-warped mineral ridge veining
+    warp_x = fbm(nx * 3.5, ny * 3.5) * 0.6
+    warp_y = fbm(ny * 3.5, nx * 3.5) * 0.6
+
+    wx = nx * 5.0 + warp_x
+    wy = ny * 5.0 + warp_y
+
+    v1 = abs(fbm(wx, wy) - 0.5) * 2.0
+    v2 = abs(fbm(wx * 2.2, wy * 2.2) - 0.5) * 2.0
+    vein_sharp = pow(1.0 - min(v1, v2), 4.0)
+
+    # 2. Polished obsidian ground with subtle depth
+    depth = fbm(nx * 2.0, ny * 2.0) * 0.12
+
+    # 3. Cyan aether mineral coloration
+    r_ground = 0.02 + depth * 0.2
+    g_ground = 0.04 + depth * 0.4
+    b_ground = 0.07 + depth * 0.6
+
+    # Electric cyan glow along fracture lines
+    r_vein = 0.18 * vein_sharp
+    g_vein = 0.72 * vein_sharp
+    b_vein = 0.92 * vein_sharp
+
+    base_r = r_ground + r_vein
+    base_g = g_ground + g_vein
+    base_b = b_ground + b_vein
+
+    # 4. Vignette falloff
+    vignette = smoothstep(1.35, 0.45, dist)
+    grain = (random() - 0.5) * 0.01
+
+    r = clamp(base_r * vignette + grain, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ctx.fill_rect(0, 0, w, h, "#05080c")
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#153344", 1.8)
+    ctx.apply_shader("sanctum_shader", intensity=1.0)

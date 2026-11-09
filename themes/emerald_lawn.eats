@@ -1,0 +1,48 @@
+# SolEngine Procedural Background Theme — Emerald Lawn
+# Pure Eatscript Bytecode Shader: Woven card-table baize felt with organic wool nap & brass border
+
+sol.set_theme({
+    id: "ambientcg_carpet012",
+    name: "Emerald Lawn",
+    author: "SolEngine / Eatscript",
+    description: "Classic British green card-table baize felt with tactile wool weave and rich nap sheen",
+    version: 2,
+    procedural: true
+})
+
+def emerald_felt_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Tactile 1:1 Plain Weave Yarn Harmonics (~7px yarn thread pitch)
+    w_x = sin(px * 0.90)
+    w_y = sin(py * 0.90)
+    weave = (w_x * w_y) * 0.055
+
+    # 2. Wool micro-fibers & directional nap
+    fibers = (fbm(px * 0.08, py * 0.08) - 0.5) * 0.04
+    nap_sheen = exp(-dist * 1.6) * 0.06
+
+    # 3. Rich Emerald Baize Palette
+    base_r = 0.06 + weave + fibers + nap_sheen
+    base_g = 0.24 + weave + fibers + nap_sheen * 1.2
+    base_b = 0.12 + weave + fibers + nap_sheen * 0.8
+
+    # 4. Deep vignette optical falloff
+    vignette = smoothstep(1.35, 0.42, dist)
+    grain = (random() - 0.5) * 0.015
+
+    r = clamp(base_r * vignette + grain, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base forest green
+    ctx.fill_rect(0, 0, w, h, "#0a2a16")
+
+    # 2. Gilded brass perimeter rail
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#4a3c1e", 2.0)
+
+    # 3. Run full-canvas emerald felt shader
+    ctx.apply_shader("emerald_felt_shader", intensity=1.0)

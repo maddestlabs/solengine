@@ -1,0 +1,38 @@
+# =============================================================================
+# SolEngine Game Variant: FreeCell (.eats)
+# =============================================================================
+# Open tableau game of pure skill with 4 reserve FreeCells.
+
+name = "FreeCell"
+family = "FreeCell"
+category = "FREECELL"
+description = "Open tableau game of skill. 4 reserve free cells; nearly every deal is winnable."
+decks = 1
+tableaus = 8
+foundations = 4
+freecells = 4
+
+# Deal configuration: 52 cards all face up across 8 columns (4 of 7, 4 of 6)
+tableau_deal_counts = [7, 7, 7, 7, 6, 6, 6, 6]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+# No stock in FreeCell
+stock_deal_mode = "none"
+stock_deal_count = 0
+max_redeals = 0
+
+def can_drop_tableau(dest_card, moving_card):
+    """FreeCell builds down in alternating colors. Any card fills empty column."""
+    if dest_card.is_empty:
+        return True
+    is_moving_red = (moving_card.suit == 1 or moving_card.suit == 2)
+    is_dest_red = (dest_card.suit == 1 or dest_card.suit == 2)
+    return (is_moving_red != is_dest_red) and (dest_card.rank == moving_card.rank + 1)
+
+def can_drop_foundation(foundation_card, moving_card):
+    """Foundations build up by same suit from Ace to King."""
+    if foundation_card.is_empty:
+        return moving_card.rank == 1 # Ace
+    return (foundation_card.suit == moving_card.suit) and (moving_card.rank == foundation_card.rank + 1)
+

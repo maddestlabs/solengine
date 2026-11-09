@@ -1,0 +1,49 @@
+# SolEngine Procedural Background Theme — Denim Chambray
+# Pure Eatscript Bytecode Shader: Diagonal twill indigo denim weave with horizontal white weft slubs
+
+sol.set_theme({
+    id: "ambientcg_fabric061",
+    name: "Denim Chambray",
+    author: "SolEngine / Eatscript",
+    description: "Indigo chambray denim with 2/1 twill diagonal ribs and horizontal weft slubs",
+    version: 2,
+    procedural: true
+})
+
+def denim_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Diagonal 2/1 Twill Weave Ribbing (1:1 scale: ~5-6px twill lines)
+    twill = sin((px * 1.2 + py) * 0.7) * 0.07
+
+    # 2. Horizontal white cotton weft slubs (1:1 scale: ~4px slub spacing)
+    weft = sin(py * 0.8) * 0.05 + (fbm(px * 0.03, py * 0.25) - 0.5) * 0.07
+
+    # 3. Deep Indigo Dye Palette
+    dye_luma = twill + weft
+    base_r = 0.12 + dye_luma * 0.4
+    base_g = 0.22 + dye_luma * 0.5
+    base_b = 0.38 + dye_luma * 0.7
+
+    # 4. Cotton fiber fuzz
+    fuzz = (fbm(px * 0.12, py * 0.12) - 0.5) * 0.03
+
+    # 5. Vignette optical edge falloff
+    vignette = smoothstep(1.35, 0.42, dist)
+    grain = (random() - 0.5) * 0.015
+
+    r = clamp((base_r + fuzz) * vignette + grain, 0.0, 1.0)
+    g = clamp((base_g + fuzz) * vignette + grain, 0.0, 1.0)
+    b = clamp((base_b + fuzz) * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base deep indigo
+    ctx.fill_rect(0, 0, w, h, "#122036")
+
+    # 2. Golden-orange denim thread stitch border
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#9e6522", 1.8)
+
+    # 3. Run denim shader
+    ctx.apply_shader("denim_shader", intensity=1.0)

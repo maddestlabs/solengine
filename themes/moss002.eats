@@ -1,0 +1,45 @@
+# SolEngine Procedural Background Theme — Moss002 (Perilous Shores)
+# Pure Eatscript Bytecode Shader: Coastal velvety cushion moss, lichen, and damp earth terrain
+
+sol.set_theme({
+    id: "ambientcg_moss002",
+    name: "Perilous Shores",
+    author: "SolEngine / Eatscript",
+    description: "Rich coastal velvety moss hummocks, earthy peat substrate, and organic lichen flora",
+    version: 2,
+    procedural: true
+})
+
+def shores_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Macro moss mounds & cushions
+    macro = fbm(nx * 3.5, ny * 3.5)
+    cushion = fbm(nx * 10.0 + macro * 0.5, ny * 10.0 + macro * 0.5)
+
+    # 2. Fine leaflet & lichen stippling
+    leaflet = (fbm(nx * 32.0, ny * 32.0) - 0.5) * 0.08
+
+    # 3. Organic earth/moss palette
+    t = cushion * 0.7 + macro * 0.3 + leaflet
+
+    base_r = mix(0.12, 0.38, t)
+    base_g = mix(0.16, 0.48, t)
+    base_b = mix(0.08, 0.18, t)
+
+    # 4. Spore flecks
+    spore = (random() - 0.5) * 0.02
+
+    # 5. Vignette optical falloff
+    vignette = smoothstep(1.35, 0.42, dist)
+
+    r = clamp((base_r + spore) * vignette, 0.0, 1.0)
+    g = clamp((base_g + spore) * vignette, 0.0, 1.0)
+    b = clamp((base_b + spore) * vignette, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ctx.fill_rect(0, 0, w, h, "#141e0f")
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#2c3b1a", 1.8)
+    ctx.apply_shader("shores_shader", intensity=1.0)

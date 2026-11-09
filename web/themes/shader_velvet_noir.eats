@@ -1,0 +1,41 @@
+# SolEngine Custom Background Theme — Velvet Noir (Full-Canvas Vector Layout + Post-Process Shader)
+# Showcases:
+# 1. Full-canvas procedural vector layout via ctx.fill_rect & table perimeter border
+# 2. Custom Eatscript Bytecode Pixel Shader (ctx.apply_shader) generating rich velvet nap, subtle paper grain, and dark cinematic vignette
+
+sol.set_theme({
+    id: "shader_velvet_noir",
+    name: "Velvet Noir",
+    author: "SolEngine / Eatscript",
+    description: "Deep obsidian velvet table with procedural nap sheen and cinematic vignette post-processing",
+    version: 1,
+    procedural: true
+})
+
+def velvet_shader(u, v, nx, ny, in_r, in_g, in_b):
+    # Centered optical distance with subtle horizontal stretch
+    dist = hypot(nx * 0.95, ny)
+
+    # Multi-octave velvet nap shimmer
+    nap = (fbm(nx * 22.0, ny * 22.0) - 0.5) * 0.045
+    sheen = exp(-dist * 1.75) * 0.08
+
+    # Smooth non-linear photographic vignette
+    vignette = smoothstep(1.35, 0.45, dist)
+
+    # Subtle analog grain
+    grain = (random() - 0.5) * 0.02
+
+    # Apply tint, velvet sheen, and vignette over canvas
+    r = clamp((in_r + sheen + nap) * vignette + grain, 0.0, 1.0)
+    g = clamp((in_g + sheen + nap) * vignette + grain, 0.0, 1.0)
+    b = clamp((in_b + sheen + nap) * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base deep velvet charcoal
+    ctx.fill_rect(0, 0, w, h, "#121417")
+
+    # 3. Full-canvas post-process shader
+    ctx.apply_shader("velvet_shader", intensity=1.0)
+

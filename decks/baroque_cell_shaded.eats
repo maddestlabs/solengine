@@ -1,0 +1,137 @@
+# SolEngine Deck Recipe — Baroque Cell Shaded (Procedural Cel-Relief, Gems & Openwork Trellis)
+# 100% procedural card deck generated via Eatscript without bitmaps.
+# Features a bold, graphic cel-shaded baroque bas-relief aesthetic:
+# - Matte charcoal-slate museum card bed (#1d2128)
+# - Suit-specific architectural arches (Oval Clasps on Spades/Clubs, Pointed Ogee Spires on Hearts/Diamonds, Frameless Rocaille on Ace of Spades)
+# - Rank-adaptive two-tier openwork filigree trellises on numbers 2-10
+# - Four physical pip substances (Cabochon Rubies, 4-Facet Pyramid Diamonds, Cloisonné Black Onyx Clubs, Chiseled Bronze Spades)
+# - Double-ended 3D sculpted Renaissance Court Busts (J, Q, K)
+
+sol.set_theme({
+    id: "baroque_cell_shaded",
+    name: "Baroque Cell Shaded",
+    author: "SolEngine Procedural Engine",
+    description: "Stylized cel-shaded baroque bas-relief playing cards with cabochon rubies, 4-facet diamonds, cloisonné onyx, and openwork filigree trellises.",
+    version: 3,
+    corner_radius: 6.0
+})
+
+def on_draw_card_face(ctx, rank, suit, w, h):
+    is_red   = (suit == "hearts" or suit == "diamonds")
+    is_court = (rank == "J" or rank == "Q" or rank == "K")
+    is_ace   = (rank == "A")
+
+    slate_bed    = "#1d2128"
+    slate_inner  = "#181c22"
+    gold_bronze  = "#c5a869"
+    gold_bright  = "#fff3d1"
+    gold_deep    = "#5e4c26"
+    silver_pewter = "#767c86"
+    silver_bright = "#c4cad4"
+    ruby_gem     = "#a80c18"
+    onyx_black   = "#101216"
+
+    pip_color = onyx_black
+    if is_red:
+        pip_color = ruby_gem
+
+    cx = w * 0.5
+    cy = h * 0.5
+
+    # 1. Matte Charcoal-Slate Card Plate (unlit base bed so all relief casts directional shadows onto it)
+    ctx.fill_rounded_rect(0, 0, w, h, 6.0, slate_bed)
+    ctx.stroke_rounded_rect(1.5, 1.5, w - 3.0, h - 3.0, 5.0, "#2c313b", 1.2)
+
+    rx = w * 0.38
+    ry = h * 0.40
+
+    # 2. Central Architectural Framing, Openwork Trellises, Pips & Sculpted Court Busts
+    if is_ace:
+        if suit == "spades":
+            # Monumental Frameless Full-Bleed Rocaille Cartouche & Recessed Spade
+            ctx.draw_baroque_arch(cx=cx, cy=cy, rx=w * 0.41, ry=h * 0.41, style="imperial_spade_ace", gold_color=gold_bronze, accent_color=gold_bright, line_width=2.6)
+        elif suit == "clubs":
+            ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style="oval_clasp", gold_color=gold_bronze, accent_color=gold_bright, line_width=2.6)
+            ctx.draw_gem_pip(suit=suit, cx=cx, cy=cy, size=w * 0.36, gem_color=onyx_black, gold_color=gold_bronze, style="cloisonne_onyx")
+        elif suit == "hearts":
+            ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style="ogee_spires", gold_color=gold_bronze, accent_color=gold_bright, line_width=2.6)
+            ctx.draw_gem_pip(suit=suit, cx=cx, cy=cy, size=w * 0.34, gem_color=ruby_gem, gold_color=gold_bronze, style="cabochon_gem")
+        else:
+            # Ace of Diamonds: Pointed Ogee Spire Arch + Monumental 4-Facet Pyramid Ruby Gem
+            ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style="ogee_spires", gold_color=gold_bronze, accent_color=gold_bright, line_width=2.6)
+            ctx.draw_gem_pip(suit=suit, cx=cx, cy=cy, size=w * 0.36, gem_color=ruby_gem, gold_color=gold_bronze, style="faceted_gem")
+
+    elif is_court:
+        # Double-Ended 3D Sculpted Renaissance Court Busts (J, Q, K) inside Oval Clasp Medallion
+        ctx.draw_baroque_court_bust(rank=rank, suit=suit, cx=cx, cy=cy, rx=rx * 0.96, ry=ry * 0.96, gold_color=gold_bronze, silver_color=silver_bright, gem_color=ruby_gem)
+        ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx * 0.96, ry=ry * 0.96, style="oval_clasp", gold_color=gold_bronze, accent_color=gold_bright, line_width=2.6)
+
+    else:
+        # Number Cards (2 through 10):
+        # Step A: Rank-Adaptive Openwork Filigree Trellis (Recessed Silver-Pewter + Mid-Tier Bronze S-Scrolls)
+        ctx.draw_pip_trellis(rank=rank, suit=suit, card_w=w, card_h=h, gold_color=gold_bronze, silver_color=silver_pewter)
+
+        # Step B: Suit-Specific Outer Architectural Arch (Oval Clasp for Black Suits, Pointed Ogee Spires for Red Suits)
+        arch_style = "oval_clasp"
+        if is_red:
+            arch_style = "ogee_spires"
+        ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style=arch_style, gold_color=gold_bronze, accent_color=gold_bright, line_width=2.5)
+
+        # Step C: High-Relief Gem / Cloisonné / Bronze Pips Seated Over the Openwork Trellis
+        ctx.draw_pip_layout(rank, suit, w, h, color=pip_color, variant="baroque_gem")
+
+    # 3. Chiseled Metallic & Gem Corner Indices
+    idx_color = gold_bronze
+    if is_red:
+        idx_color = "#d62839"
+    ctx.set_elevation(0.68, 0.92)
+    ctx.draw_corner_indices(rank, suit, w, h, color=idx_color, font_size=24.0)
+    ctx.reset_elevation()
+
+    # 4. Execute Unified 5-Channel 3D Bas-Relief & PBR Material Shader (wGold + wDark + wGem)
+    ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=46.0, ao_intensity=1.45, relief_depth=3.6)
+
+    # 5. Optional Composable Post-Process Filters (uncomment any to chain per-card effects):
+    # ctx.apply_filter("toon", intensity=0.65, levels=4.0, outline=1.1)
+    # ctx.apply_filter("tilt_shift", intensity=0.85, focus_y=0.50, focus_width=0.26)
+    # ctx.apply_filter("bloom", intensity=0.55, threshold=0.62, radius=10.0)
+    # ctx.apply_filter("vignette", intensity=0.45, radius=0.76, softness=0.45)
+
+def on_draw_card_back(ctx, w, h):
+    gold_bronze  = "#c5a869"
+    gold_bright  = "#fff3d1"
+    gold_deep    = "#5e4c26"
+    slate_bg     = "#12151a"
+    slate_card   = "#1a1e25"
+
+    cx = w * 0.5
+    cy = h * 0.5
+
+    # 1. Matte Slate Base Plate with Layered Gold Borders
+    ctx.fill_rounded_rect(0, 0, w, h, 6.0, slate_bg)
+    ctx.fill_rounded_rect(3.0, 3.0, w - 6.0, h - 6.0, 4.5, slate_card)
+    ctx.stroke_rounded_rect(0, 0, w, h, 6.0, gold_bronze, 2.0)
+    ctx.stroke_rounded_rect(4.0, 4.0, w - 8.0, h - 8.0, 4.0, gold_deep, 1.0)
+
+    # 2. Beaded Pearl Perimeter
+    ctx.repeat_beads(inset=12.0, radius=2.3, spacing=8.0, color=gold_bronze)
+
+    rx = w * 0.34
+    ry = h * 0.30
+
+    # 3. Recessed Under-Foliage Tapestry & Corner Scrolls
+    ctx.draw_baroque_under_foliage(cx, cy, rx, ry, "#242934", "#3d4556")
+
+    ctx.begin_symmetry(mirror_x=True, mirror_y=True)
+    ctx.draw_baroque_corner(20.0, 20.0, 54.0, gold_bronze, gold_bright)
+    ctx.end_symmetry()
+
+    # 4. Central Royal Oval Clasp Arch & Cabochon Ruby / Bronze Spade Medallion
+    ctx.fill_oval(cx, cy, rx=rx * 0.80, ry=ry * 0.80, color="#15181f")
+    ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style="oval_clasp", gold_color=gold_bronze, accent_color=gold_bright, line_width=2.8)
+    ctx.draw_baroque_spade(cx, cy, size=w * 0.28, body_color="#181a20", filigree_color=gold_bronze, accent_color=gold_bright)
+    ctx.draw_gem_pip(suit="diamonds", cx=cx, cy=cy - 6.0, size=24.0, gem_color="#a80c18", gold_color=gold_bronze, style="faceted_gem")
+
+    # 5. Apply Multi-Tier Sculpted 3D Bas-Relief Finish
+    ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=46.0, ao_intensity=1.55, relief_depth=3.8)
+

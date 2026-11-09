@@ -1,0 +1,24 @@
+# =============================================================================
+# SolEngine Game Variant: Rainbow (.eats)
+# =============================================================================
+# A popular Canfield variant. Tableaux build down in the same suit with wrapping,
+# reserve automatically refills empty spaces, and single cards are drawn to waste.
+
+name = "Rainbow"
+family = "Canfield"
+category = "POPULAR"
+layout = "canfield"
+description = "Strict Canfield variant. 13-card reserve, same-suit building, and single-card draws to waste."
+decks = 1
+tableaus = 4
+foundations = 4
+freecells = 1
+
+tableau_deal_counts = [1, 1, 1, 1]
+tableau_all_face_up = True
+foundation_starter_card = True
+
+stock_deal_mode = "waste_draw_1"
+stock_deal_count = 1
+max_redeals = -1
+

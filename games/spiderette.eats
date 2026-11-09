@@ -1,0 +1,45 @@
+# =============================================================================
+# SolEngine Game Variant: Spiderette (.eats)
+# =============================================================================
+# A compact 52-card single-deck Spider variant played across 7 columns.
+# Deals 1, 2, 3, 4, 5, 6, 7 cards to columns with top card face up.
+# Stock deals 1 card to each column simultaneously.
+
+name = "Spiderette"
+family = "Spider"
+category = "SPIDER"
+description = "Compact 52-card single-deck Spider. 7 tableaus; assemble complete King-to-Ace runs to score."
+decks = 1
+tableaus = 7
+foundations = 4
+freecells = 0
+
+# Deal configuration: 1..7 cards across 7 columns (28 cards dealt initially)
+tableau_deal_counts = [1, 2, 3, 4, 5, 6, 7]
+tableau_all_face_up = False
+foundation_starter_card = False
+
+# Stock configuration: 24 cards, deals 1 card to all 7 columns (3 full deals + 3 leftover)
+stock_deal_mode = "deal_to_all_columns"
+stock_deal_count = 7
+max_redeals = 0
+
+def can_drop_tableau(dest_card, moving_card):
+    """Any card can drop onto empty column. On filled column, rank must be dest - 1."""
+    if dest_card.is_empty:
+        return True
+    return moving_card.rank == dest_card.rank - 1
+
+def can_lift_sequence(cards):
+    """Moving multiple cards requires uniform suit and consecutive descending ranks."""
+    if len(cards) <= 1:
+        return True
+    for i in range(len(cards) - 1):
+        if cards[i].suit != cards[i + 1].suit or cards[i].rank != cards[i + 1].rank + 1:
+            return False
+    return True
+
+def can_drop_foundation(foundation_card, moving_card):
+    """Full 13-card runs from King to Ace clear to foundation."""
+    return False
+

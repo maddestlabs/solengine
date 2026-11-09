@@ -1,0 +1,121 @@
+# SolEngine Deck Recipe — Da Vinci Watercolor (Vitruvian Codex Shader + Kuwahara Watercolor + Graphite Sketch + Tilt-Shift)
+# Showcases:
+# 1. Custom Eatscript Bytecode Pixel Shader (`vitruvian_codex_shader`) generating aged Florentine rag parchment,
+#    Vitruvian compass geometry rings, and wet watercolor pigment clouds (`fbm` + `sdf_suit`)
+# 2. Hand-Sketched Intaglio Finish (`ctx.apply_finish(style="hand_sketched")`)
+# 3. Chained Post-Process Shader Filters:
+#    - `ctx.apply_filter("watercolor")` (4-quadrant Kuwahara painterly brush pooling + wet-edge pigment darkening)
+#    - `ctx.apply_filter("pencil_sketch")` (diagonal Leonardo graphite cross-hatching blended with 82% watercolor chroma)
+#    - `ctx.apply_filter("tilt_shift")` (miniature selective-focus depth of field)
+
+sol.set_theme({
+    id: "shader_watercolor_sketch",
+    name: "Da Vinci Watercolor",
+    author: "SolEngine Bytecode Shader VM",
+    description: "Renaissance notebook watercolor & graphite cross-hatched playing cards with Vitruvian geometry and selective-focus tilt-shift.",
+    version: 1,
+    corner_radius: 7.0
+})
+
+def vitruvian_codex_shader(u, v, nx, ny, in_r, in_g, in_b, height, mask, rank, suit, is_red):
+    # 1. Warm Florentine rag parchment with multi-scale FBM tea/sepia clouds
+    n_coarse = fbm(nx * 2.8 + suit * 1.3, ny * 2.8 + rank * 0.4)
+    n_fine   = noise(nx * 18.0, ny * 18.0)
+    rad      = hypot(nx, ny)
+    ang      = atan2(ny, nx)
+
+    # 2. Faint Vitruvian geometric compass circles & golden-ratio construction lines
+    c1 = 1.0 - smoothstep(0.004, 0.014, abs(rad - 0.62))
+    c2 = 1.0 - smoothstep(0.004, 0.014, abs(rad - 0.86))
+    diag = 1.0 - smoothstep(0.003, 0.011, abs(abs(nx) - abs(ny) * 0.72))
+    compass_ink = clamp((c1 + c2 + diag * 0.5) * 0.22, 0.0, 0.28)
+
+    # 3. Wet-in-wet watercolor wash bloom around the suit SDF
+    d_suit = sdf_suit(nx * 1.7 + (n_coarse - 0.5) * 0.18, ny * 1.7 + (n_coarse - 0.5) * 0.18, suit)
+    wash = exp(-max(0.0, d_suit) * 3.2) * (0.45 + 0.55 * n_coarse) * 0.38
+
+    paper_r = 0.94 - 0.10 * n_coarse - 0.03 * n_fine - compass_ink * 0.35
+    paper_g = 0.89 - 0.12 * n_coarse - 0.03 * n_fine - compass_ink * 0.38
+    paper_b = 0.79 - 0.15 * n_coarse - 0.03 * n_fine - compass_ink * 0.42
+
+    # Vermilion crimson wash for Red suits, Prussian indigo/sepia wash for Black suits
+    wash_r = mix(0.22, 0.82, is_red)
+    wash_g = mix(0.32, 0.24, is_red)
+    wash_b = mix(0.48, 0.18, is_red)
+
+    bg_r = mix(paper_r, wash_r, wash)
+    bg_g = mix(paper_g, wash_g, wash)
+    bg_b = mix(paper_b, wash_b, wash)
+
+    fg_w = clamp(mask * 0.92, 0.0, 1.0)
+    return [mix(bg_r, in_r, fg_w), mix(bg_g, in_g, fg_w), mix(bg_b, in_b, fg_w)]
+
+def on_draw_card_face(ctx, rank, suit, w, h):
+    is_red   = (suit == "hearts" or suit == "diamonds")
+    is_court = (rank == "J" or rank == "Q" or rank == "K")
+    is_ace   = (rank == "A")
+    cx = w * 0.5
+    cy = h * 0.5
+
+    sepia_bronze = "#8c6239"
+    sepia_gold   = "#c89d54"
+    vermilion    = "#b8292f"
+    indigo_ink   = "#222a38"
+    pip_col      = indigo_ink
+    if is_red:
+        pip_col = vermilion
+
+    # 1. Parchment Base Plate
+    ctx.fill_rounded_rect(0, 0, w, h, 7.0, "#efe6d5")
+    ctx.stroke_rounded_rect(6.0, 6.0, w - 12.0, h - 12.0, 5.0, sepia_bronze, 1.4)
+
+    rx = w * 0.37
+    ry = h * 0.39
+
+    # 2. Botanical / Renaissance Arches, Pips & Court Busts
+    arch_style = "oval_clasp"
+    if is_red:
+        arch_style = "ogee_spires"
+
+    if is_ace:
+        ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style=arch_style, gold_color=sepia_bronze, accent_color=sepia_gold, line_width=2.2)
+        ctx.draw_gem_pip(suit=suit, cx=cx, cy=cy, size=w * 0.34, gem_color=pip_col, gold_color=sepia_bronze, style="cabochon_gem")
+    elif is_court:
+        ctx.draw_baroque_court_bust(rank=rank, suit=suit, cx=cx, cy=cy, rx=rx * 0.94, ry=ry * 0.94, gold_color=sepia_gold, silver_color="#7a6855", gem_color=vermilion)
+        ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx * 0.94, ry=ry * 0.94, style="oval_clasp", gold_color=sepia_bronze, accent_color=sepia_gold, line_width=2.2)
+    else:
+        ctx.draw_pip_trellis(rank=rank, suit=suit, card_w=w, card_h=h, gold_color=sepia_gold, silver_color="#8a7968")
+        ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style=arch_style, gold_color=sepia_bronze, accent_color=sepia_gold, line_width=2.2)
+        ctx.draw_pip_layout(rank, suit, w, h, color=pip_col, variant="baroque_gem")
+
+    # 3. Corner Indices
+    ctx.set_elevation(0.80, 0.90)
+    ctx.draw_corner_indices(rank, suit, w, h, color=pip_col, font_size=24.0)
+    ctx.reset_elevation()
+
+    # 4. Execute Vitruvian Codex Shader -> Watercolor Kuwahara Pooling -> Graphite Cross-Hatch -> Tilt-Shift
+    ctx.apply_shader("vitruvian_codex_shader", rank=rank, suit=suit, intensity=1.0)
+    ctx.apply_finish(style="hand_sketched", paper_grain=0.18, ink_bleed=0.22)
+    ctx.apply_filter("watercolor", intensity=0.78, radius=2.5, edge_darkening=0.70)
+    ctx.apply_filter("pencil_sketch", intensity=0.36, hatch_density=1.1, color_mix=0.82, color="#f2eadb")
+    ctx.apply_filter("tilt_shift", intensity=0.55, focus_y=0.50, focus_width=0.34)
+    ctx.apply_filter("vignette", intensity=0.35, radius=0.78, softness=0.45, color="#4a3828")
+
+def on_draw_card_back(ctx, w, h):
+    cx = w * 0.5
+    cy = h * 0.5
+    sepia_bronze = "#8c6239"
+    sepia_gold   = "#c89d54"
+
+    ctx.fill_rounded_rect(0, 0, w, h, 7.0, "#efe6d5")
+    ctx.stroke_rounded_rect(6.0, 6.0, w - 12.0, h - 12.0, 5.0, sepia_bronze, 1.6)
+    ctx.repeat_beads(inset=12.0, radius=2.2, spacing=8.0, color=sepia_bronze)
+    ctx.draw_baroque_arch(cx=cx, cy=cy, rx=w * 0.34, ry=h * 0.32, style="oval_clasp", gold_color=sepia_bronze, accent_color=sepia_gold, line_width=2.4)
+    ctx.draw_baroque_spade(cx, cy, size=w * 0.26, body_color="#2c3545", filigree_color=sepia_bronze, accent_color=sepia_gold)
+
+    ctx.apply_shader("vitruvian_codex_shader", rank=1, suit="hearts", intensity=1.0)
+    ctx.apply_finish(style="hand_sketched", paper_grain=0.18, ink_bleed=0.22)
+    ctx.apply_filter("watercolor", intensity=0.78, radius=2.5, edge_darkening=0.70)
+    ctx.apply_filter("pencil_sketch", intensity=0.36, hatch_density=1.1, color_mix=0.82, color="#f2eadb")
+    ctx.apply_filter("vignette", intensity=0.38, radius=0.76, softness=0.45, color="#4a3828")
+

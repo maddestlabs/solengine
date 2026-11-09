@@ -1,0 +1,24 @@
+# =============================================================================
+# SolEngine Game Variant: La Belle Lucie (.eats)
+# =============================================================================
+# The premier Fan solitaire. 18 fans (17 of 3 cards, 1 of 1 card) dealt face up.
+# Build down in the same suit; single card movement; empty fans cannot be filled.
+# Two full redeals allowed.
+
+name = "La Belle Lucie"
+family = "Fan"
+category = "FREECELL"
+layout = "fan_grid"
+description = "18 fans of cards. Build down in suit; only top cards can move; spaces cannot be filled; redeals allowed."
+decks = 1
+tableaus = 18
+foundations = 4
+freecells = 0
+
+tableau_deal_counts = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1]
+tableau_all_face_up = True
+foundation_starter_card = False
+
+stock_deal_mode = "none"
+max_redeals = 2
+

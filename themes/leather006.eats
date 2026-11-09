@@ -1,0 +1,43 @@
+# SolEngine Procedural Background Theme — Leather 006 (Nubuck Suede)
+# Pure Eatscript Bytecode Shader: Distressed aniline nubuck suede with velvety nap and oil pull-up
+
+sol.set_theme({
+    id: "ambientcg_leather006",
+    name: "Leather 006",
+    author: "SolEngine / Eatscript",
+    description: "Distressed aniline nubuck leather with velvety micro-suede nap and rich pull-up undertones",
+    version: 2,
+    procedural: true
+})
+
+def nubuck_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Broad aniline tanning oil pull-up mottle
+    pullup = fbm(nx * 2.8, ny * 2.8) * 0.18
+
+    # 2. Fine velvety suede nap fibers
+    nap = (fbm(nx * 32.0, ny * 32.0) - 0.5) * 0.08
+    fuzz = (fbm(nx * 64.0, ny * 64.0) - 0.5) * 0.04
+
+    # 3. Roasted espresso / saddle brown palette
+    # Deep grain shadow (#1a1208) to warm buffed suede (#402a1a)
+    t = pullup + nap + fuzz + 0.5
+    base_r = mix(0.14, 0.28, t)
+    base_g = mix(0.09, 0.18, t)
+    base_b = mix(0.06, 0.12, t)
+
+    # 4. Vignette falloff
+    vignette = smoothstep(1.35, 0.42, dist)
+    grain = (random() - 0.5) * 0.01
+
+    r = clamp(base_r * vignette + grain, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ctx.fill_rect(0, 0, w, h, "#181008")
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#382414", 1.8)
+    ctx.apply_shader("nubuck_shader", intensity=1.0)

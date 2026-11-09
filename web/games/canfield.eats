@@ -1,0 +1,25 @@
+# =============================================================================
+# SolEngine Game Variant: Canfield (.eats)
+# =============================================================================
+# The iconic casino patience popularized by Richard Canfield in Saratoga Springs.
+# Features a 13-card reserve, 4 tableaus, wrapping alternating cascades,
+# and foundation base rank dictated by the starter card.
+
+name = "Canfield"
+family = "Canfield"
+category = "POPULAR"
+layout = "canfield"
+description = "Famous Saratoga casino classic. 13-card reserve, wrapping alternating cascades, and foundation starter card."
+decks = 1
+tableaus = 4
+foundations = 4
+freecells = 1
+
+tableau_deal_counts = [1, 1, 1, 1]
+tableau_all_face_up = True
+foundation_starter_card = True
+
+stock_deal_mode = "waste_draw_3"
+stock_deal_count = 3
+max_redeals = -1
+

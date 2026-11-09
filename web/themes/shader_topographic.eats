@@ -1,0 +1,67 @@
+# SolEngine Custom Background Theme — Topographic Map
+# Cartographic contour elevation isolines over warm explorer parchment with dark ink contour lines
+
+sol.set_theme({
+    id: "shader_topographic",
+    name: "Topographic Map",
+    author: "SolEngine / Eatscript",
+    description: "Cartographic survey elevation contour map over warm explorer paper",
+    version: 1,
+    procedural: true
+})
+
+def topo_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.90, ny)
+
+    # 1. Multi-octave continuous elevation heightfield
+    elev = fbm(nx * 3.2, ny * 3.2) * 12.0
+
+    # 2. Crisp contour isolines at integer elevation steps
+    # Standard 100m minor contours and 500m major index contours
+    minor_dist = abs(fract(elev) - 0.5)
+    minor_line = 1.0 - smoothstep(0.0, 0.09, minor_dist)
+
+    major_dist = abs(fract(elev * 0.2) - 0.5)
+    major_line = 1.0 - smoothstep(0.0, 0.05, major_dist) * 1.5
+
+    contour_strength = max(minor_line * 0.45, major_line * 0.85)
+
+    # 3. Explorer survey parchment base with elevation hypsometric tinting
+    height_norm = clamp(elev / 12.0, 0.0, 1.0)
+    base_luma = 0.82 + height_norm * 0.12
+
+    # Map paper color (pale ecru/khaki to warm cream)
+    paper_r = base_luma * 0.94
+    paper_g = base_luma * 0.91
+    paper_b = base_luma * 0.82
+
+    # Dark bistre ink for contour lines
+    ink_r = 0.22
+    ink_g = 0.18
+    ink_b = 0.14
+
+    r_final = mix(paper_r, ink_r, contour_strength)
+    g_final = mix(paper_g, ink_g, contour_strength)
+    b_final = mix(paper_b, ink_b, contour_strength)
+
+    # 4. Vignette falloff
+    vignette = smoothstep(1.35, 0.45, dist)
+    grain = (random() - 0.5) * 0.025
+
+    r = clamp(r_final * vignette + grain, 0.0, 1.0)
+    g = clamp(g_final * vignette + grain, 0.0, 1.0)
+    b = clamp(b_final * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base paper
+    ctx.fill_rect(0, 0, w, h, "#ded4be")
+
+    # 2. Surveyor latitude/longitude margin border
+    inset = 22.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#483824", 2.0)
+    ctx.stroke_rect(inset + 4.0, inset + 4.0, w - (inset + 4.0) * 2.0, h - (inset + 4.0) * 2.0, "#887050", 1.0)
+
+    # 3. Run topographic shader
+    ctx.apply_shader("topo_shader", intensity=1.0)
+

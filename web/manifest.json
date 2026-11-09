@@ -1,0 +1,23 @@
+{
+  "id": "solengine-pwa",
+  "name": "Solitaire Engine",
+  "short_name": "SolEngine",
+  "description": "High-fidelity procedural Solitaire board game built in C++20 and WebGPU.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0d140e",
+  "theme_color": "#0d140e",
+  "categories": ["games", "card", "entertainment", "board"],
+  "icons": [
+    {
+      "src": "app_icon.svg",
+      "sizes": "256x256",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
+

@@ -1,0 +1,23 @@
+# =============================================================================
+# SolEngine Game Variant: Wasp (.eats)
+# =============================================================================
+# A beloved, slightly more forgiving variant of Scorpion.
+# Any card can fill an empty tableau space instead of strictly Kings.
+
+name = "Wasp"
+family = "Spider"
+category = "SPIDER"
+description = "Relaxed Scorpion variant. Build down in suit; any face-up stack can move; any card to empty spaces."
+decks = 1
+tableaus = 7
+foundations = 4
+freecells = 0
+
+tableau_deal_counts = [7, 7, 7, 7, 7, 7, 7]
+tableau_all_face_up = False
+foundation_starter_card = False
+
+stock_deal_mode = "deal_to_all_columns"
+stock_deal_count = 3
+max_redeals = 0
+

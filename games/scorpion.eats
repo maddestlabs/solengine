@@ -1,0 +1,25 @@
+# =============================================================================
+# SolEngine Game Variant: Scorpion (.eats)
+# =============================================================================
+# Acclaimed cross between Spider and Yukon. 49 cards dealt to 7 columns
+# (first 4 have 3 cards face down). 3 cards in stock.
+# Tableaux build down in suit; any face-up stack can move; Kings on empty spaces.
+# Assemble full 13-card suit runs from King to Ace to clear to foundations.
+
+name = "Scorpion"
+family = "Spider"
+category = "SPIDER"
+description = "Acclaimed Spider & Yukon hybrid. Build down in suit; any face-up stack can move; Kings to spaces."
+decks = 1
+tableaus = 7
+foundations = 4
+freecells = 0
+
+tableau_deal_counts = [7, 7, 7, 7, 7, 7, 7]
+tableau_all_face_up = False
+foundation_starter_card = False
+
+stock_deal_mode = "deal_to_all_columns"
+stock_deal_count = 3
+max_redeals = 0
+

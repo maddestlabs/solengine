@@ -1,0 +1,83 @@
+name: Build & Deploy SolEngine to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 'latest'
+
+      - name: Verify Emscripten Toolchain
+        run: |
+          emcc --version
+
+      - name: Configure CMake with Emscripten
+        run: |
+          emcmake cmake -B build-web -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile SolEngine Web (WebGPU & WASM)
+        run: |
+          cmake --build build-web --target solengine_web
+
+      - name: Assemble GitHub Pages Distribution
+        run: |
+          mkdir -p dist
+          # Copy compiled WASM, preloaded asset bundle, JS runtime bridge, and generated HTML hosts
+          cp -f build-web/solengine.wasm dist/
+          cp -f build-web/solengine.data dist/
+          cp -f build-web/solengine.js dist/
+          cp -f build-web/solengine.html dist/
+          cp -f build-web/index.html dist/
+          cp -f build-web/manifest.json dist/
+          cp -f build-web/sw.js dist/
+
+          # Stage on-demand decks, themes, and games (available statically on GitHub Pages)
+          mkdir -p dist/decks dist/themes dist/games
+          cp -rf decks/* dist/decks/
+          cp -rf themes/* dist/themes/
+          cp -rf games/* dist/games/
+
+          # Disable Jekyll processing on GitHub Pages
+          touch dist/.nojekyll
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

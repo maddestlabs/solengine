@@ -1,0 +1,127 @@
+# SolEngine Deck Recipe — Gothic Stained Glass (Cathedral Rose-Window Shader + 3D Lead-Came Relief + Bloom)
+# Showcases:
+# 1. Custom Eatscript Bytecode Pixel Shader (`ctx.apply_shader`) using `sdf_suit`, `fbm`, `atan2`, and `hypot`
+# 2. 8-Fold Radial Symmetry (`ctx.begin_radial_symmetry`) & Pointed Gothic Ogee Arches (`ctx.draw_baroque_arch`)
+# 3. 3D Bas-Relief & Gem Shader (`ctx.apply_finish(style="relief")`)
+# 4. Post-Process Specular Halation (`ctx.apply_filter("bloom")`) & Optical Framing (`ctx.apply_filter("vignette")`)
+
+sol.set_theme({
+    id: "shader_stained_glass",
+    name: "Gothic Stained Glass",
+    author: "SolEngine Bytecode Shader VM",
+    description: "Backlit gothic cathedral stained-glass windows with 3D lead-came relief, faceted jewel pips, and radiant bloom.",
+    version: 2,
+    corner_radius: 8.0
+})
+
+def stained_glass_face(u, v, nx, ny, in_r, in_g, in_b, height, mask, rank, suit, is_red):
+    # Polar rose-window coordinates & FBM cathedral glass mottling
+    rad = hypot(nx, ny)
+    ang = atan2(ny, nx)
+    petals = sin(ang * 12.0 + rank * 0.5) * 0.045
+    glass_fbm = fbm(nx * 5.0 + suit * 2.3, ny * 5.0 + rank * 0.7)
+    cell_rib  = abs(sin((nx * 6.5 + glass_fbm * 1.4) * 3.14159) * cos((ny * 6.5 - glass_fbm * 1.4) * 3.14159))
+
+    # Analytical 2D Signed Distance Field to the central suit emblem
+    d_pip = sdf_suit(nx * 1.75, ny * 1.75, suit)
+    pip_core = 1.0 - smoothstep(-0.015, 0.02, d_pip)
+
+    # Dark lead-came solder lines around the suit SDF, rose rings, and mosaic cells
+    ring1 = abs(rad - 0.48 - petals)
+    ring2 = abs(rad - 0.82 + petals * 0.6)
+    lead = smoothstep(0.012, 0.028, abs(d_pip)) * smoothstep(0.010, 0.024, ring1) * smoothstep(0.012, 0.026, ring2)
+    lead = lead * (0.55 + 0.45 * smoothstep(0.04, 0.22, cell_rib))
+
+    # Cathedral jewel-glass palette (Ruby/Amber/Gold for Red suits, Cobalt/Emerald/Amethyst for Black suits)
+    sunbeam = exp(-rad * 1.35) * 0.45
+    r_glass = mix(0.10 + 0.32 * glass_fbm + sunbeam * 0.35, 0.76 + 0.32 * glass_fbm + sunbeam * 0.50, is_red)
+    g_glass = mix(0.28 + 0.42 * glass_fbm + sunbeam * 0.45, 0.14 + 0.35 * glass_fbm + sunbeam * 0.30, is_red)
+    b_glass = mix(0.68 + 0.35 * glass_fbm + sunbeam * 0.50, 0.18 + 0.18 * glass_fbm, is_red)
+
+    # Backlit halo around the central SDF suit emblem
+    halo = exp(-abs(d_pip) * 5.5) * 0.62
+    r = (r_glass * (1.0 - pip_core * 0.30) + halo * mix(0.35, 1.0, is_red)) * lead
+    g = (g_glass * (1.0 - pip_core * 0.30) + halo * 0.78) * lead
+    b = (b_glass * (1.0 - pip_core * 0.30) + halo * mix(1.0, 0.30, is_red)) * lead
+
+    # Blend raised 3D relief metalwork & gem pips (`mask` / `height`) over the stained-glass window
+    fg_w = clamp(mask * 0.92 + height * 0.35, 0.0, 1.0)
+    return [mix(r, in_r, fg_w), mix(g, in_g, fg_w), mix(b, in_b, fg_w)]
+
+def stained_glass_back(u, v, nx, ny, in_r, in_g, in_b, height, mask):
+    rad = hypot(nx, ny)
+    ang = atan2(ny, nx)
+    rose1 = abs(rad - 0.36 - sin(ang * 8.0) * 0.06)
+    rose2 = abs(rad - 0.68 - cos(ang * 16.0) * 0.04)
+    lead = smoothstep(0.010, 0.025, rose1) * smoothstep(0.010, 0.025, rose2)
+    glow = exp(-rose1 * 12.0) * 0.7 + exp(-rose2 * 10.0) * 0.5
+    n = fbm(nx * 5.5, ny * 5.5)
+
+    r = (0.16 + 0.38 * n + glow * 0.95) * lead
+    g = (0.12 + 0.26 * n + glow * 0.72) * lead
+    b = (0.36 + 0.52 * n + glow * 0.40) * lead
+    fg_w = clamp(mask * 0.92 + height * 0.35, 0.0, 1.0)
+    return [mix(r, in_r, fg_w), mix(g, in_g, fg_w), mix(b, in_b, fg_w)]
+
+def on_draw_card_face(ctx, rank, suit, w, h):
+    is_red   = (suit == "hearts" or suit == "diamonds")
+    is_court = (rank == "J" or rank == "Q" or rank == "K")
+    is_ace   = (rank == "A")
+    cx = w * 0.5
+    cy = h * 0.5
+
+    gold_lead   = "#c8a964"
+    gold_bright = "#fff3d1"
+    ruby_gem    = "#c91428"
+    sapphire    = "#183a68"
+    pip_col     = sapphire
+    if is_red:
+        pip_col = ruby_gem
+
+    # 1. Base Canvas Plate
+    ctx.fill_rounded_rect(0, 0, w, h, 8.0, "#0e1118")
+
+    # 2. Gothic Cathedral Arch & Sculpted Pips / Busts
+    rx = w * 0.38
+    ry = h * 0.40
+    ctx.draw_baroque_arch(cx=cx, cy=cy, rx=rx, ry=ry, style="ogee_spires", gold_color=gold_lead, accent_color=gold_bright, line_width=2.5)
+
+    if is_ace:
+        gem_style = "faceted_gem"
+        if suit == "hearts":
+            gem_style = "cabochon_gem"
+        ctx.draw_gem_pip(suit=suit, cx=cx, cy=cy, size=w * 0.35, gem_color=pip_col, gold_color=gold_lead, style=gem_style)
+    elif is_court:
+        ctx.draw_baroque_court_bust(rank=rank, suit=suit, cx=cx, cy=cy, rx=rx * 0.94, ry=ry * 0.94, gold_color=gold_lead, silver_color="#d0d6e2", gem_color=ruby_gem)
+    else:
+        ctx.draw_pip_layout(rank, suit, w, h, color=pip_col, variant="baroque_gem")
+
+    # 3. Corner Indices
+    idx_col = "#fff0c4"
+    if is_red:
+        idx_col = "#ff6b7b"
+    ctx.set_elevation(0.85, 1.0)
+    ctx.draw_corner_indices(rank, suit, w, h, color=idx_col, font_size=24.0)
+    ctx.reset_elevation()
+
+    # 4. Run Custom Stained-Glass Bytecode Shader + 3D Relief Lighting + Radiant Bloom & Vignette
+    ctx.apply_shader("stained_glass_face", rank=rank, suit=suit, intensity=1.0)
+    ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=48.0, ao_intensity=1.40, relief_depth=3.4)
+    ctx.apply_filter("bloom", intensity=0.55, threshold=0.60, radius=9.0)
+    ctx.apply_filter("vignette", intensity=0.42, radius=0.76, softness=0.45)
+
+def on_draw_card_back(ctx, w, h):
+    cx = w * 0.5
+    cy = h * 0.5
+    gold_lead   = "#c8a964"
+    gold_bright = "#fff3d1"
+
+    ctx.fill_rounded_rect(0, 0, w, h, 8.0, "#0e1118")
+    ctx.repeat_beads(inset=12.0, radius=2.4, spacing=8.0, color=gold_lead)
+    ctx.draw_baroque_arch(cx=cx, cy=cy, rx=w * 0.35, ry=h * 0.35, style="ogee_spires", gold_color=gold_lead, accent_color=gold_bright, line_width=2.6)
+    ctx.draw_gem_pip(suit="diamonds", cx=cx, cy=cy, size=w * 0.24, gem_color="#c91428", gold_color=gold_lead, style="faceted_gem")
+
+    ctx.apply_shader("stained_glass_back", intensity=1.0)
+    ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=48.0, ao_intensity=1.45, relief_depth=3.5)
+    ctx.apply_filter("bloom", intensity=0.55, threshold=0.60, radius=9.0)
+    ctx.apply_filter("vignette", intensity=0.45, radius=0.75, softness=0.45)

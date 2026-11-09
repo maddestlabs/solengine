@@ -1,0 +1,56 @@
+# SolEngine Procedural Background Theme — Painted Wood 008C
+# Pure Eatscript Bytecode Shader: Weathered painted wood planks with visible timber grain
+
+sol.set_theme({
+    id: "ambientcg_paintedwood008c",
+    name: "Painted Wood 008C",
+    author: "SolEngine / Eatscript",
+    description: "Weathered antique painted wood planks with continuous longitudinal grain and faded seams",
+    version: 2,
+    procedural: true
+})
+
+def wood_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Horizontal plank seams
+    plank_coord = ny * 7.0
+    plank_edge = abs(sin(plank_coord * 3.14159))
+    seam_darkness = smoothstep(0.04, 0.0, plank_edge) * 0.25
+
+    # 2. Longitudinal hardwood timber grain
+    grain_warp = fbm(nx * 2.0, ny * 4.0) * 0.4
+    grain = fbm(nx * 60.0 + grain_warp, ny * 3.0) * 0.15
+    micro_fibers = (fbm(nx * 120.0, ny * 6.0) - 0.5) * 0.08
+
+    # 3. Weathered paint wear (paint worn thin exposing warm wood undertone)
+    wear = fbm(nx * 3.0, ny * 3.0)
+
+    # Bare warm oak wood (#382618)
+    wood_r = 0.22 + grain + micro_fibers
+    wood_g = 0.16 + grain * 0.8 + micro_fibers
+    wood_b = 0.10 + grain * 0.5
+
+    # Faded slate-sage milk paint (#3e4745)
+    paint_r = 0.24 + micro_fibers * 0.5
+    paint_g = 0.28 + micro_fibers * 0.5
+    paint_b = 0.27 + micro_fibers * 0.5
+
+    base_r = mix(wood_r, paint_r, wear) - seam_darkness
+    base_g = mix(wood_g, paint_g, wear) - seam_darkness
+    base_b = mix(wood_b, paint_b, wear) - seam_darkness
+
+    # 4. Vignette falloff
+    vignette = smoothstep(1.35, 0.42, dist)
+    grain_speck = (random() - 0.5) * 0.01
+
+    r = clamp(base_r * vignette + grain_speck, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain_speck, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain_speck, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ctx.fill_rect(0, 0, w, h, "#22201b")
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#3e3a32", 1.8)
+    ctx.apply_shader("wood_shader", intensity=1.0)

@@ -1,0 +1,61 @@
+# SolEngine Custom Background Theme — Pool Caustics
+# Tropical sunlit pool with overlapping sine wave refraction networks and glowing caustics
+
+sol.set_theme({
+    id: "shader_pool_caustics",
+    name: "Pool Caustics",
+    author: "SolEngine / Eatscript",
+    description: "Sunlit aquamarine swimming pool with sharp refracting caustic light networks",
+    version: 1,
+    procedural: true
+})
+
+def caustics_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.92, ny)
+
+    # 1. Multi-scale wave refraction network
+    p0 = nx * 14.0
+    p1 = ny * 14.0
+
+    w1 = abs(sin(p0 + sin(p1 * 0.72)))
+    w2 = abs(sin(p1 + sin(p0 * 0.81)))
+    caustic1 = pow(1.0 - (w1 + w2) * 0.5, 3.2)
+
+    # Secondary fine ripple layer
+    q0 = nx * 26.0 + 1.7
+    q1 = ny * 26.0 + 3.4
+    w3 = abs(sin(q0 + sin(q1 * 0.65)))
+    w4 = abs(sin(q1 + sin(q0 * 0.75)))
+    caustic2 = pow(1.0 - (w3 + w4) * 0.5, 3.5) * 0.45
+
+    total_caustic = caustic1 + caustic2
+
+    # 2. Aquamarine / Caribbean deep pool palette
+    depth_r = 0.04
+    depth_g = 0.22
+    depth_b = 0.38
+
+    sun_r = 0.65 * total_caustic
+    sun_g = 0.85 * total_caustic
+    sun_b = 0.95 * total_caustic
+
+    # 3. Soft vignette
+    vignette = smoothstep(1.35, 0.45, dist)
+    grain = (random() - 0.5) * 0.015
+
+    r = clamp((depth_r + sun_r) * vignette + grain, 0.0, 1.0)
+    g = clamp((depth_g + sun_g) * vignette + grain, 0.0, 1.0)
+    b = clamp((depth_b + sun_b) * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Deep aqua base
+    ctx.fill_rect(0, 0, w, h, "#083048")
+
+    # 2. Perimeter tile coping border
+    inset = 16.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#186088", 2.0)
+
+    # 3. Run pool caustics shader
+    ctx.apply_shader("caustics_shader", intensity=1.0)
+

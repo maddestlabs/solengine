@@ -1,0 +1,71 @@
+# SolEngine Custom Background Theme — Synthwave Sunset
+# 80s Outrun perspective laser grid converging to a glowing neon horizon with twilight sky gradient
+
+sol.set_theme({
+    id: "shader_synthwave_sunset",
+    name: "Synthwave Sunset",
+    author: "SolEngine / Eatscript",
+    description: "Retro 80s Outrun perspective laser grid and glowing sunset horizon",
+    version: 1,
+    procedural: true
+})
+
+def synthwave_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.90, ny)
+
+    # Horizon at ny = 0.05
+    is_ground = (ny > 0.05)
+
+    # 1. Sky Gradient (Deep midnight purple down to glowing sunset neon pink)
+    sky_t = clamp((ny + 1.0) / 1.05, 0.0, 1.0)
+    sky_r = 0.08 + pow(sky_t, 2.0) * 0.65
+    sky_g = 0.03 + pow(sky_t, 3.5) * 0.25
+    sky_b = 0.22 + pow(sky_t, 2.0) * 0.35
+
+    # Glowing horizon haze
+    horizon_glow = exp(-abs(ny - 0.05) * 12.0) * 0.65
+    sky_r = sky_r + horizon_glow * 0.95
+    sky_g = sky_g + horizon_glow * 0.45
+    sky_b = sky_b + horizon_glow * 0.65
+
+    # 2. Infinite Ground Perspective Grid (Below horizon)
+    # Hyperbolic depth mapping: depth = 1 / (ny - 0.05)
+    persp_depth = 1.0 / max(0.015, ny - 0.05)
+    grid_x = nx * persp_depth * 1.5
+    grid_z = persp_depth * 0.85
+
+    # Grid lines
+    line_x = 1.0 - smoothstep(0.0, 0.08, abs(fract(grid_x + 0.5) - 0.5))
+    line_z = 1.0 - smoothstep(0.0, 0.08, abs(fract(grid_z + 0.5) - 0.5))
+    laser = max(line_x, line_z) * clamp(1.0 - (ny - 0.05) * 0.7, 0.0, 1.0)
+
+    # Ground base (deep twilight obsidian) + cyan laser grid
+    ground_r = 0.04 + laser * 0.15
+    ground_g = 0.03 + laser * 0.85
+    ground_b = 0.10 + laser * 0.95
+
+    # Select sky vs ground
+    base_r = mix(sky_r, ground_r, is_ground)
+    base_g = mix(sky_g, ground_g, is_ground)
+    base_b = mix(sky_b, ground_b, is_ground)
+
+    # 3. Soft optical vignette
+    vignette = smoothstep(1.35, 0.45, dist)
+    grain = (random() - 0.5) * 0.02
+
+    r = clamp(base_r * vignette + grain, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base dark fill
+    ctx.fill_rect(0, 0, w, h, "#0a0614")
+
+    # 2. Magenta/Cyan neon perimeter border
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#d82878", 2.0)
+
+    # 3. Run full-canvas synthwave shader
+    ctx.apply_shader("synthwave_shader", intensity=1.0)
+

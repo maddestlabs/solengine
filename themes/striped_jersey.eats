@@ -1,0 +1,50 @@
+# SolEngine Procedural Background Theme — Striped Jersey
+# Pure Eatscript Bytecode Shader: Ribbed knit jersey textile with soft heather striping
+
+sol.set_theme({
+    id: "ambientcg_fabric079",
+    name: "Striped Jersey",
+    author: "SolEngine / Eatscript",
+    description: "Ribbed knit jersey textile with interlocking knit wales and soft heather striping",
+    version: 2,
+    procedural: true
+})
+
+def striped_jersey_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Knit Rib Wales (1:1 scale: fine vertical 4px ridges)
+    knit_wale = sin(px * 1.57) * 0.05
+    knit_loop = sin(py * 0.78 + sin(px * 1.57) * 0.5) * 0.03
+
+    # 2. Horizontal Striping (alternating slate-gray and charcoal bands, 32px height)
+    stripe_wave = sin(py * (3.14159265 / 32.0))
+    is_light_stripe = smoothstep(-0.1, 0.1, stripe_wave)
+
+    # 3. Heather yarn flecks & fuzz
+    heather = (fbm(px * 0.12, py * 0.12) - 0.5) * 0.04
+
+    # Dark heather base vs Light heather base
+    dark_luma = 0.15 + knit_wale + knit_loop + heather
+    light_luma = 0.34 + knit_wale + knit_loop + heather
+
+    luma = mix(dark_luma, light_luma, is_light_stripe)
+
+    base_r = luma * 0.96
+    base_g = luma * 0.98
+    base_b = luma * 1.05
+
+    # 4. Vignette falloff
+    vignette = smoothstep(1.35, 0.40, dist)
+    grain = (random() - 0.5) * 0.012
+
+    r = clamp(base_r * vignette + grain, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ctx.fill_rect(0, 0, w, h, "#18181b")
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#3c3a40", 1.5)
+    ctx.apply_shader("striped_jersey_shader", intensity=1.0)

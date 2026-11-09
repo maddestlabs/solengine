@@ -1,0 +1,16 @@
+# =============================================================================
+# SolEngine Game Variant: Spider (4 Suits) (.eats)
+# =============================================================================
+name = "Spider (4 Suits)"
+family = "Spider"
+category = "SPIDER"
+description = "The classic masterpiece. 104 cards across all 4 suits; rigorous planning required."
+decks = 2
+tableaus = 10
+foundations = 8
+freecells = 0
+tableau_deal_counts = [6, 6, 6, 6, 5, 5, 5, 5, 5, 5]
+tableau_all_face_up = False
+stock_deal_mode = "deal_to_all_columns"
+stock_deal_count = 10
+

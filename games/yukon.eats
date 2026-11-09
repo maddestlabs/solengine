@@ -1,0 +1,44 @@
+# =============================================================================
+# SolEngine Game Variant: Yukon Solitaire (.eats)
+# =============================================================================
+# The premier unsequenced-dragging solitaire. All 52 cards dealt to tableaus.
+# Any face-up card and all cards resting on top of it may be moved as a unit!
+
+name = "Yukon"
+family = "Yukon"
+category = "POPULAR"
+description = "Beloved classic. Any face-up card stack can be moved regardless of sequence; Kings to spaces."
+decks = 1
+tableaus = 7
+foundations = 4
+freecells = 0
+
+# Deal configuration: all 52 cards distributed across 7 columns
+tableau_deal_counts = [1, 6, 7, 8, 9, 10, 11]
+tableau_all_face_up = False
+foundation_starter_card = False
+
+# No stock pile; all cards are dealt at startup
+stock_deal_mode = "none"
+stock_deal_count = 0
+max_redeals = 0
+
+def can_drop_tableau(dest_card, moving_card):
+    """Tableaux build down in alternating colors. Empty spaces accept Kings only."""
+    if dest_card.is_empty:
+        return moving_card.rank == 13 # King
+    is_moving_red = (moving_card.suit == 1 or moving_card.suit == 2)
+    is_dest_red = (dest_card.suit == 1 or dest_card.suit == 2)
+    return (is_moving_red != is_dest_red) and (dest_card.rank == moving_card.rank + 1)
+
+def can_lift_sequence(cards):
+    """In Yukon, any stack of face-up cards can be lifted regardless of whether
+    the sub-stack is in rank order or uniform suit!"""
+    return True
+
+def can_drop_foundation(foundation_card, moving_card):
+    """Foundations build up by same suit from Ace to King."""
+    if foundation_card.is_empty:
+        return moving_card.rank == 1 # Ace
+    return (foundation_card.suit == moving_card.suit) and (moving_card.rank == foundation_card.rank + 1)
+

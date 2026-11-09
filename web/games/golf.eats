@@ -1,0 +1,53 @@
+# =============================================================================
+# SolEngine Game Variant: Golf Solitaire (.eats)
+# =============================================================================
+# Golf Solitaire implemented using Eatscript control-plane specifications.
+# Fast-paced waste-elimination solitaire with adjacent-rank stacking rules.
+
+name = "Golf"
+family = "Golf"
+category = "GOLF"
+description = "Fast-paced elimination solitaire. Stack cards +-1 rank onto foundation waste; Kings are dead ends."
+decks = 1
+tableaus = 7
+foundations = 1
+freecells = 0
+
+# Deal configuration: 35 cards dealt face-up to 7 tableau columns (5 cards each)
+# 1 card dealt face-up to Foundation / Waste starter pile
+# Remaining 16 cards dealt to Stock
+tableau_deal_counts = [5, 5, 5, 5, 5, 5, 5]
+tableau_all_face_up = True
+foundation_starter_card = True
+stock_initial_count = 16
+
+# Stock deal rules: Draw 1 card to Foundation. 0 redeals.
+stock_deal_mode = "deal_to_foundation"
+stock_deal_count = 1
+max_redeals = 0
+
+def can_drop_foundation(foundation_card, moving_card):
+    """In classic Golf, cards can be moved to Foundation if their rank is
+    either 1 higher or 1 lower (+-1) than the top foundation card, regardless of suit.
+    Kings are dead ends: no card can be played onto a King."""
+    if foundation_card.is_empty:
+        return True
+    if foundation_card.rank == 13: # King is a dead end
+        return False
+    return (moving_card.rank == foundation_card.rank + 1) or (moving_card.rank == foundation_card.rank - 1)
+
+def can_move_tableau_to_tableau():
+    """In Golf Solitaire, cards can never be moved between tableau columns."""
+    return False
+
+def can_lift_tableau(column_cards, card_index):
+    """Only the top exposed card of any tableau column can be moved."""
+    return card_index == (len(column_cards) - 1)
+
+def check_victory(tableaus):
+    """Victory is achieved when all 7 tableau columns are completely cleared."""
+    for col in tableaus:
+        if len(col) > 0:
+            return False
+    return True
+
