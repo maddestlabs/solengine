@@ -114,6 +114,8 @@ bool SettingsManager::load() {
             settings_.menuAnchor = static_cast<MenuAnchor>(std::clamp(a["menuAnchor"].asInt(0), 0, 3));
             settings_.menuFlowVertical = a["menuFlowVertical"].asBool(false);
             settings_.menuDisplayMode = static_cast<MenuDisplayMode>(std::clamp(a["menuDisplayMode"].asInt(0), 0, 2));
+            settings_.toolbarScale = static_cast<ToolbarScale>(std::clamp(a["toolbarScale"].asInt(static_cast<int>(ToolbarScale::Regular)), 0, 2));
+            settings_.toolbarItems = static_cast<uint32_t>(a["toolbarItems"].asInt(static_cast<int>(ToolbarItem_Default)));
             settings_.showTableMarkings = a["showTableMarkings"].asBool(true);
         }
 
@@ -172,6 +174,8 @@ bool SettingsManager::save() {
     a["menuAnchor"] = static_cast<int>(settings_.menuAnchor);
     a["menuFlowVertical"] = settings_.menuFlowVertical;
     a["menuDisplayMode"] = static_cast<int>(settings_.menuDisplayMode);
+    a["toolbarScale"] = static_cast<int>(settings_.toolbarScale);
+    a["toolbarItems"] = static_cast<int>(settings_.toolbarItems);
     a["showTableMarkings"] = settings_.showTableMarkings;
     root["appearance"] = a;
 

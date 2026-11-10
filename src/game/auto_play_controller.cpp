@@ -116,7 +116,13 @@ bool AutoPlayController::stepForward(SolitaireBoard& board, AudioFoleyEngine* fo
     if (ok) {
         ++currentMoveIdx_;
         if (foley) {
-            foley->triggerSound(FoleySound::Deal, 0.78f);
+            float pan = 0.0f;
+            if (static_cast<size_t>(m.toPile) < board.piles().size() && board.cardWidth() > 0.0f) {
+                const auto& dstPile = board.piles()[static_cast<size_t>(m.toPile)];
+                float boardW = std::max(600.0f, board.cardWidth() * 10.0f);
+                pan = std::clamp((dstPile.x + board.cardWidth() * 0.5f) / boardW * 2.0f - 1.0f, -0.75f, 0.75f);
+            }
+            foley->triggerSound(FoleySound::Deal, 0.78f, pan);
         }
         if (currentMoveIdx_ >= moves_.size() || board.isVictory()) {
             state_ = AutoPlayState::Completed;

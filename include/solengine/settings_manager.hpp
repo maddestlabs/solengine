@@ -28,6 +28,8 @@ struct AppSettings {
     MenuAnchor menuAnchor{MenuAnchor::BottomLeft};
     bool menuFlowVertical{false};
     MenuDisplayMode menuDisplayMode{MenuDisplayMode::Auto};
+    ToolbarScale toolbarScale{ToolbarScale::Regular};
+    uint32_t toolbarItems{ToolbarItem_Default};
     int aaMode{4}; // Permanently 4x MSAA (supersampled anti-aliasing)
     LightingPreset lightingPreset{LightingPreset::StudioSteady}; // Animated lighting (default StudioSteady = off)
     float sceneDarkness{0.22f}; // 0.0 = 0% darkening, 0.22 = 22% subtle atmospheric darkening, up to 0.85

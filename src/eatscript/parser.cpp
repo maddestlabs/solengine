@@ -389,7 +389,9 @@ std::shared_ptr<Expr> Parser::parsePrimary() {
                 } else {
                     throw std::runtime_error("Expected string or identifier key in dictionary at line " + std::to_string(peek().line));
                 }
-                consume(TokenType::Colon, "Expected ':' after dictionary key");
+                if (!match(TokenType::Colon)) {
+                    consume(TokenType::Assign, "Expected ':' or '=' after dictionary key");
+                }
                 skipNewlines();
                 auto val = parseExpression();
                 entries.push_back(DictEntry{std::move(keyName), std::move(val)});

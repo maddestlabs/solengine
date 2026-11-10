@@ -951,7 +951,7 @@ void drawClockworkMedallion(
     float cx, float cy, float radius,
     bool hovered, bool active,
     const char* glyph,
-    float timeSec
+    [[maybe_unused]] float timeSec
 ) {
     const auto& pal = palette();
     const float alpha = hovered ? 1.0f : 0.88f;
@@ -978,23 +978,37 @@ void drawClockworkMedallion(
         );
     }
 
-    // 3. Outer gear-rim / riveted brass bezel
-    const float gearRot = hovered ? (timeSec * 0.35f) : 0.0f;
-    drawGear(
-        r, cx, cy, radius, radius * 0.88f, radius * 0.74f, 16, gearRot,
-        pal.brassMidR, pal.brassMidG, pal.brassMidB, alpha,
-        hovered ? pal.brassHighlightR : pal.brassBrightR,
-        hovered ? pal.brassHighlightG : pal.brassBrightG,
-        hovered ? pal.brassHighlightB : pal.brassBrightB,
-        alpha, 4, radius * 0.5f
+    // 3. Sleek elegant circular brass bezel (clean concentric rims replacing cogwheel)
+    r.drawCircle(
+        cx, cy, radius,
+        pal.brassDarkR * 0.7f, pal.brassDarkG * 0.7f, pal.brassDarkB * 0.7f, alpha * 0.95f, 28
+    );
+    r.drawCircleOutline(
+        cx, cy, radius,
+        pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, alpha * 0.8f, 1.2f, 28
+    );
+    r.drawCircleOutline(
+        cx, cy, radius * 0.92f,
+        hovered ? pal.brassBrightR : pal.brassMidR,
+        hovered ? pal.brassBrightG : pal.brassMidG,
+        hovered ? pal.brassBrightB : pal.brassMidB,
+        alpha, 1.6f, 28
+    );
+    r.drawCircleOutline(
+        cx, cy, radius * 0.82f,
+        pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, alpha * 0.6f, 1.0f, 28
     );
 
-    // Rivets on bezel perimeter
+    // Subtle cardinal brass rivet accents
     for (int i = 0; i < 4; ++i) {
-        float angle = static_cast<float>(i) * (kTwoPi / 4.0f) + (gearRot * 0.5f);
-        float rx = cx + std::cos(angle) * (radius * 0.80f);
-        float ry = cy + std::sin(angle) * (radius * 0.80f);
-        drawRivet(r, rx, ry, 1.6f, false, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha * 0.9f);
+        float angle = static_cast<float>(i) * (kTwoPi / 4.0f);
+        float rx = cx + std::cos(angle) * (radius * 0.87f);
+        float ry = cy + std::sin(angle) * (radius * 0.87f);
+        drawRivet(r, rx, ry, 1.2f, false,
+                  hovered ? pal.brassHighlightR : pal.brassMidR,
+                  hovered ? pal.brassHighlightG : pal.brassMidG,
+                  hovered ? pal.brassHighlightB : pal.brassMidB,
+                  alpha * 0.85f);
     }
 
     // 4. Domed concentric copper/bronze disc
@@ -1021,12 +1035,18 @@ void drawClockworkMedallion(
     if (!glyph || glyph[0] == '\0') return;
 
     const bool isStar = (glyph[0] == '*' && glyph[1] == '\0');
-    const bool isAutoPlay = (std::string_view(glyph) == "▶" ||
-                             std::string_view(glyph) == "\xE2\x96\xB6" ||
-                             std::string_view(glyph) == "PLAY");
+    const bool isPlay = (std::string_view(glyph) == "▶" ||
+                         std::string_view(glyph) == "\xE2\x96\xB6" ||
+                         std::string_view(glyph) == "PLAY");
+    const bool isAutoPlay = (std::string_view(glyph) == "AUTO" ||
+                             std::string_view(glyph) == ">>" ||
+                             std::string_view(glyph) == "▶▶");
     const bool isRestart = (std::string_view(glyph) == "↺" ||
                             std::string_view(glyph) == "\xE2\x86\xBA" ||
                             (glyph[0] == 'R' && glyph[1] == '\0'));
+    const bool isResize = (std::string_view(glyph) == "⤢" ||
+                           std::string_view(glyph) == "\xE2\xA4\xA2" ||
+                           std::string_view(glyph) == "SIZE");
 
     if (isStar) {
         // Guaranteed Solvable Deal: 5-point golden vector star
@@ -1047,15 +1067,15 @@ void drawClockworkMedallion(
             pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha,
             1.2f
         );
-    } else if (isAutoPlay) {
-        // Auto-Play: solid vector play triangle pointing right
+    } else if (isPlay) {
+        // Play / New Game: solid vector play triangle pointing right
         const float triHalfH = faceRadius * 0.48f;
         const float triW = faceRadius * 0.55f;
-        const float x0 = cx - triW * 0.40f;
+        const float x0 = cx - triW * 0.38f;
         const float y0 = cy - triHalfH;
-        const float x1 = cx + triW * 0.60f;
+        const float x1 = cx + triW * 0.62f;
         const float y1 = cy;
-        const float x2 = cx - triW * 0.40f;
+        const float x2 = cx - triW * 0.38f;
         const float y2 = cy + triHalfH;
 
         // Drop shadow
@@ -1071,6 +1091,60 @@ void drawClockworkMedallion(
         r.drawLine(x0, y0, x1, y1, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
         r.drawLine(x1, y1, x2, y2, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
         r.drawLine(x2, y2, x0, y0, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
+    } else if (isAutoPlay) {
+        // Auto-Play: double play chevrons / fast-forward triangles
+        const float triHalfH = faceRadius * 0.42f;
+        const float triW = faceRadius * 0.42f;
+        const float offsets[2] = { -faceRadius * 0.28f, faceRadius * 0.16f };
+
+        for (float offX : offsets) {
+            const float x0 = cx + offX - triW * 0.40f;
+            const float y0 = cy - triHalfH;
+            const float x1 = cx + offX + triW * 0.60f;
+            const float y1 = cy;
+            const float x2 = cx + offX - triW * 0.40f;
+            const float y2 = cy + triHalfH;
+
+            // Drop shadow
+            r.drawTriangle(x0 + 1.2f, y0 + 1.2f, x1 + 1.2f, y1 + 1.2f, x2 + 1.2f, y2 + 1.2f,
+                           0.04f, 0.03f, 0.02f, alpha * 0.85f);
+            // Face
+            r.drawTriangle(x0, y0, x1, y1, x2, y2,
+                           hovered ? pal.brassHighlightR : pal.brassBrightR,
+                           hovered ? pal.brassHighlightG : pal.brassBrightG,
+                           hovered ? pal.brassHighlightB : pal.brassBrightB,
+                           alpha);
+            // Outline
+            r.drawLine(x0, y0, x1, y1, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
+            r.drawLine(x1, y1, x2, y2, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
+            r.drawLine(x2, y2, x0, y0, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
+        }
+    } else if (isResize) {
+        // Diagonal scale / resize arrows pointing outward top-right and bottom-left
+        const float arm = faceRadius * 0.44f;
+        const float head = faceRadius * 0.22f;
+        const float x0 = cx - arm;
+        const float y0 = cy + arm;
+        const float x1 = cx + arm;
+        const float y1 = cy - arm;
+
+        // Shadow pass
+        r.drawLine(x0 + 1.2f, y0 + 1.2f, x1 + 1.2f, y1 + 1.2f, 0.04f, 0.03f, 0.02f, alpha * 0.90f, 2.4f);
+        r.drawLine(x1 + 1.2f, y1 + 1.2f, x1 - head + 1.2f, y1 + 1.2f, 0.04f, 0.03f, 0.02f, alpha * 0.90f, 2.4f);
+        r.drawLine(x1 + 1.2f, y1 + 1.2f, x1 + 1.2f, y1 + head + 1.2f, 0.04f, 0.03f, 0.02f, alpha * 0.90f, 2.4f);
+        r.drawLine(x0 + 1.2f, y0 + 1.2f, x0 + head + 1.2f, y0 + 1.2f, 0.04f, 0.03f, 0.02f, alpha * 0.90f, 2.4f);
+        r.drawLine(x0 + 1.2f, y0 + 1.2f, x0 + 1.2f, y0 - head + 1.2f, 0.04f, 0.03f, 0.02f, alpha * 0.90f, 2.4f);
+
+        // Core polished brass stroke
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+
+        r.drawLine(x0, y0, x1, y1, brR, brG, brB, alpha, 2.2f);
+        r.drawLine(x1, y1, x1 - head, y1, brR, brG, brB, alpha, 2.2f);
+        r.drawLine(x1, y1, x1, y1 + head, brR, brG, brB, alpha, 2.2f);
+        r.drawLine(x0, y0, x0 + head, y0, brR, brG, brB, alpha, 2.2f);
+        r.drawLine(x0, y0, x0, y0 - head, brR, brG, brB, alpha, 2.2f);
     } else if (isRestart) {
         // Procedural Circular Rewind Arrow (anti-clockwise)
         const float arcR = faceRadius * 0.48f;

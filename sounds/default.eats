@@ -1,0 +1,24 @@
+# ==============================================================================
+# SolEngine Core Procedural Audio Foley (.eats)
+# Default Classic Table: HD Velvet DSP & Dirac Edge Transient Modeling
+# Micro-variations tuned for subtle, realistic physical movement.
+# ==============================================================================
+
+audio.set_master_volume(0.85)
+audio.set_master_variance(1.0) # 1.0 = subtle organic realism, 0.0 = deterministic
+
+# HD Velvet DSP physical modeling configuration:
+# - velvet_density: discrete micro-fiber collision impulses per second (3500 - 6000)
+# - edge_snap: sub-millisecond Dirac edge transient crispness (0.0 to 1.5)
+# - air_boost: high-shelf acoustic presence boost in dB (8kHz - 14kHz)
+# - comb_delay: card edge aperture comb dispersion phase cancellation in seconds
+# - felt_damping: lowpass absorption window ceiling in Hz
+# - card_rigidity: card flexion resonance in Hz
+audio.set_physical_params({
+    velvet_density: 4200.0,
+    edge_snap:      0.85,
+    air_boost:      5.0,
+    comb_delay:     0.00018,
+    felt_damping:   7500.0,
+    card_rigidity:  3200.0
+})

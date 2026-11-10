@@ -86,7 +86,8 @@ enum HudButtonId : int {
     BtnSpeedToggle= 24,
     BtnTakeOver   = 25,
     BtnSolvableDeal=26,
-    BtnSeedDialog = 28
+    BtnSeedDialog = 28,
+    BtnToolbarResize = 29
 };
 
 struct HudButtonRect {
@@ -116,12 +117,75 @@ ClockworkBarLayout computeClockworkBarLayout(
     MenuAnchor anchor = MenuAnchor::BottomLeft,
     bool isVertical = false
 ) {
-    constexpr float orbSize = 38.0f;
-    constexpr float orbGap = 5.0f;
-    constexpr float padX = 8.0f;
-    constexpr float padY = 6.0f;
+    const auto& s = SettingsManager::instance().settings();
+    float orbSize = 38.0f;
+    float orbGap = 5.0f;
+    float padX = 8.0f;
+    float padY = 6.0f;
     constexpr float margin = 14.0f;
-    constexpr int kNumButtons = 10;
+
+    if (s.toolbarScale == ToolbarScale::Compact) {
+        orbSize = 30.0f;
+        orbGap = 4.0f;
+        padX = 6.0f;
+        padY = 5.0f;
+    } else if (s.toolbarScale == ToolbarScale::Large) {
+        orbSize = 46.0f;
+        orbGap = 6.0f;
+        padX = 10.0f;
+        padY = 7.0f;
+    }
+
+    struct BtnDef {
+        HudButtonId id;
+        const char* label;
+        const char* glyph;
+    };
+    std::vector<BtnDef> sDefs;
+    sDefs.reserve(12);
+
+    const uint32_t flags = s.toolbarItems;
+
+    // Master orb always first
+    if (flags & ToolbarItem_Settings) {
+        sDefs.push_back({ BtnMenuToggle,   "[O] Settings / Drag",     "S" });
+    }
+    if (flags & ToolbarItem_Play) {
+        sDefs.push_back({ BtnNewDeal,      "[N]ew Game (Hold for Options)", "▶" });
+    }
+    if (flags & ToolbarItem_Undo) {
+        sDefs.push_back({ BtnUndo,         "[z]Undo",                 "<" });
+    }
+    if (flags & ToolbarItem_Redo) {
+        sDefs.push_back({ BtnRedo,         "[y]Redo",                 ">" });
+    }
+    if (flags & ToolbarItem_AutoPlay) {
+        sDefs.push_back({ BtnAutoPlay,     "[A]uto-Play",             ">>" });
+    }
+    if (flags & ToolbarItem_Hint) {
+        sDefs.push_back({ BtnHint,         "[H]int",                  "?" });
+    }
+    if (flags & ToolbarItem_Restart) {
+        sDefs.push_back({ BtnRestart,      "[R]estart",               "↺" });
+    }
+    if (flags & ToolbarItem_Solvable) {
+        sDefs.push_back({ BtnSolvableDeal, "[Shift+N] Solvable Deal", "*" });
+    }
+    if (flags & ToolbarItem_Seed) {
+        sDefs.push_back({ BtnSeedDialog,   "[#] Deal Seed",           "#" });
+    }
+    if (flags & ToolbarItem_GameSelect) {
+        sDefs.push_back({ BtnVariant,      "[G] Select Game",         "G" });
+    }
+    if (flags & ToolbarItem_Resize) {
+        sDefs.push_back({ BtnToolbarResize,"[Scale] Tap: Size / Hold: Config", "⤢" });
+    }
+
+    if (sDefs.empty()) {
+        sDefs.push_back({ BtnMenuToggle, "[O] Settings / Drag", "S" });
+    }
+
+    const int kNumButtons = static_cast<int>(sDefs.size());
 
     ClockworkBarLayout layout;
     layout.isVertical = isVertical;
@@ -164,35 +228,6 @@ ClockworkBarLayout computeClockworkBarLayout(
 
     layout.barX = std::clamp(layout.barX, 4.0f, std::max(4.0f, width - layout.barW - 4.0f));
     layout.barY = std::clamp(layout.barY, 4.0f, std::max(4.0f, height - layout.barH - 4.0f));
-
-    // The 10 buttons in sequence:
-    // 0: SolEngine Master Orb (Settings / Drag)
-    // 1: Game Selection Dialog
-    // 2: New Game
-    // 3: Restart Game
-    // 4: Undo
-    // 5: Redo
-    // 6: Hint
-    // 7: Auto-Play
-    // 8: New Solvable Game
-    // 9: Deal Seed Dialog
-    struct BtnDef {
-        HudButtonId id;
-        const char* label;
-        const char* glyph;
-    };
-    static const BtnDef sDefs[kNumButtons] = {
-        { BtnMenuToggle,   "[O] Settings / Drag",     "S" },
-        { BtnVariant,      "[G] Select Game",         "G" },
-        { BtnNewDeal,      "[N]ew Game",              "+" },
-        { BtnRestart,      "[R]estart",               "↺" },
-        { BtnUndo,         "[z]Undo",                 "<" },
-        { BtnRedo,         "[y]Redo",                 ">" },
-        { BtnHint,         "[H]int",                  "?" },
-        { BtnAutoPlay,     "[A]uto-Play",             "▶" },
-        { BtnSolvableDeal, "[Shift+N] Solvable Deal", "*" },
-        { BtnSeedDialog,   "[#] Deal Seed",           "#" },
-    };
 
     layout.buttons.reserve(kNumButtons);
     for (int i = 0; i < kNumButtons; ++i) {
@@ -1614,7 +1649,7 @@ void TableRenderer::renderBoard(
         const float cy = b.y + b.h * 0.5f;
         const float radius = b.w * 0.5f;
 
-        if (i == 0) {
+        if (b.id == BtnMenuToggle) {
             // Master SolEngine Orb
             clockwork_ui::drawClockworkMenuOrb(r, cx, cy, radius, hovered, isDraggingMenu, sAnimTime);
         } else {
@@ -1790,6 +1825,313 @@ bool TableRenderer::renderToPng(
     return writePngFile(outputPngPath, outW, outH, rgba.data());
 }
 
+namespace {
+
+void drawPlayContextMenu(
+    eatsbits::ui::BatchRenderer2D& r,
+    float width,
+    float height,
+    float anchorX,
+    float anchorY,
+    float mouseX,
+    float mouseY,
+    bool isSolvableActive,
+    int& hoveredOption
+) {
+    constexpr float menuW = 230.0f;
+    constexpr float itemH = 30.0f;
+    constexpr float headerH = 26.0f;
+    constexpr float pad = 8.0f;
+    constexpr int kCount = 5;
+    constexpr float menuH = headerH + static_cast<float>(kCount) * itemH + pad * 2.0f;
+
+    float menuX = anchorX;
+    float menuY = (anchorY > height * 0.5f) ? (anchorY - menuH - 8.0f) : (anchorY + 44.0f);
+    menuX = std::clamp(menuX, 8.0f, width - menuW - 8.0f);
+    menuY = std::clamp(menuY, 8.0f, height - menuH - 8.0f);
+
+    const auto& cpal = clockwork_ui::palette();
+
+    // 1. Drop shadow
+    r.drawRectDropShadow(menuX, menuY, menuW, menuH, 10.0f, 18.0f,
+                         eatsbits::ui::LightSource2D{menuX + menuW * 0.5f, -200.0f, 1.0f}, 0.65f);
+
+    // 2. Chassis background
+    r.drawRoundedRectGradient(
+        menuX, menuY, menuW, menuH, 8.0f,
+        cpal.chassisLightR, cpal.chassisLightG, cpal.chassisLightB,
+        cpal.chassisDarkR, cpal.chassisDarkG, cpal.chassisDarkB,
+        0.96f, 6
+    );
+    r.drawRoundedRectOutline(
+        menuX, menuY, menuW, menuH, 8.0f,
+        cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.95f, 1.4f, 6
+    );
+
+    // 3. Header
+    eatsbits::ui::glyph::drawVectorText(
+        r, "NEW DEAL OPTIONS", menuX + 12.0f, menuY + 7.0f, 10.0f,
+        cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.95f
+    );
+    r.drawLine(menuX + 10.0f, menuY + headerH, menuX + menuW - 10.0f, menuY + headerH,
+               cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 0.7f, 1.0f);
+
+    // 4. Options
+    struct Option {
+        const char* glyph;
+        const char* label;
+    };
+    const Option options[kCount] = {
+        { "▶", "New Random Deal" },
+        { "*", "New Solvable Deal" },
+        { "↺", "Restart Current Deal" },
+        { isSolvableActive ? "[x]" : "[ ]", "Solvable Mode (Shift+N)" },
+        { "G", "Game Library..." }
+    };
+
+    hoveredOption = -1;
+    float curY = menuY + headerH + pad * 0.5f;
+    for (int i = 0; i < kCount; ++i) {
+        bool hovered = (mouseX >= menuX + pad && mouseX <= menuX + menuW - pad &&
+                        mouseY >= curY && mouseY <= curY + itemH);
+        if (hovered) hoveredOption = i;
+
+        if (hovered) {
+            r.drawRoundedRect(
+                menuX + pad, curY, menuW - pad * 2.0f, itemH, 4.0f,
+                cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.22f, 4
+            );
+            r.drawRoundedRectOutline(
+                menuX + pad, curY, menuW - pad * 2.0f, itemH, 4.0f,
+                cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.8f, 1.0f, 4
+            );
+        }
+
+        eatsbits::ui::glyph::drawVectorText(
+            r, options[i].glyph, menuX + pad + 8.0f, curY + 8.0f, 11.0f,
+            hovered ? cpal.brassBrightR : cpal.brassHighlightR,
+            hovered ? cpal.brassBrightG : cpal.brassHighlightG,
+            hovered ? cpal.brassBrightB : cpal.brassHighlightB,
+            1.0f
+        );
+
+        eatsbits::ui::glyph::drawVectorText(
+            r, options[i].label, menuX + pad + 32.0f, curY + 8.0f, 11.0f,
+            hovered ? 1.0f : 0.88f,
+            hovered ? 0.96f : 0.84f,
+            hovered ? 0.85f : 0.76f,
+            1.0f
+        );
+
+        curY += itemH;
+    }
+}
+
+void drawToolbarConfigMenu(
+    eatsbits::ui::BatchRenderer2D& r,
+    float width,
+    float height,
+    float anchorX,
+    float anchorY,
+    float mouseX,
+    float mouseY,
+    const AppSettings& s,
+    int& hoveredScaleIdx,
+    int& hoveredToggleIdx,
+    bool& hoveredClose
+) {
+    constexpr float menuW = 240.0f;
+    constexpr float headerH = 26.0f;
+    constexpr float scaleRowH = 34.0f;
+    constexpr float itemH = 26.0f;
+    constexpr float pad = 8.0f;
+    constexpr int kNumToggles = 9;
+    constexpr float footerH = 32.0f;
+    constexpr float menuH = headerH + scaleRowH + 14.0f + static_cast<float>(kNumToggles) * itemH + footerH + pad * 2.0f;
+
+    float menuX = anchorX;
+    float menuY = (anchorY > height * 0.5f) ? (anchorY - menuH - 8.0f) : (anchorY + 44.0f);
+    menuX = std::clamp(menuX, 8.0f, width - menuW - 8.0f);
+    menuY = std::clamp(menuY, 8.0f, height - menuH - 8.0f);
+
+    const auto& cpal = clockwork_ui::palette();
+
+    // 1. Drop shadow
+    r.drawRectDropShadow(menuX, menuY, menuW, menuH, 10.0f, 18.0f,
+                         eatsbits::ui::LightSource2D{menuX + menuW * 0.5f, -200.0f, 1.0f}, 0.65f);
+
+    // 2. Chassis background
+    r.drawRoundedRectGradient(
+        menuX, menuY, menuW, menuH, 8.0f,
+        cpal.chassisLightR, cpal.chassisLightG, cpal.chassisLightB,
+        cpal.chassisDarkR, cpal.chassisDarkG, cpal.chassisDarkB,
+        0.97f, 6
+    );
+    r.drawRoundedRectOutline(
+        menuX, menuY, menuW, menuH, 8.0f,
+        cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.95f, 1.4f, 6
+    );
+
+    // 3. Header
+    eatsbits::ui::glyph::drawVectorText(
+        r, "TOOLBAR CONFIGURATION", menuX + 12.0f, menuY + 7.0f, 10.0f,
+        cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.95f
+    );
+    r.drawLine(menuX + 10.0f, menuY + headerH, menuX + menuW - 10.0f, menuY + headerH,
+               cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 0.7f, 1.0f);
+
+    // 4. Scale row
+    float scaleY = menuY + headerH + 6.0f;
+    const char* scaleNames[3] = { "Small", "Regular", "Large" };
+    const float pillW = (menuW - pad * 2.0f - 8.0f) / 3.0f;
+    const float pillH = 22.0f;
+
+    hoveredScaleIdx = -1;
+    for (int i = 0; i < 3; ++i) {
+        float px = menuX + pad + static_cast<float>(i) * (pillW + 4.0f);
+        bool isCurrent = (static_cast<int>(s.toolbarScale) == i);
+        bool hovered = (mouseX >= px && mouseX <= px + pillW && mouseY >= scaleY && mouseY <= scaleY + pillH);
+        if (hovered) hoveredScaleIdx = i;
+
+        if (isCurrent) {
+            r.drawRoundedRect(px, scaleY, pillW, pillH, 4.0f,
+                              cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.40f, 4);
+            r.drawRoundedRectOutline(px, scaleY, pillW, pillH, 4.0f,
+                                     cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f, 1.2f, 4);
+        } else if (hovered) {
+            r.drawRoundedRect(px, scaleY, pillW, pillH, 4.0f,
+                              cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.20f, 4);
+            r.drawRoundedRectOutline(px, scaleY, pillW, pillH, 4.0f,
+                                     cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.7f, 1.0f, 4);
+        } else {
+            r.drawRoundedRect(px, scaleY, pillW, pillH, 4.0f,
+                              cpal.chassisDarkR, cpal.chassisDarkG, cpal.chassisDarkB, 0.60f, 4);
+            r.drawRoundedRectOutline(px, scaleY, pillW, pillH, 4.0f,
+                                     cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 0.5f, 1.0f, 4);
+        }
+
+        const float txtW = eatsbits::ui::glyph::getVectorTextWidth(9.0f, scaleNames[i]);
+        eatsbits::ui::glyph::drawVectorText(
+            r, scaleNames[i], px + (pillW - txtW) * 0.5f, scaleY + 5.5f, 9.0f,
+            isCurrent ? cpal.brassHighlightR : 0.80f,
+            isCurrent ? cpal.brassHighlightG : 0.78f,
+            isCurrent ? cpal.brassHighlightB : 0.72f,
+            1.0f
+        );
+    }
+
+    // Divider
+    float divY = scaleY + pillH + 8.0f;
+    r.drawLine(menuX + 10.0f, divY, menuX + menuW - 10.0f, divY,
+               cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 0.5f, 1.0f);
+
+    // Section label
+    eatsbits::ui::glyph::drawVectorText(
+        r, "VISIBLE ICONS", menuX + 12.0f, divY + 4.0f, 9.0f,
+        cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 0.75f
+    );
+
+    // 5. Toggle checkboxes
+    struct ToggleDef {
+        uint32_t flag;
+        const char* label;
+        const char* glyph;
+    };
+    const ToggleDef toggles[kNumToggles] = {
+        { ToolbarItem_Play,       "Play / Deal",       "▶" },
+        { ToolbarItem_Undo,       "Undo",              "<" },
+        { ToolbarItem_Redo,       "Redo",              ">" },
+        { ToolbarItem_AutoPlay,   "Auto-Play",         ">>" },
+        { ToolbarItem_Hint,       "Hint",              "?" },
+        { ToolbarItem_Restart,    "Restart Deal",      "↺" },
+        { ToolbarItem_Solvable,   "Solvable Deal",     "*" },
+        { ToolbarItem_Seed,       "Deal Seed",         "#" },
+        { ToolbarItem_GameSelect, "Select Game",       "G" }
+    };
+
+    hoveredToggleIdx = -1;
+    float curY = divY + 18.0f;
+    for (int i = 0; i < kNumToggles; ++i) {
+        bool isEnabled = (s.toolbarItems & toggles[i].flag) != 0;
+        bool hovered = (mouseX >= menuX + pad && mouseX <= menuX + menuW - pad &&
+                        mouseY >= curY && mouseY <= curY + itemH);
+        if (hovered) hoveredToggleIdx = i;
+
+        if (hovered) {
+            r.drawRoundedRect(
+                menuX + pad, curY, menuW - pad * 2.0f, itemH, 4.0f,
+                cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.15f, 4
+            );
+        }
+
+        const float cbSize = 13.0f;
+        const float cbX = menuX + pad + 6.0f;
+        const float cbY = curY + (itemH - cbSize) * 0.5f;
+
+        r.drawRoundedRect(cbX, cbY, cbSize, cbSize, 3.0f,
+                          isEnabled ? cpal.furnaceAmberR : cpal.chassisDarkR,
+                          isEnabled ? cpal.furnaceAmberG : cpal.chassisDarkG,
+                          isEnabled ? cpal.furnaceAmberB : cpal.chassisDarkB,
+                          0.85f, 4);
+        r.drawRoundedRectOutline(cbX, cbY, cbSize, cbSize, 3.0f,
+                                 cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.9f, 1.0f, 4);
+
+        if (isEnabled) {
+            eatsbits::ui::glyph::drawVectorText(
+                r, "x", cbX + 2.5f, cbY + 1.5f, 9.0f,
+                cpal.brassBrightR, cpal.brassBrightG, cpal.brassBrightB, 1.0f
+            );
+        }
+
+        eatsbits::ui::glyph::drawVectorText(
+            r, toggles[i].glyph, cbX + cbSize + 8.0f, curY + 6.0f, 10.0f,
+            cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 0.9f
+        );
+
+        eatsbits::ui::glyph::drawVectorText(
+            r, toggles[i].label, cbX + cbSize + 28.0f, curY + 6.5f, 10.0f,
+            isEnabled ? 0.90f : 0.55f,
+            isEnabled ? 0.88f : 0.52f,
+            isEnabled ? 0.82f : 0.48f,
+            1.0f
+        );
+
+        curY += itemH;
+    }
+
+    // 6. Close button in footer
+    float closeBtnY = curY + 4.0f;
+    float closeBtnW = menuW - pad * 2.0f;
+    float closeBtnH = 22.0f;
+    hoveredClose = (mouseX >= menuX + pad && mouseX <= menuX + pad + closeBtnW &&
+                    mouseY >= closeBtnY && mouseY <= closeBtnY + closeBtnH);
+
+    r.drawRoundedRect(
+        menuX + pad, closeBtnY, closeBtnW, closeBtnH, 4.0f,
+        hoveredClose ? cpal.furnaceAmberR : cpal.chassisDarkR,
+        hoveredClose ? cpal.furnaceAmberG : cpal.chassisDarkG,
+        hoveredClose ? cpal.furnaceAmberB : cpal.chassisDarkB,
+        hoveredClose ? 0.35f : 0.60f, 4
+    );
+    r.drawRoundedRectOutline(
+        menuX + pad, closeBtnY, closeBtnW, closeBtnH, 4.0f,
+        hoveredClose ? cpal.brassHighlightR : cpal.brassMidR,
+        hoveredClose ? cpal.brassHighlightG : cpal.brassMidG,
+        hoveredClose ? cpal.brassHighlightB : cpal.brassMidB,
+        0.85f, 1.0f, 4
+    );
+    const float doneTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.0f, "Done");
+    eatsbits::ui::glyph::drawVectorText(
+        r, "Done", menuX + (menuW - doneTxtW) * 0.5f, closeBtnY + 5.5f, 10.0f,
+        hoveredClose ? cpal.brassHighlightR : 0.85f,
+        hoveredClose ? cpal.brassHighlightG : 0.82f,
+        hoveredClose ? cpal.brassHighlightB : 0.78f,
+        1.0f
+    );
+}
+
+} // namespace
+
 struct InteractiveContext {
     SolitaireBoard& board;
     AudioFoleyEngine& foley;
@@ -1810,6 +2152,9 @@ struct InteractiveContext {
     double dragStartMouseY = 0.0;
     float dragOffsetX = 0.0f;
     float dragOffsetY = 0.0f;
+    float dragSoundAccumulator = 0.0f;
+    double lastDragMouseX = 0.0;
+    double lastDragMouseY = 0.0;
 
     bool prevLeftDown = false;
     bool prevRightDown = false;
@@ -1877,6 +2222,21 @@ struct InteractiveContext {
     float gestureCurX = 0.0f;
     float gestureCurY = 0.0f;
 
+    // Toolbar hold and context menu state
+    int pressedToolbarBtn = BtnNone;
+    float pressStartTime = 0.0f;
+    float pressStartX = 0.0f;
+    float pressStartY = 0.0f;
+    bool holdTriggered = false;
+
+    bool playMenuOpen = false;
+    float playMenuAnchorX = 0.0f;
+    float playMenuAnchorY = 0.0f;
+
+    bool toolbarConfigOpen = false;
+    float toolbarConfigAnchorX = 0.0f;
+    float toolbarConfigAnchorY = 0.0f;
+
     bool autoCascadeActive = false;
     float autoCascadeTimer = 0.0f;
     double lastTime = 0.0;
@@ -1905,6 +2265,7 @@ struct InteractiveContext {
         CardTextureCache::StagingDeck stagingDeck;
         bool stagingDeckReady{false};
         bool customBgReady{false};
+        bool customAudioReady{false};
         TableThemeId targetTheme{TableThemeId::EmeraldLawn};
         std::string targetThemeSlug;
         bool themeReady{false};
@@ -1941,6 +2302,7 @@ struct InteractiveContext {
             targetThemeSlug.clear();
             stagingDeckReady = false;
             customBgReady = false;
+            customAudioReady = false;
             solvableSeedReady = false;
             cancelRequested.store(false);
             isBusy.store(false);
@@ -2180,6 +2542,18 @@ struct InteractiveContext {
             size_t nextLine = content.find('\n', markerPos);
             if (nextLine != std::string::npos) {
                 blobPart = content.substr(nextLine + 1);
+            }
+        }
+
+        // Check if this Eatscript file is a procedural audio soundpack
+        if (scriptPart.find("audio.") != std::string::npos ||
+            scriptPart.find("define_sound") != std::string::npos ||
+            scriptPart.find("define_sequence") != std::string::npos) {
+            if (progressCb) progressCb(0.25f, "Configuring procedural audio synthesis...");
+            if (foley.loadFromEatsScript(scriptPart)) {
+                asyncManager.customAudioReady = true;
+                if (progressCb) progressCb(1.0f, "Custom audio soundpack activated.");
+                return true;
             }
         }
 
@@ -2428,6 +2802,14 @@ struct InteractiveContext {
                 deckConfigured = true;
                 asyncManager.stagingDeckReady = true;
             } else if (!bgConfigured) {
+                if (scriptPart.find("audio.") != std::string::npos ||
+                    scriptPart.find("define_sound") != std::string::npos ||
+                    scriptPart.find("define_sequence") != std::string::npos) {
+                    if (foley.loadFromEatsScript(scriptPart)) {
+                        foley.triggerSound(FoleySound::Shuffle, 0.85f);
+                        return true;
+                    }
+                }
                 if (progressCb && !progressCb(0.30f, "Synthesizing custom table material...")) {
                     return false;
                 }
@@ -3202,6 +3584,10 @@ struct InteractiveContext {
         float dt = static_cast<float>(now - lastTime);
         lastTime = now;
 
+        auto screenPan = [&](float x) noexcept -> float {
+            return (width > 0) ? std::clamp((x / static_cast<float>(width)) * 2.0f - 1.0f, -0.80f, 0.80f) : 0.0f;
+        };
+
         if (asyncManager.opType != AsyncOp::None || asyncManager.isBusy.load() || loadingDialog.isOpen()) {
             double elapsed = now - asyncManager.startTime;
             if (asyncManager.isBusy.load() && elapsed >= asyncManager.debounceSeconds && !loadingDialog.isOpen()) {
@@ -3268,7 +3654,7 @@ struct InteractiveContext {
                     } else {
                         foley.triggerSound(FoleySound::Flip, 0.80f);
                     }
-                } else if (asyncManager.stagingDeckReady || asyncManager.customBgReady) {
+                } else if (asyncManager.stagingDeckReady || asyncManager.customBgReady || asyncManager.customAudioReady) {
                     if (asyncManager.stagingDeckReady) {
                         CardTextureCache::instance().commitStagedDeck(std::move(asyncManager.stagingDeck));
                         if (renderer.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU) {
@@ -3412,6 +3798,101 @@ struct InteractiveContext {
             } else if (!leftDown && prevLeftDown) {
                 settingsDialog.handleMouseButton(0, 0, fmx, fmy, board, foley);
             }
+        } else if (playMenuOpen) {
+            if (leftDown && !prevLeftDown) {
+                constexpr float menuW = 230.0f;
+                constexpr float itemH = 30.0f;
+                constexpr float headerH = 26.0f;
+                constexpr float pad = 8.0f;
+                constexpr int kCount = 5;
+                constexpr float menuH = headerH + static_cast<float>(kCount) * itemH + pad * 2.0f;
+                float menuX = playMenuAnchorX;
+                float menuY = (playMenuAnchorY > static_cast<float>(height) * 0.5f) ? (playMenuAnchorY - menuH - 8.0f) : (playMenuAnchorY + 44.0f);
+                menuX = std::clamp(menuX, 8.0f, static_cast<float>(width) - menuW - 8.0f);
+                menuY = std::clamp(menuY, 8.0f, static_cast<float>(height) - menuH - 8.0f);
+
+                if (fmx >= menuX && fmx <= menuX + menuW && fmy >= menuY && fmy <= menuY + menuH) {
+                    float curY = menuY + headerH + pad * 0.5f;
+                    for (int i = 0; i < kCount; ++i) {
+                        if (fmx >= menuX + pad && fmx <= menuX + menuW - pad && fmy >= curY && fmy <= curY + itemH) {
+                            if (i == 0) { // New Random Deal
+                                triggerAction(BtnNewDeal);
+                            } else if (i == 1) { // New Solvable Deal
+                                triggerAction(BtnSolvableDeal);
+                            } else if (i == 2) { // Restart Current Deal
+                                triggerAction(BtnRestart);
+                            } else if (i == 3) { // Solvable Deals Mode Toggle
+                                auto& s = SettingsManager::instance().settings();
+                                s.guaranteeSolvable = !s.guaranteeSolvable;
+                                SettingsManager::instance().save();
+                                foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                            } else if (i == 4) { // Game Library...
+                                triggerAction(BtnVariant);
+                            }
+                            break;
+                        }
+                        curY += itemH;
+                    }
+                }
+                playMenuOpen = false;
+            }
+        } else if (toolbarConfigOpen) {
+            if (leftDown && !prevLeftDown) {
+                constexpr float menuW = 240.0f;
+                constexpr float headerH = 26.0f;
+                constexpr float scaleRowH = 34.0f;
+                constexpr float itemH = 26.0f;
+                constexpr float pad = 8.0f;
+                constexpr int kNumToggles = 9;
+                constexpr float footerH = 32.0f;
+                constexpr float menuH = headerH + scaleRowH + 14.0f + static_cast<float>(kNumToggles) * itemH + footerH + pad * 2.0f;
+                float menuX = toolbarConfigAnchorX;
+                float menuY = (toolbarConfigAnchorY > static_cast<float>(height) * 0.5f) ? (toolbarConfigAnchorY - menuH - 8.0f) : (toolbarConfigAnchorY + 44.0f);
+                menuX = std::clamp(menuX, 8.0f, static_cast<float>(width) - menuW - 8.0f);
+                menuY = std::clamp(menuY, 8.0f, static_cast<float>(height) - menuH - 8.0f);
+
+                if (fmx >= menuX && fmx <= menuX + menuW && fmy >= menuY && fmy <= menuY + menuH) {
+                    float scaleY = menuY + headerH + 6.0f;
+                    const float pillW = (menuW - pad * 2.0f - 8.0f) / 3.0f;
+                    const float pillH = 22.0f;
+                    for (int i = 0; i < 3; ++i) {
+                        float px = menuX + pad + static_cast<float>(i) * (pillW + 4.0f);
+                        if (fmx >= px && fmx <= px + pillW && fmy >= scaleY && fmy <= scaleY + pillH) {
+                            auto& s = SettingsManager::instance().settings();
+                            s.toolbarScale = static_cast<ToolbarScale>(i);
+                            SettingsManager::instance().save();
+                            foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                        }
+                    }
+
+                    float divY = scaleY + pillH + 8.0f;
+                    const uint32_t toggleFlags[kNumToggles] = {
+                        ToolbarItem_Play, ToolbarItem_Undo, ToolbarItem_Redo, ToolbarItem_AutoPlay,
+                        ToolbarItem_Hint, ToolbarItem_Restart, ToolbarItem_Solvable, ToolbarItem_Seed,
+                        ToolbarItem_GameSelect
+                    };
+                    float curY = divY + 18.0f;
+                    for (int i = 0; i < kNumToggles; ++i) {
+                        if (fmx >= menuX + pad && fmx <= menuX + menuW - pad && fmy >= curY && fmy <= curY + itemH) {
+                            auto& s = SettingsManager::instance().settings();
+                            s.toolbarItems ^= toggleFlags[i];
+                            SettingsManager::instance().save();
+                            foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                        }
+                        curY += itemH;
+                    }
+
+                    float closeBtnY = curY + 4.0f;
+                    float closeBtnW = menuW - pad * 2.0f;
+                    float closeBtnH = 22.0f;
+                    if (fmx >= menuX + pad && fmx <= menuX + pad + closeBtnW && fmy >= closeBtnY && fmy <= closeBtnY + closeBtnH) {
+                        toolbarConfigOpen = false;
+                        foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                    }
+                } else {
+                    toolbarConfigOpen = false;
+                }
+            }
         } else if (leftDown && !prevLeftDown) {
             if (hoveredBtn == BtnMenuToggle) {
                 isClickingSolEngineOrb = true;
@@ -3421,7 +3902,11 @@ struct InteractiveContext {
                 dragPreviewAnchor = menuAnchor;
                 dragPreviewFlowVertical = menuFlowVertical;
             } else if (hoveredBtn != BtnNone) {
-                triggerAction(hoveredBtn);
+                pressedToolbarBtn = hoveredBtn;
+                pressStartTime = static_cast<float>(now);
+                pressStartX = fmx;
+                pressStartY = fmy;
+                holdTriggered = false;
             } else {
                 int hitPile = -1;
                 int hitCard = -1;
@@ -3431,16 +3916,19 @@ struct InteractiveContext {
                     }
                     if (board.piles()[static_cast<size_t>(hitPile)].type == PileType::Stock) {
                         if (board.drawFromStock()) {
-                            foley.triggerSound(FoleySound::Flip, 0.85f);
+                            foley.triggerSound(FoleySound::Deal, 0.85f, screenPan(fmx));
                         }
                     } else if (hitCard >= 0) {
                         draggedPile = hitPile;
                         draggedCardIdx = hitCard;
                         dragStartMouseX = fmx;
                         dragStartMouseY = fmy;
+                        lastDragMouseX = fmx;
+                        lastDragMouseY = fmy;
+                        dragSoundAccumulator = 0.0f;
                         dragOffsetX = 0.0f;
                         dragOffsetY = 0.0f;
-                        foley.triggerSound(FoleySound::Deal, 0.65f);
+                        foley.triggerSound(FoleySound::Snap, 0.75f, screenPan(fmx));
                     }
                 } else {
                     if (autoPlayController.isActive()) {
@@ -3490,14 +3978,59 @@ struct InteractiveContext {
                     dragPreviewFlowVertical = (distFromTop > distFromRight * 0.85f);
                 }
             }
+        } else if (leftDown && pressedToolbarBtn != BtnNone && !holdTriggered) {
+            float dist = std::hypot(fmx - pressStartX, fmy - pressStartY);
+            if (dist > 10.0f) {
+                pressedToolbarBtn = BtnNone;
+            } else if (static_cast<float>(now) - pressStartTime >= 0.35f) {
+                if (pressedToolbarBtn == BtnNewDeal) {
+                    holdTriggered = true;
+                    playMenuOpen = true;
+                    toolbarConfigOpen = false;
+                    playMenuAnchorX = pressStartX;
+                    playMenuAnchorY = pressStartY;
+                    foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                } else if (pressedToolbarBtn == BtnToolbarResize) {
+                    holdTriggered = true;
+                    toolbarConfigOpen = true;
+                    playMenuOpen = false;
+                    toolbarConfigAnchorX = pressStartX;
+                    toolbarConfigAnchorY = pressStartY;
+                    foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                }
+            }
         } else if (leftDown && draggedPile >= 0) {
+            float dx = static_cast<float>(fmx - lastDragMouseX);
+            float dy = static_cast<float>(fmy - lastDragMouseY);
+            lastDragMouseX = fmx;
+            lastDragMouseY = fmy;
             dragOffsetX = static_cast<float>(fmx - dragStartMouseX);
             dragOffsetY = static_cast<float>(fmy - dragStartMouseY);
+            dragSoundAccumulator += std::hypot(dx, dy);
+            if (dragSoundAccumulator > 72.0f) {
+                float speed = std::clamp(std::hypot(dx, dy) * 0.08f + 0.65f, 0.6f, 1.4f);
+                foley.triggerSound(FoleySound::Slide, 0.32f * speed, screenPan(fmx));
+                dragSoundAccumulator = 0.0f;
+            }
         } else if (leftDown && isGesturing) {
             gestureCurX = fmx;
             gestureCurY = fmy;
         } else if (!leftDown && prevLeftDown) {
-            if (isClickingSolEngineOrb) {
+            if (pressedToolbarBtn != BtnNone) {
+                if (!holdTriggered && hoveredBtn == pressedToolbarBtn) {
+                    if (pressedToolbarBtn == BtnToolbarResize) {
+                        auto& s = SettingsManager::instance().settings();
+                        int nextScale = (static_cast<int>(s.toolbarScale) + 1) % 3;
+                        s.toolbarScale = static_cast<ToolbarScale>(nextScale);
+                        SettingsManager::instance().save();
+                        foley.triggerSound(FoleySound::WoodClick, 0.9f);
+                    } else {
+                        triggerAction(pressedToolbarBtn);
+                    }
+                }
+                pressedToolbarBtn = BtnNone;
+                holdTriggered = false;
+            } else if (isClickingSolEngineOrb) {
                 if (isDraggingMenu) {
                     menuAnchor = dragPreviewAnchor;
                     menuFlowVertical = dragPreviewFlowVertical;
@@ -3544,10 +4077,11 @@ struct InteractiveContext {
                     }
                 }
 
+                float dropPan = screenPan(static_cast<float>(fmx));
                 if (moved) {
-                    foley.triggerSound(FoleySound::Place, 0.85f);
+                    foley.triggerSound(FoleySound::Place, 0.85f, dropPan);
                 } else if (dragDist > 6.0f) {
-                    foley.triggerSound(FoleySound::Place, 0.65f);
+                    foley.triggerSound(FoleySound::Place, 0.65f, dropPan);
                 }
                 draggedPile = -1;
                 draggedCardIdx = -1;
@@ -3584,13 +4118,29 @@ struct InteractiveContext {
             int hitCard = -1;
             if (board.hitTestCard(fmx, fmy, hitPile, hitCard) && hitPile >= 0 && hitCard >= 0) {
                 if (board.smartMove(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
-                    foley.triggerSound(FoleySound::Place, 0.85f);
+                    foley.triggerSound(FoleySound::Place, 0.85f, screenPan(fmx));
                 }
             }
         }
 
         prevLeftDown = leftDown;
         prevRightDown = rightDown;
+
+        if (rightDown && !prevRightDown) {
+            if (hoveredBtn == BtnNewDeal) {
+                playMenuOpen = true;
+                toolbarConfigOpen = false;
+                playMenuAnchorX = fmx;
+                playMenuAnchorY = fmy;
+                foley.triggerSound(FoleySound::WoodClick, 0.85f);
+            } else if (hoveredBtn == BtnToolbarResize) {
+                toolbarConfigOpen = true;
+                playMenuOpen = false;
+                toolbarConfigAnchorX = fmx;
+                toolbarConfigAnchorY = fmy;
+                foley.triggerSound(FoleySound::WoodClick, 0.85f);
+            }
+        }
 
         auto edgeKey = [&](int key, bool& prev) -> bool {
             bool down = glfwGetKey(window, key) == GLFW_PRESS;
@@ -3652,8 +4202,14 @@ struct InteractiveContext {
                 std::cout << "[SolEngine] Dynamic lighting switched to: " << lightController.getPresetName() << std::endl;
             }
             if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) {
-                if (menuOpen) menuOpen = false;
-                if (autoPlayController.isActive()) autoPlayController.stop();
+                if (playMenuOpen) {
+                    playMenuOpen = false;
+                } else if (toolbarConfigOpen) {
+                    toolbarConfigOpen = false;
+                } else {
+                    if (menuOpen) menuOpen = false;
+                    if (autoPlayController.isActive()) autoPlayController.stop();
+                }
             }
             if (edgeKey(GLFW_KEY_SPACE, prevKeySpace)) {
                 if (autoPlayController.isActive()) {
@@ -3754,6 +4310,36 @@ struct InteractiveContext {
             if (loadingDialog.isOpen()) {
                 ThemePalette pal = getPalette(board.tableTheme());
                 loadingDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), fmx, fmy, pal, now);
+            }
+
+            // Draw hold progress ring on active button
+            if (pressedToolbarBtn != BtnNone && !holdTriggered &&
+                (pressedToolbarBtn == BtnNewDeal || pressedToolbarBtn == BtnToolbarResize)) {
+                float progress = std::clamp((static_cast<float>(now) - pressStartTime) / 0.35f, 0.0f, 1.0f);
+                if (progress > 0.05f) {
+                    const auto& cpal = clockwork_ui::palette();
+                    renderer.drawCircleOutline(pressStartX, pressStartY, 22.0f,
+                                               cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.95f, 2.2f, 28);
+                    renderer.drawCircle(pressStartX, pressStartY, 14.0f * progress,
+                                        cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.35f, 20);
+                }
+            }
+
+            if (playMenuOpen) {
+                int dummyHover = -1;
+                drawPlayContextMenu(renderer, static_cast<float>(width), static_cast<float>(height),
+                                    playMenuAnchorX, playMenuAnchorY, fmx, fmy,
+                                    SettingsManager::instance().settings().guaranteeSolvable, dummyHover);
+            }
+
+            if (toolbarConfigOpen) {
+                int dummyScale = -1;
+                int dummyToggle = -1;
+                bool dummyClose = false;
+                drawToolbarConfigMenu(renderer, static_cast<float>(width), static_cast<float>(height),
+                                      toolbarConfigAnchorX, toolbarConfigAnchorY, fmx, fmy,
+                                      SettingsManager::instance().settings(),
+                                      dummyScale, dummyToggle, dummyClose);
             }
             renderer.endFrame();
         }

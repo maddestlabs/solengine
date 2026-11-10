@@ -94,6 +94,34 @@ enum class MenuDisplayMode : uint8_t {
     IconOnly    = 2  // Minimalist Icon-only toolbar
 };
 
+enum class ToolbarScale : uint8_t {
+    Compact = 0, // 30px orb diameter (mobile landscape / ultra-compact)
+    Regular = 1, // 38px orb diameter (standard mobile portrait & desktop default)
+    Large   = 2  // 46px orb diameter (thumb-friendly accessible mobile touch targets)
+};
+
+enum ToolbarItems : uint32_t {
+    ToolbarItem_None         = 0,
+    ToolbarItem_Settings     = 1 << 0,
+    ToolbarItem_Play         = 1 << 1,
+    ToolbarItem_Undo         = 1 << 2,
+    ToolbarItem_Redo         = 1 << 3,
+    ToolbarItem_AutoPlay     = 1 << 4,
+    ToolbarItem_Hint         = 1 << 5,
+    ToolbarItem_Restart      = 1 << 6,
+    ToolbarItem_Solvable     = 1 << 7,
+    ToolbarItem_Seed         = 1 << 8,
+    ToolbarItem_GameSelect   = 1 << 9,
+    ToolbarItem_Resize       = 1 << 10,
+
+    // Default bare minimum set for mobile space optimization:
+    ToolbarItem_Default = ToolbarItem_Settings | ToolbarItem_Play |
+                          ToolbarItem_Undo | ToolbarItem_Redo |
+                          ToolbarItem_AutoPlay | ToolbarItem_Resize,
+
+    ToolbarItem_All = 0x7FF
+};
+
 enum class GuiThemeStyle : uint8_t {
     Classic         = 0, // Traditional warm hardwood / flat vector chrome
     ClockworkEngine = 1  // Tactile Horological Brass, Boilerplate Iron & Steam Gauge GUI
