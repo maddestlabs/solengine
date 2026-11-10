@@ -83,7 +83,9 @@ private:
     float moveTimer_{0.0f};
 
     // Asynchronous background solve worker thread
+#if !defined(__EMSCRIPTEN__)
     std::thread solveThread_;
+#endif
     std::atomic<bool> cancelSignal_{false};
     std::mutex resultMutex_;
     bool hasResult_{false};

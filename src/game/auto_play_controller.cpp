@@ -22,22 +22,53 @@ void AutoPlayController::start(SolitaireBoard& board) {
     hasResult_ = false;
 
     SolitaireBoard boardCopy = board;
-    solveThread_ = std::thread([this, boardCopy]() {
+#if defined(__EMSCRIPTEN__)
+    try {
         SolitaireSolver solver;
+        // On single-threaded WebAssembly, solve synchronously with a bounded search budget
         SolveResult res = solver.solve(boardCopy, 25000, 2500.0f, &cancelSignal_);
         {
             std::lock_guard<std::mutex> lock(resultMutex_);
             asyncResult_ = std::move(res);
             hasResult_ = true;
         }
-    });
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        asyncResult_ = SolveResult{};
+        hasResult_ = true;
+    }
+#else
+    try {
+        solveThread_ = std::thread([this, boardCopy]() {
+            try {
+                SolitaireSolver solver;
+                SolveResult res = solver.solve(boardCopy, 25000, 2500.0f, &cancelSignal_);
+                {
+                    std::lock_guard<std::mutex> lock(resultMutex_);
+                    asyncResult_ = std::move(res);
+                    hasResult_ = true;
+                }
+            } catch (...) {
+                std::lock_guard<std::mutex> lock(resultMutex_);
+                asyncResult_ = SolveResult{};
+                hasResult_ = true;
+            }
+        });
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        asyncResult_ = SolveResult{};
+        hasResult_ = true;
+    }
+#endif
 }
 
 void AutoPlayController::stop() {
     cancelSignal_.store(true, std::memory_order_release);
+#if !defined(__EMSCRIPTEN__)
     if (solveThread_.joinable()) {
         solveThread_.join();
     }
+#endif
     state_ = AutoPlayState::Inactive;
 }
 
@@ -165,9 +196,11 @@ void AutoPlayController::update(float dt, SolitaireBoard& board, AudioFoleyEngin
             }
         }
         if (ready) {
+#if !defined(__EMSCRIPTEN__)
             if (solveThread_.joinable()) {
                 solveThread_.join();
             }
+#endif
             if (res.solved && !res.moves.empty()) {
                 moves_ = std::move(res.moves);
                 state_ = AutoPlayState::Playing;
