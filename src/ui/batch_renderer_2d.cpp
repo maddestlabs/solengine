@@ -2480,6 +2480,7 @@ public:
             wgpuSurfaceConfigure(surface_, &config);
         }
 
+        queue_ = wgpuDeviceGetQueue(device_);
         initShadersAndPipeline();
         return true;
     }
@@ -2557,6 +2558,16 @@ public:
             pipeline4x_ = nullptr;
         }
         pipeline_ = nullptr;
+        if (vertexBuffer_) {
+            wgpuBufferDestroy(vertexBuffer_);
+            wgpuBufferRelease(vertexBuffer_);
+            vertexBuffer_ = nullptr;
+            vertexBufferSize_ = 0;
+        }
+        if (queue_) {
+            wgpuQueueRelease(queue_);
+            queue_ = nullptr;
+        }
         if (surface_) {
             wgpuSurfaceRelease(surface_);
             surface_ = nullptr;
@@ -2721,7 +2732,7 @@ public:
             ubo.ambientLight[1] = ambientLight_[1];
             ubo.ambientLight[2] = ambientLight_[2];
             ubo.ambientLight[3] = ambientLight_[3];
-            wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), uniformBuffer_, 0, &ubo, sizeof(ubo));
+            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
         }
         if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
@@ -2751,7 +2762,7 @@ public:
         WGPUExtent3D writeSize{ static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 };
         size_t totalDataSize = static_cast<size_t>(atlasW * atlasH);
 
-        wgpuQueueWriteTexture(wgpuDeviceGetQueue(device_), &dst, data, totalDataSize, &layout, &writeSize);
+        wgpuQueueWriteTexture(queue_, &dst, data, totalDataSize, &layout, &writeSize);
     }
 
     void renderBatch(const std::vector<Vertex2D>& vertices) override {
@@ -2822,16 +2833,25 @@ public:
         // Dynamic vertex upload
         uint64_t bufferSize = vertices.size() * sizeof(Vertex2D);
         if (bufferSize > 0) {
-            WGPUBufferDescriptor bufDesc{};
-            bufDesc.size = bufferSize;
-            bufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-            WGPUBuffer vbo = wgpuDeviceCreateBuffer(device_, &bufDesc);
-            wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), vbo, 0, vertices.data(), bufferSize);
+            if (bufferSize > vertexBufferSize_ || !vertexBuffer_) {
+                if (vertexBuffer_) {
+                    wgpuBufferRelease(vertexBuffer_);
+                    vertexBuffer_ = nullptr;
+                }
+                uint64_t newCap = std::max<uint64_t>(bufferSize, 65536ULL);
+                if (newCap < vertexBufferSize_ * 2) {
+                    newCap = vertexBufferSize_ * 2;
+                }
+                WGPUBufferDescriptor bufDesc{};
+                bufDesc.size = newCap;
+                bufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+                vertexBuffer_ = wgpuDeviceCreateBuffer(device_, &bufDesc);
+                vertexBufferSize_ = newCap;
+            }
+            wgpuQueueWriteBuffer(queue_, vertexBuffer_, 0, vertices.data(), bufferSize);
 
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vbo, 0, bufferSize);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, bufferSize);
             wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-
-            wgpuBufferRelease(vbo);
         }
 
         wgpuRenderPassEncoderEnd(pass);
@@ -2841,8 +2861,7 @@ public:
         WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
         wgpuCommandEncoderRelease(encoder);
 
-        WGPUQueue queue = wgpuDeviceGetQueue(device_);
-        wgpuQueueSubmit(queue, 1, &commands);
+        wgpuQueueSubmit(queue_, 1, &commands);
         wgpuCommandBufferRelease(commands);
     }
 
@@ -2877,7 +2896,7 @@ public:
             WGPUExtent3D writeSize{ uploadW, uploadH, 1 };
 
             if (alignedBytesPerRow == static_cast<uint32_t>(imgW * 4) && uploadW == static_cast<uint32_t>(imgW)) {
-                wgpuQueueWriteTexture(wgpuDeviceGetQueue(device_), &dst, rgba, static_cast<size_t>(alignedBytesPerRow) * uploadH, &layout, &writeSize);
+                wgpuQueueWriteTexture(queue_, &dst, rgba, static_cast<size_t>(alignedBytesPerRow) * uploadH, &layout, &writeSize);
             } else {
                 size_t totalAlignedSize = static_cast<size_t>(alignedBytesPerRow) * uploadH;
                 if (bgAlignedUploadBuf_.size() < totalAlignedSize) {
@@ -2890,7 +2909,7 @@ public:
                         unalignedBytesPerRow
                     );
                 }
-                wgpuQueueWriteTexture(wgpuDeviceGetQueue(device_), &dst, bgAlignedUploadBuf_.data(), totalAlignedSize, &layout, &writeSize);
+                wgpuQueueWriteTexture(queue_, &dst, bgAlignedUploadBuf_.data(), totalAlignedSize, &layout, &writeSize);
             }
         }
 
@@ -2938,7 +2957,7 @@ public:
         WGPUExtent3D writeSize{ static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 };
         size_t totalDataSize = static_cast<size_t>(atlasW * atlasH * 4);
 
-        wgpuQueueWriteTexture(wgpuDeviceGetQueue(device_), &dst, data, totalDataSize, &layout, &writeSize);
+        wgpuQueueWriteTexture(queue_, &dst, data, totalDataSize, &layout, &writeSize);
     }
 
     void endPass() override {
@@ -2954,6 +2973,9 @@ public:
         if (currentSurfaceTexture_.texture) {
             wgpuTextureRelease(currentSurfaceTexture_.texture);
             currentSurfaceTexture_.texture = nullptr;
+        }
+        if (instance_) {
+            wgpuInstanceProcessEvents(instance_);
         }
     }
 
@@ -3004,7 +3026,7 @@ public:
             ubo.ambientLight[1] = ambientLight_[1];
             ubo.ambientLight[2] = ambientLight_[2];
             ubo.ambientLight[3] = ambientLight_[3];
-            wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), uniformBuffer_, 0, &ubo, sizeof(ubo));
+            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
         }
     }
 
@@ -3329,7 +3351,7 @@ private:
         initUbo.ambientLight[1] = ambientLight_[1];
         initUbo.ambientLight[2] = ambientLight_[2];
         initUbo.ambientLight[3] = ambientLight_[3];
-        wgpuQueueWriteBuffer(wgpuDeviceGetQueue(device_), uniformBuffer_, 0, &initUbo, sizeof(initUbo));
+        wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &initUbo, sizeof(initUbo));
 
         // Bind group matching layout (font texture, sampler, uniforms, rgba card atlas, bg texture)
         WGPUBindGroupEntry entries[5]{};
@@ -3375,6 +3397,9 @@ private:
     WGPUInstance instance_{nullptr};
     WGPUAdapter adapter_{nullptr};
     WGPUDevice device_{nullptr};
+    WGPUQueue queue_{nullptr};
+    WGPUBuffer vertexBuffer_{nullptr};
+    uint64_t vertexBufferSize_{0};
     WGPUSurface surface_{nullptr};
     WGPUTextureFormat surfaceFormat_{WGPUTextureFormat_BGRA8Unorm};
     bool isSrgbSurface_{false};

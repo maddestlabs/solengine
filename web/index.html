@@ -400,6 +400,13 @@
             webgpuDevicePromise = navigator.gpu.requestAdapter().then((adapter) => {
                 if (!adapter) throw new Error('No compatible GPUAdapter found.');
                 return adapter.requestDevice();
+            }).then((device) => {
+                if (device && device.lost) {
+                    device.lost.then((info) => {
+                        console.error('[WebGPU] Device lost:', info.reason, info.message);
+                    });
+                }
+                return device;
             }).catch((err) => {
                 console.error('[WebGPU] Failed to acquire device:', err);
                 statusText.className = 'sol-status-text error-msg';
