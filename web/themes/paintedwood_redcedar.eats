@@ -1,0 +1,82 @@
+# SolEngine Procedural Background Theme — Painted Red Cedar
+# Pure Eatscript Bytecode Shader: Weathered painted red cedar planks with rich horizontal grain & beveled seams
+
+sol.set_theme({
+    id: "ambientcg_paintedwood_redcedar",
+    name: "Painted Red Cedar",
+    author: "SolEngine / Eatscript",
+    description: "Weathered antique red cedar timber planks with rich russet heartwood grain and soft beveled seams",
+    version: 1,
+    procedural: true
+})
+
+def wood_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Horizontal plank seams with precision-milled 3D beveled chamfers
+    plank_coord = ny * 3.5
+    plank_angle = plank_coord * 3.14159265
+    plank_sin = sin(plank_angle)
+    plank_cos = cos(plank_angle)
+    plank_dist = abs(plank_sin)
+
+    # Tight, crisp milled chamfer bevel
+    bevel_zone = smoothstep(0.048, 0.004, plank_dist)
+    bevel_light = clamp(plank_sin * plank_cos * 14.0, -1.0, 1.0) * bevel_zone * 0.075
+
+    # Crisp, clean seam groove
+    seam_shade = 1.0 - smoothstep(0.020, 0.002, plank_dist) * 0.58
+
+    # 2. Curly/flame heartwood timber grain (spatially modulated density)
+    # Spatial density blend: organic modulation between open calm cedar and tight flame figure
+    grain_density = smoothstep(0.30, 0.70, fbm(nx * 1.5 + 3.7, ny * 1.7 + 6.2))
+
+    grain_flame = sin(nx * 4.5 + ny * 5.0) * 0.15
+    grain_warp = fbm(nx * 2.8 + 7.3, ny * 2.2 + 2.1) * 0.35 + grain_flame
+
+    # Calmer broad grain (smooth open wood zones)
+    smooth_grain = (fbm(nx * 2.0 + 11.7, ny * 36.0 + grain_warp) - 0.5) * 0.15
+
+    # Crisp growth rings (spatially clustered figure zones with natural cedar ring spacing)
+    ring_phase = ny * 18.0 + grain_warp * 2.6
+    ring_raw = abs(sin(ring_phase * 3.14159265))
+    crisp_rings = (1.0 - ring_raw * ring_raw) * 0.16
+
+    # Organic blend: calm sections stay open and soft, figure sections pop with wavy flame rings
+    grain = mix(smooth_grain, crisp_rings + smooth_grain * 0.5, grain_density)
+
+    # High-frequency capillary micro-pores active primarily in denser figure zones
+    pore_noise = fbm(nx * 6.0 + 4.9, ny * 120.0)
+    micro_pores = (smoothstep(0.38, 0.62, pore_noise) - 0.5) * 0.05 * grain_density
+
+    # 3. Weathered paint wear (vintage wash worn thin over russet heartwood)
+    wear = fbm(nx * 2.6 + 1.2, ny * 3.2 + 4.5)
+
+    # Bare reddish cedar / cherry heartwood (#472418)
+    wood_r = 0.28 + grain * 1.1 + micro_pores
+    wood_g = 0.15 + grain * 0.7 + micro_pores * 0.8
+    wood_b = 0.09 + grain * 0.4 + micro_pores * 0.4
+
+    # Distressed warm antique chalk wash (#443e39)
+    paint_r = 0.27 + micro_pores * 0.4
+    paint_g = 0.26 + micro_pores * 0.4
+    paint_b = 0.23 + micro_pores * 0.4
+
+    base_r = (mix(wood_r, paint_r, wear) + bevel_light) * seam_shade
+    base_g = (mix(wood_g, paint_g, wear) + bevel_light) * seam_shade
+    base_b = (mix(wood_b, paint_b, wear) + bevel_light) * seam_shade
+
+    # 4. Vignette falloff
+    vignette = smoothstep(1.35, 0.42, dist)
+    grain_speck = (random() - 0.5) * 0.012
+
+    r = clamp(base_r * vignette + grain_speck, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain_speck, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain_speck, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ctx.fill_rect(0, 0, w, h, "#231a16")
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#48332a", 1.8)
+    ctx.apply_shader("wood_shader", intensity=1.0)

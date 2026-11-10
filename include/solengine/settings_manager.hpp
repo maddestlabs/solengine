@@ -16,6 +16,7 @@ class SolitaireBoard;
 struct AppSettings {
     GameVariant variant{GameVariant::KlondikeDraw1};
     TableThemeId tableTheme{TableThemeId::PastelTan};
+    std::string tableThemeSlug;
     DeckThemeId deckTheme{DeckThemeId::SolEnshade};
     GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
     CardWearLevel cardWear{CardWearLevel::Pristine};
@@ -25,6 +26,7 @@ struct AppSettings {
     ResponsiveLayoutMode layoutMode{ResponsiveLayoutMode::Auto};
     StockPosition stockPosition{StockPosition::Auto};
     MenuAnchor menuAnchor{MenuAnchor::BottomLeft};
+    bool menuFlowVertical{false};
     MenuDisplayMode menuDisplayMode{MenuDisplayMode::Auto};
     int aaMode{4}; // Permanently 4x MSAA (supersampled anti-aliasing)
     LightingPreset lightingPreset{LightingPreset::StudioSteady}; // Animated lighting (default StudioSteady = off)

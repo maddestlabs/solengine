@@ -1,5 +1,7 @@
 #include "solengine/ui/clockwork_theme.hpp"
+#include "solengine/ui/svg_icon_renderer.hpp"
 #include "eatsbits/ui/glyph/vector_font.hpp"
+#include "eatsbits/ui/glyph/font_engine.hpp"
 #include <cmath>
 #include <algorithm>
 #include <array>
@@ -23,7 +25,8 @@ void drawGear(
     int teeth, float angleRad,
     float bodyR, float bodyG, float bodyB, float bodyA,
     float rimR, float rimG, float rimB, float rimA,
-    int spokeCount, float hubRadius
+    int spokeCount, float hubRadius,
+    bool drawShadow
 ) {
     if (teeth < 3 || outerRadius <= 1.0f) return;
     teeth = std::clamp(teeth, 4, 48);
@@ -34,9 +37,11 @@ void drawGear(
 
     const float toothAngle = kTwoPi / static_cast<float>(teeth);
 
-    // 1. Subtle drop shadow behind gear teeth
-    r.drawCircleDropShadow(cx, cy, outerRadius, 3.5f,
-                           eatsbits::ui::LightSource2D{cx - 50.0f, cy - 80.0f, 1.0f}, 0.45f * bodyA);
+    // 1. Optional subtle drop shadow behind gear teeth (only when requested, using physically grounded light)
+    if (drawShadow) {
+        r.drawCircleDropShadow(cx, cy, outerRadius, 2.5f,
+                               eatsbits::ui::LightSource2D{cx - 100.0f, cy - 200.0f, 400.0f, 0.85f}, 0.35f * bodyA);
+    }
 
     // 2. Annular ring between root radius and inner radius (gear body plate)
     const int ringSegments = std::clamp(teeth * 3, 18, 64);
@@ -350,8 +355,8 @@ void drawManometerGauge(
     const auto& pal = palette();
 
     // 1. Directional drop shadow
-    r.drawCircleDropShadow(cx, cy, radius, 4.5f,
-                           eatsbits::ui::LightSource2D{cx - 50.0f, cy - 80.0f, 1.0f}, 0.55f);
+    r.drawCircleDropShadow(cx, cy, radius, 3.0f,
+                           eatsbits::ui::LightSource2D{cx - 100.0f, cy - 200.0f, 400.0f, 0.85f}, 0.50f);
 
     // 2. Heavy spun brass outer bezel (concentric rings)
     r.drawCircleRadial3StopGradient(
@@ -465,7 +470,7 @@ void drawChassisFrame(
     const auto& pal = palette();
 
     // 1. Outer deep drop shadow
-    r.drawRectDropShadow(x, y, w, h, 14.0f, 26.0f, eatsbits::ui::LightSource2D{x + w * 0.5f, -220.0f, 1.0f}, 0.75f);
+    r.drawRectDropShadow(x, y, w, h, 14.0f, 16.0f, eatsbits::ui::LightSource2D{x + w * 0.5f, y - 200.0f, 500.0f, 0.90f}, 0.65f);
 
     // 2. Heavy Cast-Iron / Boilerplate Chassis Panel
     r.drawRoundedRectGradient(
@@ -814,8 +819,8 @@ void drawHudClockworkChassis(
     const auto& pal = palette();
 
     // 1. Drop shadow behind entire HUD assembly
-    r.drawRectDropShadow(popX, popY, popW, popH, 12.0f, 20.0f,
-                         eatsbits::ui::LightSource2D{popX + popW * 0.5f, -200.0f, 1.0f}, 0.70f);
+    r.drawRectDropShadow(popX, popY, popW, popH, 12.0f, 16.0f,
+                         eatsbits::ui::LightSource2D{popX + popW * 0.5f, popY - 200.0f, 500.0f, 0.90f}, 0.65f);
 
     // 2. Weathered cast-iron chassis plate with bevel and rivets
     r.drawRoundedRectGradient(
@@ -871,9 +876,9 @@ void drawClockworkMenuOrb(
     const float alpha = (hovered || menuOpen) ? 0.98f : 0.70f;
     const float rot = timeSec * 0.5f;
 
-    // Drop shadow
-    r.drawCircleDropShadow(cx, cy, radius, 5.0f,
-                           eatsbits::ui::LightSource2D{cx - 40.0f, cy - 60.0f, 1.0f}, alpha * 0.50f);
+    // Single tight, physically grounded drop shadow right underneath orb
+    r.drawCircleDropShadow(cx, cy, radius, 3.0f,
+                           eatsbits::ui::LightSource2D{cx - 120.0f, cy - 240.0f, 400.0f, 0.85f}, alpha * 0.45f);
 
     // Outer interlocking gear teeth rim
     drawGear(r, cx, cy, radius, radius * 0.82f, radius * 0.65f, 16, rot,
@@ -939,6 +944,372 @@ void drawClockworkMenuOrb(
             alpha
         );
     }
+}
+
+void drawClockworkMedallion(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    bool hovered, bool active,
+    const char* glyph,
+    float timeSec
+) {
+    const auto& pal = palette();
+    const float alpha = hovered ? 1.0f : 0.88f;
+
+    if (active) {
+        cx += 0.8f;
+        cy += 1.2f;
+    }
+
+    // 1. Single tight, physically grounded drop shadow right underneath medallion
+    r.drawCircleDropShadow(
+        cx, cy, radius, 3.0f,
+        eatsbits::ui::LightSource2D{cx - 120.0f, cy - 240.0f, 400.0f, 0.85f},
+        alpha * 0.45f
+    );
+
+    // 2. Hover under-glow (furnace amber radiance)
+    if (hovered) {
+        r.drawCircleRadialGradient(
+            cx, cy, radius * 1.30f,
+            pal.furnaceCoreR, pal.furnaceCoreG, pal.furnaceCoreB, 0.65f,
+            0.08f, 0.06f, 0.04f, 0.0f,
+            0.0f, 0.0f, 24
+        );
+    }
+
+    // 3. Outer gear-rim / riveted brass bezel
+    const float gearRot = hovered ? (timeSec * 0.35f) : 0.0f;
+    drawGear(
+        r, cx, cy, radius, radius * 0.88f, radius * 0.74f, 16, gearRot,
+        pal.brassMidR, pal.brassMidG, pal.brassMidB, alpha,
+        hovered ? pal.brassHighlightR : pal.brassBrightR,
+        hovered ? pal.brassHighlightG : pal.brassBrightG,
+        hovered ? pal.brassHighlightB : pal.brassBrightB,
+        alpha, 4, radius * 0.5f
+    );
+
+    // Rivets on bezel perimeter
+    for (int i = 0; i < 4; ++i) {
+        float angle = static_cast<float>(i) * (kTwoPi / 4.0f) + (gearRot * 0.5f);
+        float rx = cx + std::cos(angle) * (radius * 0.80f);
+        float ry = cy + std::sin(angle) * (radius * 0.80f);
+        drawRivet(r, rx, ry, 1.6f, false, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha * 0.9f);
+    }
+
+    // 4. Domed concentric copper/bronze disc
+    const float faceRadius = radius * 0.70f;
+    r.drawCircleRadial3StopGradient(
+        cx, cy, faceRadius,
+        pal.copperBrightR, pal.copperBrightG, pal.copperBrightB, alpha,
+        pal.copperMidR, pal.copperMidG, pal.copperMidB, alpha,
+        pal.copperDarkR, pal.copperDarkG, pal.copperDarkB, alpha,
+        -faceRadius * 0.22f, -faceRadius * 0.25f, 0.48f, 24
+    );
+
+    // Fine concentric etched rings
+    r.drawCircleOutline(
+        cx, cy, faceRadius * 0.72f,
+        pal.copperDarkR, pal.copperDarkG, pal.copperDarkB, alpha * 0.35f, 0.8f, 24
+    );
+    r.drawCircleOutline(
+        cx, cy, faceRadius * 0.70f,
+        pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha * 0.22f, 0.6f, 24
+    );
+
+    // 5. Embossed Glyph & Procedural Vector Icons
+    if (!glyph || glyph[0] == '\0') return;
+
+    const bool isStar = (glyph[0] == '*' && glyph[1] == '\0');
+    const bool isAutoPlay = (std::string_view(glyph) == "▶" ||
+                             std::string_view(glyph) == "\xE2\x96\xB6" ||
+                             std::string_view(glyph) == "PLAY");
+    const bool isRestart = (std::string_view(glyph) == "↺" ||
+                            std::string_view(glyph) == "\xE2\x86\xBA" ||
+                            (glyph[0] == 'R' && glyph[1] == '\0'));
+
+    if (isStar) {
+        // Guaranteed Solvable Deal: 5-point golden vector star
+        const float starRad = faceRadius * 0.60f;
+        // Ambient drop shadow
+        vector_icon::drawStar(
+            r, cx + 1.4f, cy + 1.4f, starRad,
+            0.04f, 0.03f, 0.02f, alpha * 0.90f,
+            0.04f, 0.03f, 0.02f, alpha * 0.90f, 1.0f
+        );
+        // Golden star
+        vector_icon::drawStar(
+            r, cx, cy, starRad,
+            hovered ? pal.brassHighlightR : pal.brassBrightR,
+            hovered ? pal.brassHighlightG : pal.brassBrightG,
+            hovered ? pal.brassHighlightB : pal.brassBrightB,
+            alpha,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha,
+            1.2f
+        );
+    } else if (isAutoPlay) {
+        // Auto-Play: solid vector play triangle pointing right
+        const float triHalfH = faceRadius * 0.48f;
+        const float triW = faceRadius * 0.55f;
+        const float x0 = cx - triW * 0.40f;
+        const float y0 = cy - triHalfH;
+        const float x1 = cx + triW * 0.60f;
+        const float y1 = cy;
+        const float x2 = cx - triW * 0.40f;
+        const float y2 = cy + triHalfH;
+
+        // Drop shadow
+        r.drawTriangle(x0 + 1.4f, y0 + 1.4f, x1 + 1.4f, y1 + 1.4f, x2 + 1.4f, y2 + 1.4f,
+                       0.04f, 0.03f, 0.02f, alpha * 0.90f);
+        // Face
+        r.drawTriangle(x0, y0, x1, y1, x2, y2,
+                       hovered ? pal.brassHighlightR : pal.brassBrightR,
+                       hovered ? pal.brassHighlightG : pal.brassBrightG,
+                       hovered ? pal.brassHighlightB : pal.brassBrightB,
+                       alpha);
+        // Outer outline
+        r.drawLine(x0, y0, x1, y1, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
+        r.drawLine(x1, y1, x2, y2, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
+        r.drawLine(x2, y2, x0, y0, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
+    } else if (isRestart) {
+        // Procedural Circular Rewind Arrow (anti-clockwise)
+        const float arcR = faceRadius * 0.48f;
+        const float ahL = faceRadius * 0.32f;
+        const float ahW = faceRadius * 0.24f;
+        constexpr int numSegs = 22;
+        constexpr float startTheta = 1.10f * kPi;
+        constexpr float endTheta = -0.50f * kPi; // 12 o'clock (top)
+
+        // Drop shadow pass
+        for (int i = 0; i < numSegs; ++i) {
+            float t0 = startTheta + (endTheta - startTheta) * (static_cast<float>(i) / static_cast<float>(numSegs));
+            float t1 = startTheta + (endTheta - startTheta) * (static_cast<float>(i + 1) / static_cast<float>(numSegs));
+            r.drawLine(cx + arcR * std::cos(t0) + 1.4f, cy + arcR * std::sin(t0) + 1.4f,
+                       cx + arcR * std::cos(t1) + 1.4f, cy + arcR * std::sin(t1) + 1.4f,
+                       0.04f, 0.03f, 0.02f, alpha * 0.90f, 2.6f);
+        }
+        // Shadow arrowhead at 12 o'clock pointing left
+        r.drawTriangle(cx - ahL + 1.4f, cy - arcR + 1.4f,
+                       cx + 1.4f, cy - arcR - ahW + 1.4f,
+                       cx + 1.4f, cy - arcR + ahW + 1.4f,
+                       0.04f, 0.03f, 0.02f, alpha * 0.90f);
+
+        // Polished brass stroke
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+
+        for (int i = 0; i < numSegs; ++i) {
+            float t0 = startTheta + (endTheta - startTheta) * (static_cast<float>(i) / static_cast<float>(numSegs));
+            float t1 = startTheta + (endTheta - startTheta) * (static_cast<float>(i + 1) / static_cast<float>(numSegs));
+            r.drawLine(cx + arcR * std::cos(t0), cy + arcR * std::sin(t0),
+                       cx + arcR * std::cos(t1), cy + arcR * std::sin(t1),
+                       brR, brG, brB, alpha, 2.4f);
+        }
+        // Brass arrowhead at top pointing left
+        r.drawTriangle(cx - ahL, cy - arcR,
+                       cx, cy - arcR - ahW,
+                       cx, cy - arcR + ahW,
+                       brR, brG, brB, alpha);
+        r.drawLine(cx - ahL, cy - arcR, cx, cy - arcR - ahW, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
+        r.drawLine(cx, cy - arcR - ahW, cx, cy - arcR + ahW, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
+        r.drawLine(cx, cy - arcR + ahW, cx - ahL, cy - arcR, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
+    } else {
+        // Vector typography glyphs: "<", ">", "+", "?", "G", "#"
+        const float fontSize = (glyph[0] == '+' || glyph[0] == '#' || glyph[0] == '<' || glyph[0] == '>')
+            ? (faceRadius * 1.15f) : (faceRadius * 0.95f);
+        const float txtW = eatsbits::ui::glyph::getVectorTextWidth(fontSize, glyph);
+        const float txtX = cx - txtW * 0.5f;
+        const float txtY = cy - fontSize * 0.5f;
+
+        // 1. Subtle warm ambient glow behind glyph
+        eatsbits::ui::glyph::drawVectorText(
+            r, glyph, txtX, txtY, fontSize,
+            pal.furnaceCoreR, pal.furnaceCoreG, pal.furnaceCoreB,
+            hovered ? 0.60f : 0.25f
+        );
+
+        // 2. Embossed drop shadow
+        eatsbits::ui::glyph::drawVectorText(
+            r, glyph, txtX + 1.4f, txtY + 1.4f, fontSize,
+            0.04f, 0.03f, 0.02f, alpha * 0.90f
+        );
+
+        // 3. Polished brass core glyph relief
+        eatsbits::ui::glyph::drawVectorText(
+            r, glyph, txtX, txtY, fontSize,
+            hovered ? pal.brassHighlightR : pal.brassBrightR,
+            hovered ? pal.brassHighlightG : pal.brassBrightG,
+            hovered ? pal.brassHighlightB : pal.brassBrightB,
+            alpha
+        );
+    }
+}
+
+void drawClockworkConduitBar(
+    eatsbits::ui::BatchRenderer2D& r,
+    float x, float y, float w, float h,
+    bool isVertical,
+    float timeSec
+) {
+    const auto& pal = palette();
+
+    // 1. Drop shadow behind the entire chassis
+    r.drawRectDropShadow(
+        x, y, w, h, 8.0f, 14.0f,
+        eatsbits::ui::LightSource2D{x + w * 0.5f, -200.0f, 1.0f}, 0.65f
+    );
+
+    // 2. Weathered cast-iron backing bed
+    r.drawRoundedRectGradient(
+        x, y, w, h, 8.0f,
+        pal.chassisLightR, pal.chassisLightG, pal.chassisLightB,
+        pal.chassisDarkR, pal.chassisDarkG, pal.chassisDarkB,
+        0.96f, 4
+    );
+
+    // Outer and inner brass trim
+    r.drawRoundedRectOutline(x, y, w, h, 8.0f, pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, 0.95f, 1.6f, 4);
+    r.drawRoundedRectOutline(x + 2.0f, y + 2.0f, w - 4.0f, h - 4.0f, 6.0f, pal.brassBrightR, pal.brassBrightG, pal.brassBrightB, 0.35f, 0.9f, 4);
+
+    // Corner hex rivets
+    drawRivet(r, x + 6.0f, y + 6.0f, 2.0f, true);
+    drawRivet(r, x + w - 6.0f, y + 6.0f, 2.0f, true);
+    drawRivet(r, x + 6.0f, y + h - 6.0f, 2.0f, true);
+    drawRivet(r, x + w - 6.0f, y + h - 6.0f, 2.0f, true);
+
+    // 3. Twin steam pipes passing behind medallions
+    if (!isVertical) {
+        // Horizontal pipes along top and bottom edges
+        const float pipeY0 = y + 7.0f;
+        const float pipeY1 = y + h - 7.0f;
+        drawPipe(r, x + 10.0f, pipeY0, x + w - 10.0f, pipeY0, 4.5f, true, true);
+        drawPipe(r, x + 10.0f, pipeY1, x + w - 10.0f, pipeY1, 4.5f, true, true);
+
+        // Saddle clamp brackets at 25%, 50%, 75%
+        for (float ratio : {0.25f, 0.50f, 0.75f}) {
+            float bx = x + w * ratio;
+            r.drawRect(bx - 3.0f, y + 3.0f, 6.0f, h - 6.0f, pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, 0.85f);
+            drawRivet(r, bx, y + 5.0f, 1.4f, false);
+            drawRivet(r, bx, y + h - 5.0f, 1.4f, false);
+        }
+
+        // Mini accent gauge at end
+        drawManometerGauge(r, x + w - 7.0f, y + h * 0.5f, 10.0f, timeSec * 0.4f, 0.6f, false, nullptr);
+    } else {
+        // Vertical pipes along left and right edges
+        const float pipeX0 = x + 7.0f;
+        const float pipeX1 = x + w - 7.0f;
+        drawPipe(r, pipeX0, y + 10.0f, pipeX0, y + h - 10.0f, 4.5f, true, true);
+        drawPipe(r, pipeX1, y + 10.0f, pipeX1, y + h - 10.0f, 4.5f, true, true);
+
+        // Saddle clamp brackets
+        for (float ratio : {0.25f, 0.50f, 0.75f}) {
+            float by = y + h * ratio;
+            r.drawRect(x + 3.0f, by - 3.0f, w - 6.0f, 6.0f, pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, 0.85f);
+            drawRivet(r, x + 5.0f, by, 1.4f, false);
+            drawRivet(r, x + w - 5.0f, by, 1.4f, false);
+        }
+
+        // Mini accent gauge at end
+        drawManometerGauge(r, x + w * 0.5f, y + h - 7.0f, 10.0f, timeSec * 0.4f, 0.6f, false, nullptr);
+    }
+}
+
+void drawClockworkTooltip(
+    eatsbits::ui::BatchRenderer2D& r,
+    float targetX, float targetY, float targetW, float targetH,
+    const char* text,
+    int placement
+) {
+    if (!text || text[0] == '\0') return;
+
+    const auto& pal = palette();
+    const float fontSize = 10.5f;
+    const float txtW = eatsbits::ui::glyph::getVectorTextWidth(fontSize, text);
+    const float padX = 8.0f;
+    const float padY = 5.0f;
+    const float tipW = txtW + padX * 2.0f;
+    const float tipH = fontSize + padY * 2.0f;
+
+    float tipX = 0.0f;
+    float tipY = 0.0f;
+
+    if (placement == 0) { // Above
+        tipX = targetX + (targetW - tipW) * 0.5f;
+        tipY = targetY - tipH - 8.0f;
+    } else if (placement == 1) { // Below
+        tipX = targetX + (targetW - tipW) * 0.5f;
+        tipY = targetY + targetH + 8.0f;
+    } else if (placement == 2) { // Left
+        tipX = targetX - tipW - 8.0f;
+        tipY = targetY + (targetH - tipH) * 0.5f;
+    } else { // Right
+        tipX = targetX + targetW + 8.0f;
+        tipY = targetY + (targetH - tipH) * 0.5f;
+    }
+
+    // Drop shadow
+    r.drawRectDropShadow(
+        tipX, tipY, tipW, tipH, 4.0f, 6.0f,
+        eatsbits::ui::LightSource2D{tipX + tipW * 0.5f, tipY - 100.0f, 400.0f, 0.85f}, 0.55f
+    );
+
+    // Pill background (dark iron with subtle parchment/amber warm core)
+    r.drawRoundedRect(tipX, tipY, tipW, tipH, 4.0f, 0.10f, 0.09f, 0.08f, 0.96f, 4);
+    r.drawRoundedRectOutline(tipX, tipY, tipW, tipH, 4.0f, pal.brassBrightR, pal.brassBrightG, pal.brassBrightB, 0.90f, 1.2f, 4);
+
+    // Text
+    eatsbits::ui::glyph::drawVectorText(
+        r, text, tipX + padX, tipY + padY - 0.5f, fontSize,
+        pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, 1.0f
+    );
+}
+
+void drawClockworkCloseButton(
+    eatsbits::ui::BatchRenderer2D& r,
+    float x, float y, float size,
+    bool hovered,
+    float /*timeSec*/
+) {
+    const auto& cPal = palette();
+    const float radius = size * 0.48f;
+    const float cx = x + size * 0.5f;
+    const float cy = y + size * 0.5f;
+
+    // Outer circle face
+    r.drawCircle(cx, cy, radius,
+                 hovered ? cPal.furnaceDarkR : cPal.chassisLightR,
+                 hovered ? cPal.furnaceDarkG : cPal.chassisLightG,
+                 hovered ? cPal.furnaceDarkB : cPal.chassisLightB,
+                 0.95f, 16);
+
+    // Bezel outline
+    r.drawCircleOutline(cx, cy, radius,
+                        hovered ? cPal.furnaceAmberR : cPal.brassBrightR,
+                        hovered ? cPal.furnaceAmberG : cPal.brassBrightG,
+                        hovered ? cPal.furnaceAmberB : cPal.brassBrightB,
+                        0.95f, 1.2f, 16);
+
+    // Vector 'X' glyph centered
+    const float xFontSize = size * 0.46f;
+    const float xTxtW = eatsbits::ui::glyph::getVectorTextWidth(xFontSize, "X");
+    const float xTxtX = x + (size - xTxtW) * 0.5f;
+    const float xTxtY = y + (size - xFontSize) * 0.5f;
+
+    // Crisp drop shadow
+    eatsbits::ui::glyph::drawVectorText(
+        r, "X", xTxtX + 1.2f, xTxtY + 1.2f, xFontSize,
+        0.04f, 0.03f, 0.02f, 0.90f
+    );
+    // Polished brass 'X'
+    eatsbits::ui::glyph::drawVectorText(
+        r, "X", xTxtX, xTxtY, xFontSize,
+        hovered ? 1.0f : cPal.brassHighlightR,
+        hovered ? 0.95f : cPal.brassHighlightG,
+        hovered ? 0.90f : cPal.brassHighlightB,
+        1.0f
+    );
 }
 
 } // namespace solengine::clockwork_ui

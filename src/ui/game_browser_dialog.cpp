@@ -1,4 +1,5 @@
 #include "solengine/ui/game_browser_dialog.hpp"
+#include "solengine/ui/clockwork_theme.hpp"
 #include "solengine/solitaire_board.hpp"
 #include "solengine/audio_foley.hpp"
 #include "solengine/table_renderer.hpp"
@@ -142,14 +143,12 @@ void GameBrowserDialog::render(
     curY += 20.0f;
     eatsbits::ui::glyph::drawVectorText(r, "Searchable catalog of classical, tournament & imported patience variants", dialogX_ + 20.0f, curY, 10.0f, 0.85f, 0.82f, 0.75f, 0.90f);
 
-    // Close [X] button top right
+    // Close [X] button top right (Clockwork circled X icon)
     const float closeBtnSize = 26.0f;
     const float closeBtnX = dialogX_ + dialogW_ - closeBtnSize - 16.0f;
     const float closeBtnY = dialogY_ + 14.0f;
     bool closeHov = (mouseX >= closeBtnX && mouseX <= closeBtnX + closeBtnSize && mouseY >= closeBtnY && mouseY <= closeBtnY + closeBtnSize);
-    r.drawRoundedRect(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, pal.woodR0 + (closeHov ? 0.12f : 0.04f), pal.woodG0 + 0.02f, pal.woodB0 + 0.02f, 0.95f, 4);
-    r.drawRoundedRectOutline(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, closeHov ? pal.accentR : pal.trimR, closeHov ? pal.accentG : pal.trimG, closeHov ? pal.accentB : pal.trimB, 0.80f, 1.2f, 4);
-    eatsbits::ui::glyph::drawVectorText(r, "X", closeBtnX + 8.5f, closeBtnY + 6.5f, 12.0f, 0.95f, 0.90f, 0.85f, 1.0f);
+    clockwork_ui::drawClockworkCloseButton(r, closeBtnX, closeBtnY, closeBtnSize, closeHov);
 
     // 4. Search bar
     curY += 18.0f;
@@ -445,6 +444,14 @@ bool GameBrowserDialog::handleMouseButton(
     if (button != 0) return true; // Only respond to primary button
 
     if (action == 1) { // Mouse down / Touch down
+        // 0. Auto-close if clicked/tapped outside dialog modal bounds
+        if (mouseX < dialogX_ || mouseX > dialogX_ + dialogW_ ||
+            mouseY < dialogY_ || mouseY > dialogY_ + dialogH_) {
+            close();
+            foley.triggerSound(FoleySound::WoodClick, 0.7f);
+            return true;
+        }
+
         // 1. Check close button [X]
         const float closeBtnSize = 26.0f;
         const float closeBtnX = dialogX_ + dialogW_ - closeBtnSize - 16.0f;

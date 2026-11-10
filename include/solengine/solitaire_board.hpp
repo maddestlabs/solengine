@@ -22,6 +22,8 @@ public:
     void restartDeal();
     void setTableTheme(TableThemeId theme) noexcept { theme_ = theme; }
     [[nodiscard]] TableThemeId tableTheme() const noexcept { return theme_; }
+    void setTableThemeSlug(const std::string& slug) { themeSlug_ = slug; }
+    [[nodiscard]] const std::string& tableThemeSlug() const noexcept { return themeSlug_; }
 
     [[nodiscard]] GameVariant variant() const noexcept { return variant_; }
     [[nodiscard]] const SolitaireGameDef& activeGameDef() const noexcept { return activeDef_; }
@@ -116,6 +118,7 @@ private:
     GameVariant variant_{GameVariant::KlondikeDraw1};
     SolitaireGameDef activeDef_;
     TableThemeId theme_{TableThemeId::PastelTan};
+    std::string themeSlug_;
     ResponsiveLayoutMode layoutMode_{ResponsiveLayoutMode::Auto};
     StockPosition stockPosition_{StockPosition::Auto};
 

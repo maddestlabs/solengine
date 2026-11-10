@@ -54,7 +54,8 @@ void drawGear(
     int teeth, float angleRad = 0.0f,
     float bodyR = 0.78f, float bodyG = 0.62f, float bodyB = 0.22f, float bodyA = 1.0f,
     float rimR = 0.94f, float rimG = 0.80f, float rimB = 0.36f, float rimA = 1.0f,
-    int spokeCount = 5, float hubRadius = -1.0f
+    int spokeCount = 5, float hubRadius = -1.0f,
+    bool drawShadow = false
 );
 
 void drawRivet(
@@ -150,6 +151,35 @@ void drawClockworkMenuOrb(
     eatsbits::ui::BatchRenderer2D& r,
     float cx, float cy, float radius,
     bool hovered, bool menuOpen,
+    float timeSec = 0.0f
+);
+
+void drawClockworkMedallion(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    bool hovered, bool active,
+    const char* glyph,
+    float timeSec = 0.0f
+);
+
+void drawClockworkConduitBar(
+    eatsbits::ui::BatchRenderer2D& r,
+    float x, float y, float w, float h,
+    bool isVertical,
+    float timeSec = 0.0f
+);
+
+void drawClockworkTooltip(
+    eatsbits::ui::BatchRenderer2D& r,
+    float targetX, float targetY, float targetW, float targetH,
+    const char* text,
+    int placement // 0 = above, 1 = below, 2 = left, 3 = right
+);
+
+void drawClockworkCloseButton(
+    eatsbits::ui::BatchRenderer2D& r,
+    float x, float y, float size,
+    bool hovered,
     float timeSec = 0.0f
 );
 

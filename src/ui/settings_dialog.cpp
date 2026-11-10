@@ -5,6 +5,7 @@
 #include "solengine/solitaire_board.hpp"
 #include "solengine/audio_foley.hpp"
 #include "solengine/card_texture_cache.hpp"
+#include "solengine/procedural_background.hpp"
 #include "eatsbits/ui/glyph/font_engine.hpp"
 #include <random>
 #include <chrono>
@@ -56,7 +57,8 @@ void SettingsDialog::render(
     float screenH,
     float mouseX,
     float mouseY,
-    const ThemePalette& pal
+    const ThemePalette& pal,
+    float timeSec
 ) {
     if (!isOpen_) return;
 
@@ -75,9 +77,9 @@ void SettingsDialog::render(
         dialogH_ = std::min(screenH * 0.94f, 620.0f);
 
         if (isClockwork) {
-            clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, true, false, 0.0f);
+            clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, true, false, timeSec);
         } else {
-            eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 1.0f};
+            eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 500.0f};
             r.drawRectDropShadow(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, 22.0f, light, 0.70f);
             r.drawRoundedRectGradient(
                 dialogX_, dialogY_, dialogW_, dialogH_, 12.0f,
@@ -101,9 +103,9 @@ void SettingsDialog::render(
         dialogY_ = (screenH - dialogH_) * 0.5f;
 
         if (isClockwork) {
-            clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, true, true, 0.0f);
+            clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, true, true, timeSec);
         } else {
-            eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 1.0f};
+            eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 500.0f};
             r.drawRectDropShadow(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, 22.0f, light, 0.65f);
             r.drawRoundedRectGradient(
                 dialogX_, dialogY_, dialogW_, dialogH_, 10.0f,
@@ -150,23 +152,7 @@ void SettingsDialog::render(
     const float closeBtnX = dialogX_ + dialogW_ - closeBtnSize - 12.0f;
     const float closeBtnY = dialogY_ + (headerH - closeBtnSize) * 0.5f;
     bool closeHovered = (mouseX >= closeBtnX && mouseX <= closeBtnX + closeBtnSize && mouseY >= closeBtnY && mouseY <= closeBtnY + closeBtnSize);
-    if (isClockwork) {
-        clockwork_ui::drawPewterButton(r, closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, "X", closeHovered, false, 13.0f);
-    } else {
-        r.drawRoundedRect(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, closeHovered ? 0.35f : 0.20f, 0.12f, 0.12f, 0.90f, 4);
-        r.drawRoundedRectOutline(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4.0f, pal.trimR, pal.trimG, pal.trimB, closeHovered ? 1.0f : 0.60f, 1.2f, 4);
-        float closeXTextW = eatsbits::ui::glyph::getVectorTextWidth(13.0f, "X");
-        eatsbits::ui::glyph::drawVectorText(
-            r, "X",
-            closeBtnX + (closeBtnSize - closeXTextW) * 0.5f,
-            closeBtnY + (closeBtnSize - 13.0f) * 0.5f,
-            13.0f,
-            closeHovered ? 1.0f : 0.92f,
-            closeHovered ? 0.95f : 0.88f,
-            closeHovered ? 0.90f : 0.82f,
-            1.0f
-        );
-    }
+    clockwork_ui::drawClockworkCloseButton(r, closeBtnX, closeBtnY, closeBtnSize, closeHovered, timeSec);
 
     // 4. Tab Navigation Bar (4 tabs)
     const float tabY = dialogY_ + headerH + 10.0f;
@@ -434,7 +420,10 @@ void SettingsDialog::render(
         };
 
         // 1. Table Theme
-        std::string themeStr = "Table Theme: " + std::string(SolitaireBoard::themeName(tempSettings_.tableTheme));
+        const auto& availableThemes = ProceduralBackgroundSystem::instance().availableThemes();
+        size_t curThemeIdx = ProceduralBackgroundSystem::instance().findThemeIndex(tempSettings_.tableThemeSlug, tempSettings_.tableTheme);
+        std::string themeTitle = (curThemeIdx < availableThemes.size()) ? availableThemes[curThemeIdx].name : SolitaireBoard::themeName(tempSettings_.tableTheme);
+        std::string themeStr = "Table Theme: " + themeTitle;
         drawStepper(themeStr);
         curY += rowH + rowGap;
 
@@ -934,11 +923,17 @@ bool SettingsDialog::handleMouseButton(
 
         // 1. Table Theme
         if (testStepper(stepDelta)) {
-            constexpr uint8_t count = static_cast<uint8_t>(TableThemeId::Count);
-            if (stepDelta < 0) {
-                tempSettings_.tableTheme = static_cast<TableThemeId>((static_cast<uint8_t>(tempSettings_.tableTheme) + count - 1u) % count);
-            } else {
-                tempSettings_.tableTheme = static_cast<TableThemeId>((static_cast<uint8_t>(tempSettings_.tableTheme) + 1u) % count);
+            const auto& availableThemes = ProceduralBackgroundSystem::instance().availableThemes();
+            if (!availableThemes.empty()) {
+                size_t count = availableThemes.size();
+                size_t curIdx = ProceduralBackgroundSystem::instance().findThemeIndex(tempSettings_.tableThemeSlug, tempSettings_.tableTheme);
+                if (stepDelta < 0) {
+                    curIdx = (curIdx + count - 1u) % count;
+                } else {
+                    curIdx = (curIdx + 1u) % count;
+                }
+                tempSettings_.tableThemeSlug = availableThemes[curIdx].id;
+                tempSettings_.tableTheme = availableThemes[curIdx].legacyId;
             }
             foley.triggerSound(FoleySound::WoodClick, 0.8f);
             return true;

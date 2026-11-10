@@ -112,6 +112,7 @@ add_library(solengine_render STATIC
     src/game/game_definition.cpp
     src/ui/svg_icon_renderer.cpp
     src/ui/settings_dialog.cpp
+    src/ui/seed_dialog.cpp
     src/ui/loading_dialog.cpp
     src/ui/game_browser_dialog.cpp
     src/ui/clockwork_theme.cpp

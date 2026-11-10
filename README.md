@@ -27,7 +27,7 @@ Play instantly in your browser:
 ### The Scripted Pantheon
 SolEngine is built around **Eatscript**: a declarative, Pythonic scripting dialect where game logic, layout topology, and card movement are define:
 - **Classic Solitaries:** *Klondike (Draw 1 & 3)*, *FreeCell*, *Spider (1, 2, & 4 Suits)*, *Yukon*.
-- **Custom Variations:** Craft your own game rules directly into existence via `.eats` scripts—define tableaux, cell constraints, foundation ranks, reserve cascades, and victory conditions.
+- **Custom Variations:** Craft your own game rules via `.eats` scripts. Define tableaux, cell constraints, foundation ranks, reserve cascades, and victory conditions.
 
 ### Procedural API
 Table backgrounds in SolEngine are forged in WebGPU fragment shaders while card faces and card backs can be designed with bitmaps, vector API, rendered via shader code or any combination of these.
@@ -39,17 +39,6 @@ Table backgrounds in SolEngine are forged in WebGPU fragment shaders while card 
 
 ### Procedural Foley Audio
 Embued with the power of `miniaudio`, sound is synthesized dynamically and can likewise be designed via Eatscript.
-
----
-
-## Dual Incarnations
-
-SolEngine breathes as a single unified C++20 codebase across two realms:
-
-| Platform | Runtime | Graphics API | Audio |
-| :--- | :--- | :--- | :--- |
-| **Desktop (Windows)** | Native Executable | WebGPU Native (`wgpu-native` / D3D12 / Vulkan) | Real-time `miniaudio` |
-| **Web (Browser)** | WebAssembly (Emscripten) | WebGPU (WGSL Canvas) | WebAudio via `miniaudio` |
 
 ---
 
@@ -85,8 +74,6 @@ Compile into WebAssembly using Emscripten and host locally:
 .\build-web.ps1 -Port 9000
 ```
 
-GitHub Pages deployment is fully automated via GitHub Actions on every push to `main` at [.github/workflows/pages.yml](file:///c:/git/solengine/.github/workflows/pages.yml).
-
 ---
 
 ## Table Controls & Keybindings
@@ -104,20 +91,10 @@ GitHub Pages deployment is fully automated via GitHub Actions on every push to `
 
 ---
 
-## The Grimoire (Documentation & Architecture)
-
-- **[Architectural & Lore Blueprint (`BLUEPRINT.md`)](file:///c:/git/solengine/BLUEPRINT.md):** Deep-dive into the C++20 engine architecture, state machines, and Eatscript integration.
-- **[Deck Pipeline & AI Generation Guide (`DECK_PIPELINE.md`)](file:///c:/git/solengine/DECK_PIPELINE.md):** Vector and raster dual-pipeline, card contrast rules, and Gemini multimodal style workflows.
-- **[Eatscript Card & Game Customization (`EATSCRIPT_CARD_CUSTOMIZATION.md`)](file:///c:/git/solengine/EATSCRIPT_CARD_CUSTOMIZATION.md):** Specification for authoring procedural vector card faces, custom game variants, and retained display lists.
-- **[Agent & Subshell Guidelines (`AGENTS.md`)](file:///c:/git/solengine/AGENTS.md):** Guidelines prohibiting automated test execution and unsafe GPU/audio subshells.
-- **[License Terms (`LICENSE.md`)](file:///c:/git/solengine/LICENSE.md):** Dual open-source and proprietary asset protection.
-
----
-
 ## License
 
 SolEngine is published under a **Split-License Model**:
 
 * **Engine & Source Code:** Free Software released under the [GNU General Public License v3.0 (GPLv3)](file:///c:/git/solengine/LICENSE.md).
 * **Art, Vector Decks, Foley Synthesis & Lore:** **All Rights Reserved** (or authorized non-commercial use only) to prevent unauthorized commercial asset-flipping and commercial cloning.
-* **Trademarks:** *SolEngine*, *Encharted*, *Eatscharted*, and *The Veil's Patience* are proprietary trademarks of Maddest Labs.
+* **Trademarks:** *SolEngine*, is a proprietary trademarks of Maddest Labs.

@@ -9,8 +9,17 @@
 #include <memory>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace solengine {
+
+struct TableThemeDef {
+    std::string id;         // e.g. "ambientcg_paintedwood008c", "paintedwood_redcedar", "pastel_tan"
+    std::string name;       // e.g. "PAINTED WOOD 008C", "PAINTED RED CEDAR", "PASTEL TAN"
+    std::string filePath;   // Relative or absolute path to .eats file (empty for PastelTan)
+    TableThemeId legacyId{TableThemeId::PastelTan};
+    bool isProcedural{true};
+};
 
 /**
  * High-performance procedural and AmbientCG PBR table surface generator with
@@ -65,6 +74,36 @@ public:
      */
     bool prebakeTheme(
         TableThemeId theme,
+        float w, float h,
+        const eatsbits::ui::LightSource2D& light,
+        const std::function<bool(float progress, const std::string& status)>& onProgress = nullptr
+    );
+
+    /**
+     * Retrieve all dynamically discovered table background themes found in /themes/.
+     */
+    [[nodiscard]] const std::vector<TableThemeDef>& availableThemes() const noexcept;
+
+    /**
+     * Find theme index by ID, slug, name, or legacy TableThemeId.
+     */
+    [[nodiscard]] size_t findThemeIndex(const std::string& idOrName, TableThemeId fallback = TableThemeId::Count) const noexcept;
+
+    /**
+     * Get theme definition by index (bounds checked, returns nullptr if out of range).
+     */
+    [[nodiscard]] const TableThemeDef* getThemeDef(size_t index) const noexcept;
+
+    /**
+     * Scan themes directory and populate availableThemes.
+     */
+    void scanThemesFolder(const std::string& themesDir = "themes");
+
+    /**
+     * Pre-bake and synthesize surface for a TableThemeDef.
+     */
+    bool prebakeThemeDef(
+        const TableThemeDef& def,
         float w, float h,
         const eatsbits::ui::LightSource2D& light,
         const std::function<bool(float progress, const std::string& status)>& onProgress = nullptr

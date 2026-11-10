@@ -1,5 +1,6 @@
 #include "solengine/procedural_background.hpp"
 #include "solengine/card_canvas.hpp"
+#include "solengine/solitaire_board.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/ui/base64.hpp"
 #include "stb_image.h"
@@ -822,6 +823,35 @@ bool bakeCanvasSurface(
     return true;
 }
 
+static inline std::string toLowerStr(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+static TableThemeId mapSlugToLegacyTheme(const std::string& id, const std::string& stem) {
+    std::string s = toLowerStr(id + " " + stem);
+    if (s.find("carpet012") != std::string::npos || s.find("emerald") != std::string::npos) return TableThemeId::EmeraldLawn;
+    if (s.find("fabric063") != std::string::npos || s.find("hopsack") != std::string::npos) return TableThemeId::HopsackTweed;
+    if (s.find("fabric061") != std::string::npos || s.find("denim") != std::string::npos || s.find("chambray") != std::string::npos) return TableThemeId::DenimChambray;
+    if (s.find("fabric079") != std::string::npos || s.find("jersey") != std::string::npos) return TableThemeId::StripedJersey;
+    if (s.find("onyx013") != std::string::npos || s.find("sanctum") != std::string::npos) return TableThemeId::SunkenSanctum;
+    if (s.find("moss002") != std::string::npos || s.find("perilous") != std::string::npos || s.find("shores") != std::string::npos) return TableThemeId::PerilousShores;
+    if (s.find("pebbled") != std::string::npos || s.find("cowhide") != std::string::npos) return TableThemeId::PebbledCowhide;
+    if (s.find("leather006") != std::string::npos || s.find("distressed") != std::string::npos) return TableThemeId::LeatherNubuck;
+    if (s.find("paintedwood008c") != std::string::npos) return TableThemeId::PaintedWood;
+    if (s.find("pixel_dungeon") != std::string::npos) return TableThemeId::PixelDungeon;
+    if (s.find("pixel_emerald_water") != std::string::npos || s.find("pixel_water") != std::string::npos) return TableThemeId::PixelWater;
+    if (s.find("velvet_noir") != std::string::npos) return TableThemeId::ShaderVelvetNoir;
+    if (s.find("carrara_marble") != std::string::npos) return TableThemeId::ShaderCarraraMarble;
+    if (s.find("watered_silk") != std::string::npos) return TableThemeId::ShaderWateredSilk;
+    if (s.find("pool_caustics") != std::string::npos) return TableThemeId::ShaderPoolCaustics;
+    if (s.find("arcane_parchment") != std::string::npos) return TableThemeId::ShaderArcaneParchment;
+    if (s.find("cosmic_nebula") != std::string::npos) return TableThemeId::ShaderCosmicNebula;
+    if (s.find("synthwave_sunset") != std::string::npos) return TableThemeId::ShaderSynthwaveSunset;
+    if (s.find("topographic") != std::string::npos) return TableThemeId::ShaderTopographic;
+    return TableThemeId::Count;
+}
+
 } // namespace
 
 struct ProceduralBackgroundSystem::Impl {
@@ -837,6 +867,9 @@ struct ProceduralBackgroundSystem::Impl {
     PbrTextureData customTexture;
     PbrMaterialDef customDef;
 
+    std::vector<TableThemeDef> scannedThemes;
+    bool themesScanned{false};
+
     TableThemeId cachedTheme{static_cast<TableThemeId>(-1)};
     bool cachedCustom{false};
     int cachedW{0};
@@ -850,6 +883,153 @@ struct ProceduralBackgroundSystem::Impl {
         cachedW = 0;
         cachedH = 0;
         cachedBakedRgba.clear();
+    }
+
+    void scanThemes(const std::string& themesDir = "themes") {
+        std::lock_guard<std::recursive_mutex> lock(cacheMutex);
+        scannedThemes.clear();
+
+        // 1. Built-in clean non-shader table
+        scannedThemes.push_back(TableThemeDef{
+            "pastel_tan",
+            "PASTEL TAN",
+            "",
+            TableThemeId::PastelTan,
+            false
+        });
+
+        std::error_code ec;
+        const std::string searchPaths[] = {
+            themesDir,
+            "/" + themesDir,
+            "../" + themesDir,
+            "../../" + themesDir,
+            "../../../" + themesDir,
+            "assets/" + themesDir,
+            "../assets/" + themesDir,
+            "./" + themesDir
+        };
+
+        std::string targetDir;
+        for (const auto& sp : searchPaths) {
+            if (std::filesystem::exists(sp, ec) && std::filesystem::is_directory(sp, ec)) {
+                targetDir = sp;
+                break;
+            }
+        }
+
+        if (targetDir.empty()) {
+            for (uint8_t i = 1; i < static_cast<uint8_t>(TableThemeId::Count); ++i) {
+                TableThemeId t = static_cast<TableThemeId>(i);
+                const char* nm = SolitaireBoard::themeName(t);
+                scannedThemes.push_back(TableThemeDef{
+                    toLowerStr(nm),
+                    nm,
+                    "",
+                    t,
+                    true
+                });
+            }
+            themesScanned = true;
+            return;
+        }
+
+        std::unordered_map<std::string, size_t> idToIndex;
+        std::unordered_map<std::string, size_t> nameToIndex;
+
+        for (const auto& entry : std::filesystem::directory_iterator(targetDir, ec)) {
+            if (!entry.is_regular_file(ec)) continue;
+            std::string ext = entry.path().extension().string();
+            for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (ext != ".eats") continue;
+
+            std::string filePath = entry.path().string();
+            std::string stem = entry.path().stem().string();
+
+            std::ifstream f(filePath);
+            if (!f.is_open()) continue;
+            std::string line;
+            std::string parsedId;
+            std::string parsedName;
+            int linesRead = 0;
+            while (std::getline(f, line) && linesRead++ < 50) {
+                size_t cPos = line.find('#');
+                if (cPos != std::string::npos && line.find('"') == std::string::npos && line.find('\'') == std::string::npos) {
+                    line = line.substr(0, cPos);
+                }
+                auto extractQuoted = [](const std::string& l, const std::string& key) -> std::string {
+                    size_t k = l.find(key);
+                    if (k == std::string::npos) return "";
+                    size_t q1 = l.find_first_of("\"'", k + key.size());
+                    if (q1 == std::string::npos) return "";
+                    char qChar = l[q1];
+                    size_t q2 = l.find(qChar, q1 + 1);
+                    if (q2 == std::string::npos) return "";
+                    return l.substr(q1 + 1, q2 - q1 - 1);
+                };
+                if (parsedId.empty()) {
+                    parsedId = extractQuoted(line, "id");
+                }
+                if (parsedName.empty()) {
+                    parsedName = extractQuoted(line, "name");
+                }
+            }
+
+            if (parsedId.empty()) parsedId = stem;
+            if (parsedName.empty()) {
+                std::string s = stem;
+                if (s.rfind("shader_", 0) == 0) s = s.substr(7);
+                for (char& c : s) if (c == '_') c = ' ';
+                parsedName = s;
+            }
+
+            for (char& c : parsedName) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+            TableThemeId legacy = mapSlugToLegacyTheme(parsedId, stem);
+
+            std::string lowerId = toLowerStr(parsedId);
+            std::string lowerName = toLowerStr(parsedName);
+
+            auto itName = nameToIndex.find(lowerName);
+            if (itName != nameToIndex.end()) {
+                size_t existingIdx = itName->second;
+                if (stem.find("carpet") == std::string::npos && stem.find("fabric") == std::string::npos && stem.find("moss") == std::string::npos) {
+                    scannedThemes[existingIdx].filePath = filePath;
+                    scannedThemes[existingIdx].id = parsedId;
+                }
+                continue;
+            }
+
+            auto itId = idToIndex.find(lowerId);
+            if (itId != idToIndex.end()) {
+                size_t existingIdx = itId->second;
+                if (stem.find("carpet") == std::string::npos && stem.find("fabric") == std::string::npos && stem.find("moss") == std::string::npos) {
+                    scannedThemes[existingIdx].filePath = filePath;
+                    scannedThemes[existingIdx].name = parsedName;
+                }
+                continue;
+            }
+
+            size_t newIdx = scannedThemes.size();
+            scannedThemes.push_back(TableThemeDef{
+                parsedId,
+                parsedName,
+                filePath,
+                legacy,
+                true
+            });
+            idToIndex[lowerId] = newIdx;
+            nameToIndex[lowerName] = newIdx;
+        }
+
+        // Sort dynamically discovered themes alphabetically after index 0 (Pastel Tan remains index 0)
+        if (scannedThemes.size() > 2) {
+            std::sort(scannedThemes.begin() + 1, scannedThemes.end(), [](const TableThemeDef& a, const TableThemeDef& b) {
+                return a.name < b.name;
+            });
+        }
+
+        themesScanned = true;
     }
 
     bool ensureMaterial(TableThemeId theme, const PbrMaterialDef& defaultDef) {
@@ -931,13 +1111,126 @@ struct ProceduralBackgroundSystem::Impl {
 };
 
 ProceduralBackgroundSystem::ProceduralBackgroundSystem()
-    : impl_(std::make_unique<Impl>()) {}
+    : impl_(std::make_unique<Impl>()) {
+    impl_->scanThemes("themes");
+}
 
 ProceduralBackgroundSystem::~ProceduralBackgroundSystem() = default;
 
 ProceduralBackgroundSystem& ProceduralBackgroundSystem::instance() {
     static ProceduralBackgroundSystem s_instance;
     return s_instance;
+}
+
+const std::vector<TableThemeDef>& ProceduralBackgroundSystem::availableThemes() const noexcept {
+    if (impl_) {
+        if (!impl_->themesScanned) {
+            impl_->scanThemes("themes");
+        }
+        return impl_->scannedThemes;
+    }
+    static const std::vector<TableThemeDef> s_empty;
+    return s_empty;
+}
+
+const TableThemeDef* ProceduralBackgroundSystem::getThemeDef(size_t index) const noexcept {
+    const auto& list = availableThemes();
+    if (index < list.size()) {
+        return &list[index];
+    }
+    return nullptr;
+}
+
+size_t ProceduralBackgroundSystem::findThemeIndex(const std::string& idOrName, TableThemeId fallback) const noexcept {
+    const auto& list = availableThemes();
+    if (list.empty()) return 0;
+
+    if (!idOrName.empty()) {
+        std::string lower = toLowerStr(idOrName);
+        for (size_t i = 0; i < list.size(); ++i) {
+            std::string idLower = toLowerStr(list[i].id);
+            std::string nameLower = toLowerStr(list[i].name);
+            if (idLower == lower || nameLower == lower) {
+                return i;
+            }
+        }
+        for (size_t i = 0; i < list.size(); ++i) {
+            std::string idLower = toLowerStr(list[i].id);
+            std::string nameLower = toLowerStr(list[i].name);
+            std::string pathLower = toLowerStr(list[i].filePath);
+            if (idLower.find(lower) != std::string::npos || nameLower.find(lower) != std::string::npos ||
+                pathLower.find(lower) != std::string::npos || lower.find(idLower) != std::string::npos) {
+                return i;
+            }
+        }
+    }
+
+    if (fallback != TableThemeId::Count) {
+        for (size_t i = 0; i < list.size(); ++i) {
+            if (list[i].legacyId == fallback) {
+                return i;
+            }
+        }
+    }
+    return 0;
+}
+
+void ProceduralBackgroundSystem::scanThemesFolder(const std::string& themesDir) {
+    if (impl_) {
+        impl_->scanThemes(themesDir);
+    }
+}
+
+bool ProceduralBackgroundSystem::prebakeThemeDef(
+    const TableThemeDef& def,
+    float w, float h,
+    const eatsbits::ui::LightSource2D& light,
+    const std::function<bool(float progress, const std::string& status)>& onProgress
+) {
+    if (!impl_) return false;
+
+    if (def.filePath.empty()) {
+        clearCustomEatsTheme();
+        if (onProgress) onProgress(1.0f, "Vector table surface ready.");
+        return true;
+    }
+
+    if (onProgress && !onProgress(0.15f, "Loading theme: " + def.name + "...")) {
+        return false;
+    }
+
+    if (!loadCustomEatsTheme(def.filePath)) {
+        if (def.legacyId != TableThemeId::Count) {
+            return prebakeTheme(def.legacyId, w, h, light, onProgress);
+        }
+        return false;
+    }
+
+    if (onProgress && !onProgress(0.60f, "Baking tactile surface relief...")) {
+        return false;
+    }
+
+    int bakeW = static_cast<int>(std::ceil(w));
+    int bakeH = static_cast<int>(std::ceil(h));
+    {
+        std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+        if (impl_->isCanvasTheme && !impl_->canvasThemeSource.empty()) {
+            bakeCanvasSurface(impl_->canvasThemeSource, 0.0f, 0.0f, w, h, light,
+                              impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH);
+            impl_->cachedCustom = true;
+            impl_->cachedTheme = def.legacyId;
+        } else if (impl_->customTexture.loaded) {
+            bakePbrSurface(impl_->customTexture, impl_->customDef, 0.0f, 0.0f, w, h,
+                           impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH);
+            impl_->cachedCustom = true;
+            impl_->cachedTheme = def.legacyId;
+        }
+    }
+
+    if (onProgress && !onProgress(1.0f, "Table surface synthesis complete.")) {
+        return false;
+    }
+    return true;
 }
 
 void ProceduralBackgroundSystem::invalidateCache() noexcept {

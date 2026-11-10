@@ -96,6 +96,9 @@ bool SettingsManager::load() {
         if (root.contains("appearance") && root["appearance"].isObject()) {
             const auto& a = root["appearance"];
             settings_.tableTheme = static_cast<TableThemeId>(std::clamp(a["tableTheme"].asInt(0), 0, static_cast<int>(TableThemeId::Count) - 1));
+            if (a.contains("tableThemeSlug") && a["tableThemeSlug"].isString()) {
+                settings_.tableThemeSlug = a["tableThemeSlug"].asString();
+            }
             settings_.deckTheme = static_cast<DeckThemeId>(std::clamp(a["deckTheme"].asInt(0), 0, static_cast<int>(DeckThemeId::Count) - 1));
             settings_.guiTheme = static_cast<GuiThemeStyle>(std::clamp(a["guiTheme"].asInt(static_cast<int>(GuiThemeStyle::ClockworkEngine)), 0, 1));
             settings_.cardWear = static_cast<CardWearLevel>(std::clamp(a["cardWear"].asInt(static_cast<int>(CardWearLevel::Pristine)), 0, static_cast<int>(CardWearLevel::Count) - 1));
@@ -109,6 +112,7 @@ bool SettingsManager::load() {
             settings_.sceneDarkness = std::clamp(a["sceneDarkness"].asFloat(0.22f), 0.0f, 0.85f);
             settings_.lightStrength = std::clamp(a["lightStrength"].asFloat(1.20f), 0.0f, 2.0f);
             settings_.menuAnchor = static_cast<MenuAnchor>(std::clamp(a["menuAnchor"].asInt(0), 0, 3));
+            settings_.menuFlowVertical = a["menuFlowVertical"].asBool(false);
             settings_.menuDisplayMode = static_cast<MenuDisplayMode>(std::clamp(a["menuDisplayMode"].asInt(0), 0, 2));
             settings_.showTableMarkings = a["showTableMarkings"].asBool(true);
         }
@@ -150,6 +154,9 @@ bool SettingsManager::save() {
 
     json::Object a;
     a["tableTheme"] = static_cast<int>(settings_.tableTheme);
+    if (!settings_.tableThemeSlug.empty()) {
+        a["tableThemeSlug"] = settings_.tableThemeSlug;
+    }
     a["deckTheme"] = static_cast<int>(settings_.deckTheme);
     a["guiTheme"] = static_cast<int>(settings_.guiTheme);
     a["cardWear"] = static_cast<int>(settings_.cardWear);
@@ -163,6 +170,7 @@ bool SettingsManager::save() {
     a["sceneDarkness"] = settings_.sceneDarkness;
     a["lightStrength"] = settings_.lightStrength;
     a["menuAnchor"] = static_cast<int>(settings_.menuAnchor);
+    a["menuFlowVertical"] = settings_.menuFlowVertical;
     a["menuDisplayMode"] = static_cast<int>(settings_.menuDisplayMode);
     a["showTableMarkings"] = settings_.showTableMarkings;
     root["appearance"] = a;
@@ -211,6 +219,7 @@ bool SettingsManager::save() {
 
 void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley, bool applyTextures) {
     board.setTableTheme(settings_.tableTheme);
+    board.setTableThemeSlug(settings_.tableThemeSlug);
     board.setCardDeviation(settings_.cardDeviation);
     board.setLayoutMode(settings_.layoutMode);
     board.setStockPosition(settings_.stockPosition);
@@ -229,6 +238,7 @@ void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley
 void SettingsManager::syncFromGame(const SolitaireBoard& board, const AudioFoleyEngine& foley) {
     settings_.variant = board.variant();
     settings_.tableTheme = board.tableTheme();
+    settings_.tableThemeSlug = board.tableThemeSlug();
     settings_.cardDeviation = board.cardDeviation();
     settings_.layoutMode = board.layoutMode();
     settings_.stockPosition = board.stockPosition();

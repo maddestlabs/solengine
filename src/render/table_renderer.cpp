@@ -8,6 +8,7 @@
 #include "solengine/session_manager.hpp"
 #include "solengine/ui/svg_icon_renderer.hpp"
 #include "solengine/ui/settings_dialog.hpp"
+#include "solengine/ui/seed_dialog.hpp"
 #include "solengine/ui/loading_dialog.hpp"
 #include "solengine/ui/game_browser_dialog.hpp"
 #include "solengine/ui/clockwork_theme.hpp"
@@ -66,7 +67,6 @@ enum HudButtonId : int {
     BtnUndo       = 5,
     BtnRedo       = 6,
     BtnHint       = 7,
-    BtnAutoFinish = 8,
     BtnMenuToggle = 9,
     BtnMenuAnchor = 10,
     BtnCardWear   = 11,
@@ -85,7 +85,8 @@ enum HudButtonId : int {
     BtnStepFwd    = 23,
     BtnSpeedToggle= 24,
     BtnTakeOver   = 25,
-    BtnSolvableDeal=26
+    BtnSolvableDeal=26,
+    BtnSeedDialog = 28
 };
 
 struct HudButtonRect {
@@ -95,163 +96,149 @@ struct HudButtonRect {
     float w;
     float h;
     const char* label;
+    const char* glyph{""};
     SvgIconId iconId{SvgIconId::None};
 };
+
+struct ClockworkBarLayout {
+    float barX{0.0f};
+    float barY{0.0f};
+    float barW{0.0f};
+    float barH{0.0f};
+    bool isVertical{false};
+    std::vector<HudButtonRect> buttons;
+};
+
+ClockworkBarLayout computeClockworkBarLayout(
+    float width,
+    float height,
+    const SolitaireBoard& board,
+    MenuAnchor anchor = MenuAnchor::BottomLeft,
+    bool isVertical = false
+) {
+    constexpr float orbSize = 38.0f;
+    constexpr float orbGap = 5.0f;
+    constexpr float padX = 8.0f;
+    constexpr float padY = 6.0f;
+    constexpr float margin = 14.0f;
+    constexpr int kNumButtons = 10;
+
+    ClockworkBarLayout layout;
+    layout.isVertical = isVertical;
+
+    if (!isVertical) {
+        layout.barW = static_cast<float>(kNumButtons) * orbSize + static_cast<float>(kNumButtons - 1) * orbGap + 2.0f * padX;
+        layout.barH = orbSize + 2.0f * padY;
+    } else {
+        layout.barW = orbSize + 2.0f * padX;
+        layout.barH = static_cast<float>(kNumButtons) * orbSize + static_cast<float>(kNumButtons - 1) * orbGap + 2.0f * padY;
+    }
+
+    if (anchor == MenuAnchor::BottomLeft) {
+        layout.barX = margin;
+        layout.barY = height - margin - layout.barH;
+    } else if (anchor == MenuAnchor::BottomRight) {
+        layout.barX = width - margin - layout.barW;
+        layout.barY = height - margin - layout.barH;
+    } else if (anchor == MenuAnchor::TopLeft) {
+        layout.barX = margin;
+        layout.barY = margin;
+    } else if (anchor == MenuAnchor::TopRight) {
+        layout.barX = width - margin - layout.barW;
+        layout.barY = margin;
+    }
+
+    // Ergonometric clearance: avoid overlapping bottom stock/waste piles if present
+    if ((board.variant() == GameVariant::KlondikeDraw1 || board.variant() == GameVariant::KlondikeDraw3) && !board.piles().empty()) {
+        if (board.piles()[0].y > height * 0.5f) {
+            const bool stockOnRight = (board.piles()[0].x > width * 0.5f);
+            if (!isVertical) {
+                if (anchor == MenuAnchor::BottomRight && stockOnRight) {
+                    layout.barY = std::max(6.0f, board.piles()[0].y - layout.barH - 8.0f);
+                } else if (anchor == MenuAnchor::BottomLeft && !stockOnRight) {
+                    layout.barY = std::max(6.0f, board.piles()[0].y - layout.barH - 8.0f);
+                }
+            }
+        }
+    }
+
+    layout.barX = std::clamp(layout.barX, 4.0f, std::max(4.0f, width - layout.barW - 4.0f));
+    layout.barY = std::clamp(layout.barY, 4.0f, std::max(4.0f, height - layout.barH - 4.0f));
+
+    // The 10 buttons in sequence:
+    // 0: SolEngine Master Orb (Settings / Drag)
+    // 1: Game Selection Dialog
+    // 2: New Game
+    // 3: Restart Game
+    // 4: Undo
+    // 5: Redo
+    // 6: Hint
+    // 7: Auto-Play
+    // 8: New Solvable Game
+    // 9: Deal Seed Dialog
+    struct BtnDef {
+        HudButtonId id;
+        const char* label;
+        const char* glyph;
+    };
+    static const BtnDef sDefs[kNumButtons] = {
+        { BtnMenuToggle,   "[O] Settings / Drag",     "S" },
+        { BtnVariant,      "[G] Select Game",         "G" },
+        { BtnNewDeal,      "[N]ew Game",              "+" },
+        { BtnRestart,      "[R]estart",               "↺" },
+        { BtnUndo,         "[z]Undo",                 "<" },
+        { BtnRedo,         "[y]Redo",                 ">" },
+        { BtnHint,         "[H]int",                  "?" },
+        { BtnAutoPlay,     "[A]uto-Play",             "▶" },
+        { BtnSolvableDeal, "[Shift+N] Solvable Deal", "*" },
+        { BtnSeedDialog,   "[#] Deal Seed",           "#" },
+    };
+
+    layout.buttons.reserve(kNumButtons);
+    for (int i = 0; i < kNumButtons; ++i) {
+        float btnX = 0.0f;
+        float btnY = 0.0f;
+
+        if (!isVertical) {
+            btnY = layout.barY + padY;
+            if (anchor == MenuAnchor::BottomLeft || anchor == MenuAnchor::TopLeft) {
+                btnX = layout.barX + padX + static_cast<float>(i) * (orbSize + orbGap);
+            } else {
+                btnX = layout.barX + layout.barW - padX - orbSize - static_cast<float>(i) * (orbSize + orbGap);
+            }
+        } else {
+            btnX = layout.barX + padX;
+            if (anchor == MenuAnchor::TopLeft || anchor == MenuAnchor::TopRight) {
+                btnY = layout.barY + padY + static_cast<float>(i) * (orbSize + orbGap);
+            } else {
+                btnY = layout.barY + layout.barH - padY - orbSize - static_cast<float>(i) * (orbSize + orbGap);
+            }
+        }
+
+        layout.buttons.push_back(HudButtonRect{
+            sDefs[i].id,
+            btnX,
+            btnY,
+            orbSize,
+            orbSize,
+            sDefs[i].label,
+            sDefs[i].glyph,
+            SvgIconId::None
+        });
+    }
+
+    return layout;
+}
 
 std::vector<HudButtonRect> buildHudButtons(
     float width,
     float height,
     const SolitaireBoard& board,
-    bool menuOpen = false,
-    MenuAnchor anchor = MenuAnchor::BottomLeft
+    bool /*menuOpen*/ = false,
+    MenuAnchor anchor = MenuAnchor::BottomLeft,
+    bool isVertical = false
 ) {
-    constexpr float orbSize = 42.0f;
-    constexpr float margin = 16.0f;
-    float orbX = margin;
-    float orbY = height - margin - orbSize;
-
-    if (anchor == MenuAnchor::BottomRight) {
-        orbX = width - margin - orbSize;
-        orbY = height - margin - orbSize;
-    } else if (anchor == MenuAnchor::TopLeft) {
-        orbX = margin;
-        orbY = margin;
-    } else if (anchor == MenuAnchor::TopRight) {
-        orbX = width - margin - orbSize;
-        orbY = margin;
-    }
-
-    // Ergonometric clearance: if bottom stock rail is active, avoid card collision
-    if ((board.variant() == GameVariant::KlondikeDraw1 || board.variant() == GameVariant::KlondikeDraw3) && !board.piles().empty()) {
-        if (board.piles()[0].y > height * 0.5f) {
-            const bool stockOnRight = (board.piles()[0].x > width * 0.5f);
-            if (anchor == MenuAnchor::BottomRight && stockOnRight) {
-                orbY = std::max(8.0f, board.piles()[0].y - orbSize - 8.0f);
-            } else if (anchor == MenuAnchor::BottomLeft && !stockOnRight) {
-                orbY = std::max(8.0f, board.piles()[0].y - orbSize - 8.0f);
-            }
-        }
-    }
-
-    HudButtonRect bMenuToggle{BtnMenuToggle, orbX, orbY, orbSize, orbSize, "MENU"};
-    if (!menuOpen) {
-        return { bMenuToggle };
-    }
-
-    const auto menuMode = SettingsManager::instance().settings().menuDisplayMode;
-    bool isIconOnly = false;
-    if (menuMode == MenuDisplayMode::IconOnly) {
-        isIconOnly = true;
-    } else if (menuMode == MenuDisplayMode::Auto) {
-        const float aspect = width / std::max(1.0f, height);
-        isIconOnly = (aspect < 1.05f) || (width < 600.0f);
-    }
-
-    auto makeBtn = [](HudButtonId id, float x, float y, float w, float h, const char* label, SvgIconId iconId) -> HudButtonRect {
-        return HudButtonRect{id, x, y, w, h, label, iconId};
-    };
-
-    if (isIconOnly) {
-        const float btnSize = 38.0f;
-        const float colGap = 6.0f;
-        const float rowGap = 6.0f;
-        const float popW = 2.0f * btnSize + colGap + 16.0f; // 98.0f
-        const float popH = 5.0f * btnSize + 4.0f * rowGap + 16.0f; // 230.0f
-
-        float popX = orbX;
-        float popY = (orbY + orbSize + 8.0f + popH <= height)
-            ? (orbY + orbSize + 8.0f)
-            : (orbY - 8.0f - popH);
-
-        if (anchor == MenuAnchor::BottomRight || anchor == MenuAnchor::TopRight) {
-            popX = orbX + orbSize - popW;
-        }
-        popX = std::clamp(popX, 8.0f, std::max(8.0f, width - popW - 8.0f));
-        popY = std::clamp(popY, 8.0f, std::max(8.0f, height - popH - 8.0f));
-
-        const float startY = popY + 8.0f;
-        const float col0X = popX + 8.0f;
-        const float col1X = col0X + btnSize + colGap;
-
-        // Row 0: Undo / Redo
-        HudButtonRect bUndo     = makeBtn(BtnUndo,        col0X, startY + 0.0f * (btnSize + rowGap), btnSize, btnSize, "<", SvgIconId::None);
-        HudButtonRect bRedo     = makeBtn(BtnRedo,        col1X, startY + 0.0f * (btnSize + rowGap), btnSize, btnSize, ">", SvgIconId::None);
-        // Row 1: Restart / New Deal
-        HudButtonRect bRestart  = makeBtn(BtnRestart,     col0X, startY + 1.0f * (btnSize + rowGap), btnSize, btnSize, "R", SvgIconId::None);
-        HudButtonRect bNewDeal  = makeBtn(BtnNewDeal,     col1X, startY + 1.0f * (btnSize + rowGap), btnSize, btnSize, "+", SvgIconId::None);
-        // Row 2: Hint / Auto-play
-        HudButtonRect bHint     = makeBtn(BtnHint,        col0X, startY + 2.0f * (btnSize + rowGap), btnSize, btnSize, "?", SvgIconId::None);
-        HudButtonRect bFinish   = makeBtn(BtnAutoFinish,  col1X, startY + 2.0f * (btnSize + rowGap), btnSize, btnSize, "=>", SvgIconId::None);
-        // Row 3: Auto-Play Demo & Solvable Deal
-        HudButtonRect bAutoPlay = makeBtn(BtnAutoPlay,    col0X, startY + 3.0f * (btnSize + rowGap), btnSize, btnSize, ">", SvgIconId::AutoPlay);
-        HudButtonRect bSolvable = makeBtn(BtnSolvableDeal,col1X, startY + 3.0f * (btnSize + rowGap), btnSize, btnSize, "*", SvgIconId::None);
-        // Row 4: Game Variant Prev / Next
-        HudButtonRect bVarPrev  = makeBtn(BtnVariantPrev, col0X, startY + 4.0f * (btnSize + rowGap), btnSize, btnSize, "<", SvgIconId::None);
-        HudButtonRect bVarNext  = makeBtn(BtnVariantNext, col1X, startY + 4.0f * (btnSize + rowGap), btnSize, btnSize, ">", SvgIconId::None);
-        // Row 5: Roll Seed / Settings
-        HudButtonRect bSeed     = makeBtn(BtnRollSeed,    col0X, startY + 5.0f * (btnSize + rowGap), btnSize, btnSize, "#", SvgIconId::None);
-        HudButtonRect bSettings = makeBtn(BtnSettings,    col1X, startY + 5.0f * (btnSize + rowGap), btnSize, btnSize, "O", SvgIconId::None);
-
-        return { bMenuToggle, bUndo, bRedo, bRestart, bNewDeal, bHint, bFinish, bAutoPlay, bSolvable, bVarPrev, bVarNext, bSeed, bSettings };
-    }
-
-    // Full Mode (Icon + Text)
-    const float popW = std::min(330.0f, std::max(270.0f, width - 16.0f));
-    const float colW = (popW - 24.0f) * 0.5f;
-    const float rowH = 28.0f;
-    const float rowGap = 5.0f;
-    const float fullRowW = popW - 16.0f;
-    const float popH = 7.0f * rowH + 6.0f * rowGap + 24.0f; // ~255px
-
-    float popX = orbX;
-    float popY = (orbY + orbSize + 8.0f + popH <= height)
-        ? (orbY + orbSize + 8.0f)
-        : (orbY - 8.0f - popH);
-
-    if (anchor == MenuAnchor::BottomRight || anchor == MenuAnchor::TopRight) {
-        popX = orbX + orbSize - popW;
-    }
-    popX = std::clamp(popX, 8.0f, std::max(8.0f, width - popW - 8.0f));
-    popY = std::clamp(popY, 8.0f, std::max(8.0f, height - popH - 8.0f));
-
-    const float startY = popY + 12.0f;
-    const float col0X = popX + 8.0f;
-    const float col1X = col0X + colW + 8.0f;
-
-    // Row 0: Undo / Redo
-    HudButtonRect bUndo    = makeBtn(BtnUndo,       col0X, startY + 0.0f * (rowH + rowGap), colW, rowH, "< Undo", SvgIconId::None);
-    HudButtonRect bRedo    = makeBtn(BtnRedo,       col1X, startY + 0.0f * (rowH + rowGap), colW, rowH, "> Redo", SvgIconId::None);
-    // Row 1: Restart / New Game
-    HudButtonRect bRestart = makeBtn(BtnRestart,    col0X, startY + 1.0f * (rowH + rowGap), colW, rowH, "R Restart", SvgIconId::None);
-    HudButtonRect bNewDeal = makeBtn(BtnNewDeal,    col1X, startY + 1.0f * (rowH + rowGap), colW, rowH, "+ New Game", SvgIconId::None);
-    // Row 2: Hint / Auto-step
-    HudButtonRect bHint    = makeBtn(BtnHint,       col0X, startY + 2.0f * (rowH + rowGap), colW, rowH, "? Hint", SvgIconId::None);
-    HudButtonRect bFinish  = makeBtn(BtnAutoFinish, col1X, startY + 2.0f * (rowH + rowGap), colW, rowH, board.canAutoFinish() ? "Auto-finish =>" : "Auto-step =>", SvgIconId::None);
-
-    // Row 3: Auto-Play Showcase Demo & Guaranteed Solvable Deal
-    HudButtonRect bAutoPlay = makeBtn(BtnAutoPlay,     col0X, startY + 3.0f * (rowH + rowGap), colW, rowH, "> Demo", SvgIconId::AutoPlay);
-    HudButtonRect bSolvable = makeBtn(BtnSolvableDeal, col1X, startY + 3.0f * (rowH + rowGap), colW, rowH, "* Solvable", SvgIconId::None);
-
-    // Row 4: Game Variant Stepper [ < ] [ VARIANT NAME ] [ > ]
-    const float chevW = 28.0f;
-    const float varLabelW = fullRowW - 2.0f * (chevW + 4.0f);
-    HudButtonRect bVarPrev = makeBtn(BtnVariantPrev, col0X, startY + 4.0f * (rowH + rowGap), chevW, rowH, "<", SvgIconId::None);
-    const char* vLabel = !board.activeGameDef().name.empty()
-        ? board.activeGameDef().name.c_str()
-        : SolitaireBoard::variantName(board.variant());
-    HudButtonRect bVariant = makeBtn(BtnVariant,     col0X + chevW + 4.0f, startY + 4.0f * (rowH + rowGap), varLabelW, rowH, vLabel, SvgIconId::None);
-    HudButtonRect bVarNext = makeBtn(BtnVariantNext, col0X + chevW + 4.0f + varLabelW + 4.0f, startY + 4.0f * (rowH + rowGap), chevW, rowH, ">", SvgIconId::None);
-
-    // Row 5: Seed Quick Controller [SEED #2026] [ROLL RANDOM]
-    static char sSeedLabel[32];
-    std::snprintf(sSeedLabel, sizeof(sSeedLabel), "# SEED %u", board.seed());
-    HudButtonRect bSeedInfo = makeBtn(BtnSettings, col0X, startY + 5.0f * (rowH + rowGap), colW, rowH, sSeedLabel, SvgIconId::None);
-    HudButtonRect bRollSeed = makeBtn(BtnRollSeed, col1X, startY + 5.0f * (rowH + rowGap), colW, rowH, "* Roll Seed", SvgIconId::None);
-
-    // Row 6: Settings Full-Width
-    HudButtonRect bSettings = makeBtn(BtnSettings, col0X, startY + 6.0f * (rowH + rowGap), fullRowW, rowH, "O Settings", SvgIconId::None);
-
-    return { bMenuToggle, bUndo, bRedo, bRestart, bNewDeal, bHint, bFinish, bAutoPlay, bSolvable, bVarPrev, bVariant, bVarNext, bSeedInfo, bRollSeed, bSettings };
+    return computeClockworkBarLayout(width, height, board, anchor, isVertical).buttons;
 }
 
 std::vector<HudButtonRect> buildTransportButtons(
@@ -273,7 +260,7 @@ std::vector<HudButtonRect> buildTransportButtons(
     const float barY = height - 52.0f;
 
     auto makeBtn = [](HudButtonId id, float x, float y, float w, float h, const char* label, SvgIconId iconId) -> HudButtonRect {
-        return HudButtonRect{id, x, y, w, h, label, iconId};
+        return HudButtonRect{id, x, y, w, h, label, label, iconId};
     };
 
     float curX = barX + 12.0f;
@@ -330,10 +317,10 @@ int hitTestHudButtons(
     float width,
     float height,
     const SolitaireBoard& board,
-    bool menuOpen = false,
-    MenuAnchor anchor = MenuAnchor::BottomLeft
+    MenuAnchor anchor = MenuAnchor::BottomLeft,
+    bool isVertical = false
 ) {
-    auto btns = buildHudButtons(width, height, board, menuOpen, anchor);
+    auto btns = buildHudButtons(width, height, board, true, anchor, isVertical);
     for (const auto& b : btns) {
         if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
             return b.id;
@@ -348,250 +335,30 @@ bool isPointInsideMenuPopover(
     float width,
     float height,
     const SolitaireBoard& board,
-    bool menuOpen,
-    MenuAnchor anchor
+    MenuAnchor anchor = MenuAnchor::BottomLeft,
+    bool isVertical = false
 ) {
-    if (!menuOpen) return false;
-    auto btns = buildHudButtons(width, height, board, menuOpen, anchor);
-    if (btns.size() <= 1) return false;
-    float minX = 1e6f, minY = 1e6f, maxX = -1e6f, maxY = -1e6f;
-    for (size_t i = 1; i < btns.size(); ++i) {
-        minX = std::min(minX, btns[i].x);
-        minY = std::min(minY, btns[i].y);
-        maxX = std::max(maxX, btns[i].x + btns[i].w);
-        maxY = std::max(maxY, btns[i].y + btns[i].h);
-    }
-    minX -= 10.0f; minY -= 10.0f;
-    maxX += 10.0f; maxY += 10.0f;
-    return (mx >= minX && mx <= maxX && my >= minY && my <= maxY);
+    auto layout = computeClockworkBarLayout(width, height, board, anchor, isVertical);
+    return (mx >= layout.barX && mx <= layout.barX + layout.barW &&
+            my >= layout.barY && my <= layout.barY + layout.barH);
 }
 
 } // namespace
 
-ThemePalette getPalette(TableThemeId theme) noexcept {
-    switch (theme) {
-        case TableThemeId::PastelTan:
-            return {
-                0.38f, 0.32f, 0.26f,
-                0.26f, 0.22f, 0.18f,
-                0.58f, 0.50f, 0.42f,
-                0.83f, 0.77f, 0.69f,
-                0.78f, 0.72f, 0.64f,
-                0.20f, 0.20f, 0.22f,
-                0.10f, 0.10f, 0.12f,
-                0.85f, 0.40f, 0.25f
-            };
-        case TableThemeId::SunkenSanctum:
-            return {
-                0.11f, 0.12f, 0.16f,
-                0.06f, 0.07f, 0.10f,
-                0.36f, 0.68f, 0.78f,
-                0.10f, 0.14f, 0.20f,
-                0.05f, 0.08f, 0.13f,
-                0.12f, 0.18f, 0.28f,
-                0.06f, 0.10f, 0.18f,
-                0.35f, 0.85f, 0.95f
-            };
-        case TableThemeId::PerilousShores:
-            return {
-                0.28f, 0.17f, 0.10f,
-                0.17f, 0.10f, 0.06f,
-                0.78f, 0.62f, 0.30f,
-                0.24f, 0.20f, 0.15f,
-                0.16f, 0.13f, 0.09f,
-                0.42f, 0.16f, 0.14f,
-                0.24f, 0.08f, 0.07f,
-                0.88f, 0.70f, 0.34f
-            };
-        case TableThemeId::EmeraldLawn:
-        default:
-            return {
-                0.30f, 0.16f, 0.08f,
-                0.16f, 0.08f, 0.04f,
-                0.85f, 0.72f, 0.30f,
-                0.07f, 0.25f, 0.13f,
-                0.03f, 0.14f, 0.07f,
-                0.08f, 0.22f, 0.12f,
-                0.04f, 0.12f, 0.06f,
-                0.40f, 0.90f, 0.50f
-            };
-        case TableThemeId::HopsackTweed:
-            return {
-                0.28f, 0.26f, 0.24f,
-                0.16f, 0.15f, 0.14f,
-                0.85f, 0.84f, 0.80f,
-                0.42f, 0.42f, 0.40f,
-                0.22f, 0.22f, 0.20f,
-                0.20f, 0.20f, 0.22f,
-                0.12f, 0.12f, 0.14f,
-                0.88f, 0.45f, 0.55f
-            };
-        case TableThemeId::DenimChambray:
-            return {
-                0.26f, 0.14f, 0.08f,
-                0.15f, 0.08f, 0.04f,
-                0.86f, 0.55f, 0.28f,
-                0.14f, 0.24f, 0.38f,
-                0.07f, 0.12f, 0.22f,
-                0.18f, 0.30f, 0.46f,
-                0.10f, 0.18f, 0.28f,
-                0.95f, 0.65f, 0.35f
-            };
-        case TableThemeId::StripedJersey:
-            return {
-                0.18f, 0.19f, 0.21f,
-                0.10f, 0.11f, 0.12f,
-                0.75f, 0.78f, 0.82f,
-                0.16f, 0.17f, 0.19f,
-                0.09f, 0.10f, 0.11f,
-                0.30f, 0.32f, 0.35f,
-                0.16f, 0.17f, 0.19f,
-                0.92f, 0.28f, 0.28f
-            };
-        case TableThemeId::PebbledCowhide:
-            return {
-                0.22f, 0.14f, 0.08f,
-                0.12f, 0.07f, 0.04f,
-                0.85f, 0.65f, 0.30f,
-                0.20f, 0.13f, 0.08f,
-                0.13f, 0.08f, 0.05f,
-                0.28f, 0.18f, 0.12f,
-                0.16f, 0.10f, 0.06f,
-                0.95f, 0.72f, 0.35f
-            };
-        case TableThemeId::LeatherNubuck:
-            return {
-                0.18f, 0.12f, 0.09f,
-                0.10f, 0.06f, 0.04f,
-                0.78f, 0.58f, 0.32f,
-                0.22f, 0.16f, 0.12f,
-                0.14f, 0.09f, 0.07f,
-                0.26f, 0.15f, 0.10f,
-                0.14f, 0.08f, 0.05f,
-                0.85f, 0.62f, 0.38f
-            };
-        case TableThemeId::PaintedWood:
-            return {
-                0.28f, 0.28f, 0.26f,
-                0.16f, 0.16f, 0.15f,
-                0.75f, 0.80f, 0.82f,
-                0.24f, 0.27f, 0.26f,
-                0.15f, 0.18f, 0.17f,
-                0.18f, 0.26f, 0.28f,
-                0.10f, 0.16f, 0.18f,
-                0.40f, 0.82f, 0.80f
-            };
-        case TableThemeId::PixelDungeon:
-            return {
-                0.10f, 0.08f, 0.15f,
-                0.06f, 0.05f, 0.09f,
-                0.55f, 0.42f, 0.78f,
-                0.15f, 0.17f, 0.27f,
-                0.09f, 0.11f, 0.18f,
-                0.23f, 0.27f, 0.40f,
-                0.14f, 0.16f, 0.26f,
-                0.55f, 0.60f, 0.85f
-            };
-        case TableThemeId::PixelWater:
-            return {
-                0.07f, 0.18f, 0.30f,
-                0.04f, 0.10f, 0.18f,
-                0.20f, 0.85f, 0.95f,
-                0.07f, 0.31f, 0.54f,
-                0.00f, 0.20f, 0.38f,
-                0.12f, 0.45f, 0.65f,
-                0.06f, 0.28f, 0.44f,
-                0.18f, 0.90f, 0.96f
-            };
-        case TableThemeId::ShaderVelvetNoir:
-            return {
-                0.18f, 0.18f, 0.20f,
-                0.08f, 0.08f, 0.10f,
-                0.85f, 0.72f, 0.38f,
-                0.07f, 0.08f, 0.09f,
-                0.12f, 0.13f, 0.15f,
-                0.85f, 0.85f, 0.85f,
-                0.12f, 0.12f, 0.14f,
-                0.92f, 0.78f, 0.42f
-            };
-        case TableThemeId::ShaderCarraraMarble:
-            return {
-                0.65f, 0.58f, 0.42f,
-                0.25f, 0.22f, 0.18f,
-                0.92f, 0.82f, 0.55f,
-                0.88f, 0.88f, 0.90f,
-                0.78f, 0.78f, 0.82f,
-                0.22f, 0.22f, 0.26f,
-                0.12f, 0.12f, 0.15f,
-                0.75f, 0.62f, 0.35f
-            };
-        case TableThemeId::ShaderWateredSilk:
-            return {
-                0.15f, 0.24f, 0.42f,
-                0.06f, 0.10f, 0.20f,
-                0.55f, 0.75f, 0.95f,
-                0.08f, 0.14f, 0.28f,
-                0.12f, 0.20f, 0.38f,
-                0.85f, 0.90f, 0.98f,
-                0.10f, 0.15f, 0.25f,
-                0.45f, 0.78f, 0.95f
-            };
-        case TableThemeId::ShaderPoolCaustics:
-            return {
-                0.08f, 0.35f, 0.48f,
-                0.03f, 0.15f, 0.24f,
-                0.30f, 0.90f, 0.98f,
-                0.05f, 0.24f, 0.38f,
-                0.08f, 0.32f, 0.48f,
-                0.85f, 0.98f, 1.00f,
-                0.05f, 0.20f, 0.30f,
-                0.20f, 0.92f, 0.98f
-            };
-        case TableThemeId::ShaderArcaneParchment:
-            return {
-                0.42f, 0.30f, 0.18f,
-                0.22f, 0.14f, 0.08f,
-                0.88f, 0.72f, 0.42f,
-                0.85f, 0.78f, 0.66f,
-                0.75f, 0.66f, 0.52f,
-                0.26f, 0.18f, 0.10f,
-                0.14f, 0.10f, 0.06f,
-                0.85f, 0.55f, 0.24f
-            };
-        case TableThemeId::ShaderCosmicNebula:
-            return {
-                0.28f, 0.15f, 0.42f,
-                0.08f, 0.05f, 0.15f,
-                0.75f, 0.45f, 0.95f,
-                0.05f, 0.06f, 0.12f,
-                0.10f, 0.08f, 0.22f,
-                0.92f, 0.85f, 0.98f,
-                0.12f, 0.08f, 0.18f,
-                0.35f, 0.85f, 0.95f
-            };
-        case TableThemeId::ShaderSynthwaveSunset:
-            return {
-                0.45f, 0.10f, 0.35f,
-                0.15f, 0.03f, 0.12f,
-                0.95f, 0.25f, 0.75f,
-                0.08f, 0.05f, 0.14f,
-                0.16f, 0.08f, 0.24f,
-                0.98f, 0.85f, 0.95f,
-                0.15f, 0.05f, 0.12f,
-                0.15f, 0.92f, 0.95f
-            };
-        case TableThemeId::ShaderTopographic:
-            return {
-                0.38f, 0.32f, 0.24f,
-                0.20f, 0.16f, 0.12f,
-                0.72f, 0.60f, 0.42f,
-                0.84f, 0.80f, 0.72f,
-                0.76f, 0.72f, 0.62f,
-                0.24f, 0.20f, 0.16f,
-                0.12f, 0.10f, 0.08f,
-                0.65f, 0.45f, 0.25f
-            };
-    }
+ThemePalette getPalette([[maybe_unused]] TableThemeId theme) noexcept {
+    // Single unified core palette harmonized with the SolEngine ClockworkEngine aesthetic:
+    // Cast iron boilerplate chassis (wood), polished Viktoria brass (trim), and molten furnace amber (accent).
+    static const ThemePalette kCorePalette{
+        0.20f, 0.18f, 0.16f,  // woodR0, woodG0, woodB0: Cast iron / boilerplate chassis
+        0.13f, 0.12f, 0.11f,  // woodR1, woodG1, woodB1: Deep seam shadow
+        0.94f, 0.80f, 0.36f,  // trimR, trimG, trimB: Polished Viktoria brass
+        0.07f, 0.25f, 0.13f,  // feltR0, feltG0, feltB0: Rich tournament baize
+        0.03f, 0.14f, 0.07f,  // feltR1, feltG1, feltB1: Deep shadow baize
+        0.18f, 0.15f, 0.12f,  // cardBackR0, cardBackG0, cardBackB0: Dark iron cardstock
+        0.10f, 0.08f, 0.06f,  // cardBackR1, cardBackG1, cardBackB1
+        0.95f, 0.52f, 0.12f   // accentR, accentG, accentB: Molten furnace amber glow
+    };
+    return kCorePalette;
 }
 
 namespace {
@@ -1497,8 +1264,12 @@ void TableRenderer::renderBoard(
     float dragOffsetX,
     float dragOffsetY,
     int hoveredButtonId,
-    bool menuOpen,
+    bool /*menuOpen*/,
     MenuAnchor menuAnchor,
+    bool menuFlowVertical,
+    bool isDraggingMenu,
+    MenuAnchor dragPreviewAnchor,
+    bool dragPreviewFlowVertical,
     bool isGesturing,
     float gestureStartX,
     float gestureStartY,
@@ -1827,43 +1598,56 @@ void TableRenderer::renderBoard(
     // Disable scene lighting for HUD menu, anchor medallion, and modal dialogs so UI stays at 100% crisp contrast
     r.setSceneLightingActive(false);
 
-    // 8. Always-on-Top Floating Compendium Menu & Anchor Medallion
-    auto btns = buildHudButtons(width, height, board, menuOpen, menuAnchor);
-    if (!btns.empty()) {
-        if (menuOpen && btns.size() > 1) {
-            float minX = 1e6f, minY = 1e6f, maxX = -1e6f, maxY = -1e6f;
-            for (size_t i = 1; i < btns.size(); ++i) {
-                minX = std::min(minX, btns[i].x);
-                minY = std::min(minY, btns[i].y);
-                maxX = std::max(maxX, btns[i].x + btns[i].w);
-                maxY = std::max(maxY, btns[i].y + btns[i].h);
-            }
-            const float popX = minX - 8.0f;
-            const float popY = minY - 8.0f;
-            const float popW = (maxX - minX) + 16.0f;
-            const float popH = (maxY - minY) + 16.0f;
+    // 8. Always-on-Top Floating Clockwork Medallion Bar
+    const auto layout = computeClockworkBarLayout(width, height, board, menuAnchor, menuFlowVertical);
+    static float sAnimTime = 0.0f;
+    sAnimTime += 0.016f;
 
-            if (SettingsManager::instance().settings().guiTheme == GuiThemeStyle::ClockworkEngine) {
-                clockwork_ui::drawHudClockworkChassis(r, popX, popY, popW, popH,
-                                                      static_cast<float>(board.moveCount()), 0.0f);
-            } else {
-                r.drawRectDropShadow(popX, popY, popW, popH, 8.0f, 12.0f, light, 0.55f);
-                r.drawRoundedRectGradient(
-                    popX, popY, popW, popH, 8.0f,
-                    pal.woodR0 + 0.05f, pal.woodG0 + 0.04f, pal.woodB0 + 0.03f,
-                    pal.woodR1 + 0.02f, pal.woodG1 + 0.02f, pal.woodB1 + 0.02f,
-                    0.98f, 4
-                );
-                r.drawRoundedRectOutline(popX, popY, popW, popH, 8.0f, pal.trimR, pal.trimG, pal.trimB, 0.90f, 1.5f, 4);
-            }
+    // Medallions
+    int hoveredIdx = -1;
+    for (size_t i = 0; i < layout.buttons.size(); ++i) {
+        const auto& b = layout.buttons[i];
+        const bool hovered = (b.id == hoveredButtonId);
+        if (hovered) hoveredIdx = static_cast<int>(i);
 
-            for (size_t i = 1; i < btns.size(); ++i) {
-                const auto& b = btns[i];
-                bool hi = (b.id == BtnAutoFinish && board.canAutoFinish());
-                drawCarvedButton(r, b, b.id == hoveredButtonId, hi, pal);
-            }
+        const float cx = b.x + b.w * 0.5f;
+        const float cy = b.y + b.h * 0.5f;
+        const float radius = b.w * 0.5f;
+
+        if (i == 0) {
+            // Master SolEngine Orb
+            clockwork_ui::drawClockworkMenuOrb(r, cx, cy, radius, hovered, isDraggingMenu, sAnimTime);
+        } else {
+            // Circled Medallion Button with embossed glyph
+            clockwork_ui::drawClockworkMedallion(
+                r, cx, cy, radius, hovered, false,
+                b.glyph, sAnimTime
+            );
         }
-        drawMenuOrbButton(r, btns[0], hoveredButtonId == BtnMenuToggle, menuOpen, pal, light);
+    }
+
+    // Tooltip for hovered medallion
+    if (hoveredIdx >= 0 && !isDraggingMenu) {
+        const auto& b = layout.buttons[hoveredIdx];
+        int placement = 0; // 0=above, 1=below, 2=left, 3=right
+        if (!layout.isVertical) {
+            placement = (menuAnchor == MenuAnchor::BottomLeft || menuAnchor == MenuAnchor::BottomRight) ? 0 : 1;
+        } else {
+            placement = (menuAnchor == MenuAnchor::BottomLeft || menuAnchor == MenuAnchor::TopLeft) ? 3 : 2;
+        }
+        clockwork_ui::drawClockworkTooltip(r, b.x, b.y, b.w, b.h, b.label, placement);
+    }
+
+    // Ghost preview while dragging menu to re-anchor / reflow
+    if (isDraggingMenu) {
+        const auto ghostLayout = computeClockworkBarLayout(width, height, board, dragPreviewAnchor, dragPreviewFlowVertical);
+
+        for (const auto& gb : ghostLayout.buttons) {
+            const float gcx = gb.x + gb.w * 0.5f;
+            const float gcy = gb.y + gb.h * 0.5f;
+            r.drawCircle(gcx, gcy, gb.w * 0.5f, 0.94f, 0.80f, 0.36f, 0.18f, 20);
+            r.drawCircleOutline(gcx, gcy, gb.w * 0.5f, 0.95f, 0.52f, 0.12f, 0.85f, 1.8f, 20);
+        }
     }
 
     // 9. Floating Auto-Play Transport Bar
@@ -2040,6 +1824,7 @@ struct InteractiveContext {
     bool prevKeyW = false;
     bool prevKeyS = false;
     bool prevKeyC = false;
+    bool prevKeyV = false;
     bool prevKeyM = false;
     bool prevKeyEsc = false;
     bool prevKeyF11 = false;
@@ -2077,6 +1862,14 @@ struct InteractiveContext {
 
     bool menuOpen = false;
     MenuAnchor menuAnchor = MenuAnchor::BottomLeft;
+    bool menuFlowVertical = false;
+
+    bool isClickingSolEngineOrb = false;
+    bool isDraggingMenu = false;
+    float menuDragStartMouseX = 0.0f;
+    float menuDragStartMouseY = 0.0f;
+    MenuAnchor dragPreviewAnchor = MenuAnchor::BottomLeft;
+    bool dragPreviewFlowVertical = false;
 
     bool isGesturing = false;
     float gestureStartX = 0.0f;
@@ -2088,6 +1881,7 @@ struct InteractiveContext {
     float autoCascadeTimer = 0.0f;
     double lastTime = 0.0;
     SettingsDialog settingsDialog;
+    SeedDialog seedDialog;
     LoadingDialog loadingDialog;
     GameBrowserDialog gameBrowserDialog;
     DynamicLightController lightController;
@@ -2112,6 +1906,7 @@ struct InteractiveContext {
         bool stagingDeckReady{false};
         bool customBgReady{false};
         TableThemeId targetTheme{TableThemeId::EmeraldLawn};
+        std::string targetThemeSlug;
         bool themeReady{false};
         uint32_t solvableSeed{0};
         bool solvableSeedReady{false};
@@ -2143,6 +1938,7 @@ struct InteractiveContext {
         void resetState() {
             opType = AsyncOp::None;
             themeReady = false;
+            targetThemeSlug.clear();
             stagingDeckReady = false;
             customBgReady = false;
             solvableSeedReady = false;
@@ -2156,17 +1952,16 @@ struct InteractiveContext {
         }
     } asyncManager;
 
-    void startAsyncTableTheme(TableThemeId theme) {
+    void startAsyncTableTheme(const TableThemeDef& def) {
         asyncManager.stopWorker();
 
-        // Clear any custom dropped background so standard table themes take effect
-        ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
-
-        if (!ProceduralBackgroundSystem::instance().isPbrTexturesEnabled() ||
-            !ProceduralBackgroundSystem::instance().hasPbrMaterial(theme)) {
-            board.setTableTheme(theme);
-            lightController.applyThemeDefault(theme);
-            SettingsManager::instance().settings().tableTheme = theme;
+        if (def.filePath.empty()) {
+            ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
+            board.setTableTheme(TableThemeId::PastelTan);
+            board.setTableThemeSlug(def.id);
+            lightController.applyThemeDefault(TableThemeId::PastelTan);
+            SettingsManager::instance().settings().tableTheme = TableThemeId::PastelTan;
+            SettingsManager::instance().settings().tableThemeSlug = def.id;
             SettingsManager::instance().save();
             ProceduralBackgroundSystem::instance().invalidateCache();
             asyncManager.resetState();
@@ -2178,23 +1973,24 @@ struct InteractiveContext {
         asyncManager.progress.store(0.0f);
         asyncManager.themeReady = false;
         asyncManager.opType = AsyncOp::TableTheme;
-        asyncManager.targetTheme = theme;
+        asyncManager.targetTheme = (def.legacyId != TableThemeId::Count) ? def.legacyId : TableThemeId::PaintedWood;
+        asyncManager.targetThemeSlug = def.id;
         asyncManager.dialogTitle = "SYNTHESIZING TABLE SURFACE";
-        asyncManager.dialogInitialStatus = "Synthesizing tactile surface texture...";
+        asyncManager.dialogInitialStatus = "Synthesizing tactile surface texture: " + def.name + "...";
         asyncManager.dialogCancellable = true;
         asyncManager.startTime = glfwGetTime();
         asyncManager.debounceSeconds = 0.05;
         asyncManager.isBusy.store(true);
         {
             std::lock_guard<std::mutex> lock(asyncManager.mutex);
-            asyncManager.statusText = "Synthesizing procedural table surface...";
+            asyncManager.statusText = "Synthesizing procedural table surface: " + def.name + "...";
         }
 
         float curW = static_cast<float>(width);
         float curH = static_cast<float>(height);
 #if defined(__EMSCRIPTEN__)
-        bool ok = ProceduralBackgroundSystem::instance().prebakeTheme(
-            theme, curW, curH,
+        bool ok = ProceduralBackgroundSystem::instance().prebakeThemeDef(
+            def, curW, curH,
             eatsbits::ui::LightSource2D{curW * 0.5f, -200.0f, 1.0f},
             [this](float p, const std::string& msg) -> bool {
                 asyncManager.progress.store(p);
@@ -2210,9 +2006,9 @@ struct InteractiveContext {
         }
         asyncManager.isBusy.store(false);
 #else
-        asyncManager.workerThread = std::thread([this, theme, curW, curH]() {
-            bool ok = ProceduralBackgroundSystem::instance().prebakeTheme(
-                theme, curW, curH,
+        asyncManager.workerThread = std::thread([this, def, curW, curH]() {
+            bool ok = ProceduralBackgroundSystem::instance().prebakeThemeDef(
+                def, curW, curH,
                 eatsbits::ui::LightSource2D{curW * 0.5f, -200.0f, 1.0f},
                 [this](float p, const std::string& msg) -> bool {
                     asyncManager.progress.store(p);
@@ -2229,6 +2025,17 @@ struct InteractiveContext {
             asyncManager.isBusy.store(false);
         });
 #endif
+    }
+
+    void startAsyncTableTheme(TableThemeId theme) {
+        size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex("", theme);
+        const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
+        if (def) {
+            startAsyncTableTheme(*def);
+        } else {
+            TableThemeDef fallbackDef{"", SolitaireBoard::themeName(theme), "", theme, false};
+            startAsyncTableTheme(fallbackDef);
+        }
     }
 
     void startAsyncConditioning(CardWearLevel wear, CardStock stock) {
@@ -2802,12 +2609,32 @@ struct InteractiveContext {
         SettingsManager::instance().applyToGame(board, foley, false);
         lightController.setPreset(SettingsManager::instance().settings().lightingPreset);
         menuAnchor = SettingsManager::instance().settings().menuAnchor;
+        menuFlowVertical = SettingsManager::instance().settings().menuFlowVertical;
 
         if (SessionManager::instance().hasSavedSession()) {
             SessionManager::instance().loadSession(board);
         }
 
         GameRegistry::instance().initialize();
+
+        const auto& startupSettings = SettingsManager::instance().settings();
+        if (!startupSettings.tableThemeSlug.empty()) {
+            size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(startupSettings.tableThemeSlug, startupSettings.tableTheme);
+            const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
+            if (def && !def->filePath.empty()) {
+                ProceduralBackgroundSystem::instance().loadCustomEatsTheme(def->filePath);
+                board.setTableThemeSlug(def->id);
+            }
+        }
+
+        seedDialog.onDealSeed = [this](uint32_t s) {
+            autoCascadeActive = false;
+            autoPlayController.stop();
+            board.newDeal(s, board.variant());
+            board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+            SessionManager::instance().clearSession();
+            foley.triggerSound(FoleySound::Shuffle, 0.9f);
+        };
         gameBrowserDialog.onGameSelected = [this](const SolitaireGameDef& def) {
             autoCascadeActive = false;
             autoPlayController.stop();
@@ -2840,6 +2667,7 @@ struct InteractiveContext {
         settingsDialog.onSettingsChanged = [this]() {
             const auto& s = SettingsManager::instance().settings();
             menuAnchor = s.menuAnchor;
+            menuFlowVertical = s.menuFlowVertical;
             renderer.setAntiAliasingMode(4);
             lightController.setPreset(s.lightingPreset);
 
@@ -2860,7 +2688,7 @@ struct InteractiveContext {
             CardTextureCache::instance().setCornerStyle(s.cardCorners);
 
             auto& cache = CardTextureCache::instance();
-            bool themeChanged = (s.tableTheme != board.tableTheme());
+            bool themeChanged = (s.tableTheme != board.tableTheme() || s.tableThemeSlug != board.tableThemeSlug());
             bool deckChanged = (s.deckTheme != cache.currentDeckTheme());
             bool wearChanged = (s.cardWear != cache.cardWearLevel());
             bool stockChanged = (s.cardStock != cache.cardStock());
@@ -2869,6 +2697,7 @@ struct InteractiveContext {
                 if (themeChanged) {
                     ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
                     board.setTableTheme(s.tableTheme);
+                    board.setTableThemeSlug(s.tableThemeSlug);
                     lightController.applyThemeDefault(s.tableTheme);
                     ProceduralBackgroundSystem::instance().invalidateCache();
                 }
@@ -2877,12 +2706,19 @@ struct InteractiveContext {
                 if (themeChanged) {
                     ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
                     board.setTableTheme(s.tableTheme);
+                    board.setTableThemeSlug(s.tableThemeSlug);
                     lightController.applyThemeDefault(s.tableTheme);
                     ProceduralBackgroundSystem::instance().invalidateCache();
                 }
                 startAsyncConditioning(s.cardWear, s.cardStock);
             } else if (themeChanged) {
-                startAsyncTableTheme(s.tableTheme);
+                size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+                const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
+                if (def) {
+                    startAsyncTableTheme(*def);
+                } else {
+                    startAsyncTableTheme(s.tableTheme);
+                }
             }
         };
     }
@@ -3124,8 +2960,13 @@ struct InteractiveContext {
                 break;
             }
             case BtnTheme: {
-                uint8_t nextTheme = (static_cast<uint8_t>(board.tableTheme()) + 1u) % static_cast<uint8_t>(TableThemeId::Count);
-                startAsyncTableTheme(static_cast<TableThemeId>(nextTheme));
+                const auto& themes = ProceduralBackgroundSystem::instance().availableThemes();
+                if (!themes.empty()) {
+                    const auto& s = SettingsManager::instance().settings();
+                    size_t curIdx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+                    size_t nextIdx = (curIdx + 1u) % themes.size();
+                    startAsyncTableTheme(themes[nextIdx]);
+                }
                 foley.triggerSound(FoleySound::Flip, 0.8f);
                 break;
             }
@@ -3269,26 +3110,18 @@ struct InteractiveContext {
                     foley.triggerSound(FoleySound::Flip, 0.5f);
                 }
                 break;
-            case BtnAutoFinish:
-                autoPlayController.stop();
-                if (board.canAutoFinish()) {
-                    autoCascadeActive = true;
-                    autoCascadeTimer = 0.0f;
-                } else if (board.stepAutoFoundation()) {
-                    foley.triggerSound(FoleySound::Deal, 0.80f);
-                }
-                break;
             case BtnAutoPlay:
-                menuOpen = false;
-                autoCascadeActive = false;
-                autoPlayController.start(board);
+                if (autoPlayController.isActive()) {
+                    autoPlayController.stop();
+                } else {
+                    autoPlayController.start(board);
+                }
+                foley.triggerSound(FoleySound::Deal, 0.8f);
                 break;
             case BtnPlayRestart:
-                autoCascadeActive = false;
                 autoPlayController.restart(board, &foley);
                 break;
             case BtnStepBack:
-                autoCascadeActive = false;
                 autoPlayController.stepBackward(board, &foley);
                 break;
             case BtnPlayPause:
@@ -3306,8 +3139,13 @@ struct InteractiveContext {
                 foley.triggerSound(FoleySound::Deal, 0.75f);
                 break;
             case BtnMenuToggle:
-                menuOpen = !menuOpen;
-                foley.triggerSound(FoleySound::Flip, 0.7f);
+                SettingsManager::instance().syncFromGame(board, foley);
+                settingsDialog.open();
+                foley.triggerSound(FoleySound::Flip, 0.8f);
+                break;
+            case BtnSeedDialog:
+                seedDialog.open(board.seed(), SolitaireBoard::variantName(board.variant()));
+                foley.triggerSound(FoleySound::Flip, 0.8f);
                 break;
             case BtnMenuAnchor: {
                 int nextAnchor = (static_cast<int>(menuAnchor) + 1) % 4;
@@ -3419,8 +3257,10 @@ struct InteractiveContext {
                     }
                 } else if (asyncManager.opType == AsyncOp::TableTheme && asyncManager.themeReady) {
                     board.setTableTheme(asyncManager.targetTheme);
+                    board.setTableThemeSlug(asyncManager.targetThemeSlug);
                     lightController.applyThemeDefault(asyncManager.targetTheme);
                     SettingsManager::instance().settings().tableTheme = asyncManager.targetTheme;
+                    SettingsManager::instance().settings().tableThemeSlug = asyncManager.targetThemeSlug;
                     SettingsManager::instance().save();
                     if (loadingDialog.isOpen()) {
                         loadingDialog.close();
@@ -3531,7 +3371,7 @@ struct InteractiveContext {
         const float fmx = static_cast<float>(mx);
         const float fmy = static_cast<float>(my);
 
-        int hoveredBtn = hitTestHudButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), board, menuOpen, menuAnchor);
+        int hoveredBtn = hitTestHudButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), board, menuAnchor, menuFlowVertical);
         if (autoPlayController.isActive()) {
             int tBtn = hitTestTransportButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), autoPlayController);
             if (tBtn != BtnNone) {
@@ -3547,6 +3387,14 @@ struct InteractiveContext {
                 if (leftDown && !prevLeftDown) {
                     loadingDialog.handleMouseButton(0, 1, fmx, fmy);
                 }
+            }
+        } else if (seedDialog.isOpen()) {
+            if (leftDown && !prevLeftDown) {
+                seedDialog.handleMouseButton(0, 1, fmx, fmy, board, foley, window);
+            } else if (leftDown) {
+                seedDialog.handleMouseMove(fmx, fmy);
+            } else if (!leftDown && prevLeftDown) {
+                seedDialog.handleMouseButton(0, 0, fmx, fmy, board, foley, window);
             }
         } else if (gameBrowserDialog.isOpen()) {
             if (leftDown && !prevLeftDown) {
@@ -3565,10 +3413,15 @@ struct InteractiveContext {
                 settingsDialog.handleMouseButton(0, 0, fmx, fmy, board, foley);
             }
         } else if (leftDown && !prevLeftDown) {
-            if (hoveredBtn != BtnNone) {
+            if (hoveredBtn == BtnMenuToggle) {
+                isClickingSolEngineOrb = true;
+                isDraggingMenu = false;
+                menuDragStartMouseX = fmx;
+                menuDragStartMouseY = fmy;
+                dragPreviewAnchor = menuAnchor;
+                dragPreviewFlowVertical = menuFlowVertical;
+            } else if (hoveredBtn != BtnNone) {
                 triggerAction(hoveredBtn);
-            } else if (menuOpen && isPointInsideMenuPopover(fmx, fmy, static_cast<float>(width), static_cast<float>(height), board, menuOpen, menuAnchor)) {
-                // Click within popover drawer, keep open
             } else {
                 int hitPile = -1;
                 int hitCard = -1;
@@ -3602,6 +3455,41 @@ struct InteractiveContext {
                     gestureCurY = fmy;
                 }
             }
+        } else if (leftDown && isClickingSolEngineOrb) {
+            const float dragDist = std::hypot(fmx - menuDragStartMouseX, fmy - menuDragStartMouseY);
+            if (dragDist >= 6.0f) {
+                isDraggingMenu = true;
+            }
+            if (isDraggingMenu) {
+                const float halfW = static_cast<float>(width) * 0.5f;
+                const float halfH = static_cast<float>(height) * 0.5f;
+                const bool isLeft = (fmx < halfW);
+                const bool isTop = (fmy < halfH);
+
+                if (isLeft && isTop) dragPreviewAnchor = MenuAnchor::TopLeft;
+                else if (!isLeft && isTop) dragPreviewAnchor = MenuAnchor::TopRight;
+                else if (isLeft && !isTop) dragPreviewAnchor = MenuAnchor::BottomLeft;
+                else dragPreviewAnchor = MenuAnchor::BottomRight;
+
+                // Determine flow direction based on user's cursor position relative to the target corner:
+                if (dragPreviewAnchor == MenuAnchor::BottomLeft) {
+                    float distFromBottom = static_cast<float>(height) - fmy;
+                    float distFromLeft = fmx;
+                    dragPreviewFlowVertical = (distFromBottom > distFromLeft * 0.85f);
+                } else if (dragPreviewAnchor == MenuAnchor::BottomRight) {
+                    float distFromBottom = static_cast<float>(height) - fmy;
+                    float distFromRight = static_cast<float>(width) - fmx;
+                    dragPreviewFlowVertical = (distFromBottom > distFromRight * 0.85f);
+                } else if (dragPreviewAnchor == MenuAnchor::TopLeft) {
+                    float distFromTop = fmy;
+                    float distFromLeft = fmx;
+                    dragPreviewFlowVertical = (distFromTop > distFromLeft * 0.85f);
+                } else { // TopRight
+                    float distFromTop = fmy;
+                    float distFromRight = static_cast<float>(width) - fmx;
+                    dragPreviewFlowVertical = (distFromTop > distFromRight * 0.85f);
+                }
+            }
         } else if (leftDown && draggedPile >= 0) {
             dragOffsetX = static_cast<float>(fmx - dragStartMouseX);
             dragOffsetY = static_cast<float>(fmy - dragStartMouseY);
@@ -3609,7 +3497,21 @@ struct InteractiveContext {
             gestureCurX = fmx;
             gestureCurY = fmy;
         } else if (!leftDown && prevLeftDown) {
-            if (draggedPile >= 0) {
+            if (isClickingSolEngineOrb) {
+                if (isDraggingMenu) {
+                    menuAnchor = dragPreviewAnchor;
+                    menuFlowVertical = dragPreviewFlowVertical;
+                    auto& s = SettingsManager::instance().settings();
+                    s.menuAnchor = menuAnchor;
+                    s.menuFlowVertical = menuFlowVertical;
+                    SettingsManager::instance().save();
+                    foley.triggerSound(FoleySound::WoodClick, 0.9f);
+                } else {
+                    triggerAction(BtnSettings);
+                }
+                isClickingSolEngineOrb = false;
+                isDraggingMenu = false;
+            } else if (draggedPile >= 0) {
                 const float dragDist = std::hypot(dragOffsetX, dragOffsetY);
                 bool moved = false;
 
@@ -3667,8 +3569,8 @@ struct InteractiveContext {
                             triggerAction(BtnRedo);
                         }
                     } else if (gdy < -30.0f && std::abs(gdy) > std::abs(gdx) * 1.25f) {
-                        // Swipe Up on Felt -> AUTO-STEP
-                        triggerAction(BtnAutoFinish);
+                        // Swipe Up on Felt -> AUTO-PLAY
+                        triggerAction(BtnAutoPlay);
                     } else if (gdy > 30.0f && std::abs(gdy) > std::abs(gdx) * 1.25f) {
                         // Swipe Down on Felt -> NETHER SIGHT
                         triggerAction(BtnHint);
@@ -3701,6 +3603,14 @@ struct InteractiveContext {
             if (loadingDialog.isOpen()) {
                 if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) loadingDialog.handleKey(GLFW_KEY_ESCAPE, 1, 0);
             }
+        } else if (seedDialog.isOpen()) {
+            int mods = 0;
+            if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) mods |= 2;
+            if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) seedDialog.handleKey(GLFW_KEY_ESCAPE, 1, mods, board, foley, window);
+            if (edgeKey(GLFW_KEY_ENTER, prevKeyEnter)) seedDialog.handleKey(GLFW_KEY_ENTER, 1, mods, board, foley, window);
+            if (edgeKey(GLFW_KEY_BACKSPACE, prevKeyBack)) seedDialog.handleKey(GLFW_KEY_BACKSPACE, 1, mods, board, foley, window);
+            if (edgeKey(GLFW_KEY_C, prevKeyC)) seedDialog.handleKey(GLFW_KEY_C, 1, mods, board, foley, window);
+            if (edgeKey(GLFW_KEY_V, prevKeyV)) seedDialog.handleKey(GLFW_KEY_V, 1, mods, board, foley, window);
         } else if (gameBrowserDialog.isOpen()) {
             if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) gameBrowserDialog.handleKey(GLFW_KEY_ESCAPE, 1, 0, board, foley);
             if (edgeKey(GLFW_KEY_ENTER, prevKeyEnter)) gameBrowserDialog.handleKey(GLFW_KEY_ENTER, 1, 0, board, foley);
@@ -3724,7 +3634,7 @@ struct InteractiveContext {
             if (edgeKey(GLFW_KEY_Z, prevKeyZ)) triggerAction(BtnUndo);
             if (edgeKey(GLFW_KEY_Y, prevKeyY)) triggerAction(BtnRedo);
             if (edgeKey(GLFW_KEY_H, prevKeyH)) triggerAction(BtnHint);
-            if (edgeKey(GLFW_KEY_A, prevKeyA)) triggerAction(BtnAutoFinish);
+            if (edgeKey(GLFW_KEY_A, prevKeyA)) triggerAction(BtnAutoPlay);
             if (edgeKey(GLFW_KEY_T, prevKeyT)) triggerAction(BtnTheme);
             if (edgeKey(GLFW_KEY_D, prevKeyD)) triggerAction(BtnDeck);
             if (edgeKey(GLFW_KEY_W, prevKeyW)) triggerAction(BtnCardWear);
@@ -3793,23 +3703,17 @@ struct InteractiveContext {
             };
             if (edgeKey(GLFW_KEY_1, prevKey1)) switchVariant(GameVariant::KlondikeDraw1);
             if (edgeKey(GLFW_KEY_2, prevKey2)) switchVariant(GameVariant::KlondikeDraw3);
-            if (edgeKey(GLFW_KEY_3, prevKey3)) switchVariant(GameVariant::FreeCell);
+            if (edgeKey(GLFW_KEY_3, prevKey3)) {
+                if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
+                    triggerAction(BtnSeedDialog);
+                } else {
+                    switchVariant(GameVariant::FreeCell);
+                }
+            }
             if (edgeKey(GLFW_KEY_4, prevKey4)) switchVariant(GameVariant::Spider1Suit);
             if (edgeKey(GLFW_KEY_5, prevKey5)) switchVariant(GameVariant::Spider2Suits);
             if (edgeKey(GLFW_KEY_6, prevKey6)) switchVariant(GameVariant::Spider4Suits);
             if (edgeKey(GLFW_KEY_7, prevKey7)) switchVariant(GameVariant::Golf);
-        }
-
-        if (autoCascadeActive) {
-            autoCascadeTimer += dt;
-            if (autoCascadeTimer >= 0.085f) {
-                autoCascadeTimer = 0.0f;
-                if (board.stepAutoFoundation()) {
-                    foley.triggerSound(FoleySound::Deal, 0.80f);
-                } else {
-                    autoCascadeActive = false;
-                }
-            }
         }
 
         autoPlayController.update(dt, board, &foley);
@@ -3832,11 +3736,16 @@ struct InteractiveContext {
             renderer.setShaderTime(static_cast<float>(now));
             TableRenderer::renderBoard(renderer, board, static_cast<float>(width), static_cast<float>(height),
                                        draggedPile, draggedCardIdx, dragOffsetX, dragOffsetY, hoveredBtn,
-                                       menuOpen, menuAnchor, isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
+                                       menuOpen, menuAnchor, menuFlowVertical, isDraggingMenu, dragPreviewAnchor, dragPreviewFlowVertical,
+                                       isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
                                        &dynamicLight, &autoPlayController);
             if (settingsDialog.isOpen()) {
                 ThemePalette pal = getPalette(board.tableTheme());
-                settingsDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), fmx, fmy, pal);
+                settingsDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), fmx, fmy, pal, static_cast<float>(now));
+            }
+            if (seedDialog.isOpen()) {
+                ThemePalette pal = getPalette(board.tableTheme());
+                seedDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), fmx, fmy, pal, static_cast<float>(now), window);
             }
             if (gameBrowserDialog.isOpen()) {
                 ThemePalette pal = getPalette(board.tableTheme());
@@ -3938,6 +3847,8 @@ int TableRenderer::runInteractiveWindow(
             s_activeContext->gameBrowserDialog.handleChar(codepoint);
         } else if (s_activeContext && s_activeContext->settingsDialog.isOpen()) {
             s_activeContext->settingsDialog.handleChar(codepoint);
+        } else if (s_activeContext && s_activeContext->seedDialog.isOpen()) {
+            s_activeContext->seedDialog.handleChar(codepoint);
         }
     });
 

@@ -1,0 +1,63 @@
+# SolEngine Custom Background Theme — Bardiglio Marble
+# Tuscan dove-gray metamorphic fluid stone with smoky charcoal drifts & fine silver calcite veins
+
+sol.set_theme({
+    id: "shader_bardiglio_marble",
+    name: "Bardiglio Marble",
+    author: "SolEngine / Eatscript",
+    description: "Polished Italian dove-gray Bardiglio marble with smoky charcoal drifts and fine silver calcite veins",
+    version: 1,
+    procedural: true
+})
+
+def bardiglio_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.9, ny)
+
+    # 1. Dual Domain Warping (Fluid shear in metamorphic stone)
+    qx = fbm(nx * 3.0, ny * 3.0)
+    qy = fbm(nx * 3.0 + 5.2, ny * 3.0 + 1.3)
+
+    rx = fbm(nx * 3.0 + qx * 3.5, ny * 2.8 + qy * 3.5)
+    ry = fbm(nx * 3.0 + qx * 3.5 + 1.7, ny * 3.0 + qy * 3.5 + 9.2)
+
+    field = fbm(nx * 3.0 + rx * 3.0, ny * 3.0 + ry * 3.0)
+
+    # 2. Sharp calcite fracture veins via sin power curves
+    vein_raw = abs(sin((field + nx * 0.45 - ny * 0.35) * 6.28318))
+    veins = smoothstep(0.04, 0.28, vein_raw)
+    fine_veins = smoothstep(0.015, 0.08, abs(sin(field * 18.84)))
+
+    # 3. Base marble palette (soft mid-tone dove/slate gray to charcoal veins with silver seams)
+    # Calibrated to ~0.62 albedo (gentler and less bright than Carrara's 0.88+)
+    base_albedo = 0.62 + field * 0.07
+    dark_veins = (1.0 - veins) * 0.28
+    silver_seams = (1.0 - fine_veins) * 0.12
+    albedo = base_albedo - dark_veins + silver_seams
+
+    # 4. Subtle cool slate / pewter tint
+    mr = albedo * 0.95
+    mg = albedo * 0.98
+    mb = albedo * 1.04
+
+    # 5. Photographic vignette to soften bright edges
+    vignette = smoothstep(1.4, 0.45, dist)
+    grain = (random() - 0.5) * 0.015
+
+    # Composite with vector inlay from canvas
+    r = clamp(mix(mr * vignette, in_r, in_r * 0.7) + grain, 0.0, 1.0)
+    g = clamp(mix(mg * vignette, in_g, in_g * 0.7) + grain, 0.0, 1.0)
+    b = clamp(mix(mb * vignette, in_b, in_b * 0.7) + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base fill in dove gray
+    ctx.fill_rect(0, 0, w, h, "#9ba2ab")
+
+    # 2. Brushed platinum & charcoal inlay border around table perimeter
+    inset = 20.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#b2b8c2", 2.5)
+    ctx.stroke_rect(inset + 4.0, inset + 4.0, w - (inset + 4.0) * 2.0, h - (inset + 4.0) * 2.0, "#363a42", 1.0)
+
+    # 3. Run full-canvas marble shader
+    ctx.apply_shader("bardiglio_shader", intensity=1.0)
+

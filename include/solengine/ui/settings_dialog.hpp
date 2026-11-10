@@ -33,7 +33,8 @@ public:
         float screenH,
         float mouseX,
         float mouseY,
-        const ThemePalette& pal
+        const ThemePalette& pal,
+        float timeSec = 0.0f
     );
 
     // Input routing (returns true if event was absorbed by the modal)

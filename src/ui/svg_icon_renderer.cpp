@@ -273,6 +273,21 @@ const char* SvgIconRenderer::getStockSvgXml(SvgIconId iconId) noexcept {
                 <polygon points="10 8 16 12 10 16 10 8" fill="white" stroke="none" />
             </svg>)";
 
+        case SvgIconId::Lightbulb:
+            return R"(<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18h6" />
+                <path d="M10 21h4" />
+                <path d="M12 2a6 6 0 0 0-6 6c0 2.2 1.2 4.1 3 5.2V15a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1.8c1.8-1.1 3-3 3-5.2a6 6 0 0 0-6-6z" />
+                <line x1="12" y1="9" x2="12" y2="12" />
+                <path d="M12 6a2 2 0 0 1 2 2" stroke-width="1.2" />
+            </svg>)";
+
+        case SvgIconId::Paste:
+            return R"(<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+            </svg>)";
+
         default:
             return "";
     }

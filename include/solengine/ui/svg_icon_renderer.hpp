@@ -62,6 +62,8 @@ enum class SvgIconId : uint16_t {
     StepForward,
     StepBackward,
     AutoPlay,
+    Lightbulb,
+    Paste,
     Count
 };
 
