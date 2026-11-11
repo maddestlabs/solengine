@@ -1,5 +1,6 @@
 #include "solengine/card_texture_cache.hpp"
 #include "solengine/card_canvas.hpp"
+#include "solengine/ui/clockwork_theme.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include "eatsbits/eatscript/lexer.hpp"
 #include "eatsbits/eatscript/parser.hpp"
@@ -815,18 +816,6 @@ static void bakeThemeCardBack(CardTexture& back, DeckThemeId theme, int cardW, i
                         if (dInnerX <= 1.0f || dInnerY <= 1.0f) {
                             r = 184; g = 115; b = 51;
                         }
-
-                        // Center Steampunk Clockwork Medallion
-                        float cx = static_cast<float>(cardW) * 0.5f;
-                        float cy = static_cast<float>(cardH) * 0.5f;
-                        float dx = std::abs(static_cast<float>(x) - cx) / (static_cast<float>(cardW) * 0.16f);
-                        float dy = std::abs(static_cast<float>(y) - cy) / (static_cast<float>(cardH) * 0.16f);
-                        if (dx + dy <= 1.0f) {
-                            r = 200; g = 150; b = 62;
-                        }
-                        if (dx + dy <= 0.45f) {
-                            r = 140; g = 85; b = 35;
-                        }
                     }
                 }
             } else if (theme == DeckThemeId::Anime) {
@@ -1057,6 +1046,17 @@ static void bakeThemeCardBack(CardTexture& back, DeckThemeId theme, int cardW, i
             back.rgba[p + 3] = a;
         }
     }
+
+    // For Steampunk deck theme, stamp SolEngine's signature Clockwork Logo medallion centered on the card back
+    if (theme == DeckThemeId::SteampunkAi) {
+        const float logoR = std::min(static_cast<float>(cardW) * 0.34f, static_cast<float>(cardH) * 0.24f);
+        clockwork_ui::bakeClockworkLogoRgba(
+            back.rgba.data(), cardW, cardH, cardW * 4,
+            static_cast<float>(cardW) * 0.5f,
+            static_cast<float>(cardH) * 0.5f,
+            logoR, 1.0f
+        );
+    }
 }
 
 const char* CardTextureCache::deckThemeName(DeckThemeId theme) noexcept {
@@ -1115,6 +1115,9 @@ const char* CardTextureCache::cornerStyleName(CardCornerStyle style) noexcept {
 
 void CardTextureCache::applyConditioningAndSync(CardWearLevel wear, CardStock stock) {
     applyCardConditioning(baseTextures_, textures_, wear, stock);
+    if (currentTheme_ == DeckThemeId::SteampunkAi) {
+        bakeThemeCardBack(textures_[kCardBackIndex], currentTheme_, cardW_, cardH_);
+    }
     syncArgb32AndMips(textures_);
     if (hasGpuAtlas_) {
         atlasDirty_ = true;
@@ -2138,6 +2141,7 @@ bool CardTextureCache::loadBaseDeckTheme(
             if (trySvg(path)) return true;
         }
     } else if (theme == DeckThemeId::SteampunkAi) {
+        bool loaded = false;
         const std::string candidateEats[] = {
             "decks/steampunk.eats",
             "/decks/steampunk.eats",
@@ -2146,26 +2150,34 @@ bool CardTextureCache::loadBaseDeckTheme(
             "../../decks/steampunk.eats"
         };
         for (const auto& path : candidateEats) {
-            if (tryEats(path)) return true;
+            if (tryEats(path)) { loaded = true; break; }
         }
-        const std::string candidateBitmaps[] = {
-            "decks/steampunk.jpg",
-            "decks/steampunk.png",
-            "../decks/steampunk.jpg",
-            "../decks/steampunk.png",
-            "../../decks/steampunk.jpg",
-            "../../decks/steampunk.png"
-        };
-        for (const auto& path : candidateBitmaps) {
-            if (tryBitmap(path)) return true;
+        if (!loaded) {
+            const std::string candidateBitmaps[] = {
+                "decks/steampunk.jpg",
+                "decks/steampunk.png",
+                "../decks/steampunk.jpg",
+                "../decks/steampunk.png",
+                "../../decks/steampunk.jpg",
+                "../../decks/steampunk.png"
+            };
+            for (const auto& path : candidateBitmaps) {
+                if (tryBitmap(path)) { loaded = true; break; }
+            }
         }
-        const std::string candidateSvgs[] = {
-            "decks/steampunk_svg.svg",
-            "../decks/steampunk_svg.svg",
-            "../../decks/steampunk_svg.svg"
-        };
-        for (const auto& path : candidateSvgs) {
-            if (trySvg(path)) return true;
+        if (!loaded) {
+            const std::string candidateSvgs[] = {
+                "decks/steampunk_svg.svg",
+                "../decks/steampunk_svg.svg",
+                "../../decks/steampunk_svg.svg"
+            };
+            for (const auto& path : candidateSvgs) {
+                if (trySvg(path)) { loaded = true; break; }
+            }
+        }
+        if (loaded) {
+            bakeThemeCardBack(outBase[CardTextureCache::kCardBackIndex], DeckThemeId::SteampunkAi, cardW, cardH);
+            return true;
         }
     } else if (theme == DeckThemeId::BaroqueNoir) {
         const std::string candidateEats[] = {
@@ -2402,6 +2414,10 @@ bool CardTextureCache::bakeStagedConditioning(
     );
     if (!ok) return false;
 
+    if (staging.theme == DeckThemeId::SteampunkAi) {
+        bakeThemeCardBack(staging.textures[kCardBackIndex], staging.theme, staging.cardW, staging.cardH);
+    }
+
     if (onProgress && !onProgress(0.92f, "Pre-packing ARGB32 buffers & mipmaps...")) {
         return false;
     }
@@ -2568,6 +2584,10 @@ void CardTextureCache::commitStagedDeck(StagingDeck&& staging) {
     cardH_ = staging.cardH;
     if (staging.cornerRadius >= 0.0f) {
         setDeckCornerRadius(staging.cornerRadius);
+    }
+    if (currentTheme_ == DeckThemeId::SteampunkAi) {
+        bakeThemeCardBack(textures_[kCardBackIndex], currentTheme_, cardW_, cardH_);
+        syncArgb32AndMips(textures_);
     }
     isLoaded_ = true;
     atlasDirty_ = true;

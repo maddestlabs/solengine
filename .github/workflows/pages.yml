@@ -55,12 +55,17 @@ jobs:
           cp -f build-web/index.html dist/
           cp -f build-web/manifest.json dist/
           cp -f build-web/sw.js dist/
+          cp -f build-web/app_icon.png dist/ || true
+          cp -f build-web/favicon.ico dist/ || true
+          cp -f build-web/icon-192.png dist/ || true
+          cp -f build-web/icon-512.png dist/ || true
 
-          # Stage on-demand decks, themes, and games (available statically on GitHub Pages)
-          mkdir -p dist/decks dist/themes dist/games
+          # Stage on-demand decks, themes, games, and sounds (available statically on GitHub Pages)
+          mkdir -p dist/decks dist/themes dist/games dist/sounds
           cp -rf decks/* dist/decks/
           cp -rf themes/* dist/themes/
           cp -rf games/* dist/games/
+          cp -rf sounds/* dist/sounds/
 
           # Disable Jekyll processing on GitHub Pages
           touch dist/.nojekyll

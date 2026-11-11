@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <memory>
 
 int main(int argc, char** argv) {
     solengine::SettingsManager::instance().load();
@@ -130,17 +131,17 @@ int main(int argc, char** argv) {
         }
     }
 
-    solengine::SolitaireBoard board;
-    board.setTableTheme(theme);
-    board.setCardDeviation(cardDeviation);
-    board.setLayoutMode(loadedSettings.layoutMode);
-    board.setStockPosition(loadedSettings.stockPosition);
-    board.newDeal(seed, variant);
-    board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+    auto board = std::make_unique<solengine::SolitaireBoard>();
+    board->setTableTheme(theme);
+    board->setCardDeviation(cardDeviation);
+    board->setLayoutMode(loadedSettings.layoutMode);
+    board->setStockPosition(loadedSettings.stockPosition);
+    board->newDeal(seed, variant);
+    board->computeLayout(static_cast<float>(width), static_cast<float>(height));
 
-    std::cout << "[SolEngine] Initialized Deal #" << board.seed()
-              << " | Variant: " << solengine::SolitaireBoard::variantName(board.variant())
-              << " | Theme: " << solengine::SolitaireBoard::themeName(board.tableTheme())
+    std::cout << "[SolEngine] Initialized Deal #" << board->seed()
+              << " | Variant: " << solengine::SolitaireBoard::variantName(board->variant())
+              << " | Theme: " << solengine::SolitaireBoard::themeName(board->tableTheme())
               << "\n";
 
     if (!outputPngPath.empty()) {
@@ -151,7 +152,7 @@ int main(int argc, char** argv) {
         cache.loadDeckTheme(loadedSettings.deckTheme);
         cache.applyConditioningAndSync(loadedSettings.cardWear, loadedSettings.cardStock);
 
-        if (solengine::TableRenderer::renderToPng(board, width, height, outputPngPath, effectiveAa)) {
+        if (solengine::TableRenderer::renderToPng(*board, width, height, outputPngPath, effectiveAa)) {
             std::cout << "[SolEngine] Successfully wrote " << outputPngPath << "\n";
             return 0;
         }
@@ -159,7 +160,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    solengine::AudioFoleyEngine foley;
-    foley.init(true);
-    return solengine::TableRenderer::runInteractiveWindow(board, foley, width, height, effectiveAa);
+    auto foley = std::make_unique<solengine::AudioFoleyEngine>();
+    foley->init(true);
+    return solengine::TableRenderer::runInteractiveWindow(*board, *foley, width, height, effectiveAa);
 }

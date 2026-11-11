@@ -123,26 +123,27 @@ void SettingsDialog::render(
         r.drawRoundedRect(dialogX_, dialogY_, dialogW_, headerH, 10.0f, cpal.chassisDarkR, cpal.chassisDarkG, cpal.chassisDarkB, 0.90f, 6);
         r.drawLine(dialogX_, dialogY_ + headerH, dialogX_ + dialogW_, dialogY_ + headerH, cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.75f, 1.2f);
 
-        // Spherical brass ornament boss at top-left
-        r.drawCircleRadial3StopGradient(
-            dialogX_ + 24.0f, dialogY_ + 24.0f, 8.5f,
-            cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f,
-            cpal.brassBrightR, cpal.brassBrightG, cpal.brassBrightB, 1.0f,
-            cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 1.0f,
-            -2.5f, -2.5f, 0.45f, 20
-        );
+        // SolEngine Signature Clockwork Logo emblem at top-left
+        const float logoR = 15.5f;
+        const float logoX = dialogX_ + 25.0f;
+        const float logoY = dialogY_ + 24.0f;
+        clockwork_ui::drawClockworkLogo(r, logoX, logoY, logoR, timeSec);
 
         eatsbits::ui::glyph::drawVectorText(
-            r, "SOLITAIRE ENGINE PREFERENCES & GAME SETTINGS", dialogX_ + 40.0f, dialogY_ + 17.5f, 13.0f,
+            r, "SOLITAIRE ENGINE PREFERENCES & GAME SETTINGS", dialogX_ + 47.0f, dialogY_ + 17.5f, 13.0f,
             cpal.furnaceCoreR, cpal.furnaceCoreG, cpal.furnaceCoreB, 1.0f
         );
     } else {
         r.drawRoundedRect(dialogX_, dialogY_, dialogW_, headerH, 10.0f, pal.woodR0 + 0.02f, pal.woodG0 + 0.01f, pal.woodB0 + 0.01f, 0.95f, 6);
         r.drawLine(dialogX_, dialogY_ + headerH, dialogX_ + dialogW_, dialogY_ + headerH, pal.trimR, pal.trimG, pal.trimB, 0.60f, 1.2f);
 
-        eatsbits::ui::glyph::drawVectorText(r, "O", dialogX_ + 16.0f, dialogY_ + 17.0f, 14.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        const float logoR = 14.5f;
+        const float logoX = dialogX_ + 24.0f;
+        const float logoY = dialogY_ + 24.0f;
+        clockwork_ui::drawClockworkLogo(r, logoX, logoY, logoR, timeSec);
+
         eatsbits::ui::glyph::drawVectorText(
-            r, "SOLITAIRE ENGINE PREFERENCES & GAME SETTINGS", dialogX_ + 36.0f, dialogY_ + 17.0f, 14.0f,
+            r, "SOLITAIRE ENGINE PREFERENCES & GAME SETTINGS", dialogX_ + 46.0f, dialogY_ + 17.0f, 14.0f,
             pal.accentR, pal.accentG, pal.accentB, 1.0f
         );
     }

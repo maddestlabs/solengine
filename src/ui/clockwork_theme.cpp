@@ -874,27 +874,19 @@ void drawClockworkMenuOrb(
 ) {
     const auto& pal = palette();
     const float alpha = (hovered || menuOpen) ? 0.98f : 0.70f;
-    const float rot = timeSec * 0.5f;
 
-    // Single tight, physically grounded drop shadow right underneath orb
-    r.drawCircleDropShadow(cx, cy, radius, 3.0f,
-                           eatsbits::ui::LightSource2D{cx - 120.0f, cy - 240.0f, 400.0f, 0.85f}, alpha * 0.45f);
-
-    // Outer interlocking gear teeth rim
-    drawGear(r, cx, cy, radius, radius * 0.82f, radius * 0.65f, 16, rot,
-             pal.brassMidR, pal.brassMidG, pal.brassMidB, alpha,
-             pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 6, radius * 0.40f);
-
-    // Spun brass domed capstan
-    r.drawCircleRadial3StopGradient(
-        cx, cy, radius * 0.58f,
-        pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha,
-        pal.brassBrightR, pal.brassBrightG, pal.brassBrightB, alpha,
-        pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, alpha,
-        -radius * 0.20f, -radius * 0.25f, 0.45f, 24
-    );
+    ClockworkLogoConfig cfg;
+    cfg.animated = !menuOpen;
+    cfg.showGauges = (radius >= 22.0f);
+    cfg.showPipes = (radius >= 18.0f);
+    cfg.showGlow = true;
+    cfg.alpha = alpha;
+    cfg.brassTint = hovered ? 1.15f : 1.0f;
 
     if (menuOpen) {
+        cfg.alpha = alpha * 0.75f;
+        drawClockworkLogo(r, cx, cy, radius, timeSec, cfg);
+
         // Crisp steam cross / release indicator when menu is pinned/toggled open
         const float xSize = radius * 0.32f;
         r.drawLine(cx - xSize, cy - xSize, cx + xSize, cy + xSize,
@@ -904,45 +896,7 @@ void drawClockworkMenuOrb(
         r.drawCircleOutline(cx, cy, radius * 0.42f,
                             pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha * 0.8f, 1.2f, 24);
     } else {
-        // Recessed furnace well
-        r.drawCircle(cx, cy, radius * 0.42f, 0.10f, 0.08f, 0.06f, alpha * 0.95f, 20);
-
-        // Warm molten furnace core glow radiating outwards
-        r.drawCircleRadialGradient(
-            cx, cy, radius * 0.40f,
-            pal.furnaceCoreR, pal.furnaceCoreG, pal.furnaceCoreB, alpha * (hovered ? 0.90f : 0.65f),
-            0.08f, 0.06f, 0.04f, 0.0f,
-            0.0f, 0.0f, 20
-        );
-
-        // Mini planetary brass cog (counter-rotating)
-        drawGear(r, cx + radius * 0.18f, cy - radius * 0.14f,
-                 radius * 0.14f, radius * 0.10f, radius * 0.035f, 7, -rot * 2.2f,
-                 pal.brassMidR, pal.brassMidG, pal.brassMidB, alpha * 0.85f,
-                 pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha * 0.85f,
-                 3, radius * 0.06f);
-
-        // Mini pressure manometer dial
-        drawManometerGauge(r, cx - radius * 0.20f, cy + radius * 0.16f, radius * 0.12f, 0.72f);
-
-        // Signature SolEngine Victorian embossed brass 'S' insignia
-        const float fontSize = radius * 0.68f;
-        const float txtW = eatsbits::ui::glyph::getVectorTextWidth(fontSize, "S");
-
-        // Embossed drop shadow
-        eatsbits::ui::glyph::drawVectorText(
-            r, "S", cx - txtW * 0.5f + 1.2f, cy - fontSize * 0.5f + 1.2f, fontSize,
-            0.04f, 0.03f, 0.02f, alpha * 0.90f
-        );
-
-        // Burnished brass / furnace highlight core
-        eatsbits::ui::glyph::drawVectorText(
-            r, "S", cx - txtW * 0.5f, cy - fontSize * 0.5f, fontSize,
-            hovered ? pal.brassBrightR : pal.brassHighlightR,
-            hovered ? pal.brassBrightG : pal.brassHighlightG,
-            hovered ? pal.brassBrightB : pal.brassHighlightB,
-            alpha
-        );
+        drawClockworkLogo(r, cx, cy, radius, timeSec, cfg);
     }
 }
 
@@ -1384,6 +1338,420 @@ void drawClockworkCloseButton(
         hovered ? 0.90f : cPal.brassHighlightB,
         1.0f
     );
+}
+
+void drawClockworkLogo(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float timeSec,
+    const ClockworkLogoConfig& config
+) {
+    if (radius <= 2.0f) return;
+
+    using eatsbits::ui::Point2D;
+
+    const auto& pal = palette();
+    const float alpha = std::clamp(config.alpha, 0.0f, 1.0f);
+    if (alpha <= 0.001f) return;
+
+    const float rot = config.animated ? timeSec * 0.35f : 0.0f;
+    const float bTint = std::clamp(config.brassTint, 0.5f, 2.0f);
+
+    // Dynamic level-of-detail (LOD) thresholds
+    const bool isSmall = (radius < 20.0f);
+    const bool isMedium = (radius >= 20.0f && radius < 42.0f);
+    const bool isLarge = (radius >= 42.0f);
+
+    // 1. Drop shadow underneath the entire clockwork assembly
+    if (radius > 12.0f) {
+        r.drawCircleDropShadow(
+            cx, cy, radius, std::max(2.0f, radius * 0.12f),
+            eatsbits::ui::LightSource2D{cx - 100.0f, cy - 200.0f, 400.0f, 0.85f},
+            0.42f * alpha
+        );
+    }
+
+    // 2. Layer 1: Outer Weathered Cast-Iron Chassis Cog
+    const int outerTeeth = isSmall ? 12 : (isMedium ? 16 : 20);
+    const float outerRootR = radius * 0.84f;
+    const float outerInnerR = radius * 0.70f;
+    drawGear(
+        r, cx, cy, radius, outerRootR, outerInnerR, outerTeeth, rot,
+        pal.chassisDarkR * 1.15f, pal.chassisDarkG * 1.15f, pal.chassisDarkB * 1.15f, alpha,
+        pal.chassisLightR * 1.25f, pal.chassisLightR * 1.25f, pal.chassisLightB * 1.25f, alpha,
+        isSmall ? 4 : 6, outerInnerR * 0.45f, false
+    );
+
+    // 3. Layer 2: Riveted Viktoria Brass Annular Collar / Bezel
+    const float collarOut = radius * 0.74f;
+    const float collarIn = radius * 0.53f;
+
+    // Brass gradient body
+    r.drawCircleRadial3StopGradient(
+        cx, cy, collarOut,
+        std::min(1.0f, pal.brassHighlightR * bTint), std::min(1.0f, pal.brassHighlightG * bTint), std::min(1.0f, pal.brassHighlightB * bTint), alpha,
+        std::min(1.0f, pal.brassBrightR * bTint), std::min(1.0f, pal.brassBrightG * bTint), std::min(1.0f, pal.brassBrightB * bTint), alpha,
+        std::min(1.0f, pal.brassDarkR * bTint), std::min(1.0f, pal.brassDarkG * bTint), std::min(1.0f, pal.brassDarkB * bTint), alpha,
+        -collarOut * 0.22f, -collarOut * 0.25f, 0.48f, isSmall ? 20 : 32
+    );
+
+    // Fine concentric etched rings
+    r.drawCircleOutline(cx, cy, collarOut, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha * 0.90f, 1.2f, isSmall ? 20 : 32);
+    r.drawCircleOutline(cx, cy, (collarOut + collarIn) * 0.5f, pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, alpha * 0.40f, 0.8f, isSmall ? 20 : 32);
+    r.drawCircleOutline(cx, cy, collarIn, pal.brassDarkR * 0.75f, pal.brassDarkG * 0.75f, pal.brassDarkB * 0.75f, alpha * 0.95f, 1.4f, isSmall ? 20 : 32);
+
+    // Circumferential Brass Rivets / Bolts
+    const float rivetOrbitR = (collarOut + collarIn) * 0.5f;
+    const float rivetR = std::max(1.0f, radius * 0.034f);
+    const int numRivets = isSmall ? 6 : (isMedium ? 8 : 12);
+    for (int i = 0; i < numRivets; ++i) {
+        float angle = static_cast<float>(i) * (kTwoPi / static_cast<float>(numRivets)) + (kTwoPi / (numRivets * 2.0f));
+        float rx = cx + std::cos(angle) * rivetOrbitR;
+        float ry = cy + std::sin(angle) * rivetOrbitR;
+        drawRivet(r, rx, ry, rivetR, false,
+                  pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha * 0.92f);
+    }
+
+    // Radial Copper Conduit Struts (bridging from outer cog to collar)
+    if (config.showPipes && !isSmall) {
+        const float strutR0 = collarOut;
+        const float strutR1 = outerRootR * 0.98f;
+        const int strutCount = 4;
+        for (int i = 0; i < strutCount; ++i) {
+            float a = (static_cast<float>(i) + 0.5f) * (kTwoPi / static_cast<float>(strutCount));
+            float cosA = std::cos(a);
+            float sinA = std::sin(a);
+            float x0 = cx + cosA * strutR0;
+            float y0 = cy + sinA * strutR0;
+            float x1 = cx + cosA * strutR1;
+            float y1 = cy + sinA * strutR1;
+            r.drawLine(x0, y0, x1, y1, pal.copperBrightR, pal.copperBrightG, pal.copperBrightB, alpha * 0.90f, std::max(1.4f, radius * 0.045f));
+            drawRivet(r, x0, y0, std::max(1.1f, radius * 0.026f), true, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha);
+        }
+    }
+
+    // 4. Layer 3: Recessed Dark Boiler Well & Glowing Amber Furnace Hearth
+    r.drawCircle(cx, cy, collarIn, 0.08f, 0.07f, 0.06f, alpha * 0.98f, isSmall ? 20 : 32);
+    r.drawCircleOutline(cx, cy, collarIn - 0.5f, 0.04f, 0.03f, 0.02f, alpha * 0.85f, 1.0f, isSmall ? 20 : 32);
+
+    if (config.showGlow) {
+        const float pulse = config.animated ? (0.84f + 0.16f * std::sin(timeSec * 2.8f)) : 1.0f;
+        r.drawCircleRadialGradient(
+            cx + radius * 0.04f, cy + radius * 0.03f, collarIn * 0.92f,
+            pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, 0.52f * pulse * alpha,
+            0.08f, 0.07f, 0.06f, 0.0f,
+            0.0f, 0.0f, isSmall ? 18 : 28
+        );
+        r.drawCircleRadialGradient(
+            cx + radius * 0.02f, cy + radius * 0.02f, collarIn * 0.45f,
+            pal.furnaceCoreR, pal.furnaceCoreG, pal.furnaceCoreB, 0.40f * pulse * alpha,
+            pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, 0.0f,
+            0.0f, 0.0f, isSmall ? 16 : 24
+        );
+    }
+
+    // 5. Layer 4: Horological Sub-Assembly (Interlocking Secondary Cogs & Gauges)
+    if (!isSmall) {
+        // Upper-left secondary brass cog
+        const float cog1X = cx - radius * 0.14f;
+        const float cog1Y = cy - radius * 0.17f;
+        const float cog1R = radius * 0.22f;
+        drawGear(
+            r, cog1X, cog1Y, cog1R, cog1R * 0.78f, cog1R * 0.35f, 9, -rot * 2.4f,
+            pal.brassMidR, pal.brassMidG, pal.brassMidB, alpha * 0.88f,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha * 0.88f,
+            3, cog1R * 0.24f, false
+        );
+
+        // Lower-center/right small copper cog (meshed)
+        const float cog2X = cx + radius * 0.10f;
+        const float cog2Y = cy + radius * 0.16f;
+        const float cog2R = radius * 0.16f;
+        drawGear(
+            r, cog2X, cog2Y, cog2R, cog2R * 0.78f, cog2R * 0.35f, 7, rot * 3.1f + 0.25f,
+            pal.copperMidR, pal.copperMidG, pal.copperMidB, alpha * 0.85f,
+            pal.copperBrightR, pal.copperBrightG, pal.copperBrightB, alpha * 0.85f,
+            3, cog2R * 0.22f, false
+        );
+
+        // Miniature Top-Right Manometer Gauge on collar
+        if (config.showGauges && isLarge) {
+            const float gaugeAngle = config.animated ? (0.68f + 0.14f * std::sin(timeSec * 3.6f)) : 0.72f;
+            drawManometerGauge(r, cx + radius * 0.28f, cy - radius * 0.58f, radius * 0.09f, gaugeAngle);
+        }
+
+        // Curved copper steam pipe winding around lower lobe
+        if (config.showPipes) {
+            Point2D p0{cx - radius * 0.28f, cy + radius * 0.18f};
+            Point2D cp0{cx - radius * 0.36f, cy + radius * 0.42f};
+            Point2D cp1{cx - radius * 0.08f, cy + radius * 0.48f};
+            Point2D p1{cx + radius * 0.22f, cy + radius * 0.38f};
+            r.drawCatenaryBezier(p0, cp0, cp1, p1, pal.copperMidR, pal.copperMidG, pal.copperMidB, alpha * 0.90f, std::max(1.5f, radius * 0.05f));
+            r.drawCatenaryBezier(p0, cp0, cp1, p1, pal.copperSpineR, pal.copperSpineG, pal.copperSpineB, alpha * 0.90f, std::max(0.6f, radius * 0.018f));
+        }
+    }
+
+    // 6. Layer 5: Iconic Victorian Riveted Brass 'S' Insignia
+    if (isSmall) {
+        // High-legibility vector glyph fallback for small icons/headers
+        const float fontSize = radius * 1.05f;
+        const float txtW = eatsbits::ui::glyph::getVectorTextWidth(fontSize, "S");
+        eatsbits::ui::glyph::drawVectorText(
+            r, "S", cx - txtW * 0.5f + 1.0f, cy - fontSize * 0.5f + 1.0f, fontSize,
+            0.04f, 0.03f, 0.02f, alpha * 0.90f
+        );
+        eatsbits::ui::glyph::drawVectorText(
+            r, "S", cx - txtW * 0.5f, cy - fontSize * 0.5f, fontSize,
+            pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.70f
+        );
+        eatsbits::ui::glyph::drawVectorText(
+            r, "S", cx - txtW * 0.5f, cy - fontSize * 0.5f, fontSize,
+            pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha
+        );
+        return;
+    }
+
+    // Full Victorian Hand-Crafted Brass 'S' Vector Geometry
+    const float sScale = radius * 0.78f;
+    const float stemW = std::max(2.5f, sScale * 0.17f);
+    const float spineW = std::max(1.0f, sScale * 0.05f);
+
+    Point2D topTerm{cx + sScale * 0.22f, cy - sScale * 0.44f};
+    Point2D topArch0{cx + sScale * 0.20f, cy - sScale * 0.60f};
+    Point2D topArch1{cx - sScale * 0.36f, cy - sScale * 0.58f};
+    Point2D midUpper{cx - sScale * 0.34f, cy - sScale * 0.22f};
+    Point2D centerPt{cx, cy};
+    Point2D midLower{cx + sScale * 0.34f, cy + sScale * 0.22f};
+    Point2D botArch0{cx + sScale * 0.36f, cy + sScale * 0.58f};
+    Point2D botArch1{cx - sScale * 0.20f, cy + sScale * 0.60f};
+    Point2D botTerm{cx - sScale * 0.22f, cy + sScale * 0.44f};
+
+    // A. Drop Shadow Pass
+    const float shadowOffX = 1.4f;
+    const float shadowOffY = 2.2f;
+    Point2D sTopTerm{topTerm.x + shadowOffX, topTerm.y + shadowOffY};
+    Point2D sTopArch0{topArch0.x + shadowOffX, topArch0.y + shadowOffY};
+    Point2D sTopArch1{topArch1.x + shadowOffX, topArch1.y + shadowOffY};
+    Point2D sMidUpper{midUpper.x + shadowOffX, midUpper.y + shadowOffY};
+    Point2D sCenterPt{centerPt.x + shadowOffX, centerPt.y + shadowOffY};
+    Point2D sMidLower{midLower.x + shadowOffX, midLower.y + shadowOffY};
+    Point2D sBotArch0{botArch0.x + shadowOffX, botArch0.y + shadowOffY};
+    Point2D sBotArch1{botArch1.x + shadowOffX, botArch1.y + shadowOffY};
+    Point2D sBotTerm{botTerm.x + shadowOffX, botTerm.y + shadowOffY};
+
+    r.drawCatenaryBezier(sTopTerm, sTopArch0, sTopArch1, sMidUpper, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
+    r.drawCatenaryBezier(sMidUpper, Point2D{sMidUpper.x + sScale * 0.08f, sCenterPt.y - sScale * 0.08f}, Point2D{sCenterPt.x - sScale * 0.08f, sCenterPt.y - sScale * 0.04f}, sCenterPt, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
+    r.drawCatenaryBezier(sCenterPt, Point2D{sCenterPt.x + sScale * 0.08f, sCenterPt.y + sScale * 0.04f}, Point2D{sMidLower.x - sScale * 0.08f, sCenterPt.y + sScale * 0.08f}, sMidLower, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
+    r.drawCatenaryBezier(sMidLower, sBotArch0, sBotArch1, sBotTerm, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
+
+    // B. Furnace Amber Underglow Pass
+    if (config.showGlow) {
+        const float glowW = stemW + std::max(2.0f, sScale * 0.08f);
+        r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.55f, glowW);
+        r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.55f, glowW);
+        r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.55f, glowW);
+        r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.55f, glowW);
+    }
+
+    // C. Solid Brass Body Pass
+    r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
+    r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
+    r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
+    r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
+
+    // D. Burnished Brass Center Spine / Ridge
+    r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, spineW);
+    r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, spineW);
+    r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, spineW);
+    r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, spineW);
+
+    // E. Top-Right Victorian Plated Serif Bracket
+    const float topBoxW = sScale * 0.26f;
+    const float topBoxH = sScale * 0.28f;
+    const float topBoxX = topTerm.x - topBoxW * 0.20f;
+    const float topBoxY = topTerm.y - topBoxH * 0.75f;
+    r.drawRoundedRect(topBoxX, topBoxY, topBoxW, topBoxH, 2.5f, pal.brassDarkR * bTint, pal.brassDarkG * bTint, pal.brassDarkB * bTint, alpha * 0.95f, 4);
+    r.drawRoundedRectOutline(topBoxX, topBoxY, topBoxW, topBoxH, 2.5f, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, 1.2f, 4);
+    drawRivet(r, topBoxX + 3.0f, topBoxY + 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
+    drawRivet(r, topBoxX + topBoxW - 3.0f, topBoxY + 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
+    drawRivet(r, topBoxX + topBoxW - 3.0f, topBoxY + topBoxH - 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
+    if (isLarge) {
+        drawGear(r, topBoxX + topBoxW * 0.55f, topBoxY + topBoxH * 0.52f, topBoxW * 0.28f, topBoxW * 0.20f, topBoxW * 0.08f, 6, rot * 2.0f,
+                 pal.brassMidR, pal.brassMidG, pal.brassMidB, alpha, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 3, 2.0f);
+    }
+
+    // F. Bottom-Left Victorian Plated Serif Bracket with Mini Manometer
+    const float botBoxW = sScale * 0.28f;
+    const float botBoxH = sScale * 0.30f;
+    const float botBoxX = botTerm.x - botBoxW * 0.80f;
+    const float botBoxY = botTerm.y - botBoxH * 0.25f;
+    r.drawRoundedRect(botBoxX, botBoxY, botBoxW, botBoxH, 2.5f, pal.brassDarkR * bTint, pal.brassDarkG * bTint, pal.brassDarkB * bTint, alpha * 0.95f, 4);
+    r.drawRoundedRectOutline(botBoxX, botBoxY, botBoxW, botBoxH, 2.5f, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, 1.2f, 4);
+    drawRivet(r, botBoxX + 3.0f, botBoxY + botBoxH - 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
+    drawRivet(r, botBoxX + botBoxW - 3.0f, botBoxY + botBoxH - 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
+    drawRivet(r, botBoxX + 3.0f, botBoxY + 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
+
+    if (config.showGauges && !isSmall) {
+        const float gaugeR = std::min(botBoxW, botBoxH) * 0.36f;
+        const float gaugeCx = botBoxX + botBoxW * 0.50f;
+        const float gaugeCy = botBoxY + botBoxH * 0.48f;
+        const float gaugeAngle = config.animated ? (0.55f + 0.18f * std::sin(timeSec * 4.0f)) : 0.60f;
+        drawManometerGauge(r, gaugeCx, gaugeCy, gaugeR, gaugeAngle);
+    }
+
+    // G. Riveted Brass Coupling Plates across the S
+    if (!isSmall) {
+        const float strapW = sScale * 0.18f;
+        const float strapH = stemW * 1.25f;
+        r.drawRoundedRect(centerPt.x - strapW * 0.5f, centerPt.y - strapH * 0.5f, strapW, strapH, 1.5f, pal.brassBrightR * bTint, pal.brassBrightG * bTint, pal.brassBrightB * bTint, alpha, 2);
+        r.drawRoundedRectOutline(centerPt.x - strapW * 0.5f, centerPt.y - strapH * 0.5f, strapW, strapH, 1.5f, pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, alpha * 0.70f, 0.8f, 2);
+        drawRivet(r, centerPt.x - strapW * 0.30f, centerPt.y, 1.0f, false, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha);
+        drawRivet(r, centerPt.x + strapW * 0.30f, centerPt.y, 1.0f, false, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha);
+    }
+}
+
+void bakeClockworkLogoRgba(
+    uint8_t* outRgba,
+    int width, int height,
+    int strideBytes,
+    float centerX, float centerY, float radius,
+    float alpha
+) {
+    if (!outRgba || width <= 0 || height <= 0 || radius <= 2.0f || alpha <= 0.001f) return;
+
+    const float rOuter = radius;
+    const float rRoot = radius * 0.84f;
+    const float rCollarOut = radius * 0.74f;
+    const float rCollarIn = radius * 0.53f;
+    const float rOrbit = (rCollarOut + rCollarIn) * 0.5f;
+    const float rivetRadius = std::max(1.5f, radius * 0.035f);
+
+    constexpr int kOuterTeeth = 18;
+    constexpr int kNumRivets = 12;
+
+    const int minX = std::max(0, static_cast<int>(std::floor(centerX - rOuter - 2.0f)));
+    const int maxX = std::min(width - 1, static_cast<int>(std::ceil(centerX + rOuter + 2.0f)));
+    const int minY = std::max(0, static_cast<int>(std::floor(centerY - rOuter - 2.0f)));
+    const int maxY = std::min(height - 1, static_cast<int>(std::ceil(centerY + rOuter + 2.0f)));
+
+    for (int y = minY; y <= maxY; ++y) {
+        float dy = static_cast<float>(y) + 0.5f - centerY;
+        for (int x = minX; x <= maxX; ++x) {
+            float dx = static_cast<float>(x) + 0.5f - centerX;
+            float dist = std::hypot(dx, dy);
+            if (dist > rOuter) continue;
+
+            float angle = std::atan2(dy, dx);
+            if (angle < 0.0f) angle += kTwoPi;
+
+            float pixR = 0.0f, pixG = 0.0f, pixB = 0.0f, pixA = 0.0f;
+
+            // 1. Outer Cast-Iron Teeth Zone: [rRoot, rOuter]
+            if (dist >= rRoot) {
+                float toothPhase = std::fmod(angle * (static_cast<float>(kOuterTeeth) / kTwoPi), 1.0f);
+                if (toothPhase < 0.50f) {
+                    float t = (dist - rRoot) / (rOuter - rRoot);
+                    pixR = 0.18f + 0.08f * t;
+                    pixG = 0.16f + 0.07f * t;
+                    pixB = 0.14f + 0.06f * t;
+                    pixA = 1.0f;
+                } else {
+                    continue;
+                }
+            }
+            // 2. Outer Cast-Iron Rim Zone: [rCollarOut, rRoot)
+            else if (dist >= rCollarOut) {
+                pixR = 0.20f;
+                pixG = 0.18f;
+                pixB = 0.16f;
+                pixA = 1.0f;
+            }
+            // 3. Riveted Viktoria Brass Collar: [rCollarIn, rCollarOut)
+            else if (dist >= rCollarIn) {
+                float tCollar = (dist - rCollarIn) / (rCollarOut - rCollarIn);
+                pixR = 0.78f + 0.16f * tCollar;
+                pixG = 0.62f + 0.18f * tCollar;
+                pixB = 0.22f + 0.14f * tCollar;
+                pixA = 1.0f;
+
+                for (int i = 0; i < kNumRivets; ++i) {
+                    float ra = static_cast<float>(i) * (kTwoPi / static_cast<float>(kNumRivets)) + (kTwoPi / (kNumRivets * 2.0f));
+                    float rx = std::cos(ra) * rOrbit;
+                    float ry = std::sin(ra) * rOrbit;
+                    if (std::hypot(dx - rx, dy - ry) <= rivetRadius) {
+                        pixR = 1.00f; pixG = 0.92f; pixB = 0.64f;
+                        break;
+                    }
+                }
+            }
+            // 4. Recessed Dark Boilerplate Well & Furnace Ember Glow: [0, rCollarIn)
+            else {
+                pixR = 0.09f;
+                pixG = 0.08f;
+                pixB = 0.07f;
+                pixA = 1.0f;
+
+                float glowDist = std::hypot(dx - radius * 0.04f, dy - radius * 0.03f) / (rCollarIn * 0.85f);
+                if (glowDist < 1.0f) {
+                    float glowFactor = (1.0f - glowDist) * 0.55f;
+                    pixR += 0.95f * glowFactor;
+                    pixG += 0.46f * glowFactor;
+                    pixB += 0.08f * glowFactor;
+                }
+
+                const float sArchR = radius * 0.19f;
+                const float sUpperCy = -radius * 0.20f;
+                const float sLowerCy = radius * 0.20f;
+                const float sStemW = radius * 0.09f;
+
+                float distUpper = std::abs(std::hypot(dx + radius * 0.02f, dy - sUpperCy) - sArchR);
+                float distLower = std::abs(std::hypot(dx - radius * 0.02f, dy - sLowerCy) - sArchR);
+
+                bool inS = false;
+                bool isSpine = false;
+
+                if (distUpper < sStemW && (dy <= sUpperCy || dx <= 0.02f)) {
+                    inS = true;
+                    if (distUpper < sStemW * 0.30f) isSpine = true;
+                }
+                if (distLower < sStemW && (dy >= sLowerCy || dx >= -0.02f)) {
+                    inS = true;
+                    if (distLower < sStemW * 0.30f) isSpine = true;
+                }
+                if (std::abs(dy) <= radius * 0.14f) {
+                    float diagDist = std::abs(dx - (dy * 0.9f));
+                    if (diagDist < sStemW * 1.1f) {
+                        inS = true;
+                        if (diagDist < sStemW * 0.32f) isSpine = true;
+                    }
+                }
+
+                if (dx >= radius * 0.10f && dx <= radius * 0.32f && dy >= -radius * 0.40f && dy <= -radius * 0.18f) {
+                    inS = true;
+                }
+                if (dx >= -radius * 0.32f && dx <= -radius * 0.10f && dy >= radius * 0.18f && dy <= radius * 0.40f) {
+                    inS = true;
+                }
+
+                if (inS) {
+                    if (isSpine) {
+                        pixR = 1.00f; pixG = 0.92f; pixB = 0.64f;
+                    } else {
+                        pixR = 0.78f; pixG = 0.62f; pixB = 0.22f;
+                    }
+                }
+            }
+
+            size_t pixelOffset = static_cast<size_t>(y * strideBytes + x * 4);
+            float finalAlpha = pixA * alpha;
+            float invA = 1.0f - finalAlpha;
+
+            outRgba[pixelOffset + 0] = static_cast<uint8_t>(std::clamp(pixR * 255.0f * finalAlpha + outRgba[pixelOffset + 0] * invA, 0.0f, 255.0f));
+            outRgba[pixelOffset + 1] = static_cast<uint8_t>(std::clamp(pixG * 255.0f * finalAlpha + outRgba[pixelOffset + 1] * invA, 0.0f, 255.0f));
+            outRgba[pixelOffset + 2] = static_cast<uint8_t>(std::clamp(pixB * 255.0f * finalAlpha + outRgba[pixelOffset + 2] * invA, 0.0f, 255.0f));
+            outRgba[pixelOffset + 3] = static_cast<uint8_t>(std::clamp(255.0f * finalAlpha + outRgba[pixelOffset + 3] * invA, 0.0f, 255.0f));
+        }
+    }
 }
 
 } // namespace solengine::clockwork_ui

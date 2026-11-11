@@ -964,8 +964,7 @@ void drawProceduralCard(
                 r.drawRoundedRectOutline(x + pad2, y + pad2, w - 2.0f * pad2, h - 2.0f * pad2,
                                          radius * 0.45f, pal.trimR, pal.trimG, pal.trimB, 0.42f, 1.0f, 4);
             }
-            drawSuitPip(r, Suit::Diamonds, x + w * 0.5f, y + h * 0.5f, w * 0.16f, baseH * 0.11f,
-                        pal.trimR, pal.trimG, pal.trimB, 0.85f);
+            clockwork_ui::drawClockworkLogo(r, x + w * 0.5f, y + h * 0.5f, std::min(w * 0.28f, h * 0.20f), 0.0f);
         }
         r.drawRoundedRectOutline(x, y, w, h, radius, 0.15f, 0.12f, 0.09f, 0.85f, 1.2f, 4);
         return;

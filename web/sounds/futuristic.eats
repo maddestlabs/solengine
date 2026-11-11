@@ -1,0 +1,51 @@
+# ==============================================================================
+# SolEngine Foley Preset: Futuristic / Cyberdeck Holographic (.eats)
+# Grounded in realistic card acoustics with a sleek sci-fi flanger flare,
+# crystalline Dirac edge snaps, sweeping phase resonance, and baize friction.
+# ==============================================================================
+
+audio.set_master_volume(0.90)
+audio.set_master_variance(1.0) # subtle organic micro-variations
+
+# HD Physical Synthesis with dynamic flanger comb-filter modulation:
+# - velvet_density: discrete micro-fiber collision impulses per second (3500 - 6000)
+# - edge_snap: sub-millisecond Dirac edge transient crispness (0.0 to 1.5)
+# - air_boost: high-shelf acoustic presence boost in dB (8kHz - 14kHz)
+# - comb_delay: card edge aperture comb dispersion delay in seconds
+# - felt_damping: lowpass absorption window ceiling in Hz
+# - card_rigidity: card flexion resonance in Hz
+# - flanger_depth: sweeping comb delay modulation depth (creates harmonic flanging swoosh)
+# - flanger_rate: LFO sweep speed in Hz
+# - flanger_feedback: resonance regeneration amount
+audio.set_physical_params({
+    velvet_density:   4800.0,
+    edge_snap:        1.15,
+    air_boost:        8.5,
+    comb_delay:       0.00035,
+    felt_damping:     12500.0,
+    card_rigidity:    4200.0,
+    flanger_depth:    0.00055,
+    flanger_rate:     1.8,
+    flanger_feedback: 0.38
+})
+
+# Subtle holographic shimmer for ethereal hints / spectre events
+audio.define_sound("spectre", {
+    duration: { base: 0.320, dev: 0.06 },
+    gain:     { base: 0.85,  dev: 0.05 },
+    layers: [
+        {
+            generator: "sine",
+            freq_start: { base: 523.25, dev: 0.03 }, # C5 -> G5 holographic harmonic glide
+            freq_end:   { base: 783.99, dev: 0.03 },
+            env: { attack: 0.010, decay: 2.5, curve: "sine" },
+            weight: { base: 0.55, dev: 0.05 }
+        },
+        {
+            generator: "noise",
+            filter: { type: "bandpass", cutoff: { base: 4800.0, dev: 0.06 }, q: 3.5 },
+            env: { attack: 0.012, decay: 3.0, curve: "exp" },
+            weight: { base: 0.40, dev: 0.08 }
+        }
+    ]
+})

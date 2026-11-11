@@ -183,5 +183,59 @@ void drawClockworkCloseButton(
     float timeSec = 0.0f
 );
 
+/**
+ * Configuration options for the SolEngine Clockwork Logo procedural renderer.
+ */
+struct ClockworkLogoConfig {
+    bool animated{true};           // Enables subtle horological cog rotation and furnace pulsing
+    bool showGauges{true};          // Mini manometer pressure gauge on collar and serif
+    bool showPipes{true};           // Copper conduit piping and brackets
+    bool showGlow{true};            // Warm amber furnace core radiance
+    float alpha{1.0f};              // Master opacity multiplier [0, 1]
+    float brassTint{1.0f};          // Brightness multiplier for brass plates
+};
+
+/**
+ * Procedural Vector API for rendering the SolEngine Clockwork Logo.
+ * Renders the layered horological emblem: outer weathered cast-iron gear rim,
+ * riveted Viktoria brass collar with radial brackets, recessed dark boiler well
+ * with glowing amber furnace embers, interlocking secondary cogs, manometer gauge,
+ * and the iconic Victorian riveted brass 'S' insignia.
+ *
+ * @param r Batch renderer reference
+ * @param cx Center X coordinate
+ * @param cy Center Y coordinate
+ * @param radius Outer bounding radius of the emblem
+ * @param timeSec Wall-clock time in seconds for idle animations
+ * @param config Rendering configuration options
+ */
+void drawClockworkLogo(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float timeSec = 0.0f,
+    const ClockworkLogoConfig& config = {}
+);
+
+/**
+ * Software CPU rasterizer for baking the SolEngine Clockwork Logo into raw RGBA32 buffers.
+ * Primarily designed for baking zero-runtime-cost card backs in CardTextureCache.
+ *
+ * @param outRgba Destination buffer formatted as packed RGBA8
+ * @param width Target canvas width
+ * @param height Target canvas height
+ * @param strideBytes Row stride in bytes (typically width * 4)
+ * @param centerX Center X coordinate in pixels
+ * @param centerY Center Y coordinate in pixels
+ * @param radius Outer radius of the emblem in pixels
+ * @param alpha Master opacity multiplier [0, 1]
+ */
+void bakeClockworkLogoRgba(
+    uint8_t* outRgba,
+    int width, int height,
+    int strideBytes,
+    float centerX, float centerY, float radius,
+    float alpha = 1.0f
+);
+
 } // namespace solengine::clockwork_ui
 

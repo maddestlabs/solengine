@@ -1,0 +1,94 @@
+# ==============================================================================
+# SolEngine Foley Preset: Retro 8-Bit Chiptune / Arcade (.eats)
+# Authentic retro gaming aesthetics: pulse waves, duty cycles, arpeggio zaps.
+# ==============================================================================
+
+audio.set_master_volume(0.85)
+audio.set_master_variance(0.8) # Crisp, predictable 8-bit precision
+
+# Deal: Upward chirping pulse wave arp
+audio.define_sound("deal", {
+    duration: { base: 0.052, dev: 0.05 },
+    gain:     { base: 0.85,  dev: 0.04 },
+    layers: [
+        {
+            generator: "square",
+            duty: 0.25,
+            freq_start: { base: 660.0, dev: 0.04 },
+            freq_end:   { base: 1320.0, dev: 0.04 },
+            env: { attack: 0.001, decay: 2.0, curve: "exp" },
+            weight: { base: 0.70, dev: 0.05 }
+        },
+        {
+            generator: "noise",
+            filter: { type: "highpass", cutoff: { base: 4800.0, dev: 0.05 }, q: 1.8 },
+            env: { attack: 0.001, decay: 28.0, curve: "exp" },
+            weight: { base: 0.30, dev: 0.08 }
+        }
+    ]
+})
+
+# Place: Downward 8-bit kick / blip
+audio.define_sound("place", {
+    duration: { base: 0.065, dev: 0.05 },
+    gain:     { base: 0.95,  dev: 0.04 },
+    layers: [
+        # Triangle bass drop
+        {
+            generator: "triangle",
+            freq_start: { base: 260.0, dev: 0.04 },
+            freq_end:   { base: 55.0,  dev: 0.04 },
+            env: { attack: 0.001, decay: 6.0, curve: "punch" },
+            weight: { base: 0.85, dev: 0.05 }
+        },
+        # Snappy square pop
+        {
+            generator: "square",
+            duty: 0.50,
+            freq_start: { base: 440.0, dev: 0.04 },
+            freq_end:   { base: 110.0, dev: 0.04 },
+            env: { attack: 0.001, decay: 22.0, curve: "exp" },
+            weight: { base: 0.40, dev: 0.06 }
+        }
+    ]
+})
+
+# Sweep: Retro noise laser / ribbon sweep
+audio.define_sound("sweep", {
+    duration: { base: 0.180, dev: 0.06 },
+    gain:     { base: 0.80,  dev: 0.04 },
+    layers: [
+        {
+            generator: "noise",
+            filter: { type: "bandpass", cutoff: { base: 1800.0, dev: 0.05 }, q: 4.0 },
+            env: { attack: 0.010, decay: 2.0, curve: "sine" },
+            weight: { base: 0.70, dev: 0.05 }
+        },
+        {
+            generator: "square",
+            duty: 0.125,
+            freq_start: { base: 440.0, dev: 0.03 },
+            freq_end:   { base: 880.0, dev: 0.03 },
+            env: { attack: 0.010, decay: 2.0, curve: "sine" },
+            weight: { base: 0.25, dev: 0.05 }
+        }
+    ]
+})
+
+audio.define_sequence("shuffle", {
+    intro_sound: "sweep",
+    intro_gain:  0.85,
+    flips: {
+        count: { min: 6, max: 8 },
+        base_gap: 0.048,
+        gap_jitter: 0.08,
+        deal_to_place_delay: { base: 0.028, dev: 0.05 },
+        double_drop_chance: 0.20,
+        double_drop_delay: { min: 0.006, max: 0.010 },
+        stereo_alternation: 0.18
+    },
+    interspersed_sweeps: {
+        chance: 0.35,
+        max_sweeps: 2
+    }
+})

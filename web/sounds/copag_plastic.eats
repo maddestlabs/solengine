@@ -1,0 +1,17 @@
+# ==============================================================================
+# SolEngine Foley Preset: Copag 100% Plastic (.eats)
+# Sharp deflection, ultra-high slip, crisp synthetic snap
+# ==============================================================================
+
+audio.set_master_volume(0.85)
+audio.set_master_variance(1.0)
+
+audio.set_physical_params({
+    velvet_density: 5800.0,
+    edge_snap:      1.25,
+    air_boost:      7.5,
+    comb_delay:     0.00011,
+    felt_damping:   11500.0,
+    card_rigidity:  4400.0
+})
+

@@ -183,6 +183,14 @@ Get-ChildItem -Path (Join-Path $rootDir "games") | ForEach-Object {
     Copy-Item -Path $_.FullName -Destination (Join-Path $webGamesDir $_.Name) -Force
 }
 
+$webSoundsDir = Join-Path $buildDir "sounds"
+if (-not (Test-Path $webSoundsDir)) {
+    New-Item -ItemType Directory -Path $webSoundsDir -Force | Out-Null
+}
+Get-ChildItem -Path (Join-Path $rootDir "sounds") | ForEach-Object {
+    Copy-Item -Path $_.FullName -Destination (Join-Path $webSoundsDir $_.Name) -Force
+}
+
 # Also stage directly to /web/ so static hosts / dev servers pointing to /web/ have immediate access
 $staticWebDir = Join-Path $rootDir "web"
 if (Test-Path $staticWebDir) {
@@ -200,6 +208,11 @@ if (Test-Path $staticWebDir) {
     if (-not (Test-Path $staticGames)) { New-Item -ItemType Directory -Path $staticGames -Force | Out-Null }
     Get-ChildItem -Path (Join-Path $rootDir "games") | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination (Join-Path $staticGames $_.Name) -Force
+    }
+    $staticSounds = Join-Path $staticWebDir "sounds"
+    if (-not (Test-Path $staticSounds)) { New-Item -ItemType Directory -Path $staticSounds -Force | Out-Null }
+    Get-ChildItem -Path (Join-Path $rootDir "sounds") | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination (Join-Path $staticSounds $_.Name) -Force
     }
 }
 
