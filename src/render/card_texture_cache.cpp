@@ -1,5 +1,6 @@
 #include "solengine/card_texture_cache.hpp"
 #include "solengine/card_canvas.hpp"
+#include "solengine/card_back.hpp"
 #include "solengine/ui/clockwork_theme.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include "eatsbits/eatscript/lexer.hpp"
@@ -53,34 +54,56 @@ static inline size_t svgCellIndexForCard(Suit s, Rank r) noexcept {
     return 0;
 }
 
-static void syncArgb32AndMips(std::array<CardTexture, CardTextureCache::kTotalTextures>& textures) {
-    for (size_t i = 0; i < CardTextureCache::kTotalTextures; ++i) {
-        auto& tex = textures[i];
-        if (tex.width <= 0 || tex.height <= 0 || tex.rgba.size() < static_cast<size_t>(tex.width * tex.height * 4)) continue;
-        const int w = tex.width;
-        const int h = tex.height;
-        const size_t count = static_cast<size_t>(w * h);
+static void syncArgb32AndMipsSingle(CardTexture& tex) {
+    if (tex.width <= 0 || tex.height <= 0 || tex.rgba.size() < static_cast<size_t>(tex.width * tex.height * 4)) return;
+    const int w = tex.width;
+    const int h = tex.height;
+    const size_t count = static_cast<size_t>(w * h);
 
-        tex.argb32.resize(count);
-        for (size_t p = 0; p < count; ++p) {
-            uint32_t r = tex.rgba[p * 4 + 0];
-            uint32_t g = tex.rgba[p * 4 + 1];
-            uint32_t b = tex.rgba[p * 4 + 2];
-            uint32_t a = tex.rgba[p * 4 + 3];
-            tex.argb32[p] = (a << 24) | (r << 16) | (g << 8) | b;
+    tex.argb32.resize(count);
+    for (size_t p = 0; p < count; ++p) {
+        uint32_t r = tex.rgba[p * 4 + 0];
+        uint32_t g = tex.rgba[p * 4 + 1];
+        uint32_t b = tex.rgba[p * 4 + 2];
+        uint32_t a = tex.rgba[p * 4 + 3];
+        tex.argb32[p] = (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    // Generate Mip 1 (W/2 x H/2, 2x2 box-supersampled)
+    if (w >= 100 && h >= 140) {
+        const int w1 = w / 2;
+        const int h1 = h / 2;
+        tex.mip1.resize(static_cast<size_t>(w1 * h1));
+        for (int y = 0; y < h1; ++y) {
+            const int y2 = y * 2;
+            const uint32_t* row0 = &tex.argb32[y2 * w];
+            const uint32_t* row1 = &tex.argb32[(y2 + 1) * w];
+            uint32_t* dst = &tex.mip1[y * w1];
+            for (int x = 0; x < w1; ++x) {
+                const int x2 = x * 2;
+                uint32_t p00 = row0[x2],     p10 = row0[x2 + 1];
+                uint32_t p01 = row1[x2],     p11 = row1[x2 + 1];
+
+                uint32_t r = (((p00 >> 16) & 0xFF) + ((p10 >> 16) & 0xFF) + ((p01 >> 16) & 0xFF) + ((p11 >> 16) & 0xFF) + 2) >> 2;
+                uint32_t g = (((p00 >> 8)  & 0xFF) + ((p10 >> 8)  & 0xFF) + ((p01 >> 8)  & 0xFF) + ((p11 >> 8)  & 0xFF) + 2) >> 2;
+                uint32_t b = ((p00 & 0xFF)         + (p10 & 0xFF)         + (p01 & 0xFF)         + (p11 & 0xFF)         + 2) >> 2;
+                uint32_t a = (((p00 >> 24) & 0xFF) + ((p10 >> 24) & 0xFF) + ((p01 >> 24) & 0xFF) + ((p11 >> 24) & 0xFF) + 2) >> 2;
+
+                dst[x] = (a << 24) | (r << 16) | (g << 8) | b;
+            }
         }
 
-        // Generate Mip 1 (W/2 x H/2, 2x2 box-supersampled)
-        if (w >= 100 && h >= 140) {
-            const int w1 = w / 2;
-            const int h1 = h / 2;
-            tex.mip1.resize(static_cast<size_t>(w1 * h1));
-            for (int y = 0; y < h1; ++y) {
+        // Generate Mip 2 (W/4 x H/4, 4x4 box-supersampled)
+        if (w1 >= 80 && h1 >= 100) {
+            const int w2 = w1 / 2;
+            const int h2 = h1 / 2;
+            tex.mip2.resize(static_cast<size_t>(w2 * h2));
+            for (int y = 0; y < h2; ++y) {
                 const int y2 = y * 2;
-                const uint32_t* row0 = &tex.argb32[y2 * w];
-                const uint32_t* row1 = &tex.argb32[(y2 + 1) * w];
-                uint32_t* dst = &tex.mip1[y * w1];
-                for (int x = 0; x < w1; ++x) {
+                const uint32_t* row0 = &tex.mip1[y2 * w1];
+                const uint32_t* row1 = &tex.mip1[(y2 + 1) * w1];
+                uint32_t* dst = &tex.mip2[y * w2];
+                for (int x = 0; x < w2; ++x) {
                     const int x2 = x * 2;
                     uint32_t p00 = row0[x2],     p10 = row0[x2 + 1];
                     uint32_t p01 = row1[x2],     p11 = row1[x2 + 1];
@@ -93,32 +116,13 @@ static void syncArgb32AndMips(std::array<CardTexture, CardTextureCache::kTotalTe
                     dst[x] = (a << 24) | (r << 16) | (g << 8) | b;
                 }
             }
-
-            // Generate Mip 2 (W/4 x H/4, 4x4 box-supersampled)
-            if (w1 >= 80 && h1 >= 100) {
-                const int w2 = w1 / 2;
-                const int h2 = h1 / 2;
-                tex.mip2.resize(static_cast<size_t>(w2 * h2));
-                for (int y = 0; y < h2; ++y) {
-                    const int y2 = y * 2;
-                    const uint32_t* row0 = &tex.mip1[y2 * w1];
-                    const uint32_t* row1 = &tex.mip1[(y2 + 1) * w1];
-                    uint32_t* dst = &tex.mip2[y * w2];
-                    for (int x = 0; x < w2; ++x) {
-                        const int x2 = x * 2;
-                        uint32_t p00 = row0[x2],     p10 = row0[x2 + 1];
-                        uint32_t p01 = row1[x2],     p11 = row1[x2 + 1];
-
-                        uint32_t r = (((p00 >> 16) & 0xFF) + ((p10 >> 16) & 0xFF) + ((p01 >> 16) & 0xFF) + ((p11 >> 16) & 0xFF) + 2) >> 2;
-                        uint32_t g = (((p00 >> 8)  & 0xFF) + ((p10 >> 8)  & 0xFF) + ((p01 >> 8)  & 0xFF) + ((p11 >> 8)  & 0xFF) + 2) >> 2;
-                        uint32_t b = ((p00 & 0xFF)         + (p10 & 0xFF)         + (p01 & 0xFF)         + (p11 & 0xFF)         + 2) >> 2;
-                        uint32_t a = (((p00 >> 24) & 0xFF) + ((p10 >> 24) & 0xFF) + ((p01 >> 24) & 0xFF) + ((p11 >> 24) & 0xFF) + 2) >> 2;
-
-                        dst[x] = (a << 24) | (r << 16) | (g << 8) | b;
-                    }
-                }
-            }
         }
+    }
+}
+
+static void syncArgb32AndMips(std::array<CardTexture, CardTextureCache::kTotalTextures>& textures) {
+    for (size_t i = 0; i < CardTextureCache::kTotalTextures; ++i) {
+        syncArgb32AndMipsSingle(textures[i]);
     }
 }
 
@@ -138,124 +142,103 @@ struct EdgeNotch {
     float raggedScale{0.3f};
 };
 
-static bool applyCardConditioning(
-    const std::array<CardTexture, CardTextureCache::kTotalTextures>& srcTextures,
-    std::array<CardTexture, CardTextureCache::kTotalTextures>& dstTextures,
-    CardWearLevel wearLevel,
-    CardStock cardStock,
-    const std::function<bool(float progress, const char* desc)>& onProgress = nullptr
-) {
-    // Fast-path: When both Stock: None and Wear: Pristine are active, skip paper & ink synthesis completely!
-    if (cardStock == CardStock::None && wearLevel == CardWearLevel::Pristine) {
-        for (size_t i = 0; i < CardTextureCache::kTotalTextures; ++i) {
-            if (onProgress && (i % 13 == 0 || i == CardTextureCache::kCardBackIndex)) {
-                float frac = static_cast<float>(i) / static_cast<float>(CardTextureCache::kTotalTextures);
-                if (!onProgress(frac, "Copying crisp unconditioned card artwork...")) {
-                    return false;
-                }
-            }
-            dstTextures[i].width = srcTextures[i].width;
-            dstTextures[i].height = srcTextures[i].height;
-            dstTextures[i].rgba = srcTextures[i].rgba;
-        }
-        return true;
-    }
+struct WearParams {
+    float paperWarmth{0.40f};
+    float stockStrength{0.080f};
+    float inkSoftening{0.25f};
+    float edgePatina{0.0f};
+    float edgeScuff{0.0f};
+    float deckleFray{0.0f};
+    float foxingStrength{0.0f};
+    float sepiaShift{0.0f};
+    float creaseStrength{0.0f};
+};
 
-    float paperWarmth    = 0.40f;
-    float stockStrength  = 0.080f;
-    float inkSoftening   = 0.25f;
-    float edgePatina     = 0.0f;
-    float edgeScuff      = 0.0f;
-    float deckleFray     = 0.0f;
-    float foxingStrength = 0.0f;
-    float sepiaShift     = 0.0f;
-    float creaseStrength = 0.0f;
-
+static WearParams getWearParams(CardWearLevel wearLevel, CardStock cardStock) {
+    WearParams p;
     switch (wearLevel) {
         case CardWearLevel::Pristine:
-            // Pristine cards: crisp, brand-new deck with clean, distinctly tactile paper stock finish
-            paperWarmth    = 0.40f;
-            stockStrength  = 0.080f;
-            inkSoftening   = 0.25f;
-            edgePatina     = 0.0f;
-            edgeScuff      = 0.0f;
-            deckleFray     = 0.0f;
-            foxingStrength = 0.0f;
-            sepiaShift     = 0.0f;
-            creaseStrength = 0.0f;
+            p.paperWarmth    = 0.40f;
+            p.stockStrength  = 0.080f;
+            p.inkSoftening   = 0.25f;
+            p.edgePatina     = 0.0f;
+            p.edgeScuff      = 0.0f;
+            p.deckleFray     = 0.0f;
+            p.foxingStrength = 0.0f;
+            p.sepiaShift     = 0.0f;
+            p.creaseStrength = 0.0f;
             break;
         case CardWearLevel::Natural:
-            // Natural: mellowed casino stock with noticeable paper tooth, gentle warmth and ink softening
-            paperWarmth    = 0.65f;
-            stockStrength  = 0.120f;
-            inkSoftening   = 0.45f;
-            edgePatina     = 0.25f;
-            edgeScuff      = 0.18f;
-            deckleFray     = 0.20f;
-            foxingStrength = 0.10f;
-            sepiaShift     = 0.08f;
-            creaseStrength = 0.0f;
+            p.paperWarmth    = 0.65f;
+            p.stockStrength  = 0.120f;
+            p.inkSoftening   = 0.45f;
+            p.edgePatina     = 0.25f;
+            p.edgeScuff      = 0.18f;
+            p.deckleFray     = 0.20f;
+            p.foxingStrength = 0.10f;
+            p.sepiaShift     = 0.08f;
+            p.creaseStrength = 0.0f;
             break;
         case CardWearLevel::Played:
-            // Played: clearly handled deck, edge patina, scuffed margins exposing paper pulp, early foxing
-            paperWarmth    = 0.88f;
-            stockStrength  = 0.165f;
-            inkSoftening   = 0.70f;
-            edgePatina     = 0.65f;
-            edgeScuff      = 0.55f;
-            deckleFray     = 0.50f;
-            foxingStrength = 0.40f;
-            sepiaShift     = 0.35f;
-            creaseStrength = 0.30f;
+            p.paperWarmth    = 0.88f;
+            p.stockStrength  = 0.165f;
+            p.inkSoftening   = 0.70f;
+            p.edgePatina     = 0.65f;
+            p.edgeScuff      = 0.55f;
+            p.deckleFray     = 0.50f;
+            p.foxingStrength = 0.40f;
+            p.sepiaShift     = 0.35f;
+            p.creaseStrength = 0.30f;
             break;
         case CardWearLevel::Vintage:
-            // Vintage: authentically aged antique cards (matching reference photo): rich tea/sepia toning,
-            // deckled frayed perimeter, transparent notched bite-outs, exposed fibrous pulp core, distinct dark foxing spots, handling creases
-            paperWarmth    = 1.0f;
-            stockStrength  = 0.220f;
-            inkSoftening   = 0.92f;
-            edgePatina     = 1.0f;
-            edgeScuff      = 1.0f;
-            deckleFray     = 1.0f;
-            foxingStrength = 0.85f;
-            sepiaShift     = 0.75f;
-            creaseStrength = 0.75f;
+            p.paperWarmth    = 1.0f;
+            p.stockStrength  = 0.220f;
+            p.inkSoftening   = 0.92f;
+            p.edgePatina     = 1.0f;
+            p.edgeScuff      = 1.0f;
+            p.deckleFray     = 1.0f;
+            p.foxingStrength = 0.85f;
+            p.sepiaShift     = 0.75f;
+            p.creaseStrength = 0.75f;
             break;
         default:
             break;
     }
-
     if (cardStock == CardStock::None) {
-        stockStrength = 0.0f;
+        p.stockStrength = 0.0f;
     }
+    return p;
+}
 
-    for (size_t i = 0; i < CardTextureCache::kTotalTextures; ++i) {
-        if (onProgress) {
-            float frac = static_cast<float>(i) / static_cast<float>(CardTextureCache::kTotalTextures);
-            char desc[128];
-            if (i == CardTextureCache::kCardBackIndex) {
-                std::snprintf(desc, sizeof(desc), "Conditioning Card Back (53/53)...");
-            } else {
-                Suit s = static_cast<Suit>(i / 13);
-                uint8_t r = static_cast<uint8_t>((i % 13) + 1);
-                const char* rStr = (r == 1) ? "Ace" : (r == 11) ? "Jack" : (r == 12) ? "Queen" : (r == 13) ? "King" : "";
-                const char* sStr = (s == Suit::Spades) ? "Spades" : (s == Suit::Hearts) ? "Hearts" : (s == Suit::Diamonds) ? "Diamonds" : "Clubs";
-                if (rStr[0] != '\0') {
-                    std::snprintf(desc, sizeof(desc), "Card %zu/53: %s of %s", i + 1, rStr, sStr);
-                } else {
-                    std::snprintf(desc, sizeof(desc), "Card %zu/53: %u of %s", i + 1, r, sStr);
-                }
-            }
-            if (!onProgress(frac, desc)) {
-                return false; // User cancelled!
-            }
-        }
-        const auto& src = srcTextures[i];
-        auto& dst = dstTextures[i];
+static void conditionSingleCard(
+    const CardTexture& src,
+    CardTexture& dst,
+    size_t i,
+    CardWearLevel wearLevel,
+    CardStock cardStock,
+    const WearParams& wp
+) {
+    if (cardStock == CardStock::None && wearLevel == CardWearLevel::Pristine) {
         dst.width = src.width;
         dst.height = src.height;
         dst.rgba = src.rgba;
-        if (dst.width <= 0 || dst.height <= 0 || dst.rgba.empty()) continue;
+        return;
+    }
+
+    dst.width = src.width;
+    dst.height = src.height;
+    dst.rgba = src.rgba;
+    if (dst.width <= 0 || dst.height <= 0 || dst.rgba.empty()) return;
+
+    const float paperWarmth    = wp.paperWarmth;
+    const float stockStrength  = wp.stockStrength;
+    const float inkSoftening   = wp.inkSoftening;
+    const float edgePatina     = wp.edgePatina;
+    const float edgeScuff      = wp.edgeScuff;
+    const float deckleFray     = wp.deckleFray;
+    const float foxingStrength = wp.foxingStrength;
+    const float sepiaShift     = wp.sepiaShift;
+    const float creaseStrength = wp.creaseStrength;
 
         const int w = dst.width;
         const int h = dst.height;
@@ -766,6 +749,54 @@ static bool applyCardConditioning(
                 dst.rgba[p + 3] = static_cast<uint8_t>(std::clamp(finalA, 0.0f, 255.0f));
             }
         }
+}
+
+static bool applyCardConditioning(
+    const std::array<CardTexture, CardTextureCache::kTotalTextures>& srcTextures,
+    std::array<CardTexture, CardTextureCache::kTotalTextures>& dstTextures,
+    CardWearLevel wearLevel,
+    CardStock cardStock,
+    const std::function<bool(float progress, const char* desc)>& onProgress = nullptr
+) {
+    if (cardStock == CardStock::None && wearLevel == CardWearLevel::Pristine) {
+        for (size_t i = 0; i < CardTextureCache::kTotalTextures; ++i) {
+            if (onProgress && (i % 13 == 0 || i == CardTextureCache::kCardBackIndex)) {
+                float frac = static_cast<float>(i) / static_cast<float>(CardTextureCache::kTotalTextures);
+                if (!onProgress(frac, "Copying crisp unconditioned card artwork...")) {
+                    return false;
+                }
+            }
+            dstTextures[i].width = srcTextures[i].width;
+            dstTextures[i].height = srcTextures[i].height;
+            dstTextures[i].rgba = srcTextures[i].rgba;
+        }
+        return true;
+    }
+
+    WearParams wp = getWearParams(wearLevel, cardStock);
+
+    for (size_t i = 0; i < CardTextureCache::kTotalTextures; ++i) {
+        if (onProgress) {
+            float frac = static_cast<float>(i) / static_cast<float>(CardTextureCache::kTotalTextures);
+            char desc[128];
+            if (i == CardTextureCache::kCardBackIndex) {
+                std::snprintf(desc, sizeof(desc), "Conditioning Card Back (53/53)...");
+            } else {
+                Suit s = static_cast<Suit>(i / 13);
+                uint8_t r = static_cast<uint8_t>((i % 13) + 1);
+                const char* rStr = (r == 1) ? "Ace" : (r == 11) ? "Jack" : (r == 12) ? "Queen" : (r == 13) ? "King" : "";
+                const char* sStr = (s == Suit::Spades) ? "Spades" : (s == Suit::Hearts) ? "Hearts" : (s == Suit::Diamonds) ? "Diamonds" : "Clubs";
+                if (rStr[0] != '\0') {
+                    std::snprintf(desc, sizeof(desc), "Card %zu/53: %s of %s", i + 1, rStr, sStr);
+                } else {
+                    std::snprintf(desc, sizeof(desc), "Card %zu/53: %u of %s", i + 1, r, sStr);
+                }
+            }
+            if (!onProgress(frac, desc)) {
+                return false;
+            }
+        }
+        conditionSingleCard(srcTextures[i], dstTextures[i], i, wearLevel, cardStock, wp);
     }
     return true;
 }
@@ -1113,12 +1144,88 @@ const char* CardTextureCache::cornerStyleName(CardCornerStyle style) noexcept {
     return "CORNERS [C]";
 }
 
-void CardTextureCache::applyConditioningAndSync(CardWearLevel wear, CardStock stock) {
-    applyCardConditioning(baseTextures_, textures_, wear, stock);
-    if (currentTheme_ == DeckThemeId::SteampunkAi) {
-        bakeThemeCardBack(textures_[kCardBackIndex], currentTheme_, cardW_, cardH_);
+std::string CardTextureCache::currentDeckSlug() const {
+    switch (currentTheme_) {
+        case DeckThemeId::SolEnshade:        return "solenshade";
+        case DeckThemeId::ClassicSvg:        return "classic";
+        case DeckThemeId::SteampunkAi:       return "steampunk";
+        case DeckThemeId::Anime:             return "anime";
+        case DeckThemeId::Cyberpunk:         return "cyberpunk";
+        case DeckThemeId::BaroqueNoir:       return "baroque_noir";
+        case DeckThemeId::BaroqueLight:      return "baroque_light";
+        case DeckThemeId::BaroqueDark:       return "baroque_dark";
+        case DeckThemeId::BaroqueCellShaded: return "baroque_cell_shaded";
+        case DeckThemeId::StainedGlass:      return "shader_stained_glass";
+        case DeckThemeId::PolychromeCrt:     return "shader_holo_synthwave";
+        case DeckThemeId::WatercolorSketch:  return "shader_watercolor_sketch";
+        case DeckThemeId::Custom:            return "custom";
+        default:                             return "solenshade";
     }
+}
+
+std::string CardTextureCache::getCardBackDisplayName(const std::string& backId) const {
+    std::string slug = currentDeckSlug();
+    if (backId == "auto" || backId.empty()) {
+        const auto* def = CardBackRegistry::instance().getDefaultBackForDeck(slug);
+        std::string defName = def ? def->displayName : "Default";
+        return "Auto (" + defName + ")";
+    }
+    const auto* desc = CardBackRegistry::instance().findBack(backId, slug);
+    if (desc) return desc->displayName;
+    return backId;
+}
+
+void CardTextureCache::cycleCardBack(std::string& inOutId, int stepDelta) {
+    std::string slug = currentDeckSlug();
+    auto available = CardBackRegistry::instance().getAvailableBacks(slug);
+    if (available.empty()) return;
+
+    int curIdx = 0;
+    for (size_t i = 0; i < available.size(); ++i) {
+        if (available[i].id == inOutId) {
+            curIdx = static_cast<int>(i);
+            break;
+        }
+    }
+
+    int n = static_cast<int>(available.size());
+    int newIdx = (curIdx + stepDelta) % n;
+    if (newIdx < 0) newIdx += n;
+    inOutId = available[static_cast<size_t>(newIdx)].id;
+}
+
+void CardTextureCache::setActiveCardBack(const std::string& backId) {
+    activeCardBackId_ = backId;
+    if (!isLoaded_) return;
+
+    std::string slug = currentDeckSlug();
+    const auto* desc = CardBackRegistry::instance().findBack(backId, slug);
+    if (!desc) return;
+
+    if (desc->baseTexture.rgba.size() == static_cast<size_t>(cardW_ * cardH_ * 4)) {
+        baseTextures_[kCardBackIndex] = desc->baseTexture;
+    } else if (desc->generator) {
+        CardTexture genTex;
+        if (desc->generator(genTex, cardW_, cardH_)) {
+            baseTextures_[kCardBackIndex] = std::move(genTex);
+        }
+    }
+
+    WearParams wp = getWearParams(wearLevel_, cardStock_);
+    conditionSingleCard(baseTextures_[kCardBackIndex], textures_[kCardBackIndex], kCardBackIndex, wearLevel_, cardStock_, wp);
+    syncArgb32AndMipsSingle(textures_[kCardBackIndex]);
+    if (hasGpuAtlas_) {
+        atlasDirty_ = true;
+    }
+}
+
+void CardTextureCache::applyConditioningAndSync(CardWearLevel wear, CardStock stock) {
+    wearLevel_ = wear;
+    cardStock_ = stock;
+    applyCardConditioning(baseTextures_, textures_, wear, stock);
     syncArgb32AndMips(textures_);
+    previewFaceTexture_ = textures_[cardIndex(Suit::Spades, Rank::Queen)];
+    previewDeckTheme_ = currentTheme_;
     if (hasGpuAtlas_) {
         atlasDirty_ = true;
     }
@@ -1145,6 +1252,8 @@ void CardTextureCache::setCardWearLevel(CardWearLevel level) {
 }
 
 bool CardTextureCache::initialize(int cardW, int cardH) {
+    CardBackRegistry::instance().initialize(cardW, cardH);
+    CardBackRegistry::instance().scanCompanionBacks("decks", cardW, cardH);
     if (isLoaded_ && cardW_ == cardW && cardH_ == cardH) {
         return true;
     }
@@ -1880,7 +1989,33 @@ static bool loadBaseFromEats(
         return eatsbits::eatscript::Value(true);
     };
 
-    auto themeFn = [&](const auto& args, const auto& kwargs) {
+    std::filesystem::path eatsPathObj(eatsFilePath);
+    std::string deckOriginSlug = eatsPathObj.stem().string();
+
+    struct DeclaredBack {
+        std::string id;
+        std::string name;
+        std::string func;
+        std::string blob;
+        std::string format;
+        std::string svg;
+    };
+    std::vector<DeclaredBack> declaredBacks;
+
+    auto parseBackDict = [](const eatsbits::eatscript::Value& dictVal) -> DeclaredBack {
+        DeclaredBack db;
+        if (!dictVal.isDict()) return db;
+        if (dictVal.hasKey("id")) db.id = dictVal.get("id").asString();
+        if (dictVal.hasKey("name")) db.name = dictVal.get("name").asString();
+        if (dictVal.hasKey("func")) db.func = dictVal.get("func").asString();
+        if (dictVal.hasKey("blob")) db.blob = dictVal.get("blob").asString();
+        if (dictVal.hasKey("format")) db.format = dictVal.get("format").asString();
+        if (dictVal.hasKey("svg")) db.svg = dictVal.get("svg").asString();
+        return db;
+    };
+
+    auto themeFn = [&](const std::vector<eatsbits::eatscript::Value>& args,
+                       const std::map<std::string, eatsbits::eatscript::Value>& kwargs) -> eatsbits::eatscript::Value {
         const auto* optsDict = (!args.empty() && args[0].isDict()) ? &args[0] : nullptr;
         auto getOptString = [&](const std::string& key, const std::string& defVal) {
             if (kwargs.find(key) != kwargs.end()) return kwargs.at(key).asString();
@@ -1911,10 +2046,37 @@ static bool loadBaseFromEats(
         if (cr >= 0.0f) {
             outCornerRadius = cr;
         }
+
+        if (optsDict && optsDict->hasKey("card_backs")) {
+            const auto& cbs = optsDict->get("card_backs");
+            if (cbs.isList()) {
+                for (const auto& item : cbs.listVal) {
+                    declaredBacks.push_back(parseBackDict(item));
+                }
+            }
+        }
         return eatsbits::eatscript::Value(true);
     };
 
-    auto setCornerRadiusFn = [&](const auto& args, const auto& kwargs) {
+    auto addCardBackFn = [&](const std::vector<eatsbits::eatscript::Value>& args,
+                            const std::map<std::string, eatsbits::eatscript::Value>& kwargs) -> eatsbits::eatscript::Value {
+        if (!args.empty() && args[0].isDict()) {
+            declaredBacks.push_back(parseBackDict(args[0]));
+        } else if (!kwargs.empty()) {
+            DeclaredBack db;
+            if (kwargs.find("id") != kwargs.end()) db.id = kwargs.at("id").asString();
+            if (kwargs.find("name") != kwargs.end()) db.name = kwargs.at("name").asString();
+            if (kwargs.find("func") != kwargs.end()) db.func = kwargs.at("func").asString();
+            if (kwargs.find("blob") != kwargs.end()) db.blob = kwargs.at("blob").asString();
+            if (kwargs.find("format") != kwargs.end()) db.format = kwargs.at("format").asString();
+            if (kwargs.find("svg") != kwargs.end()) db.svg = kwargs.at("svg").asString();
+            declaredBacks.push_back(db);
+        }
+        return eatsbits::eatscript::Value(true);
+    };
+
+    auto setCornerRadiusFn = [&](const std::vector<eatsbits::eatscript::Value>& args,
+                                 const std::map<std::string, eatsbits::eatscript::Value>& kwargs) -> eatsbits::eatscript::Value {
         float r = eatsbits::eatscript::resolveArg(args, kwargs, 0, "radius", eatsbits::eatscript::Value(24.0)).asFloat(24.0f);
         outCornerRadius = r;
         return eatsbits::eatscript::Value(true);
@@ -1924,10 +2086,12 @@ static bool loadBaseFromEats(
     evaluator.registerMemberFunction("sol", "create_theme", themeFn);
     evaluator.registerMemberFunction("sol", "set_theme", themeFn);
     evaluator.registerMemberFunction("sol", "set_deck", setDeckFn);
+    evaluator.registerMemberFunction("sol", "add_card_back", addCardBackFn);
     evaluator.registerMemberFunction("sol", "set_corner_radius", setCornerRadiusFn);
     evaluator.registerFunction("create_theme", themeFn);
     evaluator.registerFunction("set_theme", themeFn);
     evaluator.registerFunction("set_deck", setDeckFn);
+    evaluator.registerFunction("add_card_back", addCardBackFn);
     evaluator.registerFunction("set_corner_radius", setCornerRadiusFn);
 
     CardCanvas::bindToEvaluator(evaluator, nullptr);
@@ -1992,14 +2156,86 @@ static bool loadBaseFromEats(
             return false;
         }
 
+        // Card Backs: Discover all on_draw_card_back* functions defined in the recipe
+        for (const auto& fnName : evaluator.getFunctionNames()) {
+            if (fnName.rfind("on_draw_card_back", 0) == 0) {
+                std::string backId = (fnName == "on_draw_card_back") ? "default" : fnName.substr(17);
+                if (!backId.empty() && backId[0] == '_') backId = backId.substr(1);
+                if (backId.empty()) backId = "default";
+
+                bool exists = false;
+                for (const auto& db : declaredBacks) {
+                    if (db.func == fnName || db.id == backId) { exists = true; break; }
+                }
+                if (!exists) {
+                    DeclaredBack db;
+                    db.id = backId;
+                    db.name = (backId == "default") ? (deckOriginSlug + " Default") : backId;
+                    db.func = fnName;
+                    declaredBacks.push_back(db);
+                }
+            }
+        }
+
+        // Synthesize and register each card back into CardBackRegistry
+        CardBackDescriptor primaryDesc;
+        bool hasPrimary = false;
+
+        for (const auto& db : declaredBacks) {
+            CardBackDescriptor desc;
+            desc.id = db.id;
+            desc.displayName = db.name.empty() ? db.id : db.name;
+            desc.deckOrigin = deckOriginSlug;
+            desc.type = CardBackType::Eatscript;
+
+            if (!db.func.empty() && evaluator.hasFunction(db.func)) {
+                canvas.clear(0x00000000);
+                evaluator.callFunction(db.func, {
+                    eatsbits::eatscript::Value("ctx"),
+                    eatsbits::eatscript::Value(static_cast<double>(cardW)),
+                    eatsbits::eatscript::Value(static_cast<double>(cardH))
+                });
+                desc.baseTexture.width = cardW;
+                desc.baseTexture.height = cardH;
+                desc.baseTexture.rgba = canvas.rgba();
+                CardBackRegistry::instance().registerDeckBack(desc);
+                if (!hasPrimary || db.id == "default" || db.func == "on_draw_card_back") {
+                    primaryDesc = desc;
+                    hasPrimary = true;
+                }
+            } else if (!db.blob.empty()) {
+                desc.type = (db.format == "svg") ? CardBackType::Svg : CardBackType::Bitmap;
+                std::vector<uint8_t> blobData;
+                if (db.blob.rfind("data:", 0) == 0) {
+                    auto p = eatsbits::ui::parseDataUri(db.blob);
+                    if (p) blobData = std::move(p->data);
+                } else {
+                    blobData = eatsbits::ui::base64Decode(db.blob);
+                }
+                if (blobData.empty()) blobData.assign(db.blob.begin(), db.blob.end());
+                if (CardBackRegistry::loadMemoryBack(desc.baseTexture, blobData.data(), blobData.size(), db.format, cardW, cardH)) {
+                    CardBackRegistry::instance().registerDeckBack(desc);
+                    if (!hasPrimary) { primaryDesc = desc; hasPrimary = true; }
+                }
+            } else if (!db.svg.empty()) {
+                desc.type = CardBackType::Svg;
+                if (CardBackRegistry::loadSvgBack(desc.baseTexture, db.svg, cardW, cardH)) {
+                    CardBackRegistry::instance().registerDeckBack(desc);
+                    if (!hasPrimary) { primaryDesc = desc; hasPrimary = true; }
+                }
+            }
+        }
+
         // Card Back (Index: kTotalTextures - 1)
         size_t backIdx = CardTextureCache::kTotalTextures - 1;
         CardTexture& backTex = outBase[backIdx];
         backTex.width = cardW;
         backTex.height = cardH;
 
-        canvas.clear(0x00000000);
-        if (evaluator.hasFunction("on_draw_card_back")) {
+        if (hasPrimary) {
+            backTex = primaryDesc.baseTexture;
+        } else if (evaluator.hasFunction("on_draw_card_back")) {
+            canvas.clear(0x00000000);
             evaluator.callFunction("on_draw_card_back", {
                 eatsbits::eatscript::Value("ctx"),
                 eatsbits::eatscript::Value(static_cast<double>(cardW)),
@@ -2007,6 +2243,7 @@ static bool loadBaseFromEats(
             });
             backTex.rgba = canvas.rgba();
         } else {
+            canvas.clear(0x00000000);
             canvas.fillRoundedRect(0, 0, static_cast<float>(cardW), static_cast<float>(cardH), 8.0f, 0xFF1B365D);
             canvas.strokeRoundedRect(cardW * 0.05f, cardH * 0.04f, cardW * 0.90f, cardH * 0.92f, 6.0f, 0xFFD4AF37, 1.5f);
             backTex.rgba = canvas.rgba();
@@ -2369,6 +2606,8 @@ bool CardTextureCache::loadBaseDeckTheme(
 }
 
 bool CardTextureCache::loadDeckTheme(DeckThemeId theme, int cardW, int cardH) {
+    CardBackRegistry::instance().initialize(cardW, cardH);
+    CardBackRegistry::instance().scanCompanionBacks("decks", cardW, cardH);
     currentTheme_ = theme;
     cardW_ = cardW;
     cardH_ = cardH;
@@ -2376,6 +2615,7 @@ bool CardTextureCache::loadDeckTheme(DeckThemeId theme, int cardW, int cardH) {
     if (!loadBaseDeckTheme(theme, cardW, cardH, baseTextures_, nullptr)) {
         return false;
     }
+    setActiveCardBack(activeCardBackId_);
     applyConditioningAndSync(wearLevel_, cardStock_);
     isLoaded_ = true;
     return true;
@@ -2395,8 +2635,20 @@ bool CardTextureCache::bakeStagedConditioning(
     staging.wearLevel = wear;
     staging.cardStock = stock;
 
+    // If staging hasNewBase was set but staging.baseTextures is empty (e.g. moved-from),
+    // clear hasNewBase so we fall back to baseTextures_.
+    if (staging.hasNewBase && (staging.baseTextures[0].width <= 0 || staging.baseTextures[0].rgba.empty())) {
+        staging.hasNewBase = false;
+    }
+    // If baseTextures_ is empty, load it from the current deck theme
+    if (!staging.hasNewBase && (baseTextures_[0].width <= 0 || baseTextures_[0].rgba.empty())) {
+        std::cout << "[SolEngine] baseTextures_ empty; reloading base deck artwork for theme " << deckThemeName(currentTheme_) << "...\n";
+        loadBaseDeckTheme(currentTheme_, cardW_, cardH_, baseTextures_, nullptr);
+    }
+
     const auto& srcBase = staging.hasNewBase ? staging.baseTextures : baseTextures_;
     if (srcBase[0].width <= 0 || srcBase[0].rgba.empty()) {
+        std::cerr << "[SolEngine] Error: Cannot condition deck - base textures are missing/empty!\n";
         return false;
     }
 
@@ -2413,10 +2665,6 @@ bool CardTextureCache::bakeStagedConditioning(
         }
     );
     if (!ok) return false;
-
-    if (staging.theme == DeckThemeId::SteampunkAi) {
-        bakeThemeCardBack(staging.textures[kCardBackIndex], staging.theme, staging.cardW, staging.cardH);
-    }
 
     if (onProgress && !onProgress(0.92f, "Pre-packing ARGB32 buffers & mipmaps...")) {
         return false;
@@ -2585,10 +2833,9 @@ void CardTextureCache::commitStagedDeck(StagingDeck&& staging) {
     if (staging.cornerRadius >= 0.0f) {
         setDeckCornerRadius(staging.cornerRadius);
     }
-    if (currentTheme_ == DeckThemeId::SteampunkAi) {
-        bakeThemeCardBack(textures_[kCardBackIndex], currentTheme_, cardW_, cardH_);
-        syncArgb32AndMips(textures_);
-    }
+    previewFaceTexture_ = textures_[cardIndex(Suit::Spades, Rank::Queen)];
+    previewDeckTheme_ = currentTheme_;
+    setActiveCardBack(activeCardBackId_);
     isLoaded_ = true;
     atlasDirty_ = true;
 }
@@ -2761,6 +3008,44 @@ bool CardTextureCache::buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer) {
         atlasSlots_[i].height = srcH;
     }
 
+    // Dedicated Slot 53: Preview Sample Card Face (e.g. Queen of Spades for previewing uncommitted deck theme)
+    const CardTexture* previewSrc = (previewFaceTexture_.width > 0 && !previewFaceTexture_.argb32.empty())
+        ? &previewFaceTexture_
+        : &textures_[cardIndex(Suit::Spades, Rank::Queen)];
+    if (previewSrc && previewSrc->width > 0 && previewSrc->argb32.size() >= static_cast<size_t>(previewSrc->width * previewSrc->height)) {
+        int srcW = previewSrc->width;
+        int srcH = previewSrc->height;
+        int slotPitchX = srcW + 4;
+        int slotPitchY = srcH + 4;
+        int cols = std::max(1, (kAtlasDim - 4) / slotPitchX);
+        int slotIdx = static_cast<int>(kTotalTextures);
+        int col = slotIdx % cols;
+        int row = slotIdx / cols;
+        int slotX = 2 + col * slotPitchX;
+        int slotY = 2 + row * slotPitchY;
+
+        if (slotX + srcW <= kAtlasDim && slotY + srcH <= kAtlasDim) {
+            for (int y = 0; y < srcH; ++y) {
+                uint32_t* dstRow = &atlasRgba[static_cast<size_t>(slotY + y) * kAtlasDim + slotX];
+                const uint32_t* srcRow = &previewSrc->argb32[static_cast<size_t>(y) * srcW];
+                for (int x = 0; x < srcW; ++x) {
+                    uint32_t c = srcRow[x];
+                    uint32_t r = (c >> 16) & 0xFF;
+                    uint32_t g = (c >> 8) & 0xFF;
+                    uint32_t b = c & 0xFF;
+                    uint32_t a = (c >> 24) & 0xFF;
+                    dstRow[x] = (a << 24) | (b << 16) | (g << 8) | r;
+                }
+            }
+            previewFaceAtlasSlot_.u0 = (static_cast<float>(slotX) + 0.5f) / static_cast<float>(kAtlasDim);
+            previewFaceAtlasSlot_.v0 = (static_cast<float>(slotY) + 0.5f) / static_cast<float>(kAtlasDim);
+            previewFaceAtlasSlot_.u1 = (static_cast<float>(slotX + srcW) - 0.5f) / static_cast<float>(kAtlasDim);
+            previewFaceAtlasSlot_.v1 = (static_cast<float>(slotY + srcH) - 0.5f) / static_cast<float>(kAtlasDim);
+            previewFaceAtlasSlot_.width = srcW;
+            previewFaceAtlasSlot_.height = srcH;
+        }
+    }
+
     renderer.updateRgbaTexture(0, 0, kAtlasDim, kAtlasDim,
                                reinterpret_cast<const uint8_t*>(atlasRgba.data()),
                                kAtlasDim, kAtlasDim);
@@ -2782,6 +3067,61 @@ const CardAtlasSlot& CardTextureCache::getBackAtlasSlot() const noexcept {
 
 const CardAtlasSlot& CardTextureCache::getAtlasSlotByIndex(size_t index) const noexcept {
     return atlasSlots_[std::min(index, kTotalTextures - 1)];
+}
+
+void CardTextureCache::updatePreviewCard(DeckThemeId theme, CardWearLevel wear, CardStock stock) {
+    previewDeckTheme_ = theme;
+    size_t qIdx = cardIndex(Suit::Spades, Rank::Queen);
+
+    const CardTexture* pristineSrc = nullptr;
+    if (theme == currentTheme_) {
+        if (!baseTextures_[qIdx].rgba.empty()) {
+            pristineSrc = &baseTextures_[qIdx];
+        } else if (!textures_[qIdx].rgba.empty()) {
+            pristineSrc = &textures_[qIdx];
+        }
+    } else {
+        auto it = sampleCardCache_.find(theme);
+        if (it != sampleCardCache_.end()) {
+            pristineSrc = &it->second;
+        } else {
+            std::array<CardTexture, kTotalTextures> tempBase;
+            if (loadBaseDeckTheme(theme, cardW_, cardH_, tempBase, nullptr)) {
+                sampleCardCache_[theme] = std::move(tempBase[qIdx]);
+                pristineSrc = &sampleCardCache_[theme];
+            }
+        }
+    }
+
+    if (!pristineSrc || pristineSrc->rgba.empty()) {
+        return;
+    }
+
+    WearParams wp = getWearParams(wear, stock);
+    conditionSingleCard(*pristineSrc, previewFaceTexture_, qIdx, wear, stock, wp);
+    syncArgb32AndMipsSingle(previewFaceTexture_);
+
+    if (hasGpuAtlas_) {
+        atlasDirty_ = true;
+    }
+}
+
+void CardTextureCache::setPreviewDeckTheme(DeckThemeId theme) {
+    updatePreviewCard(theme, wearLevel_, cardStock_);
+}
+
+const CardAtlasSlot& CardTextureCache::getPreviewFaceAtlasSlot() const noexcept {
+    if (previewFaceAtlasSlot_.width > 0 && previewFaceTexture_.width > 0) {
+        return previewFaceAtlasSlot_;
+    }
+    return getAtlasSlot(Suit::Spades, Rank::Queen);
+}
+
+const CardTexture* CardTextureCache::getPreviewFaceTexture() const noexcept {
+    if (previewFaceTexture_.width > 0 && !previewFaceTexture_.argb32.empty()) {
+        return &previewFaceTexture_;
+    }
+    return getCardTexture(Suit::Spades, Rank::Queen);
 }
 
 } // namespace solengine

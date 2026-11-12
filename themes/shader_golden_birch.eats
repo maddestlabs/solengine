@@ -1,0 +1,70 @@
+# SolEngine Custom Background Theme — Golden Birch Table
+# Warm honey-blonde birch tabletop with continuous vertical grain, silky timber fibers, and soft ambient sheen
+
+sol.set_theme({
+    id: "shader_golden_birch",
+    name: "Golden Birch Table",
+    author: "SolEngine / Eatscript",
+    description: "Warm honey-blonde birch tabletop with continuous vertical grain, silky timber fibers, and soft ambient sheen",
+    version: 1,
+    procedural: true
+})
+
+def birch_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Continuous longitudinal wood grain with organic domain warping
+    warp1 = fbm(nx * 1.8, ny * 0.9) * 0.35
+    warp2 = sin(ny * 2.6 + warp1 * 1.8) * 0.08
+    flow_x = nx * 13.5 + warp1 * 2.4 + warp2
+
+    # 2. Asymmetric growth rings (broad golden earlywood and crisp amber latewood)
+    ring_phase = flow_x * 3.14159265
+    ring_val = abs(sin(ring_phase))
+    latewood = (1.0 - ring_val * ring_val) * 0.16
+
+    # 3. Flame figure undulations (subtle chatoyancy across figure zones)
+    fig_mask = smoothstep(0.32, 0.68, fbm(nx * 1.6 + 3.1, ny * 1.8 + 5.2))
+    flame = sin(flow_x * 1.2 + ny * 6.5) * 0.08 * fig_mask
+
+    # 4. Fine anisotropic longitudinal tracheid fibers (dense vertical capillary streaks)
+    fiber_noise = fbm(nx * 75.0 + warp1 * 2.5, ny * 2.2)
+    fibers = (fiber_noise - 0.5) * 0.14
+
+    # 5. Delicate medullary pore ticks
+    pore_noise = fbm(nx * 140.0, ny * 14.0)
+    pores = (smoothstep(0.60, 0.80, pore_noise) - 0.5) * 0.06 * fig_mask
+
+    # 6. Scandinavian Golden Birch Palette (#D19E5C earlywood to #8C5C2B latewood)
+    base_r = 0.82 + fibers * 0.6
+    base_g = 0.62 + fibers * 0.5
+    base_b = 0.36 + fibers * 0.3
+
+    dark_r = 0.52
+    dark_g = 0.34
+    dark_b = 0.16
+
+    wood_r = base_r - latewood * (base_r - dark_r) + flame * 0.5 + pores * 0.4
+    wood_g = base_g - latewood * (base_g - dark_g) + flame * 0.4 + pores * 0.3
+    wood_b = base_b - latewood * (base_b - dark_b) + flame * 0.25 + pores * 0.2
+
+    # 7. Photographic vignette & satin timber tactile speckle
+    vignette = smoothstep(1.42, 0.40, dist)
+    speck = (random() - 0.5) * 0.012
+
+    # Composite with delicate vector edge trim if present
+    r = clamp(mix(wood_r * vignette, in_r, in_r * 0.35) + speck, 0.0, 1.0)
+    g = clamp(mix(wood_g * vignette, in_g, in_g * 0.35) + speck, 0.0, 1.0)
+    b = clamp(mix(wood_b * vignette, in_b, in_b * 0.35) + speck, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Warm golden birch base
+    ctx.fill_rect(0, 0, w, h, "#c89454")
+
+    # 2. Subtle beveled tabletop edge border
+    inset = 14.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#a46e34", 1.5)
+
+    # 3. Apply procedural bytecode shader
+    ctx.apply_shader("birch_shader", intensity=1.0)

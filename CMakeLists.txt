@@ -105,6 +105,7 @@ add_library(solengine_render STATIC
     src/render/dynamic_light.cpp
     src/render/card_texture_cache.cpp
     src/render/card_canvas.cpp
+    src/render/card_back.cpp
     src/render/procedural_background.cpp
     src/render/proctex_api.cpp
     src/game/settings_manager.cpp
@@ -166,6 +167,9 @@ if(EMSCRIPTEN)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-512.png"
             "${CMAKE_BINARY_DIR}/icon-512.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/solengine_logo.svg"
+            "${CMAKE_BINARY_DIR}/solengine_logo.svg"
         COMMENT "Copying PWA manifest, service worker, icons, and index.html to web root"
     )
 else()

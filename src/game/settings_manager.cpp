@@ -1,6 +1,7 @@
 #include "solengine/settings_manager.hpp"
 #include "solengine/json_parser.hpp"
 #include "solengine/solitaire_board.hpp"
+#include "solengine/procedural_background.hpp"
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -99,7 +100,16 @@ bool SettingsManager::load() {
             if (a.contains("tableThemeSlug") && a["tableThemeSlug"].isString()) {
                 settings_.tableThemeSlug = a["tableThemeSlug"].asString();
             }
+            if (a.contains("tableTint") && a["tableTint"].isString()) {
+                settings_.tableTint = parseTableTint(a["tableTint"].asString());
+            } else if (a.contains("tableTint") && a["tableTint"].isNumber()) {
+                int tVal = a["tableTint"].asInt(0);
+                if (tVal >= 0 && tVal < static_cast<int>(TableTintPreset::Count)) {
+                    settings_.tableTint = static_cast<TableTintPreset>(tVal);
+                }
+            }
             settings_.deckTheme = static_cast<DeckThemeId>(std::clamp(a["deckTheme"].asInt(0), 0, static_cast<int>(DeckThemeId::Count) - 1));
+            settings_.cardBackId = (a.contains("cardBackId") && a["cardBackId"].isString()) ? a["cardBackId"].asString() : "auto";
             settings_.guiTheme = static_cast<GuiThemeStyle>(std::clamp(a["guiTheme"].asInt(static_cast<int>(GuiThemeStyle::ClockworkEngine)), 0, 1));
             settings_.cardWear = static_cast<CardWearLevel>(std::clamp(a["cardWear"].asInt(static_cast<int>(CardWearLevel::Pristine)), 0, static_cast<int>(CardWearLevel::Count) - 1));
             settings_.cardStock = static_cast<CardStock>(std::clamp(a["cardStock"].asInt(static_cast<int>(CardStock::None)), 0, static_cast<int>(CardStock::Count) - 1));
@@ -159,7 +169,12 @@ bool SettingsManager::save() {
     if (!settings_.tableThemeSlug.empty()) {
         a["tableThemeSlug"] = settings_.tableThemeSlug;
     }
+    const auto* tintInfo = getTableTintInfo(settings_.tableTint);
+    if (tintInfo && settings_.tableTint != TableTintPreset::Auto) {
+        a["tableTint"] = tintInfo->id;
+    }
     a["deckTheme"] = static_cast<int>(settings_.deckTheme);
+    a["cardBackId"] = settings_.cardBackId;
     a["guiTheme"] = static_cast<int>(settings_.guiTheme);
     a["cardWear"] = static_cast<int>(settings_.cardWear);
     a["cardStock"] = static_cast<int>(settings_.cardStock);
@@ -224,6 +239,7 @@ bool SettingsManager::save() {
 void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley, bool applyTextures) {
     board.setTableTheme(settings_.tableTheme);
     board.setTableThemeSlug(settings_.tableThemeSlug);
+    ProceduralBackgroundSystem::instance().setTableTint(settings_.tableTint);
     board.setCardDeviation(settings_.cardDeviation);
     board.setLayoutMode(settings_.layoutMode);
     board.setStockPosition(settings_.stockPosition);
@@ -231,6 +247,7 @@ void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley
     cache.setCornerStyle(settings_.cardCorners);
     if (applyTextures) {
         cache.loadDeckTheme(settings_.deckTheme);
+        cache.setActiveCardBack(settings_.cardBackId);
         cache.applyConditioningAndSync(settings_.cardWear, settings_.cardStock);
     }
 
@@ -243,11 +260,13 @@ void SettingsManager::syncFromGame(const SolitaireBoard& board, const AudioFoley
     settings_.variant = board.variant();
     settings_.tableTheme = board.tableTheme();
     settings_.tableThemeSlug = board.tableThemeSlug();
+    settings_.tableTint = ProceduralBackgroundSystem::instance().tableTint();
     settings_.cardDeviation = board.cardDeviation();
     settings_.layoutMode = board.layoutMode();
     settings_.stockPosition = board.stockPosition();
     const auto& cache = CardTextureCache::instance();
     settings_.deckTheme = cache.currentDeckTheme();
+    settings_.cardBackId = cache.currentCardBackId();
     settings_.cardWear = cache.cardWearLevel();
     settings_.cardStock = cache.cardStock();
     settings_.cardCorners = cache.cornerStyle();

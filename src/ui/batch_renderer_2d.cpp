@@ -3162,6 +3162,61 @@ private:
                     }
                     let tex = textureSampleLevel(rgbaTexture, fontSampler, sampleUV, 0.0);
                     col = tex * in.color;
+
+                    // Procedural GPU Card Stock & Wear Conditioning
+                    let cond = in.localPos.y;
+                    if (cond > 0.05) {
+                        let stockIdx = floor(cond / 10.0);
+                        let wearLvl = cond - stockIdx * 10.0;
+
+                        // 1. Paper Stock Procedural Finish
+                        if (stockIdx >= 0.9 && stockIdx < 1.9) {
+                            // Cambric Linen: woven micro-embossing grid
+                            let linen = (sin(in.localUV.x * 320.0) * sin(in.localUV.y * 320.0)) * 0.042;
+                            col = vec4<f32>(col.rgb * (1.0 + linen), col.a);
+                        } else if (stockIdx >= 1.9 && stockIdx < 2.9) {
+                            // Antique Laid: horizontal wire ribbing with chain lines
+                            let laid = (sin(in.localUV.y * 420.0) * 0.038) + (sin(in.localUV.x * 28.0) * 0.018);
+                            col = vec4<f32>(col.rgb * (1.0 + laid), col.a);
+                        } else if (stockIdx >= 2.9 && stockIdx < 3.9) {
+                            // Cotton Tooth: micro-fiber tooth grain
+                            let toothSeed = in.localUV * 460.0;
+                            let toothN = fract(sin(dot(toothSeed, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+                            col = vec4<f32>(col.rgb * (1.0 + (toothN - 0.5) * 0.06), col.a);
+                        } else if (stockIdx >= 3.9 && stockIdx < 4.9) {
+                            // Smooth Satin: soft luminous sheen
+                            let satinGrad = 1.0 - length(in.localUV - vec2<f32>(0.5)) * 0.7;
+                            col = vec4<f32>(col.rgb * (0.98 + 0.04 * satinGrad), col.a);
+                        }
+
+                        // 2. Physical Card Wear Patina & Aging
+                        if (wearLvl >= 0.8) {
+                            let dCenter = length((in.localUV - vec2<f32>(0.5)) * vec2<f32>(1.0, 1.4));
+                            let vigStrength = select(0.12, 0.24, wearLvl >= 1.8);
+                            let vignette = pow(clamp(dCenter, 0.0, 1.0), 2.2) * vigStrength;
+                            let sepiaTint = vec3<f32>(1.0 - vignette * 0.35, 1.0 - vignette * 0.58, 1.0 - vignette * 0.88);
+                            col = vec4<f32>(col.rgb * sepiaTint, col.a);
+                        }
+
+                        // 3. Vintage Foxing Specks & Handling Crease
+                        if (wearLvl >= 1.8) {
+                            let foxCell = floor(in.localUV * 24.0);
+                            let foxH = fract(sin(dot(foxCell, vec2<f32>(37.17, 71.93))) * 23421.631);
+                            if (foxH > 0.94) {
+                                let dSpot = length(fract(in.localUV * 24.0) - vec2<f32>(0.5));
+                                if (dSpot < 0.26) {
+                                    let spotCore = (1.0 - dSpot / 0.26) * 0.24;
+                                    let spotTint = vec3<f32>(1.0 - spotCore * 0.40, 1.0 - spotCore * 0.65, 1.0 - spotCore * 0.92);
+                                    col = vec4<f32>(col.rgb * spotTint, col.a);
+                                }
+                            }
+                            let creaseDist = abs(in.localUV.y - 0.44 - (in.localUV.x - 0.5) * 0.18);
+                            if (creaseDist < 0.009) {
+                                let fold = (1.0 - creaseDist / 0.009) * 0.05;
+                                col = vec4<f32>(col.rgb * (1.0 + fold), col.a);
+                            }
+                        }
+                    }
                 } else if (baseMode == 6u) {
                     let tex = textureSampleLevel(bgTexture, fontSampler, in.uv, 0.0);
                     col = tex * in.color;
@@ -3177,11 +3232,44 @@ private:
                     let lightPool = (darkness * strength + (strength - 1.0) * 0.24) * falloff;
                     let rawGain = clamp(baseAmb + lightPool, 0.06, 1.45);
                     var gain = rawGain;
+                    var specHighlight = vec3<f32>(0.0);
                     if (baseMode == 3u) {
                         gain = mix(1.0, rawGain, 0.65);
+
+                        // Real-world card camber (subtle longitudinal & lateral curvature)
+                        let uCenter = in.localUV.x - 0.5;
+                        let vCenter = in.localUV.y - 0.5;
+
+                        // Camber scale driven by card wear setting
+                        let cond = in.localPos.y;
+                        let stockIdx = floor(cond / 10.0);
+                        let wearVal = cond - stockIdx * 10.0;
+                        // Pristine cards are flat (0.05); Natural is subtle (0.35); Played (0.80); Vintage (1.30)
+                        let camberScale = select(0.05, select(0.35, select(0.80, 1.30, wearVal >= 2.5), wearVal >= 1.5), wearVal >= 0.5);
+
+                        // Surface normal with subtle convex arch across the card face
+                        let normX = -uCenter * (0.22 * camberScale);
+                        let normY = -vCenter * (0.12 * camberScale);
+                        let cardNorm = normalize(vec3<f32>(normX, normY, 1.0));
+
+                        // 3D vector to dynamic light source
+                        let toLight = vec3<f32>(uniforms.lightPos.xy - in.worldPos, max(140.0, uniforms.lightPos.z));
+                        let lightDir = normalize(toLight);
+                        let nDotL = max(0.0, dot(cardNorm, lightDir));
+
+                        // Half-vector for semi-gloss cardstock specular reflection
+                        let viewDir = vec3<f32>(0.0, 0.0, 1.0);
+                        let halfDir = normalize(lightDir + viewDir);
+                        let nDotH = max(0.0, dot(cardNorm, halfDir));
+                        let specPower = mix(45.0, 22.0, clamp(camberScale * 0.7, 0.0, 1.0));
+                        let specIntensity = pow(nDotH, specPower) * 0.15 * strength * falloff;
+                        specHighlight = uniforms.lightColor.rgb * specIntensity;
+
+                        // Modulate gain by physical curvature so edges shade naturally
+                        gain = gain * mix(1.0 - 0.07 * camberScale, 1.0 + 0.07 * camberScale, nDotL);
                     }
                     let tint = mix(vec3<f32>(1.0, 1.0, 1.0), uniforms.lightColor.rgb, clamp(falloff * 0.40 * strength, 0.0, 1.0));
-                    col = vec4<f32>(clamp(col.rgb * gain * tint, vec3<f32>(0.0), vec3<f32>(1.0)), col.a);
+                    col = vec4<f32>(clamp(col.rgb * gain * tint + specHighlight, vec3<f32>(0.0), vec3<f32>(1.0)), col.a);
                 }
                 if (uniforms.gamma > 1.05) {
                     return vec4<f32>(pow(col.rgb, vec3<f32>(uniforms.gamma)), col.a);
@@ -3888,7 +3976,9 @@ void BatchRenderer2D::drawTriangleTextured(float x0, float y0, float u0, float v
 
 void BatchRenderer2D::drawTexturedPolygon(const Point2D* points, const Point2D* uvs, size_t count,
                                          float r, float g, float b, float a,
-                                         float scratchDistortion) {
+                                         float scratchDistortion,
+                                         float conditioningParam,
+                                         const Point2D* localUVs) {
     if (!points || !uvs || count < 3) return;
     uint32_t col = packColor(r, g, b, a);
     std::vector<Vertex2D> v(count);
@@ -3904,7 +3994,14 @@ void BatchRenderer2D::drawTexturedPolygon(const Point2D* points, const Point2D* 
         vert.color = col;
         vert.mode = VertexMode::RgbaTexture;
         vert.pad[0] = scratchDistortion;
-        vert.pad[1] = 0.0f;
+        vert.pad[1] = conditioningParam;
+        if (localUVs) {
+            vert.localUV[0] = localUVs[i].x;
+            vert.localUV[1] = localUVs[i].y;
+        } else {
+            vert.localUV[0] = uvs[i].x;
+            vert.localUV[1] = uvs[i].y;
+        }
         v[i] = vert;
     }
     for (size_t i = 1; i + 1 < count; ++i) {
@@ -4042,7 +4139,8 @@ void BatchRenderer2D::drawTexturedRoundedRectGpu(
     float x, float y, float w, float h, float radius,
     float u0, float v0, float u1, float v1,
     float r, float g, float b, float a,
-    float scratchDistortion
+    float scratchDistortion,
+    float conditioningParam
 ) {
     if (w <= 0.0f || h <= 0.0f) return;
     uint32_t col = packColor(r, g, b, a);
@@ -4085,7 +4183,7 @@ void BatchRenderer2D::drawTexturedRoundedRectGpu(
         v[i].color = col;
         v[i].mode = VertexMode::RgbaTexture;
         v[i].pad[0] = scratchDistortion;
-        v[i].pad[1] = 0.0f;
+        v[i].pad[1] = conditioningParam;
         v[i].localUV[0] = localUV[i].x;
         v[i].localUV[1] = localUV[i].y;
     }

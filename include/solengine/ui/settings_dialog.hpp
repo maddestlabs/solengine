@@ -68,6 +68,7 @@ public:
 
 private:
     void randomizeSeed();
+    void revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley);
 
     bool isOpen_{false};
     int currentTab_{0}; // 0: Game & Seed, 1: Aesthetics, 2: Audio & Display

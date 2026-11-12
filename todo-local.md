@@ -1,19 +1,7 @@
 # Local to-do list
-- foley refinement: expose api, more variety to all built-in sounds
+- procedural foley resynthesis & variance pipeline (see FOLEY_RESYNTHESIS_PIPELINE.md) for authentic card foley (deal-series.wav) and Eatsbits DAW integration
+- foley enhancement: enviroments with presets for rain, fireplace crackle, campfire, woodlands, riverbed, simple whitenoise
 - try more marble countertop styles
-- draw SolEngine logo procedurally for reuse as icon and as a card back
-- card backs: user should be able to select among available card backs meanwhile card decks should be able to include any number of card backs as well which would then be shown as an available card back when using the deck
-- fix audo-play (solver). It fails on freecell games where user has played and has easy pathway to win.
-
-## GUI optimization
-We need to focus on mobile space optimization. Lets revamp our toolbar.
-
-We need bare minimum icons.
-
-[S]ettings
-Play icon: start new game. Holding icon yields more options: Solvable game toggle, Restart same game
-Undo
-Redo
-Auto-play
-
-User can optionally configure those icons and show/hide whatever they need.
+- draw SolEngine logo procedurally for reuse as icon (rendered out to optimal app icon & favicon resolutions with transparent background) and as a card back
+- fix auto-play (solver). It fails on freecell games where user has played and has easy pathway to win.
+- Settings > Theme tab: Show card back staggered at angle in back of rendered deck card so user can still see card back in the tab.

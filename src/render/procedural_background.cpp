@@ -570,7 +570,8 @@ bool bakePbrSurface(
     const PbrMaterialDef& def,
     float x, float y, float w, float h,
     std::vector<uint8_t>& outRgba,
-    int& outW, int& outH
+    int& outW, int& outH,
+    TableTintPreset tint = TableTintPreset::Auto
 ) {
     int bakeW = static_cast<int>(std::ceil(w));
     int bakeH = static_cast<int>(std::ceil(h));
@@ -590,9 +591,12 @@ bool bakePbrSurface(
     const float specIntensity = def.specularIntensity;
     const float amb = def.ambientLevel;
     const float diffLev = def.diffuseLevel;
-    const float tintR = def.tintR;
-    const float tintG = def.tintG;
-    const float tintB = def.tintB;
+
+    const auto* tintInfo = getTableTintInfo(tint);
+    bool tintActive = (tint != TableTintPreset::Auto && tintInfo != nullptr);
+    const float tintR = tintActive ? tintInfo->r : def.tintR;
+    const float tintG = tintActive ? tintInfo->g : def.tintG;
+    const float tintB = tintActive ? tintInfo->b : def.tintB;
 
     const bool hasNormal = (tex.normal.size() >= static_cast<size_t>(texW * texH * 3));
     const bool hasOrm = (tex.orm.size() >= static_cast<size_t>(texW * texH * 3));
@@ -756,7 +760,8 @@ bool bakeCanvasSurface(
     float x, float y, float w, float h,
     const eatsbits::ui::LightSource2D& light,
     std::vector<uint8_t>& outRgba,
-    int& outW, int& outH
+    int& outW, int& outH,
+    TableTintPreset tint = TableTintPreset::Auto
 ) {
     int bakeW = static_cast<int>(std::ceil(w));
     int bakeH = static_cast<int>(std::ceil(h));
@@ -779,6 +784,22 @@ bool bakeCanvasSurface(
     evaluator.setVariable("table_y", eatsbits::eatscript::Value(static_cast<double>(y)));
     evaluator.setVariable("light_x", eatsbits::eatscript::Value(static_cast<double>(light.x)));
     evaluator.setVariable("light_y", eatsbits::eatscript::Value(static_cast<double>(light.y)));
+
+    const auto* tintInfo = getTableTintInfo(tint);
+    bool tintActive = (tint != TableTintPreset::Auto && tintInfo != nullptr);
+    float tR = tintActive ? tintInfo->r : 0.0f;
+    float tG = tintActive ? tintInfo->g : 0.0f;
+    float tB = tintActive ? tintInfo->b : 0.0f;
+    float tAct = tintActive ? 1.0f : 0.0f;
+
+    evaluator.setVariable("tint_r", eatsbits::eatscript::Value(static_cast<double>(tR)));
+    evaluator.setVariable("tint_g", eatsbits::eatscript::Value(static_cast<double>(tG)));
+    evaluator.setVariable("tint_b", eatsbits::eatscript::Value(static_cast<double>(tB)));
+    evaluator.setVariable("tint_active", eatsbits::eatscript::Value(static_cast<double>(tAct)));
+    evaluator.setVariable("u0", eatsbits::eatscript::Value(static_cast<double>(tR)));
+    evaluator.setVariable("u1", eatsbits::eatscript::Value(static_cast<double>(tG)));
+    evaluator.setVariable("u2", eatsbits::eatscript::Value(static_cast<double>(tB)));
+    evaluator.setVariable("u3", eatsbits::eatscript::Value(static_cast<double>(tAct)));
 
     // Theme metadata registration dummies
     auto dummyFn = [](const auto&, const auto&) { return eatsbits::eatscript::Value(true); };
@@ -871,6 +892,8 @@ struct ProceduralBackgroundSystem::Impl {
     bool themesScanned{false};
 
     TableThemeId cachedTheme{static_cast<TableThemeId>(-1)};
+    TableTintPreset currentTint{TableTintPreset::Auto};
+    TableTintPreset cachedTint{TableTintPreset::Count};
     bool cachedCustom{false};
     int cachedW{0};
     int cachedH{0};
@@ -879,6 +902,7 @@ struct ProceduralBackgroundSystem::Impl {
     void invalidate() noexcept {
         std::lock_guard<std::recursive_mutex> lock(cacheMutex);
         cachedTheme = static_cast<TableThemeId>(-1);
+        cachedTint = TableTintPreset::Count;
         cachedCustom = false;
         cachedW = 0;
         cachedH = 0;
@@ -1216,14 +1240,16 @@ bool ProceduralBackgroundSystem::prebakeThemeDef(
         std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
         if (impl_->isCanvasTheme && !impl_->canvasThemeSource.empty()) {
             bakeCanvasSurface(impl_->canvasThemeSource, 0.0f, 0.0f, w, h, light,
-                              impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH);
+                              impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint);
             impl_->cachedCustom = true;
             impl_->cachedTheme = def.legacyId;
+            impl_->cachedTint = impl_->currentTint;
         } else if (impl_->customTexture.loaded) {
             bakePbrSurface(impl_->customTexture, impl_->customDef, 0.0f, 0.0f, w, h,
-                           impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH);
+                           impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint);
             impl_->cachedCustom = true;
             impl_->cachedTheme = def.legacyId;
+            impl_->cachedTint = impl_->currentTint;
         }
     }
 
@@ -1287,22 +1313,24 @@ bool ProceduralBackgroundSystem::prebakeTheme(
     int localW = 0;
     int localH = 0;
     if (!canvasSrc.empty()) {
-        if (bakeCanvasSurface(canvasSrc, 0.0f, 0.0f, w, h, light, localBaked, localW, localH)) {
+        if (bakeCanvasSurface(canvasSrc, 0.0f, 0.0f, w, h, light, localBaked, localW, localH, impl_->currentTint)) {
             std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
             impl_->cachedBakedRgba = std::move(localBaked);
             impl_->cachedW = localW;
             impl_->cachedH = localH;
             impl_->cachedCustom = false;
             impl_->cachedTheme = theme;
+            impl_->cachedTint = impl_->currentTint;
         }
     } else {
-        if (bakePbrSurface(texCopy, activeDef, 0.0f, 0.0f, w, h, localBaked, localW, localH)) {
+        if (bakePbrSurface(texCopy, activeDef, 0.0f, 0.0f, w, h, localBaked, localW, localH, impl_->currentTint)) {
             std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
             impl_->cachedBakedRgba = std::move(localBaked);
             impl_->cachedW = localW;
             impl_->cachedH = localH;
             impl_->cachedCustom = false;
             impl_->cachedTheme = theme;
+            impl_->cachedTint = impl_->currentTint;
         }
     }
 
@@ -1328,6 +1356,22 @@ bool ProceduralBackgroundSystem::isPbrTexturesEnabled() const noexcept {
     if (!impl_) return false;
     std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
     return impl_->pbrEnabled;
+}
+
+void ProceduralBackgroundSystem::setTableTint(TableTintPreset tint) noexcept {
+    if (impl_) {
+        std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+        if (impl_->currentTint != tint) {
+            impl_->currentTint = tint;
+            impl_->invalidate();
+        }
+    }
+}
+
+TableTintPreset ProceduralBackgroundSystem::tableTint() const noexcept {
+    if (!impl_) return TableTintPreset::Auto;
+    std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+    return impl_->currentTint;
 }
 
 bool ProceduralBackgroundSystem::hasProceduralMaterial(TableThemeId theme) const noexcept {
@@ -1539,12 +1583,14 @@ void ProceduralBackgroundSystem::renderBackground(
 
             if (impl_->isCanvasTheme && !impl_->canvasThemeSource.empty()) {
                 if (!impl_->cachedCustom ||
+                    impl_->cachedTint != impl_->currentTint ||
                     impl_->cachedW != bakeW ||
                     impl_->cachedH != bakeH ||
                     impl_->cachedBakedRgba.empty()) {
-                    if (bakeCanvasSurface(impl_->canvasThemeSource, x, y, w, h, light, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH)) {
+                    if (bakeCanvasSurface(impl_->canvasThemeSource, x, y, w, h, light, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint)) {
                         impl_->cachedCustom = true;
                         impl_->cachedTheme = static_cast<TableThemeId>(-1);
+                        impl_->cachedTint = impl_->currentTint;
                     }
                 }
 
@@ -1555,12 +1601,14 @@ void ProceduralBackgroundSystem::renderBackground(
             } else if (impl_->customTexture.loaded) {
                 // Bake ONCE for the initial render or viewport resize:
                 if (!impl_->cachedCustom ||
+                    impl_->cachedTint != impl_->currentTint ||
                     impl_->cachedW != bakeW ||
                     impl_->cachedH != bakeH ||
                     impl_->cachedBakedRgba.empty()) {
-                    if (bakePbrSurface(impl_->customTexture, impl_->customDef, x, y, w, h, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH)) {
+                    if (bakePbrSurface(impl_->customTexture, impl_->customDef, x, y, w, h, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint)) {
                         impl_->cachedCustom = true;
                         impl_->cachedTheme = static_cast<TableThemeId>(-1);
+                        impl_->cachedTint = impl_->currentTint;
                     }
                 }
 
@@ -1581,12 +1629,14 @@ void ProceduralBackgroundSystem::renderBackground(
             if (canvasIt != impl_->themeCanvasSources.end()) {
                 if (impl_->cachedCustom ||
                     impl_->cachedTheme != theme ||
+                    impl_->cachedTint != impl_->currentTint ||
                     impl_->cachedW != bakeW ||
                     impl_->cachedH != bakeH ||
                     impl_->cachedBakedRgba.empty()) {
-                    if (bakeCanvasSurface(canvasIt->second, x, y, w, h, light, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH)) {
+                    if (bakeCanvasSurface(canvasIt->second, x, y, w, h, light, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint)) {
                         impl_->cachedCustom = false;
                         impl_->cachedTheme = theme;
+                        impl_->cachedTint = impl_->currentTint;
                     }
                 }
 
@@ -1601,12 +1651,14 @@ void ProceduralBackgroundSystem::renderBackground(
                 // Bake ONCE for the initial render or viewport resize:
                 if (impl_->cachedCustom ||
                     impl_->cachedTheme != theme ||
+                    impl_->cachedTint != impl_->currentTint ||
                     impl_->cachedW != bakeW ||
                     impl_->cachedH != bakeH ||
                     impl_->cachedBakedRgba.empty()) {
-                    if (bakePbrSurface(tex, activeDef, x, y, w, h, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH)) {
+                    if (bakePbrSurface(tex, activeDef, x, y, w, h, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint)) {
                         impl_->cachedCustom = false;
                         impl_->cachedTheme = theme;
+                        impl_->cachedTint = impl_->currentTint;
                     }
                 }
 

@@ -145,6 +145,7 @@ public:
     Value evaluateSource(const std::string& source);
 
     [[nodiscard]] bool hasFunction(const std::string& funcName) const;
+    [[nodiscard]] std::vector<std::string> getFunctionNames() const;
     Value callFunction(const std::string& funcName,
                        const std::vector<Value>& args = {},
                        const std::map<std::string, Value>& kwargs = {});

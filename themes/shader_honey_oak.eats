@@ -1,0 +1,86 @@
+# SolEngine Custom Background Theme — Natural Honey Oak
+# Authentic warm honey oak tabletop with horizontal grain flow, cathedral arches, fine open vessel pores, and soft pin knot
+
+sol.set_theme({
+    id: "shader_honey_oak",
+    name: "Natural Honey Oak",
+    author: "SolEngine / Eatscript",
+    description: "Warm blonde honey oak tabletop with horizontal grain flow, subtle cathedral growth rings, and open vessel pores",
+    version: 1,
+    procedural: true
+})
+
+def oak_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.85, ny)
+
+    # 1. Subtle pin knot deflection in upper right (nx ~ 0.50, ny ~ -0.22)
+    k1_x = nx - 0.50
+    k1_y = ny - (-0.22)
+    k1_dist = hypot(k1_x * 2.2, k1_y)
+    k1_swirl = 0.14 / (k1_dist * 12.0 + 1.0)
+    k1_core = (1.0 - smoothstep(0.012, 0.045, k1_dist)) * 0.45
+
+    # 2. Organic domain warp along Y (across growth rings)
+    warp_y = fbm(nx * 1.8 + 2.3, ny * 1.5 + 4.1) * 0.35 + sin(nx * 2.2) * 0.07 + k1_swirl
+
+    # 3. Tangential cathedral grain arch (crown cut parabolic curves)
+    cathedral_arch = (nx + 0.15) * (nx + 0.15) * 0.24
+    ring_coord = ny * 9.5 + cathedral_arch + warp_y * 1.8
+
+    # 4. Soft growth ring banding
+    ring_val = 0.5 + 0.5 * sin(ring_coord * 3.14159265)
+    latewood = smoothstep(0.30, 0.85, ring_val) * 0.28
+
+    # 5. Broad timber figure & tone flow
+    figure_flow = fbm(nx * 1.2 + 7.1, ny * 2.8 + 1.9)
+    timber_shade = (figure_flow - 0.5) * 0.15
+
+    # 6. Distinct open vessel pores (elongated horizontal capillary ticks)
+    # Stretched 10:1 horizontally
+    pore_noise = fbm(nx * 15.0, ny * 150.0)
+    vessel_pores = smoothstep(0.66, 0.86, pore_noise) * 0.38
+
+    # 7. Fine background tracheid micro-fibers
+    fiber_noise = fbm(nx * 8.0, ny * 70.0)
+    fibers = (fiber_noise - 0.5) * 0.10
+
+    # 8. Calibrated Natural Honey Oak Palette (Mean ~#D2A879 matching reference photo)
+    wood_r = 0.87 - latewood * 0.20 + timber_shade * 0.10 + fibers * 0.4 - vessel_pores * 0.42 - k1_core * 0.50
+    wood_g = 0.71 - latewood * 0.20 + timber_shade * 0.09 + fibers * 0.3 - vessel_pores * 0.38 - k1_core * 0.46
+    wood_b = 0.52 - latewood * 0.18 + timber_shade * 0.07 + fibers * 0.2 - vessel_pores * 0.32 - k1_core * 0.40
+
+    # 9. Natural soft table surface lighting
+    vignette = smoothstep(1.45, 0.50, dist)
+    speck = (random() - 0.5) * 0.010
+
+    base_r = wood_r * (0.94 + 0.06 * vignette) + speck
+    base_g = wood_g * (0.94 + 0.06 * vignette) + speck
+    base_b = wood_b * (0.94 + 0.06 * vignette) + speck
+
+    # 10. Optional Surface Tinting (when u3 > 0.5)
+    if (u3 > 0.5):
+        luma = (base_r * 0.299 + base_g * 0.587 + base_b * 0.114) / 0.68
+        final_r = clamp(u0 * luma, 0.0, 1.0)
+        final_g = clamp(u1 * luma, 0.0, 1.0)
+        final_b = clamp(u2 * luma, 0.0, 1.0)
+    else:
+        final_r = base_r
+        final_g = base_g
+        final_b = base_b
+
+    # Composite with delicate canvas edge trim if present
+    r = clamp(mix(final_r, in_r, in_r * 0.35), 0.0, 1.0)
+    g = clamp(mix(final_g, in_g, in_g * 0.35), 0.0, 1.0)
+    b = clamp(mix(final_b, in_b, in_b * 0.35), 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Warm honey oak base
+    ctx.fill_rect(0, 0, w, h, "#d2a879")
+
+    # 2. Subtle beveled tabletop edge border
+    inset = 14.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#a87848", 1.5)
+
+    # 3. Apply procedural bytecode shader
+    ctx.apply_shader("oak_shader", intensity=1.0)

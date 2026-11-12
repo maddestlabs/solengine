@@ -1,0 +1,82 @@
+# ==============================================================================
+# SolEngine Foley Preset: Glass / Crystal Table (.eats)
+# Ethereal crystal eigenmode resonance with crisp needle snap & baize cushion
+# ==============================================================================
+
+audio.set_master_volume(0.85)
+audio.set_master_variance(1.0)
+
+audio.set_physical_params({
+    velvet_density: 4800.0,
+    edge_snap:      1.20,
+    air_boost:      8.0,
+    comb_delay:     0.00015,
+    felt_damping:   9500.0,
+    card_rigidity:  4200.0
+})
+
+audio.define_sound("snap", {
+    modes: [
+        { freq_base: 1964.9, freq_dev: 0.377, decay_base: 0.0105, decay_dev: 0.400, gain: 0.79, q: 87.9 },
+        { freq_base: 2600.1, freq_dev: 0.284, decay_base: 0.0153, decay_dev: 0.350, gain: 0.81, q: 133.8 },
+        { freq_base: 3485.7, freq_dev: 0.253, decay_base: 0.0272, decay_dev: 0.250, gain: 0.72, q: 294.7 },
+        { freq_base: 4328.2, freq_dev: 0.188, decay_base: 0.0240, decay_dev: 0.250, gain: 0.63, q: 293.9 }
+    ],
+    peel_friction: {
+        duration_base: 0.0074,
+        duration_dev:  0.354,
+        filter_cutoff: 4836.0,
+        gain_base:     0.369
+    },
+    landing: {
+        delay_base:        0.0314,
+        delay_dev:         0.408,
+        thud_frequency:    320.0,
+        gain_base:         0.219,
+        double_tap_chance: 0.38
+    }
+})
+
+audio.define_sound("deal", {
+    modes: [
+        { freq_base: 3047.6, freq_dev: 0.376, decay_base: 0.0322, decay_dev: 0.529, gain: 0.80, q: 338.5 },
+        { freq_base: 3987.4, freq_dev: 0.324, decay_base: 0.0283, decay_dev: 0.653, gain: 0.85, q: 373.8 },
+        { freq_base: 5164.2, freq_dev: 0.223, decay_base: 0.0310, decay_dev: 0.594, gain: 0.88, q: 520.9 },
+        { freq_base: 6642.4, freq_dev: 0.195, decay_base: 0.0331, decay_dev: 0.530, gain: 0.76, q: 674.5 }
+    ],
+    peel_friction: {
+        duration_base: 0.0192,
+        duration_dev:  0.682,
+        filter_cutoff: 6722.8,
+        gain_base:     0.377
+    },
+    landing: {
+        delay_base:        0.0185,
+        delay_dev:         0.496,
+        thud_frequency:    320.0,
+        gain_base:         0.202,
+        double_tap_chance: 0.53
+    }
+})
+
+audio.define_sound("place", {
+    modes: [
+        { freq_base: 1464.3, freq_dev: 0.118, decay_base: 0.0087, decay_dev: 0.039, gain: 1.00, q: 40.0 },
+        { freq_base: 2121.0, freq_dev: 0.015, decay_base: 0.0137, decay_dev: 0.457, gain: 0.65, q: 90.6 },
+        { freq_base: 2713.2, freq_dev: 0.032, decay_base: 0.0161, decay_dev: 0.509, gain: 0.52, q: 134.6 },
+        { freq_base: 3768.3, freq_dev: 0.029, decay_base: 0.0280, decay_dev: 0.161, gain: 0.62, q: 329.7 }
+    ],
+    peel_friction: {
+        duration_base: 0.0060,
+        duration_dev:  0.000,
+        filter_cutoff: 5507.5,
+        gain_base:     0.100
+    },
+    landing: {
+        delay_base:        0.0140,
+        delay_dev:         0.000,
+        thud_frequency:    320.0,
+        gain_base:         0.200,
+        double_tap_chance: 0.50
+    }
+})

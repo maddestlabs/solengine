@@ -4568,10 +4568,10 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         auto sVal = eatsbits::eatscript::resolveArg(args, kwargs, 2, "suit", eatsbits::eatscript::Value("spades"));
         Suit suit = sVal.isString() ? CardCanvas::parseSuit(sVal.asString()) : static_cast<Suit>( std::clamp(sVal.asInt(0), 0, 3) );
         float intensity = eatsbits::eatscript::resolveArg(args, kwargs, 3, "intensity", eatsbits::eatscript::Value(1.0)).asFloat(1.0f);
-        float u0 = eatsbits::eatscript::resolveArg(args, kwargs, 4, "u0", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
-        float u1 = eatsbits::eatscript::resolveArg(args, kwargs, 5, "u1", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
-        float u2 = eatsbits::eatscript::resolveArg(args, kwargs, 6, "u2", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
-        float u3 = eatsbits::eatscript::resolveArg(args, kwargs, 7, "u3", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float u0 = eatsbits::eatscript::resolveArg(args, kwargs, 4, "u0", eval.hasVariable("tint_r") ? eval.getVariable("tint_r") : eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float u1 = eatsbits::eatscript::resolveArg(args, kwargs, 5, "u1", eval.hasVariable("tint_g") ? eval.getVariable("tint_g") : eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float u2 = eatsbits::eatscript::resolveArg(args, kwargs, 6, "u2", eval.hasVariable("tint_b") ? eval.getVariable("tint_b") : eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float u3 = eatsbits::eatscript::resolveArg(args, kwargs, 7, "u3", eval.hasVariable("tint_active") ? eval.getVariable("tint_active") : eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
 
         canvas->applyShader(funcDef, inlineCode, r, suit, intensity, u0, u1, u2, u3);
         return eatsbits::eatscript::Value(true);

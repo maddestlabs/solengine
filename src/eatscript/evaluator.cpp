@@ -188,6 +188,17 @@ bool Evaluator::hasFunction(const std::string& funcName) const {
     return it != globals_.end() && it->second.isFunction();
 }
 
+std::vector<std::string> Evaluator::getFunctionNames() const {
+    std::vector<std::string> names;
+    names.reserve(globals_.size());
+    for (const auto& [name, val] : globals_) {
+        if (val.isFunction()) {
+            names.push_back(name);
+        }
+    }
+    return names;
+}
+
 Value Evaluator::callFunction(const std::string& funcName,
                               const std::vector<Value>& args,
                               const std::map<std::string, Value>& kwargs) {

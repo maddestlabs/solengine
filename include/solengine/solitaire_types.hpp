@@ -151,6 +151,58 @@ enum class TableThemeId : uint8_t {
     Count                 = 20
 };
 
+enum class TableTintPreset : uint8_t {
+    Auto            = 0, // Native theme colors (unmodified)
+    CasinoGreen     = 1, // Traditional tournament felt (#134a26)
+    BordeauxWine    = 2, // Rich mulberry/crimson velvet (#9b3a50)
+    RoyalSapphire   = 3, // Deep calm navy blue (#16345e)
+    CharcoalSlate   = 4, // Low-glare dark mode (#282e34)
+    WarmHoney       = 5, // Blonde oak / birch (#c89650)
+    EspressoUmber   = 6, // Roasted walnut (#3c2619)
+    DustyRose       = 7, // Soft vintage mauve (#945668)
+    Count           = 8
+};
+
+struct TableTintInfo {
+    TableTintPreset preset;
+    const char* id;
+    const char* name;
+    float r;
+    float g;
+    float b;
+};
+
+inline const TableTintInfo* getTableTintInfo(TableTintPreset p) noexcept {
+    static const TableTintInfo s_tints[] = {
+        { TableTintPreset::Auto,          "auto",           "AUTO (ORIGINAL)", 0.0f,    0.0f,    0.0f },
+        { TableTintPreset::CasinoGreen,   "casino_green",   "CASINO GREEN",    0.075f,  0.320f,  0.150f },
+        { TableTintPreset::BordeauxWine,  "bordeaux_wine",  "BORDEAUX WINE",   0.608f,  0.230f,  0.313f },
+        { TableTintPreset::RoyalSapphire, "royal_sapphire", "ROYAL SAPPHIRE",  0.090f,  0.205f,  0.395f },
+        { TableTintPreset::CharcoalSlate, "charcoal_slate", "CHARCOAL SLATE",  0.180f,  0.200f,  0.220f },
+        { TableTintPreset::WarmHoney,     "warm_honey",     "WARM HONEY",      0.820f,  0.620f,  0.360f },
+        { TableTintPreset::EspressoUmber, "espresso_umber", "ESPRESSO UMBER",  0.240f,  0.150f,  0.095f },
+        { TableTintPreset::DustyRose,     "dusty_rose",     "DUSTY ROSE",      0.580f,  0.340f,  0.410f }
+    };
+    uint8_t idx = static_cast<uint8_t>(p);
+    if (idx < static_cast<uint8_t>(TableTintPreset::Count)) {
+        return &s_tints[idx];
+    }
+    return &s_tints[0];
+}
+
+inline TableTintPreset parseTableTint(const std::string& str) noexcept {
+    std::string s = str;
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (s == "green" || s == "casino" || s == "casinogreen" || s == "casino_green") return TableTintPreset::CasinoGreen;
+    if (s == "wine" || s == "red" || s == "bordeaux" || s == "bordeaux_wine" || s == "velvet") return TableTintPreset::BordeauxWine;
+    if (s == "navy" || s == "blue" || s == "sapphire" || s == "royal" || s == "royal_sapphire") return TableTintPreset::RoyalSapphire;
+    if (s == "charcoal" || s == "slate" || s == "dark" || s == "black" || s == "charcoal_slate") return TableTintPreset::CharcoalSlate;
+    if (s == "honey" || s == "amber" || s == "gold" || s == "warm_honey" || s == "blonde") return TableTintPreset::WarmHoney;
+    if (s == "espresso" || s == "walnut" || s == "brown" || s == "espresso_umber") return TableTintPreset::EspressoUmber;
+    if (s == "rose" || s == "mauve" || s == "pink" || s == "dusty_rose") return TableTintPreset::DustyRose;
+    return TableTintPreset::Auto;
+}
+
 struct Card {
     uint8_t id{0};
     Suit suit{Suit::Spades};

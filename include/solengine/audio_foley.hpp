@@ -105,6 +105,31 @@ struct FoleyLayerDef {
 
 static constexpr size_t kMaxLayersPerSound = 4;
 
+struct FoleyModalModeDef {
+    float freqBase{2640.0f};
+    float freqDev{0.05f};
+    float decayBase{0.015f};
+    float decayDev{0.08f};
+    float gain{1.0f};
+    float q{10.0f};
+};
+
+struct FoleyPeelFrictionDef {
+    float durationBase{0.016f};
+    float durationDev{0.20f};
+    float filterCutoff{7200.0f};
+    float gainBase{0.35f};
+};
+
+struct FoleyLandingDef {
+    float delayBase{0.024f};
+    float delayDev{0.20f};
+    float thudFreq{320.0f};
+    float gainBase{0.50f};
+    float doubleTapChance{0.45f};
+    float doubleTapSplit{0.011f};
+};
+
 struct FoleySoundDef {
     std::string name;
     uint16_t soundId{0};
@@ -121,6 +146,13 @@ struct FoleySoundDef {
 
     size_t numLayers{0};
     std::array<FoleyLayerDef, kMaxLayersPerSound> layers{};
+
+    // Physics-based modal resonance & contact modeling:
+    bool hasModalResonators{false};
+    size_t numModes{0};
+    std::array<FoleyModalModeDef, 4> modes{};
+    FoleyPeelFrictionDef peelFriction{};
+    FoleyLandingDef landing{};
 };
 
 struct FoleySequenceDef {
@@ -158,6 +190,13 @@ struct FoleySoundBank {
     std::array<FoleySequenceDef, FoleySound::MaxCoreSounds> coreSequences{};
     std::vector<FoleySequenceDef> customSequences{};
     float masterVariance{1.0f};
+
+    // Embedded authentic sample buffers (decoded from .eats Base64/Deflate)
+    std::vector<float> samplePlace;
+    std::vector<float> sampleDeal;
+    std::vector<float> sampleShuffleSoft;
+    std::vector<float> sampleShuffleLoud;
+    std::vector<float> sampleSnap;
 };
 
 /**
@@ -228,7 +267,11 @@ public:
         Slide,
         Drop,
         SpectreWhisper,
-        CustomDSP
+        CustomDSP,
+        ModalCard,
+        PeelFriction,
+        ShuffleRiffle,
+        SamplePlayback
     };
 
 private:
@@ -301,17 +344,46 @@ private:
         float lfoPhase{0.0f};
 
         // Multi-modal biquad filters
-        BiquadFilter biquad1; // Snap: felt cutoff / Slide: primary BP / Drop: slap BP / Spectre: bandpass
-        BiquadFilter biquad2; // Snap: snap BP / Slide: felt cutoff
-        BiquadFilter biquad3; // Snap: air shelf / Slide: grain HP
-        BiquadFilter biquad4; // Snap: dirac HP / Slide: grain shelf
-        BiquadFilter biquad5; // Extra slot (e.g. Snap: 2nd felt lowpass)
+        BiquadFilter biquad1; // Snap: felt cutoff / Slide: primary BP / Drop: slap BP / Spectre: bandpass / Modal: Mode 1
+        BiquadFilter biquad2; // Snap: snap BP / Slide: felt cutoff / Modal: Mode 2
+        BiquadFilter biquad3; // Snap: air shelf / Slide: grain HP / Modal: Mode 3
+        BiquadFilter biquad4; // Snap: dirac HP / Slide: grain shelf / Modal: Mode 4
+        BiquadFilter biquad5; // Snap: 2nd felt lowpass / Modal: Felt acoustic radiation lowpass
+
+        std::array<float, 4> modeGains{1.0f, 1.0f, 1.0f, 1.0f};
+        bool impulseInjected{false};
+
+        // High-order LPC-16 all-pole filter state for authentic paper cardstock resonance
+        std::array<float, 16> lpcHistory{};
+        uint8_t lpcIdx{0};
+
+        // Procedural shuffle riffle state
+        float snapEnv{0.0f};
+        float prevLfoPhase{0.0f};
+        uint8_t snapIdx{0};
+        uint8_t shuffleMode{0}; // 0 = soft, 1 = loud
+
+        // Sample playback state
+        const float* sampleData{nullptr};
+        size_t sampleLength{0};
+        float sampleCursor{0.0f};
+        float sampleRateRatio{1.0f};
 
         void reset() noexcept {
             active = false;
             type = VoiceType::Snap;
             soundId = 0;
             isCustomDSP = false;
+            sampleData = nullptr;
+            sampleLength = 0;
+            sampleCursor = 0.0f;
+            sampleRateRatio = 1.0f;
+            snapEnv = 0.0f;
+            prevLfoPhase = 0.0f;
+            snapIdx = 0;
+            shuffleMode = 0;
+            lpcHistory.fill(0.0f);
+            lpcIdx = 0;
             delaySec = 0.0f;
             ageSec = 0.0f;
             durationSec = 0.045f;
@@ -338,6 +410,8 @@ private:
             combDelaySamples = 8.64f;
             lfoPhase = 0.0f;
             numLayers = 0;
+            modeGains.fill(1.0f);
+            impulseInjected = false;
             biquad1.reset();
             biquad2.reset();
             biquad3.reset();

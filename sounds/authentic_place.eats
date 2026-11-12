@@ -1,0 +1,36 @@
+# ==============================================================================
+# SolEngine & Eatsbits Procedural Foley Preset: Authentic Place
+# Modeled from high-fidelity reference audio: cardsounds/place.wav
+# Two-stage contact mechanics:
+#   Stage 1: Leading corner edge touch (5.8 kHz crisp micro-tick)
+#   Stage 2: Card face air displacement slap (3.8 kHz), card body knock (920 Hz),
+#            and coupled tabletop thump (95 Hz -> 48 Hz pitch-settling drop)
+# ==============================================================================
+
+audio.set_master_volume(0.85)
+audio.set_master_variance(1.0) # 1.0 = authentic organic deviation, 0.0 = deterministic
+
+audio.define_sound("place", {
+    duration_base: 0.055,
+    duration_dev:  0.08,
+    gain_base:     1.00,
+    gain_dev:      0.05,
+    pan_base:      0.00,
+    pan_dev:      0.04,
+
+    # Micro-mechanical landing parameters:
+    peel_friction: {
+        duration_base: 0.0080,
+        duration_dev:  0.15,
+        filter_cutoff: 5800.0,
+        gain_base:     0.32
+    },
+
+    landing: {
+        delay_base:        0.0095,
+        delay_dev:         0.10,
+        thud_frequency:    95.0,
+        gain_base:         0.85,
+        double_tap_chance: 0.00
+    }
+})

@@ -116,6 +116,12 @@ public:
     [[nodiscard]] bool isPbrTexturesEnabled() const noexcept;
 
     /**
+     * Set the global table surface tint preset (recolors procedural & PBR backgrounds).
+     */
+    void setTableTint(TableTintPreset tint) noexcept;
+    [[nodiscard]] TableTintPreset tableTint() const noexcept;
+
+    /**
      * Check if a PBR material is available for the given theme.
      */
     [[nodiscard]] bool hasPbrMaterial(TableThemeId theme) const noexcept;

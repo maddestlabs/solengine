@@ -230,6 +230,11 @@ public:
     [[nodiscard]] const CardAtlasSlot& getAtlasSlot(Suit s, Rank r) const noexcept;
     [[nodiscard]] const CardAtlasSlot& getBackAtlasSlot() const noexcept;
     [[nodiscard]] const CardAtlasSlot& getAtlasSlotByIndex(size_t index) const noexcept;
+    [[nodiscard]] const CardAtlasSlot& getPreviewFaceAtlasSlot() const noexcept;
+    [[nodiscard]] const CardTexture* getPreviewFaceTexture() const noexcept;
+    void updatePreviewCard(DeckThemeId theme, CardWearLevel wear, CardStock stock);
+    void setPreviewDeckTheme(DeckThemeId theme);
+    [[nodiscard]] DeckThemeId previewDeckTheme() const noexcept { return previewDeckTheme_; }
     [[nodiscard]] bool hasGpuAtlas() const noexcept { return hasGpuAtlas_; }
     [[nodiscard]] bool isAtlasDirty() const noexcept { return atlasDirty_; }
     void markAtlasClean() noexcept { atlasDirty_ = false; }
@@ -239,6 +244,12 @@ public:
     [[nodiscard]] int cardHeight() const noexcept { return cardH_; }
     [[nodiscard]] DeckThemeId currentDeckTheme() const noexcept { return currentTheme_; }
     static const char* deckThemeName(DeckThemeId theme) noexcept;
+    [[nodiscard]] std::string currentDeckSlug() const;
+
+    [[nodiscard]] const std::string& currentCardBackId() const noexcept { return activeCardBackId_; }
+    void setActiveCardBack(const std::string& backId);
+    [[nodiscard]] std::string getCardBackDisplayName(const std::string& backId) const;
+    void cycleCardBack(std::string& inOutId, int stepDelta);
 
     static inline size_t cardIndex(Suit s, Rank r) noexcept {
         size_t suitIdx = static_cast<size_t>(s);
@@ -259,6 +270,11 @@ private:
     CardStock cardStock_{CardStock::None};
     float deckCornerRadius_{24.0f};
     CardCornerStyle cornerStyle_{CardCornerStyle::Auto};
+    std::string activeCardBackId_{"auto"};
+    DeckThemeId previewDeckTheme_{DeckThemeId::Count};
+    CardTexture previewFaceTexture_{};
+    CardAtlasSlot previewFaceAtlasSlot_{};
+    std::unordered_map<DeckThemeId, CardTexture> sampleCardCache_{};
     std::array<CardTexture, kTotalTextures> baseTextures_{};
     std::array<CardTexture, kTotalTextures> textures_{};
     std::array<CardAtlasSlot, kTotalTextures> atlasSlots_{};

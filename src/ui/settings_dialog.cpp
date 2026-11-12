@@ -42,6 +42,7 @@ void SettingsDialog::open() {
     tempSettings_ = SettingsManager::instance().settings();
     seedText_ = std::to_string(tempSettings_.lastSeed);
     editingSeed_ = false;
+    CardTextureCache::instance().updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
 }
 
 void SettingsDialog::close() {
@@ -49,6 +50,39 @@ void SettingsDialog::close() {
     editingSeed_ = false;
     draggingVolume_ = false;
     draggingDeviation_ = false;
+}
+
+void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley) {
+    const auto& s = SettingsManager::instance().settings();
+    board.setCardDeviation(s.cardDeviation);
+    foley.setMasterVolume(s.masterVolume);
+    foley.setMuted(s.muted);
+
+    if (tempSettings_.cardBackId != s.cardBackId) {
+        CardTextureCache::instance().setActiveCardBack(s.cardBackId);
+    }
+    if (tempSettings_.deckTheme != s.deckTheme || tempSettings_.cardWear != s.cardWear || tempSettings_.cardStock != s.cardStock) {
+        CardTextureCache::instance().updatePreviewCard(s.deckTheme, s.cardWear, s.cardStock);
+    }
+
+    bool themeChanged = (board.tableThemeSlug() != s.tableThemeSlug || board.tableTheme() != s.tableTheme);
+    if (tempSettings_.tableTint != s.tableTint) {
+        ProceduralBackgroundSystem::instance().setTableTint(s.tableTint);
+        ProceduralBackgroundSystem::instance().invalidateCache();
+    }
+    if (themeChanged) {
+        board.setTableTheme(s.tableTheme);
+        board.setTableThemeSlug(s.tableThemeSlug);
+        ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
+        if (!s.tableThemeSlug.empty()) {
+            size_t origIdx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+            const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(origIdx);
+            if (def && !def->filePath.empty()) {
+                ProceduralBackgroundSystem::instance().loadCustomEatsTheme(def->filePath);
+            }
+        }
+        ProceduralBackgroundSystem::instance().invalidateCache();
+    }
 }
 
 void SettingsDialog::render(
@@ -340,11 +374,13 @@ void SettingsDialog::render(
         }
     } else if (currentTab_ == 1) {
         // --- TAB 1: THEMES & PHYSICAL FINISHES ---
+        const bool useTwoCol = (dialogW_ >= 340.0f);
+        const float col1W = useTwoCol ? (contentW * (dialogW_ < 540.0f ? 0.60f : 0.56f)) : contentW;
         const float rowX = contentX + 16.0f;
-        const float rowW = contentW - 32.0f;
+        const float rowW = useTwoCol ? (col1W - 12.0f) : (contentW - 32.0f);
         const float rowH = 28.0f;
         const float btnW = 32.0f;
-        const float rowGap = 6.0f;
+        const float rowGap = 5.0f;
         const float labelX = rowX + btnW + 6.0f;
         const float labelW = rowW - 2.0f * (btnW + 6.0f);
         const float nextX = rowX + rowW - btnW;
@@ -428,15 +464,28 @@ void SettingsDialog::render(
         drawStepper(themeStr);
         curY += rowH + rowGap;
 
+        // 1b. Table Surface Tint
+        const auto* tintInfo = getTableTintInfo(tempSettings_.tableTint);
+        std::string tintName = tintInfo ? tintInfo->name : "AUTO (ORIGINAL)";
+        std::string tintStr = "Surface Tint: " + tintName;
+        drawStepper(tintStr);
+        curY += rowH + rowGap;
+
         // 2. Deck Theme
         std::string deckStr = "Deck: " + std::string(CardTextureCache::deckThemeName(tempSettings_.deckTheme));
         drawStepper(deckStr);
         curY += rowH + rowGap;
 
+        // 2a. Card Back
+        std::string backName = CardTextureCache::instance().getCardBackDisplayName(tempSettings_.cardBackId);
+        std::string backStr = "Card Back: " + backName;
+        drawStepper(backStr);
+        curY += rowH + rowGap;
+
         // 2b. UI Theme
         std::string uiThemeStr = "UI Theme: " + std::string(tempSettings_.guiTheme == GuiThemeStyle::ClockworkEngine ? "CLOCKWORK ENGINE" : "CLASSIC");
         drawStepper(uiThemeStr);
-        curY += rowH + 10.0f;
+        curY += rowH + 8.0f;
 
         // Section: Card Materials and Condition
         drawSectionHeader("Card Materials and Condition");
@@ -454,20 +503,20 @@ void SettingsDialog::render(
         // 5. Corners
         std::string cornersStr = "Corners: " + std::string(cornerStyleCleanName(tempSettings_.cardCorners));
         drawStepper(cornersStr);
-        curY += rowH + 10.0f;
+        curY += rowH + 8.0f;
 
-        // Section: Organic Card Deviation
-        drawSectionHeader("Organic Card Deviation");
-        devTrackX_ = contentX + 16.0f;
-        devTrackW_ = contentW - 148.0f;
+        // Section: Card Deviation
+        drawSectionHeader("Card Deviation");
+        devTrackX_ = rowX;
+        devTrackW_ = useTwoCol ? (rowW - 74.0f) : (contentW - 148.0f);
         devTrackH_ = 28.0f;
         devTrackY_ = curY;
 
         int devPct = static_cast<int>(std::round(tempSettings_.cardDeviation * 100.0f));
-        const float devBtnX = devTrackX_ + devTrackW_ + 12.0f;
-        const float devBtnW = 104.0f;
+        const float devBtnX = devTrackX_ + devTrackW_ + (useTwoCol ? 6.0f : 12.0f);
+        const float devBtnW = useTwoCol ? 68.0f : 104.0f;
         bool devBtnHov = (mouseX >= devBtnX && mouseX <= devBtnX + devBtnW && mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_);
-        const char* devBtnLabel = (tempSettings_.cardDeviation <= 0.005f) ? "PRESET 25%" : "ZERO 0%";
+        const char* devBtnLabel = (tempSettings_.cardDeviation <= 0.005f) ? (useTwoCol ? "25%" : "PRESET 25%") : (useTwoCol ? "0%" : "ZERO 0%");
 
         if (isClockwork) {
             bool knobHovered = (mouseX >= devTrackX_ && mouseX <= devTrackX_ + devTrackW_ && mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_);
@@ -475,13 +524,11 @@ void SettingsDialog::render(
 
             char devStr[80];
             if (tempSettings_.cardDeviation <= 0.005f) {
-                std::snprintf(devStr, sizeof(devStr), "DEVIATION: 0%% (NEAT)");
+                std::snprintf(devStr, sizeof(devStr), "DEV: 0%% (NEAT)");
             } else {
-                float posPx = tempSettings_.cardDeviation * 10.0f;
-                float angDeg = tempSettings_.cardDeviation * 5.0f;
-                std::snprintf(devStr, sizeof(devStr), "DEVIATION: %d%% (+-%.1fpx, +-%.1f deg)", devPct, posPx, angDeg);
+                std::snprintf(devStr, sizeof(devStr), "DEV: %d%%", devPct);
             }
-            eatsbits::ui::glyph::drawVectorText(r, devStr, devTrackX_ + 14.0f, devTrackY_ + 8.5f, 10.5f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, devStr, devTrackX_ + 10.0f, devTrackY_ + 8.5f, 10.5f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
             clockwork_ui::drawPewterButton(r, devBtnX, devTrackY_, devBtnW, devTrackH_, 4.0f, devBtnLabel, devBtnHov, false, 11.0f);
         } else {
             r.drawRoundedRect(devTrackX_, devTrackY_, devTrackW_, devTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
@@ -502,27 +549,94 @@ void SettingsDialog::render(
 
             char devStr[80];
             if (tempSettings_.cardDeviation <= 0.005f) {
-                std::snprintf(devStr, sizeof(devStr), "DEVIATION: 0%% (NEAT: 0px, 0.0 deg)");
+                std::snprintf(devStr, sizeof(devStr), "DEV: 0%% (NEAT)");
             } else {
-                float posPx = tempSettings_.cardDeviation * 10.0f;
-                float angDeg = tempSettings_.cardDeviation * 5.0f;
-                std::snprintf(devStr, sizeof(devStr), "DEVIATION: %d%% (+-%.1fpx, +-%.1f deg)", devPct, posPx, angDeg);
+                std::snprintf(devStr, sizeof(devStr), "DEV: %d%%", devPct);
             }
-            eatsbits::ui::glyph::drawVectorText(r, devStr, devTrackX_ + 10.0f, devTrackY_ + 8.5f, 11.0f, 0.98f, 0.95f, 0.88f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, devStr, devTrackX_ + 8.0f, devTrackY_ + 8.5f, 10.5f, 0.98f, 0.95f, 0.88f, 1.0f);
 
             r.drawRoundedRect(devBtnX, devTrackY_, devBtnW, devTrackH_, 4.0f,
                               pal.woodR0 + 0.06f + (devBtnHov ? 0.08f : 0.0f), pal.woodG0 + 0.05f, pal.woodB0 + 0.04f, 0.95f, 4);
             r.drawRoundedRectOutline(devBtnX, devTrackY_, devBtnW, devTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
-            float devBtnTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, devBtnLabel);
-            eatsbits::ui::glyph::drawVectorText(r, devBtnLabel, devBtnX + (devBtnW - devBtnTxtW) * 0.5f, devTrackY_ + 8.5f, 11.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+            float devBtnTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, devBtnLabel);
+            eatsbits::ui::glyph::drawVectorText(r, devBtnLabel, devBtnX + (devBtnW - devBtnTxtW) * 0.5f, devTrackY_ + 8.5f, 10.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
         }
 
-        // Subtext explaining scale
-        curY += 34.0f;
+        // --- SAMPLE AREA (Real-time Shader Stock & Wear) ---
+        const float col2X = useTwoCol ? (contentX + col1W + 4.0f) : (contentX + 16.0f);
+        const float col2W = useTwoCol ? (contentW - col1W - 8.0f) : (contentW - 32.0f);
+        const float col2Y = useTwoCol ? (contentY + 14.0f) : (curY + 36.0f);
+
+        // Header: "Sample"
+        const char* titleStr = "Sample";
+        float titleW = eatsbits::ui::glyph::getVectorTextWidth(11.5f, titleStr);
         eatsbits::ui::glyph::drawVectorText(
-            r, "0% = Crisp alignment (0px, 0 deg)   ---   100% = Maximum organic skew (+-10px, +-5 deg)",
-            devTrackX_ + 4.0f, curY, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.85f
+            r, titleStr, col2X + (col2W - titleW) * 0.5f, col2Y + 4.0f,
+            11.5f, isClockwork ? cpal.brassHighlightR : pal.accentR,
+            isClockwork ? cpal.brassHighlightG : pal.accentG,
+            isClockwork ? cpal.brassHighlightB : pal.accentB, 1.0f
         );
+
+        // Preview Card: Centered single deck card (Queen of Spades)
+        const float previewCardW = std::clamp(col2W * (useTwoCol ? 0.48f : 0.28f), 52.0f, 88.0f);
+        const float previewCardH = std::round(previewCardW * 1.40f);
+        const float cardX = col2X + (col2W - previewCardW) * 0.5f;
+        const float cardY = col2Y + 24.0f;
+
+        float cornerR = 24.0f;
+        switch (tempSettings_.cardCorners) {
+            case CardCornerStyle::Sharp:   cornerR = 0.0f; break;
+            case CardCornerStyle::Vintage: cornerR = 8.0f; break;
+            case CardCornerStyle::Round:   cornerR = 24.0f; break;
+            case CardCornerStyle::Auto:
+            default:
+                cornerR = CardTextureCache::instance().deckCornerRadius();
+                break;
+        }
+        const float effRu = cornerR / static_cast<float>(CardTextureCache::kDefaultCardW);
+        const float previewRadius = std::max(0.0f, effRu * previewCardW);
+
+        const float previewCond = static_cast<float>(tempSettings_.cardWear) + 10.0f * static_cast<float>(tempSettings_.cardStock);
+        const float previewScratch = (tempSettings_.cardWear == CardWearLevel::Played) ? 0.0018f
+                                   : (tempSettings_.cardWear == CardWearLevel::Vintage) ? 0.0035f : 0.0f;
+
+        eatsbits::ui::LightSource2D pLight{cardX + previewCardW * 0.5f, cardY - 60.0f, 300.0f};
+
+        // Draw Card Front (Queen of Spades)
+        r.drawRectDropShadow(cardX, cardY, previewCardW, previewCardH, previewRadius, 6.0f, pLight, 0.50f);
+        if (r.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU && CardTextureCache::instance().hasGpuAtlas()) {
+            const auto& slotFront = CardTextureCache::instance().getPreviewFaceAtlasSlot();
+            r.drawTexturedRoundedRectGpu(cardX, cardY, previewCardW, previewCardH, previewRadius,
+                                         slotFront.u0, slotFront.v0, slotFront.u1, slotFront.v1,
+                                         1.0f, 1.0f, 1.0f, 1.0f, previewScratch, previewCond);
+        } else {
+            const CardTexture* fTex = CardTextureCache::instance().getPreviewFaceTexture();
+            if (fTex && !fTex->argb32.empty()) {
+                r.drawTexturedRoundedRect(cardX, cardY, previewCardW, previewCardH, previewRadius,
+                                          fTex->argb32.data(), fTex->width, fTex->height, 1.0f);
+            }
+        }
+        r.drawRoundedRectOutline(cardX, cardY, previewCardW, previewCardH, previewRadius,
+                                 0.20f, 0.18f, 0.14f, 0.75f, 1.1f, 4);
+
+        // Centered Details Badges below card
+        float infoY = cardY + previewCardH + 12.0f;
+        std::string badgeStock = "STOCK: " + std::string(CardTextureCache::cardStockName(tempSettings_.cardStock));
+        std::string badgeWear  = "WEAR: " + std::string(CardTextureCache::cardWearLevelName(tempSettings_.cardWear));
+        std::string badgeCorn  = "CORNERS: " + std::string(cornerStyleCleanName(tempSettings_.cardCorners));
+
+        float bStockW = eatsbits::ui::glyph::getVectorTextWidth(8.5f, badgeStock.c_str());
+        float bWearW  = eatsbits::ui::glyph::getVectorTextWidth(8.5f, badgeWear.c_str());
+        float bCornW  = eatsbits::ui::glyph::getVectorTextWidth(8.5f, badgeCorn.c_str());
+
+        eatsbits::ui::glyph::drawVectorText(r, badgeStock.c_str(), col2X + (col2W - bStockW) * 0.5f, infoY, 8.5f,
+                                            isClockwork ? cpal.furnaceAmberR : pal.accentR,
+                                            isClockwork ? cpal.furnaceAmberG : pal.accentG,
+                                            isClockwork ? cpal.furnaceAmberB : pal.accentB, 0.95f);
+        eatsbits::ui::glyph::drawVectorText(r, badgeWear.c_str(),  col2X + (col2W - bWearW) * 0.5f,  infoY + 12.0f, 8.5f,
+                                            0.88f, 0.85f, 0.80f, 0.90f);
+        eatsbits::ui::glyph::drawVectorText(r, badgeCorn.c_str(),  col2X + (col2W - bCornW) * 0.5f,  infoY + 24.0f, 8.5f,
+                                            0.80f, 0.78f, 0.74f, 0.85f);
     } else if (currentTab_ == 2) {
         // --- TAB 2: DISPLAY & RESPONSIVE ---
         drawSectionHeader("HUD MENU PRESENTATION STYLE");
@@ -774,22 +888,22 @@ bool SettingsDialog::handleMouseButton(
         draggingLightStrength_ = false;
         return true;
     }
-
-    // Tapping bottom handle or backdrop outside bounds closes drawer
-    if (mouseY >= dialogH_ - 14.0f && mouseY <= dialogH_ + 8.0f) {
-        close();
-        return true;
-    }
-    if (mouseX < dialogX_ || mouseX > dialogX_ + dialogW_ || mouseY < dialogY_ || mouseY > dialogY_ + dialogH_) {
-        close();
-        return true;
-    }
     if (action != 1) return true;
+
+    // On mobile, tapping bottom pull handle pill closes drawer
+    if (dialogY_ == 0.0f && mouseY >= dialogH_ - 14.0f && mouseY <= dialogH_ + 8.0f) {
+        float handleW = 60.0f;
+        float handleX = (dialogW_ - handleW) * 0.5f;
+        if (mouseX >= handleX && mouseX <= handleX + handleW) {
+            revertLiveState(board, foley);
+            close();
+            return true;
+        }
+    }
 
     // Check outside dialog click -> close
     if (mouseX < dialogX_ || mouseX > dialogX_ + dialogW_ || mouseY < dialogY_ || mouseY > dialogY_ + dialogH_) {
-        board.setCardDeviation(SettingsManager::instance().settings().cardDeviation);
-        foley.setMasterVolume(SettingsManager::instance().settings().masterVolume);
+        revertLiveState(board, foley);
         close();
         return true;
     }
@@ -800,8 +914,7 @@ bool SettingsDialog::handleMouseButton(
     const float closeBtnX = dialogX_ + dialogW_ - closeBtnSize - 12.0f;
     const float closeBtnY = dialogY_ + (headerH - closeBtnSize) * 0.5f;
     if (mouseX >= closeBtnX && mouseX <= closeBtnX + closeBtnSize && mouseY >= closeBtnY && mouseY <= closeBtnY + closeBtnSize) {
-        board.setCardDeviation(SettingsManager::instance().settings().cardDeviation);
-        foley.setMasterVolume(SettingsManager::instance().settings().masterVolume);
+        revertLiveState(board, foley);
         close();
         foley.triggerSound(FoleySound::WoodClick, 0.8f);
         return true;
@@ -893,11 +1006,13 @@ bool SettingsDialog::handleMouseButton(
         }
     } else if (currentTab_ == 1) {
         float curY = tabContentY + 16.0f;
+        const bool useTwoCol = (dialogW_ >= 340.0f);
+        const float col1W = useTwoCol ? (contentW * (dialogW_ < 540.0f ? 0.60f : 0.56f)) : contentW;
         const float rowX = contentX + 16.0f;
-        const float rowW = contentW - 32.0f;
+        const float rowW = useTwoCol ? (col1W - 12.0f) : (contentW - 32.0f);
         const float rowH = 28.0f;
         const float btnW = 32.0f;
-        const float rowGap = 6.0f;
+        const float rowGap = 5.0f;
         const float labelX = rowX + btnW + 6.0f;
         const float labelW = rowW - 2.0f * (btnW + 6.0f);
         const float nextX = rowX + rowW - btnW;
@@ -935,8 +1050,31 @@ bool SettingsDialog::handleMouseButton(
                 }
                 tempSettings_.tableThemeSlug = availableThemes[curIdx].id;
                 tempSettings_.tableTheme = availableThemes[curIdx].legacyId;
+
+                board.setTableThemeSlug(tempSettings_.tableThemeSlug);
+                board.setTableTheme(tempSettings_.tableTheme);
+                ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
+                if (!availableThemes[curIdx].filePath.empty()) {
+                    ProceduralBackgroundSystem::instance().loadCustomEatsTheme(availableThemes[curIdx].filePath);
+                }
+                ProceduralBackgroundSystem::instance().invalidateCache();
             }
             foley.triggerSound(FoleySound::WoodClick, 0.8f);
+            return true;
+        }
+        curY += rowH + rowGap;
+
+        // 1b. Table Surface Tint
+        if (testStepper(stepDelta)) {
+            constexpr uint8_t count = static_cast<uint8_t>(TableTintPreset::Count);
+            if (stepDelta < 0) {
+                tempSettings_.tableTint = static_cast<TableTintPreset>((static_cast<uint8_t>(tempSettings_.tableTint) + count - 1u) % count);
+            } else {
+                tempSettings_.tableTint = static_cast<TableTintPreset>((static_cast<uint8_t>(tempSettings_.tableTint) + 1u) % count);
+            }
+            ProceduralBackgroundSystem::instance().setTableTint(tempSettings_.tableTint);
+            ProceduralBackgroundSystem::instance().invalidateCache();
+            foley.triggerSound(FoleySound::WoodClick, 0.75f);
             return true;
         }
         curY += rowH + rowGap;
@@ -949,6 +1087,19 @@ bool SettingsDialog::handleMouseButton(
             } else {
                 tempSettings_.deckTheme = static_cast<DeckThemeId>((static_cast<uint8_t>(tempSettings_.deckTheme) + 1u) % count);
             }
+            CardTextureCache::instance().updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+            if (tempSettings_.cardBackId == "auto") {
+                CardTextureCache::instance().setActiveCardBack("auto");
+            }
+            foley.triggerSound(FoleySound::CardSlide, 0.8f);
+            return true;
+        }
+        curY += rowH + rowGap;
+
+        // 2a. Card Back
+        if (testStepper(stepDelta)) {
+            CardTextureCache::instance().cycleCardBack(tempSettings_.cardBackId, stepDelta);
+            CardTextureCache::instance().setActiveCardBack(tempSettings_.cardBackId);
             foley.triggerSound(FoleySound::CardSlide, 0.8f);
             return true;
         }
@@ -962,7 +1113,7 @@ bool SettingsDialog::handleMouseButton(
             foley.triggerSound(FoleySound::WoodClick, 0.8f);
             return true;
         }
-        curY += rowH + 10.0f + 24.0f; // Row 2 + spacing + header
+        curY += rowH + 8.0f + 24.0f; // Row 2 + spacing + header
 
         // 3. Stock
         if (testStepper(stepDelta)) {
@@ -972,6 +1123,7 @@ bool SettingsDialog::handleMouseButton(
             } else {
                 tempSettings_.cardStock = static_cast<CardStock>((static_cast<uint8_t>(tempSettings_.cardStock) + 1u) % count);
             }
+            CardTextureCache::instance().updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
             foley.triggerSound(FoleySound::WoodClick, 0.7f);
             return true;
         }
@@ -985,6 +1137,7 @@ bool SettingsDialog::handleMouseButton(
             } else {
                 tempSettings_.cardWear = static_cast<CardWearLevel>((static_cast<uint8_t>(tempSettings_.cardWear) + 1u) % count);
             }
+            CardTextureCache::instance().updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
             foley.triggerSound(FoleySound::WoodClick, 0.7f);
             return true;
         }
@@ -1002,7 +1155,7 @@ bool SettingsDialog::handleMouseButton(
             foley.triggerSound(FoleySound::WoodClick, 0.7f);
             return true;
         }
-        curY += rowH + 10.0f + 24.0f; // Row 5 + spacing + header
+        curY += rowH + 8.0f + 24.0f; // Row 5 + spacing + header
 
         // 6. Deviation slider hit test
         if (mouseX >= devTrackX_ && mouseX <= devTrackX_ + devTrackW_ &&
@@ -1016,8 +1169,8 @@ bool SettingsDialog::handleMouseButton(
         }
 
         // Deviation Preset / Zero button hit test
-        const float devBtnX = devTrackX_ + devTrackW_ + 12.0f;
-        const float devBtnW = 104.0f;
+        const float devBtnX = devTrackX_ + devTrackW_ + (useTwoCol ? 6.0f : 12.0f);
+        const float devBtnW = useTwoCol ? 68.0f : 104.0f;
         if (mouseX >= devBtnX && mouseX <= devBtnX + devBtnW &&
             mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_) {
             if (tempSettings_.cardDeviation <= 0.005f) {
@@ -1240,9 +1393,7 @@ bool SettingsDialog::handleKey(
     if (action != 1 && action != 2) return true; // Press or repeat
 
     if (key == 256) { // GLFW_KEY_ESCAPE
-        board.setCardDeviation(SettingsManager::instance().settings().cardDeviation);
-        foley.setMasterVolume(SettingsManager::instance().settings().masterVolume);
-        foley.setMuted(SettingsManager::instance().settings().muted);
+        revertLiveState(board, foley);
         close();
         return true;
     }

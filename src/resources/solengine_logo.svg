@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <radialGradient id="brassCollarGrad" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#ffe6a3"/>
+      <stop offset="45%" stop-color="#f0cc5c"/>
+      <stop offset="80%" stop-color="#c79e38"/>
+      <stop offset="100%" stop-color="#75571f"/>
+    </radialGradient>
+    
+    <radialGradient id="furnaceHearthGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffb338" stop-opacity="0.95"/>
+      <stop offset="35%" stop-color="#f27514" stop-opacity="0.75"/>
+      <stop offset="70%" stop-color="#8c290a" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#141210" stop-opacity="0.0"/>
+    </radialGradient>
+
+    <radialGradient id="brassRivetGrad" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#ffe6a3"/>
+      <stop offset="50%" stop-color="#f0cc5c"/>
+      <stop offset="100%" stop-color="#75571f"/>
+    </radialGradient>
+    
+    <radialGradient id="chassisGrad" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#4a423a"/>
+      <stop offset="60%" stop-color="#332e29"/>
+      <stop offset="100%" stop-color="#262320"/>
+    </radialGradient>
+    
+    <filter id="shadowFilter" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="2" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <circle cx="258.0" cy="260.0" r="225.4" fill="#000000" opacity="0.3" filter="url(#shadowFilter)"/>
+
+  <path d="M 449.20 256.00 L 485.45 271.88 L 482.94 293.41 L 444.00 300.51 L 439.74 315.70 L 439.74 315.70 L 469.31 342.01 L 460.27 361.70 L 421.05 356.43 L 412.30 369.56 L 412.30 369.56 L 432.29 403.72 L 417.61 419.65 L 381.93 402.52 L 369.56 412.30 L 369.56 412.30 L 378.02 450.97 L 359.13 461.58 L 330.49 434.26 L 315.70 439.74 L 315.70 439.74 L 311.80 479.13 L 290.55 483.39 L 271.76 448.56 L 256.00 449.20 L 256.00 449.20 L 240.12 485.45 L 218.59 482.94 L 211.49 444.00 L 196.30 439.74 L 196.30 439.74 L 169.99 469.31 L 150.30 460.27 L 155.57 421.05 L 142.44 412.30 L 142.44 412.30 L 108.28 432.29 L 92.35 417.61 L 109.48 381.93 L 99.70 369.56 L 99.70 369.56 L 61.03 378.02 L 50.42 359.13 L 77.74 330.49 L 72.26 315.70 L 72.26 315.70 L 32.87 311.80 L 28.61 290.55 L 63.44 271.76 L 62.80 256.00 L 62.80 256.00 L 26.55 240.12 L 29.06 218.59 L 68.00 211.49 L 72.26 196.30 L 72.26 196.30 L 42.69 169.99 L 51.73 150.30 L 90.95 155.57 L 99.70 142.44 L 99.70 142.44 L 79.71 108.28 L 94.39 92.35 L 130.07 109.48 L 142.44 99.70 L 142.44 99.70 L 133.98 61.03 L 152.87 50.42 L 181.51 77.74 L 196.30 72.26 L 196.30 72.26 L 200.20 32.87 L 221.45 28.61 L 240.24 63.44 L 256.00 62.80 L 256.00 62.80 L 271.88 26.55 L 293.41 29.06 L 300.51 68.00 L 315.70 72.26 L 315.70 72.26 L 342.01 42.69 L 361.70 51.73 L 356.43 90.95 L 369.56 99.70 L 369.56 99.70 L 403.72 79.71 L 419.65 94.39 L 402.52 130.07 L 412.30 142.44 L 412.30 142.44 L 450.97 133.98 L 461.58 152.87 L 434.26 181.51 L 439.74 196.30 L 439.74 196.30 L 479.13 200.20 L 483.39 221.45 L 448.56 240.24 L 449.20 256.00 Z" fill="url(#chassisGrad)" stroke="#1a1816" stroke-width="2"/>
+  <circle cx="256.0" cy="256.0" r="193.2" fill="none" stroke="#61574d" stroke-width="1.4" opacity="0.8"/>
+  <circle cx="256.0" cy="256.0" r="161.0" fill="none" stroke="#1a1816" stroke-width="1.6"/>
+
+  <circle cx="256.0" cy="256.0" r="170.2" fill="url(#brassCollarGrad)" stroke="#75571f" stroke-width="2"/>
+  <circle cx="256.0" cy="256.0" r="146.1" fill="none" stroke="#ffe6a3" stroke-width="1" opacity="0.5"/>
+
+  <line x1="376.35" y1="376.35" x2="389.88" y2="389.88" stroke="#b86638" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="376.35" y1="376.35" x2="389.88" y2="389.88" stroke="#f5b885" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="376.35" cy="376.35" r="3.2" fill="#ffe6a3" stroke="#4a3510" stroke-width="0.8"/>
+    <line x1="135.65" y1="376.35" x2="122.12" y2="389.88" stroke="#b86638" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="135.65" y1="376.35" x2="122.12" y2="389.88" stroke="#f5b885" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="135.65" cy="376.35" r="3.2" fill="#ffe6a3" stroke="#4a3510" stroke-width="0.8"/>
+    <line x1="135.65" y1="135.65" x2="122.12" y2="122.12" stroke="#b86638" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="135.65" y1="135.65" x2="122.12" y2="122.12" stroke="#f5b885" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="135.65" cy="135.65" r="3.2" fill="#ffe6a3" stroke="#4a3510" stroke-width="0.8"/>
+    <line x1="376.35" y1="135.65" x2="389.88" y2="122.12" stroke="#b86638" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="376.35" y1="135.65" x2="389.88" y2="122.12" stroke="#f5b885" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="376.35" cy="135.65" r="3.2" fill="#ffe6a3" stroke="#4a3510" stroke-width="0.8"/>
+  <circle cx="397.07" cy="293.80" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="394.87" cy="291.59" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="359.27" cy="359.27" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="357.06" cy="357.06" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="293.80" cy="397.07" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="291.59" cy="394.87" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="218.20" cy="397.07" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="215.99" cy="394.87" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="152.73" cy="359.27" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="150.52" cy="357.06" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="114.93" cy="293.80" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="112.72" cy="291.59" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="114.93" cy="218.20" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="112.72" cy="215.99" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="152.73" cy="152.73" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="150.52" cy="150.52" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="218.20" cy="114.93" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="215.99" cy="112.72" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="293.80" cy="114.93" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="291.59" cy="112.72" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="359.27" cy="152.73" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="357.06" cy="150.52" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+    <circle cx="397.07" cy="218.20" r="7.36" fill="url(#brassRivetGrad)" stroke="#4a3510" stroke-width="0.8"/>
+    <circle cx="394.87" cy="215.99" r="2.21" fill="#ffe6a3" opacity="0.9"/>
+
+  <circle cx="256.0" cy="256.0" r="121.9" fill="#110e0c" stroke="#4a3510" stroke-width="3"/>
+  <circle cx="260.0" cy="259.0" r="112.1" fill="url(#furnaceHearthGrad)"/>
+
+  <circle cx="221.5" cy="214.6" r="41.4" fill="#c79e38" stroke="#ffe6a3" stroke-width="1.2" opacity="0.9"/>
+  <circle cx="283.6" cy="295.1" r="34.5" fill="#b86638" stroke="#f5b885" stroke-width="1.2" opacity="0.85"/>
+
+  <path d="M 191.6 297.4 C 173.2 352.6, 237.6 366.4, 306.6 343.4" fill="none" stroke="#b86638" stroke-width="6" stroke-linecap="round"/>
+  <path d="M 191.6 297.4 C 173.2 352.6, 237.6 366.4, 306.6 343.4" fill="none" stroke="#f5b885" stroke-width="2" stroke-linecap="round"/>
+
+  <circle cx="325.0" cy="127.2" r="21.9" fill="#f0cc5c" stroke="#75571f" stroke-width="1.4"/>
+  <circle cx="325.0" cy="127.2" r="16.1" fill="#e8e0cc" stroke="#3d362e" stroke-width="0.8"/>
+  <line x1="325.0" y1="127.2" x2="332.4" y2="118.4" stroke="#db2e24" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="325.0" cy="127.2" r="2.2" fill="#75571f"/>
+
+  <path d="M 295.47 177.06 C 291.88 148.36, 191.42 151.95, 195.00 216.53 C 209.36 241.65, 241.65 248.82, 256.00 256.00 C 270.35 263.18, 302.64 270.35, 317.00 295.47 C 320.58 360.05, 220.12 363.64, 216.53 334.94" fill="none" stroke="#050403" stroke-width="22" stroke-linecap="round" opacity="0.75" transform="translate(2, 4)"/>
+  <path d="M 295.47 177.06 C 291.88 148.36, 191.42 151.95, 195.00 216.53 C 209.36 241.65, 241.65 248.82, 256.00 256.00 C 270.35 263.18, 302.64 270.35, 317.00 295.47 C 320.58 360.05, 220.12 363.64, 216.53 334.94" fill="none" stroke="#f27514" stroke-width="24" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 295.47 177.06 C 291.88 148.36, 191.42 151.95, 195.00 216.53 C 209.36 241.65, 241.65 248.82, 256.00 256.00 C 270.35 263.18, 302.64 270.35, 317.00 295.47 C 320.58 360.05, 220.12 363.64, 216.53 334.94" fill="none" stroke="#ffb338" stroke-width="18" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 295.47 177.06 C 291.88 148.36, 191.42 151.95, 195.00 216.53 C 209.36 241.65, 241.65 248.82, 256.00 256.00 C 270.35 263.18, 302.64 270.35, 317.00 295.47 C 320.58 360.05, 220.12 363.64, 216.53 334.94" fill="none" stroke="#75571f" stroke-width="16" stroke-linecap="round"/>
+  <path d="M 295.47 177.06 C 291.88 148.36, 191.42 151.95, 195.00 216.53 C 209.36 241.65, 241.65 248.82, 256.00 256.00 C 270.35 263.18, 302.64 270.35, 317.00 295.47 C 320.58 360.05, 220.12 363.64, 216.53 334.94" fill="none" stroke="#c79e38" stroke-width="13" stroke-linecap="round"/>
+  <path d="M 295.47 177.06 C 291.88 148.36, 191.42 151.95, 195.00 216.53 C 209.36 241.65, 241.65 248.82, 256.00 256.00 C 270.35 263.18, 302.64 270.35, 317.00 295.47 C 320.58 360.05, 220.12 363.64, 216.53 334.94" fill="none" stroke="#f0cc5c" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 295.47 177.06 C 291.88 148.36, 191.42 151.95, 195.00 216.53 C 209.36 241.65, 241.65 248.82, 256.00 256.00 C 270.35 263.18, 302.64 270.35, 317.00 295.47 C 320.58 360.05, 220.12 363.64, 216.53 334.94" fill="none" stroke="#ffe6a3" stroke-width="3" stroke-linecap="round"/>
+
+  <rect x="281.1" y="150.2" width="50.2" height="46.6" rx="4" fill="#c79e38" stroke="#ffe6a3" stroke-width="1.2"/>
+  <circle cx="288.3" cy="157.3" r="2" fill="#ffe6a3"/>
+  <circle cx="324.2" cy="157.3" r="2" fill="#ffe6a3"/>
+  <circle cx="288.3" cy="189.6" r="2" fill="#ffe6a3"/>
+  <circle cx="324.2" cy="189.6" r="2" fill="#ffe6a3"/>
+
+  <rect x="180.7" y="315.2" width="50.2" height="46.6" rx="4" fill="#c79e38" stroke="#ffe6a3" stroke-width="1.2"/>
+  <circle cx="187.8" cy="322.4" r="2" fill="#ffe6a3"/>
+  <circle cx="223.7" cy="322.4" r="2" fill="#ffe6a3"/>
+  <circle cx="187.8" cy="354.7" r="2" fill="#ffe6a3"/>
+  <circle cx="223.7" cy="354.7" r="2" fill="#ffe6a3"/>
+
+  <rect x="239.9" y="247.9" width="32.3" height="16.1" rx="3" fill="#f0cc5c" stroke="#75571f" stroke-width="1"/>
+  <circle cx="247.0" cy="256.0" r="2" fill="#ffe6a3"/>
+  <circle cx="265.0" cy="256.0" r="2" fill="#ffe6a3"/>
+</svg>

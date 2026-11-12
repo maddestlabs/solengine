@@ -1,0 +1,36 @@
+# ==============================================================================
+# SolEngine & Eatsbits Procedural Foley Preset: shuffle
+# Auto-synthesized from shuffle-loud.wav
+# Empirical population: 12 human events analyzed
+# Thin-plate physical modal resonators + multi-stage friction & landing
+# ==============================================================================
+
+audio.set_master_volume(0.85)
+audio.set_master_variance(1.0) # 1.0 = authentic human deviation, 0.0 = deterministic
+
+audio.define_sound("shuffle", {
+    # 4-pole thin-plate cardboard flexural eigenmodes:
+    modes: [
+        { freq_base: 2146.1, freq_dev: 0.376, decay_base: 0.0348, decay_dev: 0.471, gain: 0.74, q: 235.6 },
+        { freq_base: 2991.3, freq_dev: 0.262, decay_base: 0.0351, decay_dev: 0.509, gain: 0.86, q: 346.5 },
+        { freq_base: 4121.8, freq_dev: 0.174, decay_base: 0.0326, decay_dev: 0.524, gain: 0.76, q: 412.0 },
+        { freq_base: 5255.9, freq_dev: 0.167, decay_base: 0.0321, decay_dev: 0.576, gain: 0.75, q: 528.8 }
+    ],
+
+    # Pre-snap thumb peel friction (high-frequency epidermal shear):
+    peel_friction: {
+        duration_base: 0.0061,
+        duration_dev:  0.045,
+        filter_cutoff: 4671.6,
+        gain_base:     0.551
+    },
+
+    # Baize / table felt landing & secondary micro-impacts:
+    landing: {
+        delay_base:        0.0244,
+        delay_dev:         0.317,
+        thud_frequency:    320.0,
+        gain_base:         0.225,
+        double_tap_chance: 0.83
+    }
+})

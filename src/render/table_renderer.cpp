@@ -789,6 +789,8 @@ void render3DCard(
     if (wearLvl == CardWearLevel::Played) scratchDistort = 0.0018f;
     else if (wearLvl == CardWearLevel::Vintage) scratchDistort = 0.0035f;
 
+    const float condParam = static_cast<float>(wearLvl) + 10.0f * static_cast<float>(CardTextureCache::instance().cardStock());
+
     if (r.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU && CardTextureCache::instance().hasGpuAtlas()) {
         const auto& slot = front
             ? CardTextureCache::instance().getAtlasSlot(c.suit, c.rank)
@@ -799,7 +801,7 @@ void render3DCard(
             atlasUVs[i].x = slot.u0 + outerUV[i].x * (slot.u1 - slot.u0);
             atlasUVs[i].y = slot.v0 + outerUV[i].y * (slot.v1 - slot.v0);
         }
-        r.drawTexturedPolygon(pts.data(), atlasUVs.data(), 16, cardLight, cardLight, cardLight, 1.0f, scratchDistort);
+        r.drawTexturedPolygon(pts.data(), atlasUVs.data(), 16, cardLight, cardLight, cardLight, 1.0f, scratchDistort, condParam, outerUV.data());
     } else if (tex && (!tex->argb32.empty() || !tex->rgba.empty())) {
         int mipW = tex->width;
         int mipH = tex->height;
@@ -823,6 +825,85 @@ void render3DCard(
     } else if (wearLvl == CardWearLevel::Pristine) {
         draw3DRoundedOutline(r, xf, outerUV, zSign, 0.22f, 0.18f, 0.14f, 0.85f, 1.2f);
     }
+}
+
+void drawPhysicalDeckRim(
+    eatsbits::ui::BatchRenderer2D& r,
+    float x, float y, float w, float h, float radius,
+    size_t cardCount,
+    const eatsbits::ui::LightSource2D& light
+) {
+    if (cardCount < 2 || w <= 0.0f || h <= 0.0f) return;
+    (void)light;
+    const float thickness = std::clamp(static_cast<float>(cardCount) * 0.28f, 1.2f, 6.0f);
+    // Bevel offset toward bottom-right (matching light direction and slight top-down camera angle)
+    const float rimY = thickness * 0.85f;
+    const float rimX = thickness * 0.30f;
+
+    // 1. Cut paper cardstock rim base (warm ivory / core paper)
+    r.drawRoundedRect(x + rimX, y + rimY, w, h, radius, 0.91f, 0.88f, 0.82f, 1.0f, 4);
+
+    // 2. Bottom creasing shadow line where the deck meets the table
+    r.drawRoundedRectOutline(x + rimX, y + rimY, w, h, radius, 0.28f, 0.25f, 0.20f, 0.45f, 1.0f, 4);
+
+    // 3. Subtle micro-striation representing stacked card layers
+    if (thickness >= 2.5f) {
+        const float midY = y + rimY * 0.5f;
+        const float midX = x + rimX * 0.5f;
+        r.drawRoundedRectOutline(midX, midY, w, h, radius, 0.78f, 0.74f, 0.68f, 0.40f, 0.8f, 4);
+    }
+}
+
+struct CardPhysicalWarp {
+    bool hasWarp{false};
+    float bowY{0.0f};       // Vertical camber foreshortening (0.0 to 0.052)
+    float bowX{0.0f};       // Horizontal camber foreshortening (0.0 to 0.025)
+    float liftZ{0.0f};      // Center/edge elevation off table (0.0 to 5.8 px)
+};
+
+inline CardPhysicalWarp computeCardPhysicalWarp(uint8_t cardId, CardWearLevel wear) noexcept {
+    CardPhysicalWarp warp{};
+    if (wear == CardWearLevel::Pristine) {
+        // Pristine: brand new out-of-the-box cards are dead flat
+        return warp;
+    }
+
+    // Determine odds of this card having physical bend/camber based on Wear setting
+    float prob = 0.0f;
+    float maxBow = 0.0f;
+    float maxLift = 0.0f;
+    if (wear == CardWearLevel::Natural) {
+        prob = 0.28f;      // ~28% of cards have subtle handling curve
+        maxBow = 0.016f;   // subtle ~1-2px foreshortening
+        maxLift = 1.8f;
+    } else if (wear == CardWearLevel::Played) {
+        prob = 0.65f;      // ~65% of cards have noticeable riffle bow/arch
+        maxBow = 0.032f;   // ~3-4px foreshortening
+        maxLift = 3.6f;
+    } else { // Vintage
+        prob = 0.88f;      // ~88% of vintage cards are warped/cupped
+        maxBow = 0.050f;   // ~5-7px foreshortening
+        maxLift = 5.8f;
+    }
+
+    // Deterministic hash check per card
+    const float roll = (cardHashNoise(0x9E3779B9u, cardId, 801) + 1.0f) * 0.5f; // [0.0, 1.0]
+    if (roll > prob) {
+        // This card remains flat
+        return warp;
+    }
+
+    warp.hasWarp = true;
+    const float mag = 0.40f + 0.60f * std::abs(cardHashNoise(0x9E3779B9u, cardId, 802));
+    warp.bowY = maxBow * mag;
+    warp.liftZ = maxLift * mag;
+
+    // A subset (~35% of warped cards) also exhibit slight lateral bow along X
+    if (std::abs(cardHashNoise(0x9E3779B9u, cardId, 803)) > 0.65f) {
+        warp.bowX = (maxBow * 0.50f) * mag;
+    }
+
+    return warp;
 }
 
 void drawProceduralCard(
@@ -859,15 +940,26 @@ void drawProceduralCard(
         render3DCard(r, c, xf, pal, light, pass);
         return;
     }
+
+    const auto wearLvl = CardTextureCache::instance().cardWearLevel();
+    const CardPhysicalWarp warp = computeCardPhysicalWarp(c.id, wearLvl);
+
+    // Physical card camber foreshortening:
+    // Curved cards project a slightly shorter chord on screen without altering the game grid
+    const float effBaseW = (warp.bowX > 0.0f) ? (baseW * (1.0f - warp.bowX)) : baseW;
+    const float effBaseH = (warp.bowY > 0.0f) ? (baseH * (1.0f - warp.bowY)) : baseH;
+    const float baseXOffset = (baseW - effBaseW) * 0.5f;
+    const float baseYOffset = (baseH - effBaseH) * 0.5f;
+
     const float liftScale = 1.0f + c.elevation * 0.0035f;
     const float flipCos = std::cos(c.flipAngle);
     const float scaleX = std::max(0.06f, std::abs(flipCos)) * liftScale;
     const float scaleY = liftScale;
 
-    const float w = baseW * scaleX;
-    const float h = baseH * scaleY;
-    const float x = baseX + (baseW - w) * 0.5f;
-    const float y = baseY + (baseH - h) * 0.5f;
+    const float w = effBaseW * scaleX;
+    const float h = effBaseH * scaleY;
+    const float x = (baseX + baseXOffset) + (effBaseW - w) * 0.5f;
+    const float y = (baseY + baseYOffset) + (effBaseH - h) * 0.5f;
 
     const float effRu = CardTextureCache::instance().effectiveRu();
     const float radius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * w);
@@ -890,15 +982,24 @@ void drawProceduralCard(
     };
     ScopedCardRotation rotGuard(r, c.angle, x + w * 0.5f, y + h * 0.5f);
 
-    // Dynamic drop shadow driven by physical light source:
-    // Expands and softens naturally when card is elevated or dragged, and uses analytical
-    // transmittance compensation against prevCardX/Y so grouped cards never accumulate darkness.
+    // Dynamic drop shadow driven by physical light source & card camber depth:
+    // When a card arches upward, the elevated center casts a broader, softer penumbra
+    // while the contact ends remain grounded to the table.
     if (pass != CardRenderPass::BodyOnly) {
-        const float shadowElevation = 2.5f + c.elevation;
-        const float shadowOpacity = std::clamp(0.32f + c.elevation * 0.010f, 0.16f, 0.46f);
+        const float shadowElevation = 2.5f + c.elevation + warp.liftZ;
+        const float shadowOpacity = std::clamp(0.32f + (c.elevation + warp.liftZ * 0.4f) * 0.010f, 0.16f, 0.48f);
         const float prevScaledX = (std::abs(prevCardX) < 9000.0f) ? (prevCardX + (baseW - w) * 0.5f) : 99999.0f;
         const float prevScaledY = (std::abs(prevCardY) < 9000.0f) ? (prevCardY + (baseH - h) * 0.5f) : 99999.0f;
-        r.drawRectDropShadow(x, y, w, h, radius, shadowElevation, light, shadowOpacity, prevScaledX, prevScaledY);
+
+        if (warp.liftZ > 1.2f && c.elevation < 1.0f) {
+            // Dual shadow for arched cards:
+            // 1. Base contact shadow where card ends touch the table
+            r.drawRectDropShadow(x, y, w, h, radius, 2.0f, light, 0.38f, prevScaledX, prevScaledY);
+            // 2. Elevated soft penumbra where the center arches off the table
+            r.drawRectDropShadow(x, y, w, h, radius, shadowElevation, light, shadowOpacity * 0.75f, prevScaledX, prevScaledY);
+        } else {
+            r.drawRectDropShadow(x, y, w, h, radius, shadowElevation, light, shadowOpacity, prevScaledX, prevScaledY);
+        }
     }
     if (pass == CardRenderPass::ShadowOnly) {
         return;
@@ -906,16 +1007,17 @@ void drawProceduralCard(
 
     const bool showBack = (!c.faceUp) || (c.flipAngle > kHalfPi);
     float scratchDistort = 0.0f;
-    const auto wearLvl = CardTextureCache::instance().cardWearLevel();
     if (wearLvl == CardWearLevel::Played) scratchDistort = 0.0018f;
     else if (wearLvl == CardWearLevel::Vintage) scratchDistort = 0.0035f;
+
+    const float condParam = static_cast<float>(wearLvl) + 10.0f * static_cast<float>(CardTextureCache::instance().cardStock());
 
     // Fast GPU Texture Atlas path
     if (r.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU && CardTextureCache::instance().hasGpuAtlas()) {
         const auto& slot = showBack
             ? CardTextureCache::instance().getBackAtlasSlot()
             : CardTextureCache::instance().getAtlasSlot(c.suit, c.rank);
-        r.drawTexturedRoundedRectGpu(x, y, w, h, radius, slot.u0, slot.v0, slot.u1, slot.v1, 1.0f, 1.0f, 1.0f, 1.0f, scratchDistort);
+        r.drawTexturedRoundedRectGpu(x, y, w, h, radius, slot.u0, slot.v0, slot.u1, slot.v1, 1.0f, 1.0f, 1.0f, 1.0f, scratchDistort, condParam);
 
         if (c.enshadedGlow) {
             r.drawRoundedRectOutline(x - 1.5f, y - 1.5f, w + 3.0f, h + 3.0f, radius + 1.5f,
@@ -1436,17 +1538,48 @@ void TableRenderer::renderBoard(
 
         // Render table drop shadows under the entire resting pile first (using non-accumulating
         // transmittance compensation against the preceding card in the pile), then card bodies bottom-to-top
+        const bool isTightlyStacked = (p.type == PileType::Stock || p.type == PileType::Foundation || p.type == PileType::FreeCell);
+        const size_t stackCount = restingIndices.size();
+
         for (size_t i = 0; i < restingIndices.size(); ++i) {
-            if (i > 0 && (p.type == PileType::Stock || p.type == PileType::Foundation || p.type == PileType::FreeCell)) {
-                continue; // Tightly stacked deck/foundation piles emit a single unified table shadow
+            if (i > 0 && isTightlyStacked) {
+                continue; // Tightly stacked deck/foundation piles emit unified table shadows
             }
             const Card& c = p.cards[restingIndices[i]];
             const float prevX = (i > 0) ? p.cards[restingIndices[i - 1]].x : 99999.0f;
             const float prevY = (i > 0) ? p.cards[restingIndices[i - 1]].y : 99999.0f;
-            drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
+
+            if (isTightlyStacked && stackCount > 1) {
+                // Dual-component stack shadow:
+                // 1. Crisp, dark grounding contact shadow at base elevation
+                drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
+                // 2. Elevated soft penumbra shadow matching full physical deck height
+                const float stackElevation = std::min(18.0f, static_cast<float>(stackCount) * 0.38f);
+                Card tallCard = c;
+                tallCard.elevation = c.elevation + stackElevation;
+                drawProceduralCard(r, tallCard, tallCard.x, tallCard.y, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
+            } else {
+                drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
+            }
         }
+
+        // Draw physical deck edge rim for multi-card stacks before rendering top card body
+        if (isTightlyStacked && stackCount >= 2 && !restingIndices.empty()) {
+            const Card& topCard = p.cards[restingIndices.back()];
+            const float effRu = CardTextureCache::instance().effectiveRu();
+            const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
+            drawPhysicalDeckRim(r, topCard.x, topCard.y, cw, ch, cardRadius, stackCount, light);
+        }
+
         for (size_t i = 0; i < restingIndices.size(); ++i) {
             const Card& c = p.cards[restingIndices[i]];
+            if (i > 0 && (p.type == PileType::Tableau || p.type == PileType::Waste)) {
+                // Inter-card contact shadow: card i rests physically on top of card i-1,
+                // casting a tight, crisp contact shadow (gap ~0.3mm) across card i-1's face.
+                const float effRu = CardTextureCache::instance().effectiveRu();
+                const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
+                r.drawRectDropShadow(c.x, c.y, cw, ch, cardRadius, 1.2f, light, 0.38f);
+            }
             drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::BodyOnly);
         }
     }
@@ -1495,6 +1628,11 @@ void TableRenderer::renderBoard(
             Card c = p.cards[cIdx];
             c.elevation = 14.0f;
             c.angle += std::clamp(dragOffsetX * 0.0006f, -0.045f, 0.045f);
+            if (cIdx > firstDrag) {
+                const float effRu = CardTextureCache::instance().effectiveRu();
+                const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
+                r.drawRectDropShadow(c.x + dragOffsetX, c.y + dragOffsetY, cw, ch, cardRadius, 1.2f, light, 0.38f);
+            }
             drawProceduralCard(r, c, c.x + dragOffsetX, c.y + dragOffsetY, cw, ch, pal, light, CardRenderPass::BodyOnly);
         }
     }
@@ -2300,6 +2438,7 @@ struct InteractiveContext {
             themeReady = false;
             targetThemeSlug.clear();
             stagingDeckReady = false;
+            stagingDeck = CardTextureCache::StagingDeck{};
             customBgReady = false;
             customAudioReady = false;
             solvableSeedReady = false;
@@ -2405,6 +2544,11 @@ struct InteractiveContext {
         asyncManager.cancelRequested.store(false);
         asyncManager.progress.store(0.0f);
         asyncManager.stagingDeckReady = false;
+        asyncManager.stagingDeck = CardTextureCache::StagingDeck{};
+        asyncManager.stagingDeck.hasNewBase = false;
+        asyncManager.stagingDeck.theme = CardTextureCache::instance().currentDeckTheme();
+        asyncManager.stagingDeck.cardW = CardTextureCache::instance().cardWidth();
+        asyncManager.stagingDeck.cardH = CardTextureCache::instance().cardHeight();
         asyncManager.opType = AsyncOp::Conditioning;
         asyncManager.dialogTitle = "CONDITIONING PLAYING CARDS";
         asyncManager.dialogInitialStatus = "Synthesizing physical paper stock & wear...";
@@ -2999,6 +3143,9 @@ struct InteractiveContext {
         GameRegistry::instance().initialize();
 
         const auto& startupSettings = SettingsManager::instance().settings();
+        if (startupSettings.tableTint != TableTintPreset::Auto) {
+            ProceduralBackgroundSystem::instance().setTableTint(startupSettings.tableTint);
+        }
         if (!startupSettings.tableThemeSlug.empty()) {
             size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(startupSettings.tableThemeSlug, startupSettings.tableTheme);
             const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
@@ -3070,9 +3217,15 @@ struct InteractiveContext {
 
             auto& cache = CardTextureCache::instance();
             bool themeChanged = (s.tableTheme != board.tableTheme() || s.tableThemeSlug != board.tableThemeSlug());
+            bool tintChanged = (s.tableTint != ProceduralBackgroundSystem::instance().tableTint());
+            if (tintChanged) {
+                ProceduralBackgroundSystem::instance().setTableTint(s.tableTint);
+                ProceduralBackgroundSystem::instance().invalidateCache();
+            }
             bool deckChanged = (s.deckTheme != cache.currentDeckTheme());
             bool wearChanged = (s.cardWear != cache.cardWearLevel());
             bool stockChanged = (s.cardStock != cache.cardStock());
+            bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
 
             if (deckChanged) {
                 if (themeChanged) {
@@ -3092,13 +3245,18 @@ struct InteractiveContext {
                     ProceduralBackgroundSystem::instance().invalidateCache();
                 }
                 startAsyncConditioning(s.cardWear, s.cardStock);
-            } else if (themeChanged) {
-                size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
-                const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
-                if (def) {
-                    startAsyncTableTheme(*def);
-                } else {
-                    startAsyncTableTheme(s.tableTheme);
+            } else {
+                if (cardBackChanged) {
+                    cache.setActiveCardBack(s.cardBackId);
+                }
+                if (themeChanged) {
+                    size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+                    const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
+                    if (def) {
+                        startAsyncTableTheme(*def);
+                    } else {
+                        startAsyncTableTheme(s.tableTheme);
+                    }
                 }
             }
         };
@@ -3111,11 +3269,14 @@ struct InteractiveContext {
         bool deckChanged = (s.deckTheme != cache.currentDeckTheme());
         bool wearChanged = (s.cardWear != cache.cardWearLevel());
         bool stockChanged = (s.cardStock != cache.cardStock());
+        bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
 
         if (deckChanged) {
             startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
         } else if (wearChanged || stockChanged) {
             startAsyncConditioning(s.cardWear, s.cardStock);
+        } else if (cardBackChanged) {
+            cache.setActiveCardBack(s.cardBackId);
         }
     }
 
@@ -3656,6 +3817,7 @@ struct InteractiveContext {
                 } else if (asyncManager.stagingDeckReady || asyncManager.customBgReady || asyncManager.customAudioReady) {
                     if (asyncManager.stagingDeckReady) {
                         CardTextureCache::instance().commitStagedDeck(std::move(asyncManager.stagingDeck));
+                        CardTextureCache::instance().setActiveCardBack(SettingsManager::instance().settings().cardBackId);
                         if (renderer.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU) {
                             CardTextureCache::instance().buildGpuAtlas(renderer);
                         }

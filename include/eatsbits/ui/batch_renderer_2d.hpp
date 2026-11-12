@@ -238,7 +238,9 @@ public:
                               float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f);
     void drawTexturedPolygon(const Point2D* points, const Point2D* uvs, size_t count,
                              float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f,
-                             float scratchDistortion = 0.0f);
+                             float scratchDistortion = 0.0f,
+                             float conditioningParam = 0.0f,
+                             const Point2D* localUVs = nullptr);
     void drawConvexPolygon(const Point2D* points, size_t count, float r, float g, float b, float a = 1.0f);
     void drawConvexPolygonGradient(const Point2D* points, size_t count,
                                    float r0, float g0, float b0,
@@ -269,7 +271,8 @@ public:
         float x, float y, float w, float h, float radius,
         float u0, float v0, float u1, float v1,
         float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f,
-        float scratchDistortion = 0.0f
+        float scratchDistortion = 0.0f,
+        float conditioningParam = 0.0f
     );
     void drawQuadTextured3D(
         float x0, float y0, float u0, float v0,

@@ -17,7 +17,9 @@ struct AppSettings {
     GameVariant variant{GameVariant::KlondikeDraw1};
     TableThemeId tableTheme{TableThemeId::PastelTan};
     std::string tableThemeSlug;
+    TableTintPreset tableTint{TableTintPreset::Auto};
     DeckThemeId deckTheme{DeckThemeId::SolEnshade};
+    std::string cardBackId{"auto"};
     GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
     CardWearLevel cardWear{CardWearLevel::Pristine};
     CardStock cardStock{CardStock::None};
