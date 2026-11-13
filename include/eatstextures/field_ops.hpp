@@ -196,6 +196,16 @@ ColorImage quantizePixelArt(const ColorImage& src,
 
 std::vector<RGBAf> getBuiltinPalette(const std::string& name);
 
+ColorImage resynthesizeFromRgba(const std::vector<uint8_t>& srcRgba,
+                                uint32_t srcW,
+                                uint32_t srcH,
+                                uint32_t dstW,
+                                uint32_t dstH,
+                                float jitterStrength = 0.006f,
+                                float detailStrength = 0.18f,
+                                float tileScale = 1.0f,
+                                uint32_t seed = 42);
+
 } // namespace eatstextures
 
 #endif // EATSTEXTURES_FIELD_OPS_HPP

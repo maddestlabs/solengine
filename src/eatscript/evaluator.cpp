@@ -146,6 +146,17 @@ void Evaluator::registerMemberFunction(const std::string& objectName, const std:
     memberFunctions_[objectName][methodName] = std::move(fn);
 }
 
+HostFunction Evaluator::getMemberFunction(const std::string& objectName, const std::string& methodName) const {
+    auto objIt = memberFunctions_.find(objectName);
+    if (objIt != memberFunctions_.end()) {
+        auto mIt = objIt->second.find(methodName);
+        if (mIt != objIt->second.end()) {
+            return mIt->second;
+        }
+    }
+    return nullptr;
+}
+
 Value Evaluator::evaluate(const Program& program) {
     returning_ = false;
     returnValue_ = Value();

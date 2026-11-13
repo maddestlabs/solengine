@@ -767,7 +767,7 @@ void render3DCard(
     // 3. Card Surface with Texture Mapping
     const CardTexture* tex = front
         ? CardTextureCache::instance().getCardTexture(c.suit, c.rank)
-        : CardTextureCache::instance().getCardBackTexture();
+        : CardTextureCache::instance().getCardBackTexture(c.id);
 
     Point2D p0 = xf.projectUV(0.0f, 0.0f, zSign);
     Point2D p1 = xf.projectUV(1.0f, 0.0f, zSign);
@@ -794,7 +794,7 @@ void render3DCard(
     if (r.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU && CardTextureCache::instance().hasGpuAtlas()) {
         const auto& slot = front
             ? CardTextureCache::instance().getAtlasSlot(c.suit, c.rank)
-            : CardTextureCache::instance().getBackAtlasSlot();
+            : CardTextureCache::instance().getBackAtlasSlot(c.id);
 
         std::array<Point2D, 16> atlasUVs;
         for (size_t i = 0; i < 16; ++i) {
@@ -1015,7 +1015,7 @@ void drawProceduralCard(
     // Fast GPU Texture Atlas path
     if (r.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU && CardTextureCache::instance().hasGpuAtlas()) {
         const auto& slot = showBack
-            ? CardTextureCache::instance().getBackAtlasSlot()
+            ? CardTextureCache::instance().getBackAtlasSlot(c.id)
             : CardTextureCache::instance().getAtlasSlot(c.suit, c.rank);
         r.drawTexturedRoundedRectGpu(x, y, w, h, radius, slot.u0, slot.v0, slot.u1, slot.v1, 1.0f, 1.0f, 1.0f, 1.0f, scratchDistort, condParam);
 
@@ -1029,7 +1029,7 @@ void drawProceduralCard(
     }
 
     const CardTexture* tex = showBack
-        ? CardTextureCache::instance().getCardBackTexture()
+        ? CardTextureCache::instance().getCardBackTexture(c.id)
         : CardTextureCache::instance().getCardTexture(c.suit, c.rank);
 
     if (tex && !tex->argb32.empty()) {
@@ -1247,9 +1247,9 @@ void drawMenuOrbButton(
                  pal.woodR0 + 0.08f, pal.woodG0 + 0.06f, pal.woodB0 + 0.05f,
                  alpha, 24);
 
-    const float rimR = (hovered || menuOpen) ? pal.accentR : pal.trimR;
-    const float rimG = (hovered || menuOpen) ? pal.accentG : pal.trimG;
-    const float rimB = (hovered || menuOpen) ? pal.accentB : pal.trimB;
+    const float rimR = hovered ? 1.0f : (menuOpen ? pal.accentR : pal.trimR);
+    const float rimG = hovered ? 1.0f : (menuOpen ? pal.accentG : pal.trimG);
+    const float rimB = hovered ? 1.0f : (menuOpen ? pal.accentB : pal.trimB);
 
     r.drawCircleOutline(cx, cy, radius, rimR, rimG, rimB, alpha, (hovered || menuOpen) ? 1.8f : 1.2f, 24);
 
@@ -1285,7 +1285,7 @@ void drawStaticTableChrome(
 ) {
     // 1. Physically Lit Procedural Playfield spanning 100% of the display
     ProceduralBackgroundSystem::instance().renderBackground(
-        r, 0.0f, 0.0f, width, height, board.tableTheme(), light, board.seed()
+        r, 0.0f, 0.0f, width, height, board.tableThemeSlug(), light, board.seed()
     );
 
     r.drawDustSpecks(0.0f, 0.0f, width, height, 36, board.seed(), pal.trimR, pal.trimG, pal.trimB, 0.12f);
@@ -3192,6 +3192,22 @@ struct InteractiveContext {
             startAsyncSolvableDeal(def);
         };
 
+        settingsDialog.onOpenGameBrowser = [this]() {
+            std::string curId = board.activeGameDef().id;
+            if (curId.empty()) {
+                const auto* def = GameRegistry::instance().findByVariant(board.variant());
+                if (def) curId = def->id;
+            }
+            gameBrowserDialog.open(curId);
+        };
+
+        settingsDialog.onSelectFavoriteGame = [this](const std::string& gameId) {
+            const auto* def = GameRegistry::instance().findById(gameId);
+            if (def && gameBrowserDialog.onGameSelected) {
+                gameBrowserDialog.onGameSelected(*def);
+            }
+        };
+
         settingsDialog.onSettingsChanged = [this]() {
             const auto& s = SettingsManager::instance().settings();
             menuAnchor = s.menuAnchor;
@@ -3745,7 +3761,7 @@ struct InteractiveContext {
         lastTime = now;
 
         auto screenPan = [&](float x) noexcept -> float {
-            return (width > 0) ? std::clamp((x / static_cast<float>(width)) * 2.0f - 1.0f, -0.80f, 0.80f) : 0.0f;
+            return (width > 0) ? std::clamp(((x / static_cast<float>(width)) * 2.0f - 1.0f) * 0.30f, -0.30f, 0.30f) : 0.0f;
         };
 
         if (asyncManager.opType != AsyncOp::None || asyncManager.isBusy.load() || loadingDialog.isOpen()) {
@@ -4600,8 +4616,11 @@ int TableRenderer::runInteractiveWindow(
     });
 
     glfwSetScrollCallback(window, [](GLFWwindow* /*win*/, double /*xoffset*/, double yoffset) {
-        if (s_activeContext && s_activeContext->gameBrowserDialog.isOpen()) {
+        if (!s_activeContext) return;
+        if (s_activeContext->gameBrowserDialog.isOpen()) {
             s_activeContext->gameBrowserDialog.handleScroll(static_cast<float>(yoffset));
+        } else if (s_activeContext->settingsDialog.isOpen()) {
+            s_activeContext->settingsDialog.handleScroll(static_cast<float>(yoffset));
         }
     });
 

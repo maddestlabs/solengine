@@ -1,0 +1,59 @@
+# SolEngine Procedural Background Theme — Marble Countertop (SVG + Tiny JPG + White Noise)
+# 1. 8-color SVG drawn at 1.0 opacity, then gently warped + 1.5px softened to break rigid vector lines
+# 2. Tiny heavily-compressed JPG (~1.2 KB) blended on top at 0.72 opacity for smooth continuous gradients
+# 3. Per-pixel white noise shader adds fine mineral stone grain + flat-plane dielectric sheen
+
+sol.set_theme({
+    id: "marble",
+    name: "Marble",
+    author: "Maddest Labs",
+    description: "Polished marble countertop slabs: warped 8-color SVG + tiny JPG + white noise shader",
+    version: 4,
+    procedural: true,
+    lacquer: 0.65,
+    relief_bump: 0.0,
+    option_label: "Stone",
+    options: [
+        { id: "calacatta_gold", name: "Calacatta Gold", u: [1.0, 1.0, 1.0, 0.0] },
+        { id: "nero_marquina",  name: "Nero Marquina",  u: [1.0, 1.0, 1.0, 1.0] }
+    ]
+})
+
+def svg_distort_shader(u, v, nx, ny, in_r, in_g, in_b):
+    # Smooth low-frequency organic FBM warp (no high-freq jitter artifacts)
+    wx = (fbm(nx * 5.0 + 1.7, ny * 5.0 + 3.2, 2) - 0.5) * 0.004
+    wy = (fbm(nx * 5.0 + 6.4, ny * 5.0 + 8.1, 2) - 0.5) * 0.004
+    cu = clamp(u + wx, 0.001, 0.999)
+    cv = clamp(v + wy, 0.001, 0.999)
+
+    # Tight ~1.5px 5-tap soften to feather rigid SVG edges without ghosting
+    d = 0.0012
+    t0 = clamp(cu + d, 0.001, 0.999)
+    t1 = clamp(cu - d, 0.001, 0.999)
+    t2 = clamp(cv + d, 0.001, 0.999)
+    t3 = clamp(cv - d, 0.001, 0.999)
+
+    r = sample_r(cu, cv) * 0.36 + (sample_r(t0, cv) + sample_r(t1, cv) + sample_r(cu, t2) + sample_r(cu, t3)) * 0.16
+    g = sample_g(cu, cv) * 0.36 + (sample_g(t0, cv) + sample_g(t1, cv) + sample_g(cu, t2) + sample_g(cu, t3)) * 0.16
+    b = sample_b(cu, cv) * 0.36 + (sample_b(t0, cv) + sample_b(t1, cv) + sample_b(cu, t2) + sample_b(cu, t3)) * 0.16
+    return [clamp(r, 0.0, 1.0), clamp(g, 0.0, 1.0), clamp(b, 0.0, 1.0)]
+
+def marble_refine_shader(u, v, nx, ny, in_r, in_g, in_b):
+    # Pure per-pixel white noise (~+/-3.0% luminance variance + +/-0.5% mineral chroma grain)
+    wn = (random() - 0.5) * 0.060
+    r = clamp(in_r + wn + (random() - 0.5) * 0.010, 0.0, 1.0)
+    g = clamp(in_g + wn + (random() - 0.5) * 0.010, 0.0, 1.0)
+    b = clamp(in_b + wn + (random() - 0.5) * 0.010, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    opt = option_id
+    if (opt != "nero_marquina"):
+        opt = "calacatta_gold"
+    ctx.set_opacity(1.0)
+    ctx.draw_svg_file("marble/" + opt + ".svg", 0, 0, w, h, true)
+    ctx.apply_shader("svg_distort_shader", intensity=1.0)
+    ctx.set_opacity(0.72)
+    ctx.draw_image_file("marble/" + opt + "_low.jpg", 0, 0, w, h, true)
+    ctx.set_opacity(1.0)
+    ctx.apply_shader("marble_refine_shader", intensity=1.0)

@@ -100,6 +100,16 @@ bool SettingsManager::load() {
             if (a.contains("tableThemeSlug") && a["tableThemeSlug"].isString()) {
                 settings_.tableThemeSlug = a["tableThemeSlug"].asString();
             }
+            if (a.contains("tableThemeOption") && a["tableThemeOption"].isString()) {
+                settings_.tableThemeOption = a["tableThemeOption"].asString();
+            }
+            if (a.contains("tableThemeOptions") && a["tableThemeOptions"].isObject()) {
+                for (const auto& [k, v] : a["tableThemeOptions"].asObject()) {
+                    if (v.isString()) {
+                        settings_.tableThemeOptions[k] = v.asString();
+                    }
+                }
+            }
             if (a.contains("tableTint") && a["tableTint"].isString()) {
                 settings_.tableTint = parseTableTint(a["tableTint"].asString());
             } else if (a.contains("tableTint") && a["tableTint"].isNumber()) {
@@ -143,6 +153,13 @@ bool SettingsManager::load() {
             settings_.masterVolume = std::clamp(au["masterVolume"].asFloat(0.85f), 0.0f, 1.0f);
             settings_.muted = au["muted"].asBool(false);
             settings_.shuffleStyle = static_cast<ShuffleStyle>(std::clamp(au["shuffleStyle"].asInt(0), 0, 1));
+            if (au.contains("soundPackId") && au["soundPackId"].isString() && !au["soundPackId"].asString().empty()) {
+                settings_.soundPackId = au["soundPackId"].asString();
+            }
+            if (au.contains("ambienceId") && au["ambienceId"].isString() && !au["ambienceId"].asString().empty()) {
+                settings_.ambienceId = au["ambienceId"].asString();
+            }
+            settings_.ambienceVolume = std::clamp(au["ambienceVolume"].asFloat(0.55f), 0.0f, 1.0f);
         }
 
         std::cout << "[SolEngine] Loaded settings successfully.\n";
@@ -168,6 +185,16 @@ bool SettingsManager::save() {
     a["tableTheme"] = static_cast<int>(settings_.tableTheme);
     if (!settings_.tableThemeSlug.empty()) {
         a["tableThemeSlug"] = settings_.tableThemeSlug;
+    }
+    if (!settings_.tableThemeOption.empty()) {
+        a["tableThemeOption"] = settings_.tableThemeOption;
+    }
+    if (!settings_.tableThemeOptions.empty()) {
+        json::Object optsObj;
+        for (const auto& [k, v] : settings_.tableThemeOptions) {
+            optsObj[k] = v;
+        }
+        a["tableThemeOptions"] = optsObj;
     }
     const auto* tintInfo = getTableTintInfo(settings_.tableTint);
     if (tintInfo && settings_.tableTint != TableTintPreset::Auto) {
@@ -198,6 +225,9 @@ bool SettingsManager::save() {
     au["masterVolume"] = settings_.masterVolume;
     au["muted"] = settings_.muted;
     au["shuffleStyle"] = static_cast<int>(settings_.shuffleStyle);
+    au["soundPackId"] = settings_.soundPackId;
+    au["ambienceId"] = settings_.ambienceId;
+    au["ambienceVolume"] = settings_.ambienceVolume;
     root["audio"] = au;
 
     json::Array favArray;
@@ -239,6 +269,8 @@ bool SettingsManager::save() {
 void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley, bool applyTextures) {
     board.setTableTheme(settings_.tableTheme);
     board.setTableThemeSlug(settings_.tableThemeSlug);
+    board.setTableThemeOption(settings_.tableThemeOption);
+    ProceduralBackgroundSystem::instance().setThemeOption(settings_.tableThemeOption);
     ProceduralBackgroundSystem::instance().setTableTint(settings_.tableTint);
     board.setCardDeviation(settings_.cardDeviation);
     board.setLayoutMode(settings_.layoutMode);
@@ -254,12 +286,16 @@ void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley
     foley.setMasterVolume(settings_.masterVolume);
     foley.setMuted(settings_.muted);
     foley.setShufflePreference(settings_.shuffleStyle);
+    foley.setSoundPackId(settings_.soundPackId);
+    foley.setAmbienceVolume(settings_.ambienceVolume);
+    foley.setAmbience(settings_.ambienceId);
 }
 
 void SettingsManager::syncFromGame(const SolitaireBoard& board, const AudioFoleyEngine& foley) {
     settings_.variant = board.variant();
     settings_.tableTheme = board.tableTheme();
     settings_.tableThemeSlug = board.tableThemeSlug();
+    settings_.tableThemeOption = ProceduralBackgroundSystem::instance().themeOption();
     settings_.tableTint = ProceduralBackgroundSystem::instance().tableTint();
     settings_.cardDeviation = board.cardDeviation();
     settings_.layoutMode = board.layoutMode();
@@ -275,6 +311,9 @@ void SettingsManager::syncFromGame(const SolitaireBoard& board, const AudioFoley
     settings_.masterVolume = foley.getMasterVolume();
     settings_.muted = foley.isMuted();
     settings_.shuffleStyle = foley.getShufflePreference();
+    settings_.soundPackId = foley.getSoundPackId();
+    settings_.ambienceId = foley.getActiveAmbienceId();
+    settings_.ambienceVolume = foley.getAmbienceVolume();
 }
 
 bool SettingsManager::isFavorite(const std::string& gameId) const {

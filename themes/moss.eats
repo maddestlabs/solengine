@@ -1,0 +1,66 @@
+# SolEngine Procedural Background Theme — Moss
+# Pure Eatscript Bytecode Shader: Coastal velvety cushion moss, lichen, and damp earth terrain
+
+sol.set_theme({
+    id: "moss",
+    name: "Moss",
+    author: "Maddest Labs",
+    description: "Rich coastal velvety moss hummocks, earthy peat substrate, and organic lichen flora",
+    version: 3,
+    procedural: true,
+    lacquer: 0.20,
+    relief_bump: 2.4,
+    option_label: "Shade",
+    options: [
+        { id: "highland",      name: "Highland Green", u: [0.38, 0.48, 0.18, 1.0] },
+        { id: "spring_lichen", name: "Spring Lichen",  u: [0.32, 0.46, 0.36, 1.0] },
+        { id: "autumn_peat",   name: "Autumn Peat",    u: [0.46, 0.40, 0.16, 1.0] },
+        { id: "deep_forest",   name: "Deep Forest",    u: [0.20, 0.38, 0.18, 1.0] },
+        { id: "alpine_slate",  name: "Alpine Slate",   u: [0.26, 0.38, 0.36, 1.0] }
+    ]
+})
+
+def shores_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Macro moss mounds & cushions
+    macro = fbm(nx * 3.5, ny * 3.5)
+    cushion = fbm(nx * 10.0 + macro * 0.5, ny * 10.0 + macro * 0.5)
+
+    # 2. Fine leaflet & lichen stippling
+    leaflet = (fbm(nx * 32.0, ny * 32.0) - 0.5) * 0.08
+
+    # 3. Organic earth/moss palette via uniforms
+    t = cushion * 0.7 + macro * 0.3 + leaflet
+
+    ur = mix(0.38, u0, u3)
+    ug = mix(0.48, u1, u3)
+    ub = mix(0.18, u2, u3)
+
+    sub_r = ur * 0.32
+    sub_g = ug * 0.34
+    sub_b = ub * 0.44
+
+    base_r = mix(sub_r, ur, t)
+    base_g = mix(sub_g, ug, t)
+    base_b = mix(sub_b, ub, t)
+
+    # 4. Spore flecks
+    spore = (random() - 0.5) * 0.02
+
+    # 5. Vignette optical falloff
+    vignette = smoothstep(3.0, 0.25, dist)
+
+    r = clamp((base_r + spore) * vignette, 0.0, 1.0)
+    g = clamp((base_g + spore) * vignette, 0.0, 1.0)
+    b = clamp((base_b + spore) * vignette, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ur = mix(0.38, u0, u3)
+    ug = mix(0.48, u1, u3)
+    ub = mix(0.18, u2, u3)
+    ctx.fill_rect(0, 0, w, h, [ur * 0.28, ug * 0.32, ub * 0.36])
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, [ur * 0.65, ug * 0.70, ub * 0.65], 1.8)
+    ctx.apply_shader("shores_shader", intensity=1.0)

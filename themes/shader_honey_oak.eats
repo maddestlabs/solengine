@@ -7,7 +7,9 @@ sol.set_theme({
     author: "SolEngine / Eatscript",
     description: "Warm blonde honey oak tabletop with horizontal grain flow, subtle cathedral growth rings, and open vessel pores",
     version: 1,
-    procedural: true
+    procedural: true,
+    lacquer: 0.95,
+    relief_bump: 2.0
 })
 
 def oak_shader(u, v, nx, ny, in_r, in_g, in_b):

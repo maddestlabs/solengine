@@ -62,7 +62,7 @@ void drawRivet(
     eatsbits::ui::BatchRenderer2D& r,
     float cx, float cy, float radius = 2.5f,
     bool isHexBolt = false,
-    float brassR = 0.84f, float brassG = 0.68f, float brassB = 0.28f, float alpha = 1.0f
+    float brassR = 0.66f, float brassG = 0.66f, float brassB = 0.66f, float alpha = 1.0f
 );
 
 void drawRivetedBorder(
@@ -191,6 +191,7 @@ struct ClockworkLogoConfig {
     bool showGauges{true};          // Mini manometer pressure gauge on collar and serif
     bool showPipes{true};           // Copper conduit piping and brackets
     bool showGlow{true};            // Warm amber furnace core radiance
+    bool highlightWhite{false};     // Crisp white interior highlight on hover
     float alpha{1.0f};              // Master opacity multiplier [0, 1]
     float brassTint{1.0f};          // Brightness multiplier for brass plates
 };

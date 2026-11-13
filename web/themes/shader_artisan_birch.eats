@@ -1,0 +1,79 @@
+# SolEngine Custom Background Theme — Artisan Birch Table
+# Authentic workshop birch table with distinctive vertical grain, subtle surface patina, hairline tool mark, and warm organic character
+
+sol.set_theme({
+    id: "shader_artisan_birch",
+    name: "Artisan Birch Table",
+    author: "SolEngine / Eatscript",
+    description: "Authentic workshop birch table with distinctive vertical grain, subtle surface patina, hairline tool mark, and warm organic character",
+    version: 1,
+    procedural: true,
+    lacquer: 0.65,
+    relief_bump: 2.2
+})
+
+def artisan_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Multi-frequency vertical timber flow with organic wandering
+    warp = fbm(nx * 2.1 + 1.4, ny * 1.1 + 2.7) * 0.38
+    flow_x = nx * 15.5 + warp * 2.8 + sin(ny * 2.2) * 0.07
+
+    # 2. Asymmetric growth rings with crisp latewood bands
+    ring_raw = abs(sin(flow_x * 3.14159265))
+    latewood = (1.0 - ring_raw * ring_raw) * 0.20
+
+    # 3. Dense longitudinal wood fibers and microscopic pores
+    fiber_noise = fbm(nx * 85.0 + warp * 2.5, ny * 2.4)
+    fibers = (fiber_noise - 0.5) * 0.16
+
+    pore_noise = fbm(nx * 160.0, ny * 16.0)
+    pores = (smoothstep(0.62, 0.82, pore_noise) - 0.5) * 0.07
+
+    # 4. Distinctive diagonal hairline knife/tool mark on left flank (matching reference photograph)
+    # Scaled and oriented around (nx ~ -0.42, ny ~ -0.05) angled across the grain
+    sc_x = (nx + 0.42) * 0.848 - (ny + 0.05) * 0.530
+    sc_y = (nx + 0.42) * 0.530 + (ny + 0.05) * 0.848
+    scratch_width = abs(sc_y)
+    scratch_len = abs(sc_x)
+    scratch_groove = (1.0 - smoothstep(0.0008, 0.0042, scratch_width)) * (1.0 - smoothstep(0.18, 0.32, scratch_len)) * 0.35
+    scratch_highlight = (1.0 - smoothstep(0.0025, 0.0065, abs(sc_y - 0.003))) * (1.0 - smoothstep(0.16, 0.28, scratch_len)) * 0.08
+
+    # 5. Natural heartwood & mineral patina drift toward right flank
+    right_drift = smoothstep(-0.25, 0.95, nx)
+    mineral_grain = (fbm(nx * 3.5 + 4.2, ny * 1.5 + 1.8) - 0.5) * 0.08 * right_drift
+    patina_shade = 1.0 - right_drift * 0.08 + mineral_grain
+
+    # 6. Warm honey-caramel workshop palette (#CC944D base with deep #7A461B grain)
+    base_r = 0.80 + fibers * 0.6
+    base_g = 0.59 + fibers * 0.5
+    base_b = 0.33 + fibers * 0.3
+
+    dark_r = 0.48
+    dark_g = 0.30
+    dark_b = 0.13
+
+    wood_r = (base_r - latewood * (base_r - dark_r) + pores * 0.4 - scratch_groove + scratch_highlight) * patina_shade
+    wood_g = (base_g - latewood * (base_g - dark_g) + pores * 0.3 - scratch_groove * 0.8 + scratch_highlight) * patina_shade
+    wood_b = (base_b - latewood * (base_b - dark_b) + pores * 0.2 - scratch_groove * 0.6 + scratch_highlight * 0.5) * patina_shade
+
+    # 7. Photographic vignette & tactile surface grain
+    vignette = smoothstep(1.40, 0.42, dist)
+    speck = (random() - 0.5) * 0.015
+
+    # Composite with delicate canvas edge trim if present
+    r = clamp(mix(wood_r * vignette, in_r, in_r * 0.35) + speck, 0.0, 1.0)
+    g = clamp(mix(wood_g * vignette, in_g, in_g * 0.35) + speck, 0.0, 1.0)
+    b = clamp(mix(wood_b * vignette, in_b, in_b * 0.35) + speck, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Warm amber birch base
+    ctx.fill_rect(0, 0, w, h, "#c28e4a")
+
+    # 2. Subtle hand-finished table edge border
+    inset = 14.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#9c642b", 1.5)
+
+    # 3. Apply procedural bytecode shader
+    ctx.apply_shader("artisan_shader", intensity=1.0)

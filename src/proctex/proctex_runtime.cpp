@@ -1,6 +1,8 @@
 #include "eatstextures/proctex_runtime.hpp"
+#include "eatstextures/png_io.hpp"
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -402,6 +404,45 @@ void ProcTexRuntime::registerBindings() {
     bindMethod("solid_color", [this](const auto& args, const auto& kwargs) -> Value {
         const std::string hex = resolveArg(args, kwargs, 0, "hex_color", Value("#ffffff")).asString();
         return Value(allocImage(ColorImage(width_, height_, parseHexColor(hex))));
+    });
+
+    // 22b. resynthesize(path, jitter=0.006, detail=0.22, tile_scale=1.0, seed=42)
+    bindMethod("resynthesize", [this](const auto& args, const auto& kwargs) -> Value {
+        const std::string rawPath = resolveArg(args, kwargs, 0, "path", Value("")).asString();
+        const float jitter = resolveArg(args, kwargs, 1, "jitter", Value(0.006)).asFloat(0.006f);
+        const float detail = resolveArg(args, kwargs, 2, "detail", Value(0.22)).asFloat(0.22f);
+        const float tileScale = resolveArg(args, kwargs, 3, "tile_scale", Value(1.0)).asFloat(1.0f);
+        const uint32_t s = static_cast<uint32_t>(resolveArg(args, kwargs, 4, "seed", Value(static_cast<double>(seed_))).asInt(static_cast<int>(seed_)));
+
+        if (rawPath.empty()) return Value(0);
+
+        std::error_code ec;
+        std::string resolved;
+        const std::string candidates[] = {
+            rawPath,
+            "themes/" + rawPath,
+            "../themes/" + rawPath,
+            "../../themes/" + rawPath,
+            "../../../themes/" + rawPath,
+            "assets/" + rawPath,
+            "../assets/" + rawPath
+        };
+        for (const auto& c : candidates) {
+            if (std::filesystem::exists(c, ec) && std::filesystem::is_regular_file(c, ec)) {
+                resolved = c;
+                break;
+            }
+        }
+        if (resolved.empty()) {
+            return Value(0);
+        }
+
+        std::vector<uint8_t> rgba;
+        uint32_t sw = 0, sh = 0;
+        if (!readImageRGBA(resolved, rgba, sw, sh)) {
+            return Value(0);
+        }
+        return Value(allocImage(resynthesizeFromRgba(rgba, sw, sh, width_, height_, jitter, detail, tileScale, s)));
     });
 
     // 23. color_blend(img_a, img_b, mode="mix", mask=nil, weight=0.5)

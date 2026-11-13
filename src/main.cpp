@@ -81,6 +81,10 @@ int main(int argc, char** argv) {
                 int tIdx = std::clamp(std::stoi(lowerT), 0, static_cast<int>(solengine::TableThemeId::Count) - 1);
                 theme = static_cast<solengine::TableThemeId>(tIdx);
             }
+        } else if ((arg == "--option" || arg == "--theme-option") && i + 1 < argc) {
+            std::string optArg = argv[++i];
+            solengine::ProceduralBackgroundSystem::instance().setThemeOption(optArg);
+            solengine::SettingsManager::instance().settings().tableThemeOption = optArg;
         } else if ((arg == "--tint" || arg == "--table-tint") && i + 1 < argc) {
             std::string tintArg = argv[++i];
             solengine::TableTintPreset tp = solengine::parseTableTint(tintArg);

@@ -147,8 +147,11 @@ void drawRivet(
 ) {
     if (radius <= 0.5f || alpha <= 0.0f) return;
 
+    // Enforce neutral steel grayscale for all rivets/bolts (prevents color overflow or unwanted tint)
+    const float gray = std::clamp(0.299f * brassR + 0.587f * brassG + 0.114f * brassB, 0.42f, 0.76f);
+
     // Subtle drop shadow cast toward bottom-right
-    r.drawCircle(cx + 1.0f, cy + 1.2f, radius, 0.05f, 0.04f, 0.03f, alpha * 0.55f, 12);
+    r.drawCircle(cx + 1.0f, cy + 1.2f, radius, 0.05f, 0.05f, 0.05f, alpha * 0.55f, 12);
 
     if (isHexBolt) {
         // Hexagonal bolt head
@@ -158,20 +161,22 @@ void drawRivet(
             float ang = static_cast<float>(i) * (kTwoPi / 6.0f);
             pts[i] = eatsbits::ui::Point2D{cx + radius * std::cos(ang), cy + radius * std::sin(ang)};
         }
-        r.drawConvexPolygon(pts.data(), sides, brassR * 0.88f, brassG * 0.84f, brassB * 0.75f, alpha);
-        r.drawPath(pts.data(), sides, 1.0f, brassR * 1.15f, brassG * 1.12f, brassB * 1.05f, alpha, true);
+        r.drawConvexPolygon(pts.data(), sides, gray * 0.84f, gray * 0.84f, gray * 0.84f, alpha);
+        r.drawPath(pts.data(), sides, 1.0f, std::min(1.0f, gray * 1.15f), std::min(1.0f, gray * 1.15f), std::min(1.0f, gray * 1.15f), alpha, true);
         // Slotted drive line
-        r.drawLine(cx - radius * 0.55f, cy, cx + radius * 0.55f, cy, 0.12f, 0.10f, 0.08f, alpha * 0.85f, 1.0f);
+        r.drawLine(cx - radius * 0.55f, cy, cx + radius * 0.55f, cy, 0.12f, 0.12f, 0.12f, alpha * 0.85f, 1.0f);
     } else {
         // Spherical dome rivet with directional specular highlight
+        const float hi = std::min(1.0f, gray * 1.25f);
+        const float lo = gray * 0.36f;
         r.drawCircleRadial3StopGradient(
             cx, cy, radius,
-            std::min(1.0f, brassR * 1.25f), std::min(1.0f, brassG * 1.20f), std::min(1.0f, brassB * 1.10f), alpha,
-            brassR, brassG, brassB, alpha,
-            brassR * 0.40f, brassG * 0.35f, brassB * 0.18f, alpha,
+            hi, hi, hi, alpha,
+            gray, gray, gray, alpha,
+            lo, lo, lo, alpha,
             -radius * 0.35f, -radius * 0.40f, 0.50f, 16
         );
-        r.drawCircleOutline(cx, cy, radius, brassR * 0.35f, brassG * 0.30f, brassB * 0.15f, alpha * 0.80f, 0.8f, 16);
+        r.drawCircleOutline(cx, cy, radius, gray * 0.32f, gray * 0.32f, gray * 0.32f, alpha * 0.80f, 0.8f, 16);
     }
 }
 
@@ -465,7 +470,7 @@ void drawChassisFrame(
     float x, float y, float w, float h, float radius,
     bool drawCornerGears,
     bool drawSideGauges,
-    float timeSec
+    [[maybe_unused]] float timeSec
 ) {
     const auto& pal = palette();
 
@@ -500,10 +505,10 @@ void drawChassisFrame(
     drawPipe(r, px0, py0 + 16.0f, px0, py1 - 16.0f, 6.5f, true, true);
     drawPipe(r, px1, py0 + 16.0f, px1, py1 - 16.0f, 6.5f, true, true);
 
-    // 5. Interlocking Corner Gears at the 4 modal corners
+    // 5. Interlocking Top Corner Gears (static, bottom gears removed per design)
     if (drawCornerGears) {
-        float rotSlow = timeSec * 0.40f;
-        float rotFast = -rotSlow * 1.50f;
+        constexpr float rotSlow = 0.25f;
+        constexpr float rotFast = -0.40f;
 
         // Top-Left corner gear pair
         drawGear(r, x + 6.0f, y + 6.0f, 22.0f, 17.0f, 11.0f, 14, rotSlow,
@@ -520,19 +525,6 @@ void drawChassisFrame(
         drawGear(r, x + w - 26.0f, y - 4.0f, 15.0f, 11.5f, 7.5f, 10, -rotFast,
                  pal.brassDarkR * 1.25f, pal.brassDarkG * 1.20f, pal.brassDarkB * 1.10f, 0.95f,
                  pal.brassBrightR, pal.brassBrightG, pal.brassBrightB, 0.95f, 4, 3.5f);
-
-        // Bottom-Left corner gear pair
-        drawGear(r, x + 6.0f, y + h - 6.0f, 22.0f, 17.0f, 11.0f, 14, -rotSlow + 0.3f,
-                 pal.brassMidR, pal.brassMidG, pal.brassMidB, 1.0f,
-                 pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, 1.0f, 5, 5.0f);
-
-        // Bottom-Right corner gear pair
-        drawGear(r, x + w - 6.0f, y + h - 6.0f, 24.0f, 18.5f, 12.0f, 16, rotSlow + 0.5f,
-                 pal.brassMidR, pal.brassMidG, pal.brassMidB, 1.0f,
-                 pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, 1.0f, 5, 5.5f);
-        drawGear(r, x + w - 28.0f, y + h + 2.0f, 14.0f, 10.5f, 7.0f, 9, rotFast,
-                 pal.copperMidR, pal.copperMidG, pal.copperMidB, 0.95f,
-                 pal.copperBrightR, pal.copperBrightG, pal.copperBrightB, 0.95f, 4, 3.0f);
     }
 
     // 6. Side Manometers mounted onto pipe manifolds
@@ -746,7 +738,7 @@ void drawGlassSlider(
     float valueRatio,
     const char* labelText,
     bool isKnobHovered,
-    float timeSec
+    [[maybe_unused]] float timeSec
 ) {
     const auto& pal = palette();
     valueRatio = std::clamp(valueRatio, 0.0f, 1.0f);
@@ -794,7 +786,7 @@ void drawGlassSlider(
     float knobRadius = h * 0.68f;
 
     drawGear(r, knobX, knobY, knobRadius, knobRadius * 0.78f, knobRadius * 0.55f, 8,
-             valueRatio * kTwoPi * 2.0f + timeSec * 0.2f,
+             valueRatio * kTwoPi * 2.0f,
              isKnobHovered ? pal.brassBrightR : pal.brassMidR,
              isKnobHovered ? pal.brassBrightG : pal.brassMidG,
              isKnobHovered ? pal.brassBrightB : pal.brassMidB, 1.0f,
@@ -880,8 +872,20 @@ void drawClockworkMenuOrb(
     cfg.showGauges = (radius >= 22.0f);
     cfg.showPipes = (radius >= 18.0f);
     cfg.showGlow = true;
+    cfg.highlightWhite = hovered;
     cfg.alpha = alpha;
     cfg.brassTint = hovered ? 1.15f : 1.0f;
+
+    // Mouse-hover in SolEngine icon uses pure white highlight ring and soft radiant halo
+    if (hovered) {
+        r.drawCircleRadialGradient(
+            cx, cy, radius * 1.25f,
+            1.0f, 1.0f, 1.0f, 0.42f,
+            1.0f, 1.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 28
+        );
+        r.drawCircleOutline(cx, cy, radius * 0.98f, 1.0f, 1.0f, 1.0f, 0.92f, 2.0f, 28);
+    }
 
     if (menuOpen) {
         cfg.alpha = alpha * 0.75f;
@@ -1396,9 +1400,12 @@ void drawClockworkLogo(
     );
 
     // Fine concentric etched rings
-    r.drawCircleOutline(cx, cy, collarOut, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha * 0.90f, 1.2f, isSmall ? 20 : 32);
+    const float hiR = config.highlightWhite ? 1.0f : std::min(1.0f, pal.brassHighlightR * bTint);
+    const float hiG = config.highlightWhite ? 1.0f : std::min(1.0f, pal.brassHighlightG * bTint);
+    const float hiB = config.highlightWhite ? 1.0f : std::min(1.0f, pal.brassHighlightB * bTint);
+    r.drawCircleOutline(cx, cy, collarOut, hiR, hiG, hiB, alpha * 0.90f, 1.2f, isSmall ? 20 : 32);
     r.drawCircleOutline(cx, cy, (collarOut + collarIn) * 0.5f, pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, alpha * 0.40f, 0.8f, isSmall ? 20 : 32);
-    r.drawCircleOutline(cx, cy, collarIn, pal.brassDarkR * 0.75f, pal.brassDarkG * 0.75f, pal.brassDarkB * 0.75f, alpha * 0.95f, 1.4f, isSmall ? 20 : 32);
+    r.drawCircleOutline(cx, cy, collarIn, config.highlightWhite ? 1.0f : pal.brassDarkR * 0.75f, config.highlightWhite ? 1.0f : pal.brassDarkG * 0.75f, config.highlightWhite ? 1.0f : pal.brassDarkB * 0.75f, alpha * 0.95f, 1.4f, isSmall ? 20 : 32);
 
     // Circumferential Brass Rivets / Bolts
     const float rivetOrbitR = (collarOut + collarIn) * 0.5f;
@@ -1436,16 +1443,22 @@ void drawClockworkLogo(
 
     if (config.showGlow) {
         const float pulse = config.animated ? (0.84f + 0.16f * std::sin(timeSec * 2.8f)) : 1.0f;
+        const float gAmbR = config.highlightWhite ? 1.0f : pal.furnaceAmberR;
+        const float gAmbG = config.highlightWhite ? 1.0f : pal.furnaceAmberG;
+        const float gAmbB = config.highlightWhite ? 1.0f : pal.furnaceAmberB;
+        const float gCoreR = config.highlightWhite ? 1.0f : pal.furnaceCoreR;
+        const float gCoreG = config.highlightWhite ? 1.0f : pal.furnaceCoreG;
+        const float gCoreB = config.highlightWhite ? 1.0f : pal.furnaceCoreB;
         r.drawCircleRadialGradient(
             cx + radius * 0.04f, cy + radius * 0.03f, collarIn * 0.92f,
-            pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, 0.52f * pulse * alpha,
+            gAmbR, gAmbG, gAmbB, (config.highlightWhite ? 0.35f : 0.52f) * pulse * alpha,
             0.08f, 0.07f, 0.06f, 0.0f,
             0.0f, 0.0f, isSmall ? 18 : 28
         );
         r.drawCircleRadialGradient(
             cx + radius * 0.02f, cy + radius * 0.02f, collarIn * 0.45f,
-            pal.furnaceCoreR, pal.furnaceCoreG, pal.furnaceCoreB, 0.40f * pulse * alpha,
-            pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, 0.0f,
+            gCoreR, gCoreG, gCoreB, 0.40f * pulse * alpha,
+            gAmbR, gAmbG, gAmbB, 0.0f,
             0.0f, 0.0f, isSmall ? 16 : 24
         );
     }
@@ -1502,11 +1515,14 @@ void drawClockworkLogo(
         );
         eatsbits::ui::glyph::drawVectorText(
             r, "S", cx - txtW * 0.5f, cy - fontSize * 0.5f, fontSize,
-            pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.70f
+            config.highlightWhite ? 1.0f : pal.furnaceAmberR,
+            config.highlightWhite ? 1.0f : pal.furnaceAmberG,
+            config.highlightWhite ? 1.0f : pal.furnaceAmberB,
+            alpha * 0.70f
         );
         eatsbits::ui::glyph::drawVectorText(
             r, "S", cx - txtW * 0.5f, cy - fontSize * 0.5f, fontSize,
-            pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha
+            hiR, hiG, hiB, alpha
         );
         return;
     }
@@ -1544,13 +1560,16 @@ void drawClockworkLogo(
     r.drawCatenaryBezier(sCenterPt, Point2D{sCenterPt.x + sScale * 0.08f, sCenterPt.y + sScale * 0.04f}, Point2D{sMidLower.x - sScale * 0.08f, sCenterPt.y + sScale * 0.08f}, sMidLower, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
     r.drawCatenaryBezier(sMidLower, sBotArch0, sBotArch1, sBotTerm, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
 
-    // B. Furnace Amber Underglow Pass
+    // B. Furnace Amber Underglow Pass (crisp white on hover)
     if (config.showGlow) {
         const float glowW = stemW + std::max(2.0f, sScale * 0.08f);
-        r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.55f, glowW);
-        r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.55f, glowW);
-        r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.55f, glowW);
-        r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, pal.furnaceAmberR, pal.furnaceAmberG, pal.furnaceAmberB, alpha * 0.55f, glowW);
+        const float ugR = config.highlightWhite ? 1.0f : pal.furnaceAmberR;
+        const float ugG = config.highlightWhite ? 1.0f : pal.furnaceAmberG;
+        const float ugB = config.highlightWhite ? 1.0f : pal.furnaceAmberB;
+        r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, ugR, ugG, ugB, alpha * 0.55f, glowW);
+        r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, ugR, ugG, ugB, alpha * 0.55f, glowW);
+        r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, ugR, ugG, ugB, alpha * 0.55f, glowW);
+        r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, ugR, ugG, ugB, alpha * 0.55f, glowW);
     }
 
     // C. Solid Brass Body Pass
@@ -1560,10 +1579,10 @@ void drawClockworkLogo(
     r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
 
     // D. Burnished Brass Center Spine / Ridge
-    r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, spineW);
-    r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, spineW);
-    r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, spineW);
-    r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, spineW);
+    r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, hiR, hiG, hiB, alpha, spineW);
+    r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, hiR, hiG, hiB, alpha, spineW);
+    r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, hiR, hiG, hiB, alpha, spineW);
+    r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, hiR, hiG, hiB, alpha, spineW);
 
     // E. Top-Right Victorian Plated Serif Bracket
     const float topBoxW = sScale * 0.26f;
@@ -1571,7 +1590,7 @@ void drawClockworkLogo(
     const float topBoxX = topTerm.x - topBoxW * 0.20f;
     const float topBoxY = topTerm.y - topBoxH * 0.75f;
     r.drawRoundedRect(topBoxX, topBoxY, topBoxW, topBoxH, 2.5f, pal.brassDarkR * bTint, pal.brassDarkG * bTint, pal.brassDarkB * bTint, alpha * 0.95f, 4);
-    r.drawRoundedRectOutline(topBoxX, topBoxY, topBoxW, topBoxH, 2.5f, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, 1.2f, 4);
+    r.drawRoundedRectOutline(topBoxX, topBoxY, topBoxW, topBoxH, 2.5f, hiR, hiG, hiB, alpha, 1.2f, 4);
     drawRivet(r, topBoxX + 3.0f, topBoxY + 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
     drawRivet(r, topBoxX + topBoxW - 3.0f, topBoxY + 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
     drawRivet(r, topBoxX + topBoxW - 3.0f, topBoxY + topBoxH - 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);

@@ -95,13 +95,27 @@ void registerStandardLibrary(Evaluator& evaluator, abi::HostRegistry* hostRegist
     evaluator.registerFunction("max", mathMax);
     evaluator.registerMemberFunction("math", "max", mathMax);
 
-    evaluator.registerMemberFunction("math", "clamp", [](const std::vector<Value>& args, const auto&) -> Value {
+    auto mathClamp = [](const std::vector<Value>& args, const auto&) -> Value {
         if (args.size() < 3) return args.empty() ? Value(0.0) : args[0];
         double val = args[0].asNumber();
         double low = args[1].asNumber();
         double high = args[2].asNumber();
         return Value(std::clamp(val, low, high));
-    });
+    };
+    evaluator.registerFunction("clamp", mathClamp);
+    evaluator.registerMemberFunction("math", "clamp", mathClamp);
+
+    auto mathMix = [](const std::vector<Value>& args, const auto&) -> Value {
+        if (args.size() < 3) return args.empty() ? Value(0.0) : args[0];
+        double a = args[0].asNumber();
+        double b = args[1].asNumber();
+        double t = args[2].asNumber();
+        return Value(a * (1.0 - t) + b * t);
+    };
+    evaluator.registerFunction("mix", mathMix);
+    evaluator.registerFunction("lerp", mathMix);
+    evaluator.registerMemberFunction("math", "mix", mathMix);
+    evaluator.registerMemberFunction("math", "lerp", mathMix);
 
     evaluator.registerMemberFunction("math", "round", [](const std::vector<Value>& args, const auto&) -> Value {
         return Value(std::round(args.empty() ? 0.0 : args[0].asNumber()));

@@ -138,6 +138,7 @@ bool bakeProceduralTexture(
     outH = 0;
 
     eatstextures::ProcTexRuntime runtime(options.width, options.height, options.seed);
+    runtime.setOptionVariables(options.optionId, options.u[0], options.u[1], options.u[2], options.u[3]);
     if (options.overrideDimensions) {
         runtime.setOverrideDimensions(options.width, options.height);
     }
@@ -190,6 +191,7 @@ bool bakeProceduralPbrBundle(
     outMaps = ProceduralPbrMaps{};
 
     eatstextures::ProcTexRuntime runtime(options.width, options.height, options.seed);
+    runtime.setOptionVariables(options.optionId, options.u[0], options.u[1], options.u[2], options.u[3]);
     if (options.overrideDimensions) {
         runtime.setOverrideDimensions(options.width, options.height);
     }

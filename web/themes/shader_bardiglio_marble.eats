@@ -7,7 +7,9 @@ sol.set_theme({
     author: "SolEngine / Eatscript",
     description: "Polished Italian dove-gray Bardiglio marble with smoky charcoal drifts and fine silver calcite veins",
     version: 1,
-    procedural: true
+    procedural: true,
+    lacquer: 0.70,
+    relief_bump: 1.5
 })
 
 def bardiglio_shader(u, v, nx, ny, in_r, in_g, in_b):

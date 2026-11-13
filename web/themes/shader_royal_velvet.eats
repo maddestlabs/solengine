@@ -1,0 +1,64 @@
+# SolEngine Custom Background Theme — Royal Velvet
+# Lush plush velvet with organic fiber nap, grazing highlight sheen, and full palette recoloring support
+
+sol.set_theme({
+    id: "shader_royal_velvet",
+    name: "Royal Velvet",
+    author: "SolEngine / Eatscript",
+    description: "Lush plush velvet with organic fiber nap, grazing highlight sheen, and full palette recoloring support",
+    version: 1,
+    procedural: true
+})
+
+def royal_velvet_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.88, ny)
+
+    # 1. Multi-frequency micro-fiber velvet weave & nap
+    weave1 = fbm(nx * 95.0 + ny * 50.0, ny * 95.0 - nx * 50.0)
+    weave2 = fbm(nx * 160.0, ny * 160.0) * 0.5
+    fuzz = (weave1 + weave2 - 0.75) * 0.16
+
+    # 2. Gentle brushed/crushed velvet nap drift
+    brush_drift = (fbm(nx * 2.8, ny * 2.8) - 0.5) * 0.14
+    luma = 0.50 + fuzz + brush_drift
+    luma_norm = luma / 0.50
+
+    # 3. Dynamic surface tinting (u0, u1, u2 from Surface Tint setting; default to Bordeaux Wine)
+    if (u3 > 0.5):
+        tint_r = u0
+        tint_g = u1
+        tint_b = u2
+    else:
+        tint_r = 0.608
+        tint_g = 0.230
+        tint_b = 0.313
+
+    # 4. Two-tone velvet transfer: deep body absorption + grazing highlight nap sheen
+    body_r = tint_r * (0.65 + 0.35 * luma_norm)
+    body_g = tint_g * (0.65 + 0.35 * luma_norm)
+    body_b = tint_b * (0.65 + 0.35 * luma_norm)
+
+    sheen = (1.0 - smoothstep(0.38, 0.85, luma)) * 0.075
+
+    vignette = smoothstep(1.42, 0.42, dist)
+    base_r = (body_r + sheen) * (0.92 + 0.08 * vignette)
+    base_g = (body_g + sheen) * (0.92 + 0.08 * vignette)
+    base_b = (body_b + sheen) * (0.92 + 0.08 * vignette)
+
+    speck = (random() - 0.5) * 0.008
+
+    r = clamp(mix(base_r + speck, in_r, in_r * 0.30), 0.0, 1.0)
+    g = clamp(mix(base_g + speck, in_g, in_g * 0.30), 0.0, 1.0)
+    b = clamp(mix(base_b + speck, in_b, in_b * 0.30), 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # Base deep velvet undertone
+    ctx.fill_rect(0, 0, w, h, "#1c1014")
+
+    # Subtle tailored border perimeter
+    inset = 16.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#2c1a20", 1.8)
+
+    # Apply procedural bytecode shader (u0..u3 automatically bound to surface tint)
+    ctx.apply_shader("royal_velvet_shader", intensity=1.0)

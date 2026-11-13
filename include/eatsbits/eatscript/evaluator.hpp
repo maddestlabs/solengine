@@ -139,6 +139,7 @@ public:
 
     void registerFunction(const std::string& name, HostFunction fn);
     void registerMemberFunction(const std::string& objectName, const std::string& methodName, HostFunction fn);
+    [[nodiscard]] HostFunction getMemberFunction(const std::string& objectName, const std::string& methodName) const;
 
     // Evaluation
     Value evaluate(const Program& program);

@@ -100,7 +100,8 @@ public:
     static constexpr int kDefaultCardW = 360;
     static constexpr int kDefaultCardH = 504;
     static constexpr size_t kCardBackIndex = 52;
-    static constexpr size_t kTotalTextures = 53;
+    static constexpr size_t kCardBackVariants = 6;
+    static constexpr size_t kTotalTextures = kCardBackIndex + kCardBackVariants;
 
     bool initialize(int cardW = kDefaultCardW, int cardH = kDefaultCardH);
     bool loadEatsDeck(const std::string& eatsFilePath, int cardW = kDefaultCardW, int cardH = kDefaultCardH);
@@ -223,12 +224,12 @@ public:
     void applyConditioningAndSync(CardWearLevel wear);
 
     [[nodiscard]] const CardTexture* getCardTexture(Suit s, Rank r) const noexcept;
-    [[nodiscard]] const CardTexture* getCardBackTexture() const noexcept;
+    [[nodiscard]] const CardTexture* getCardBackTexture(uint8_t cardId = 0) const noexcept;
     [[nodiscard]] const CardTexture* getTextureByIndex(size_t index) const noexcept;
 
     bool buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer);
     [[nodiscard]] const CardAtlasSlot& getAtlasSlot(Suit s, Rank r) const noexcept;
-    [[nodiscard]] const CardAtlasSlot& getBackAtlasSlot() const noexcept;
+    [[nodiscard]] const CardAtlasSlot& getBackAtlasSlot(uint8_t cardId = 0) const noexcept;
     [[nodiscard]] const CardAtlasSlot& getAtlasSlotByIndex(size_t index) const noexcept;
     [[nodiscard]] const CardAtlasSlot& getPreviewFaceAtlasSlot() const noexcept;
     [[nodiscard]] const CardTexture* getPreviewFaceTexture() const noexcept;

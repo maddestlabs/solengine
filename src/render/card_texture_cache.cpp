@@ -244,10 +244,12 @@ static void conditionSingleCard(
         const int h = dst.height;
         const float invW = 1.0f / static_cast<float>(w);
         const float invH = 1.0f / static_cast<float>(h);
-        const uint8_t cardId = (i == CardTextureCache::kCardBackIndex) ? 0xBCu : static_cast<uint8_t>(i);
+        const uint8_t cardId = (i >= CardTextureCache::kCardBackIndex)
+            ? static_cast<uint8_t>(0xA0u + (i - CardTextureCache::kCardBackIndex) * 19u)
+            : static_cast<uint8_t>(i);
 
-        const float cardAgeVariance = cardHashNoise(0x7F4A23u, cardId, 601) * 0.15f;
         const float honorBias = (i < 52 && (i % 13 == 0 || i % 13 >= 10)) ? 0.08f : 0.0f;
+        const float cardAgeVariance = cardHashNoise(0x7F4A23u, cardId, 601) * 0.15f + honorBias;
 
         // 1. Procedural Hairline Scratches (with subtle blur, directional micro-relief, and distortion)
         int numScratches = 0;
@@ -289,20 +291,20 @@ static void conditionSingleCard(
                 break;
             case CardWearLevel::Natural:
                 numNotches = 2;
-                macroAmp = 0.35f;
-                deckleAmp = 0.55f;
+                macroAmp = 0.28f;
+                deckleAmp = 0.18f * (1.0f + deckleFray * 0.25f);
                 bevelRadius = 3.0f;
                 break;
             case CardWearLevel::Played:
                 numNotches = 5;
-                macroAmp = 1.10f;
-                deckleAmp = 1.50f;
+                macroAmp = 0.85f;
+                deckleAmp = 0.35f * (1.0f + deckleFray * 0.25f);
                 bevelRadius = 4.0f;
                 break;
             case CardWearLevel::Vintage:
-                numNotches = 9;
-                macroAmp = 2.20f;
-                deckleAmp = 3.20f;
+                numNotches = 8;
+                macroAmp = 1.65f;
+                deckleAmp = 0.65f * (1.0f + deckleFray * 0.25f);
                 bevelRadius = 5.0f;
                 break;
             default:
@@ -329,12 +331,23 @@ static void conditionSingleCard(
             }
 
             notches[k].sCenter = normPos * static_cast<float>(perimLen);
-            float depthBase = (wearLevel == CardWearLevel::Vintage) ? 4.5f : 2.5f;
-            if (wearLevel == CardWearLevel::Vintage && k < 2) depthBase = 7.8f;
+            float depthBase = (wearLevel == CardWearLevel::Vintage) ? 3.8f : 2.2f;
+            if (wearLevel == CardWearLevel::Vintage && k < 2) depthBase = 6.2f;
             notches[k].depth = depthBase * (0.7f + 0.6f * cardHashNoise(nSeed, cardId, 302));
-            notches[k].width = 10.0f + 16.0f * cardHashNoise(nSeed, cardId, 303);
-            notches[k].raggedScale = 0.25f + 0.40f * cardHashNoise(nSeed, cardId, 304);
+            notches[k].width = 12.0f + 18.0f * cardHashNoise(nSeed, cardId, 303);
+            notches[k].raggedScale = 0.20f + 0.30f * cardHashNoise(nSeed, cardId, 304);
         }
+
+        auto sampleSmoothPerimNoise = [&](float sPos, uint32_t salt, float wavelength) -> float {
+            float coord = sPos / wavelength;
+            int i0 = static_cast<int>(std::floor(coord));
+            int i1 = i0 + 1;
+            float t = coord - static_cast<float>(i0);
+            float smoothT = t * t * (3.0f - 2.0f * t);
+            float h0 = cardHashNoise(static_cast<uint32_t>(i0) ^ salt, cardId, 501);
+            float h1 = cardHashNoise(static_cast<uint32_t>(i1) ^ salt, cardId, 501);
+            return h0 * (1.0f - smoothT) + h1 * smoothT;
+        };
 
         for (int s = 0; s < perimLen; ++s) {
             float uPerim = static_cast<float>(s) / static_cast<float>(perimLen);
@@ -362,23 +375,36 @@ static void conditionSingleCard(
                 if (ds < notches[k].width) {
                     float t = ds / notches[k].width;
                     float shape = std::pow(std::max(0.0f, 1.0f - t * t), 1.8f);
-                    uint32_t jSeed = static_cast<uint32_t>(s * 3) ^ (static_cast<uint32_t>(k) * 0x510E527Fu);
-                    float jag = 1.0f + (cardHashNoise(jSeed, cardId, 307) - 0.5f) * notches[k].raggedScale;
+                    float jag = 1.0f + (sampleSmoothPerimNoise(static_cast<float>(s), 0x510E527Fu ^ (static_cast<uint32_t>(k) * 19u), 7.0f) - 0.5f) * notches[k].raggedScale;
                     notchRec += shape * notches[k].depth * std::max(0.2f, jag);
                 }
             }
 
-            // Multi-scale deckled jagged paper fibers
+            // Multi-scale soft deckled paper fibers (band-limited to prevent needle/comb spikes)
             float deckle = 0.0f;
             if (deckleAmp > 0.01f) {
-                uint32_t dSeed1 = static_cast<uint32_t>(s * 2.7f);
-                uint32_t dSeed2 = static_cast<uint32_t>(s * 7.1f);
-                float n1 = cardHashNoise(dSeed1, cardId, 501);
-                float n2 = cardHashNoise(dSeed2, cardId, 502);
+                float n1 = sampleSmoothPerimNoise(static_cast<float>(s), 0x9E3779B9u, 14.0f);
+                float n2 = sampleSmoothPerimNoise(static_cast<float>(s), 0x510E527Fu, 6.0f);
                 deckle = (n1 * 0.65f + n2 * 0.35f) * deckleAmp;
             }
 
             edgeRecession[s] = std::max(0.0f, macro + notchRec + deckle);
+        }
+
+        // 5-tap Gaussian circular smoothing pass to eliminate single-pixel spike artifacts
+        if (deckleAmp > 0.01f || numNotches > 0) {
+            std::vector<float> smoothed(static_cast<size_t>(perimLen));
+            constexpr float kG5[5] = { 0.06136f, 0.24477f, 0.38774f, 0.24477f, 0.06136f };
+            for (int s = 0; s < perimLen; ++s) {
+                float sum = 0.0f;
+                for (int tap = -2; tap <= 2; ++tap) {
+                    int pIdx = (s + tap) % perimLen;
+                    if (pIdx < 0) pIdx += perimLen;
+                    sum += edgeRecession[static_cast<size_t>(pIdx)] * kG5[tap + 2];
+                }
+                smoothed[static_cast<size_t>(s)] = sum;
+            }
+            edgeRecession = std::move(smoothed);
         }
 
         const float effRu = CardTextureCache::instance().effectiveRu();
@@ -1211,9 +1237,15 @@ void CardTextureCache::setActiveCardBack(const std::string& backId) {
         }
     }
 
+    for (size_t v = 1; v < kCardBackVariants; ++v) {
+        baseTextures_[kCardBackIndex + v] = baseTextures_[kCardBackIndex];
+    }
+
     WearParams wp = getWearParams(wearLevel_, cardStock_);
-    conditionSingleCard(baseTextures_[kCardBackIndex], textures_[kCardBackIndex], kCardBackIndex, wearLevel_, cardStock_, wp);
-    syncArgb32AndMipsSingle(textures_[kCardBackIndex]);
+    for (size_t v = 0; v < kCardBackVariants; ++v) {
+        conditionSingleCard(baseTextures_[kCardBackIndex + v], textures_[kCardBackIndex + v], kCardBackIndex + v, wearLevel_, cardStock_, wp);
+        syncArgb32AndMipsSingle(textures_[kCardBackIndex + v]);
+    }
     if (hasGpuAtlas_) {
         atlasDirty_ = true;
     }
@@ -1628,6 +1660,9 @@ static void bakeBaseProceduralDeck(
         onProgress(52.0f / 53.0f, "Synthesizing Card 53/53 (Card Back)...");
     }
     bakeThemeCardBack(outBase[CardTextureCache::kCardBackIndex], DeckThemeId::SolEnshade, cardW, cardH);
+    for (size_t v = 1; v < CardTextureCache::kCardBackVariants; ++v) {
+        outBase[CardTextureCache::kCardBackIndex + v] = outBase[CardTextureCache::kCardBackIndex];
+    }
 }
 
 static bool loadBaseFromMemory(
@@ -2226,8 +2261,8 @@ static bool loadBaseFromEats(
             }
         }
 
-        // Card Back (Index: kTotalTextures - 1)
-        size_t backIdx = CardTextureCache::kTotalTextures - 1;
+        // Card Back
+        size_t backIdx = CardTextureCache::kCardBackIndex;
         CardTexture& backTex = outBase[backIdx];
         backTex.width = cardW;
         backTex.height = cardH;
@@ -2247,6 +2282,10 @@ static bool loadBaseFromEats(
             canvas.fillRoundedRect(0, 0, static_cast<float>(cardW), static_cast<float>(cardH), 8.0f, 0xFF1B365D);
             canvas.strokeRoundedRect(cardW * 0.05f, cardH * 0.04f, cardW * 0.90f, cardH * 0.92f, 6.0f, 0xFFD4AF37, 1.5f);
             backTex.rgba = canvas.rgba();
+        }
+
+        for (size_t v = 1; v < CardTextureCache::kCardBackVariants; ++v) {
+            outBase[CardTextureCache::kCardBackIndex + v] = outBase[CardTextureCache::kCardBackIndex];
         }
 
         if (onProgress && !onProgress(0.97f, "Saving compressed deck cache...")) {
@@ -2414,6 +2453,9 @@ bool CardTextureCache::loadBaseDeckTheme(
         }
         if (loaded) {
             bakeThemeCardBack(outBase[CardTextureCache::kCardBackIndex], DeckThemeId::SteampunkAi, cardW, cardH);
+            for (size_t v = 1; v < CardTextureCache::kCardBackVariants; ++v) {
+                outBase[CardTextureCache::kCardBackIndex + v] = outBase[CardTextureCache::kCardBackIndex];
+            }
             return true;
         }
     } else if (theme == DeckThemeId::BaroqueNoir) {
@@ -2916,8 +2958,10 @@ const CardTexture* CardTextureCache::getCardTexture(Suit s, Rank r) const noexce
     return (idx < textures_.size() && isLoaded_) ? &textures_[idx] : nullptr;
 }
 
-const CardTexture* CardTextureCache::getCardBackTexture() const noexcept {
-    return isLoaded_ ? &textures_[kCardBackIndex] : nullptr;
+const CardTexture* CardTextureCache::getCardBackTexture(uint8_t cardId) const noexcept {
+    if (!isLoaded_) return nullptr;
+    const size_t v = static_cast<size_t>(cardId) % kCardBackVariants;
+    return &textures_[kCardBackIndex + v];
 }
 
 const CardTexture* CardTextureCache::getTextureByIndex(size_t index) const noexcept {
@@ -3061,8 +3105,9 @@ const CardAtlasSlot& CardTextureCache::getAtlasSlot(Suit s, Rank r) const noexce
     return atlasSlots_[idx];
 }
 
-const CardAtlasSlot& CardTextureCache::getBackAtlasSlot() const noexcept {
-    return atlasSlots_[kCardBackIndex];
+const CardAtlasSlot& CardTextureCache::getBackAtlasSlot(uint8_t cardId) const noexcept {
+    const size_t v = static_cast<size_t>(cardId) % kCardBackVariants;
+    return atlasSlots_[kCardBackIndex + v];
 }
 
 const CardAtlasSlot& CardTextureCache::getAtlasSlotByIndex(size_t index) const noexcept {

@@ -190,13 +190,47 @@ struct FoleySoundBank {
     std::array<FoleySequenceDef, FoleySound::MaxCoreSounds> coreSequences{};
     std::vector<FoleySequenceDef> customSequences{};
     float masterVariance{1.0f};
+};
 
-    // Embedded authentic sample buffers (decoded from .eats Base64/Deflate)
-    std::vector<float> samplePlace;
-    std::vector<float> sampleDeal;
-    std::vector<float> sampleShuffleSoft;
-    std::vector<float> sampleShuffleLoud;
-    std::vector<float> sampleSnap;
+enum class AmbienceLayerType : uint8_t {
+    NoiseBed = 0,
+    StochasticGrains = 1,
+    ChirpSpawner = 2
+};
+
+enum class AmbienceNoiseColor : uint8_t {
+    White = 0,
+    Pink = 1,
+    Brown = 2
+};
+
+struct AmbienceLayerDef {
+    AmbienceLayerType type{AmbienceLayerType::NoiseBed};
+    AmbienceNoiseColor noiseColor{AmbienceNoiseColor::Pink};
+    uint8_t filterType{FoleyFilter::Lowpass};
+
+    float gain{0.35f};
+    float cutoff{1000.0f};
+    float q{0.707f};
+
+    float lfoRate{0.0f};
+    float lfoDepth{0.0f};
+    float ampModDepth{0.0f};
+
+    float rate{8.0f};
+    float freqMin{800.0f};
+    float freqMax{4000.0f};
+    float freqSweep{1.0f};
+    float decaySec{0.020f};
+    float stereoSpread{0.5f};
+    bool tonal{false};
+};
+
+struct AmbienceEnvDef {
+    std::string id{"off"};
+    std::string name{"Off"};
+    float masterGain{1.0f};
+    std::vector<AmbienceLayerDef> layers;
 };
 
 /**
@@ -238,6 +272,19 @@ public:
     void setMuted(bool m) noexcept { muted_.store(m, std::memory_order_relaxed); }
     [[nodiscard]] bool isMuted() const noexcept { return muted_.load(std::memory_order_relaxed); }
 
+    // Procedural Environmental Ambience API (/ambience/*.eats)
+    bool loadAmbienceFromEatsFile(const std::string& filePath);
+    bool loadAmbienceFromEatsScript(const std::string& script);
+    bool setAmbience(const std::string& envId);
+    void clearAmbience();
+    [[nodiscard]] std::string getActiveAmbienceId() const { return activeAmbienceId_; }
+
+    void setAmbienceVolume(float vol) noexcept { ambienceVolume_.store(std::clamp(vol, 0.0f, 1.0f), std::memory_order_relaxed); }
+    [[nodiscard]] float getAmbienceVolume() const noexcept { return ambienceVolume_.load(std::memory_order_relaxed); }
+
+    void setSoundPackId(const std::string& packId);
+    [[nodiscard]] std::string getSoundPackId() const { return activeSoundPackId_; }
+
     struct BiquadCoeffs {
         float b0{1.0f}, b1{0.0f}, b2{0.0f};
         float a1{0.0f}, a2{0.0f};
@@ -270,8 +317,7 @@ public:
         CustomDSP,
         ModalCard,
         PeelFriction,
-        ShuffleRiffle,
-        SamplePlayback
+        ShuffleRiffle
     };
 
 private:
@@ -357,31 +403,46 @@ private:
         std::array<float, 16> lpcHistory{};
         uint8_t lpcIdx{0};
 
-        // Procedural shuffle riffle state
+        // Dynamic PhISEM shuffle riffle particle cascade
+        struct RiffleSnap {
+            float timeSec{0.0f};
+            float amplitude{0.0f};
+            float pitchMod{1.0f};
+        };
+        static constexpr size_t kMaxRiffleSnaps = 24;
+        std::array<RiffleSnap, kMaxRiffleSnaps> riffleSnaps{};
+        uint8_t numRiffleSnaps{0};
         float snapEnv{0.0f};
         float prevLfoPhase{0.0f};
         uint8_t snapIdx{0};
         uint8_t shuffleMode{0}; // 0 = soft, 1 = loud
 
-        // Sample playback state
-        const float* sampleData{nullptr};
-        size_t sampleLength{0};
-        float sampleCursor{0.0f};
-        float sampleRateRatio{1.0f};
+        // Slide envelope state (true = accelerating deal swipe swell, false = regular ease slide)
+        bool isDealSwell{false};
+
+        // Drop physical touchdown contact parameters
+        float dropSplitSec{0.0095f};
+        float dropEdgeGain{0.95f};
+        float dropSlapGain{1.10f};
+        float dropKnockGain{0.45f};
+        float dropThudGain{0.16f};
 
         void reset() noexcept {
             active = false;
             type = VoiceType::Snap;
             soundId = 0;
             isCustomDSP = false;
-            sampleData = nullptr;
-            sampleLength = 0;
-            sampleCursor = 0.0f;
-            sampleRateRatio = 1.0f;
+            isDealSwell = false;
             snapEnv = 0.0f;
             prevLfoPhase = 0.0f;
             snapIdx = 0;
             shuffleMode = 0;
+            numRiffleSnaps = 0;
+            dropSplitSec = 0.0095f;
+            dropEdgeGain = 0.95f;
+            dropSlapGain = 1.10f;
+            dropKnockGain = 0.45f;
+            dropThudGain = 0.16f;
             lpcHistory.fill(0.0f);
             lpcIdx = 0;
             delaySec = 0.0f;
@@ -470,6 +531,64 @@ private:
     std::atomic<float> masterVolume_{0.85f};
     std::atomic<float> masterVariance_{1.0f};
     std::atomic<bool> muted_{false};
+    std::atomic<float> ambienceVolume_{0.55f};
+    std::string activeSoundPackId_{"default"};
+    std::string activeAmbienceId_{"off"};
+
+    // Double-buffered Procedural Ambience state (single miniaudio thread, zero-lock swap)
+    static constexpr size_t kMaxAmbienceLayers = 6;
+    static constexpr size_t kMaxAmbienceGrains = 24;
+
+    struct AmbienceBedState {
+        float pinkL0{0.0f}, pinkL1{0.0f}, pinkL2{0.0f};
+        float pinkR0{0.0f}, pinkR1{0.0f}, pinkR2{0.0f};
+        float brownL{0.0f}, brownR{0.0f};
+        float lfoPhase1{0.0f};
+        float lfoPhase2{0.0f};
+        uint8_t subCounter{0};
+        BiquadFilter filterL;
+        BiquadFilter filterR;
+        void reset() noexcept {
+            pinkL0 = pinkL1 = pinkL2 = 0.0f;
+            pinkR0 = pinkR1 = pinkR2 = 0.0f;
+            brownL = brownR = 0.0f;
+            lfoPhase1 = lfoPhase2 = 0.0f;
+            subCounter = 0;
+            filterL.reset();
+            filterR.reset();
+        }
+    };
+
+    struct AmbienceGrain {
+        bool active{false};
+        bool tonal{false};
+        bool isChirp{false};
+        float ageSec{0.0f};
+        float durationSec{0.02f};
+        float decayRate{1.0f};
+        float phase{0.0f};
+        float freq{1000.0f};
+        float freqMult{1.0f};
+        float chirpModPhase{0.0f};
+        float chirpModRate{18.0f};
+        float chirpModDepth{0.15f};
+        float gainL{0.5f};
+        float gainR{0.5f};
+        BiquadFilter filter;
+    };
+
+    std::array<AmbienceEnvDef, 2> ambienceBanks_{};
+    std::atomic<uint32_t> activeAmbienceBankIdx_{0};
+    std::atomic<uint32_t> ambienceGeneration_{0};
+    std::atomic<bool> ambienceEnabled_{false};
+    uint32_t lastObservedAmbienceGen_{0};
+    float ambienceFadeGain_{0.0f};
+    std::array<AmbienceBedState, kMaxAmbienceLayers> ambienceBedStates_{};
+    std::array<AmbienceGrain, kMaxAmbienceGrains> ambienceGrains_{};
+
+    void mixAmbience(float* outInterleavedStereo, uint32_t frameCount, float sampleRate, float ambVol) noexcept;
+    bool populateBuiltinAmbience(const std::string& envId, AmbienceEnvDef& outDef);
+
     uint32_t rngState_{0x9E3779B9u};
     uint32_t dealAlternator_{0};
     bool initialized_{false};

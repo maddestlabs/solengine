@@ -141,6 +141,8 @@ public:
 
     // SVG & Vector Path Injection
     void drawSvg(const std::string& svgXml, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f);
+    void drawSvgFile(const std::string& filePath, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = true);
+    void drawImageFile(const std::string& filePath, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = true);
     void drawSvgPath(const std::string& pathD, float cx, float cy, float scale, uint32_t color);
 
     // Typography & Rank Glyphs
@@ -191,7 +193,7 @@ private:
     bool radialSymmetryMirror_{false};
     std::vector<std::function<void()>> symmetryQueue_;
 
-    void rasterizeSvgFragment(const std::string& svgXml, float x, float y, float w, float h);
+    void rasterizeSvgFragment(const std::string& svgXml, float x, float y, float w, float h, bool cover = false);
     void compositeBuffer(const uint8_t* srcRgba, int srcW, int srcH, float dstX, float dstY, float dstW, float dstH);
 };
 

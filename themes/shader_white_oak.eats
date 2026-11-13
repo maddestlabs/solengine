@@ -7,7 +7,9 @@ sol.set_theme({
     author: "SolEngine / Eatscript",
     description: "Classic American White Oak tabletop with rich cathedral flame arches, medullary ray flecks, and deep open vessel pores",
     version: 1,
-    procedural: true
+    procedural: true,
+    lacquer: 0.50,
+    relief_bump: 2.2
 })
 
 def crown_oak_shader(u, v, nx, ny, in_r, in_g, in_b):

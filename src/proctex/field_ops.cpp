@@ -1512,4 +1512,120 @@ ColorImage quantizePixelArt(const ColorImage& src,
     return upscaled;
 }
 
+ColorImage resynthesizeFromRgba(const std::vector<uint8_t>& srcRgba,
+                                uint32_t srcW,
+                                uint32_t srcH,
+                                uint32_t dstW,
+                                uint32_t dstH,
+                                float jitterStrength,
+                                float detailStrength,
+                                float tileScale,
+                                uint32_t seed) {
+    ColorImage out(dstW, dstH, {0.5f, 0.5f, 0.5f, 1.0f});
+    if (srcW == 0 || srcH == 0 || dstW == 0 || dstH == 0 ||
+        srcRgba.size() < static_cast<size_t>(srcW) * srcH * 4u) {
+        return out;
+    }
+
+    auto mirrorCoord = [](float t) noexcept -> float {
+        float m = t - std::floor(t * 0.5f) * 2.0f;
+        return (m > 1.0f) ? (2.0f - m) : m;
+    };
+
+    auto sampleMirrorBilinear = [&](float u, float v) noexcept -> RGBAf {
+        float mu = std::clamp(mirrorCoord(u), 0.0f, 1.0f);
+        float mv = std::clamp(mirrorCoord(v), 0.0f, 1.0f);
+        float fx = mu * static_cast<float>(srcW - 1);
+        float fy = mv * static_cast<float>(srcH - 1);
+        int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, static_cast<int>(srcW - 1));
+        int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, static_cast<int>(srcH - 1));
+        int x1 = std::min(x0 + 1, static_cast<int>(srcW - 1));
+        int y1 = std::min(y0 + 1, static_cast<int>(srcH - 1));
+        float wx = fx - static_cast<float>(x0);
+        float wy = fy - static_cast<float>(y0);
+
+        auto fetch = [&](int px, int py) noexcept -> RGBAf {
+            size_t idx = (static_cast<size_t>(py) * srcW + static_cast<size_t>(px)) * 4u;
+            return {
+                static_cast<float>(srcRgba[idx + 0]) * (1.0f / 255.0f),
+                static_cast<float>(srcRgba[idx + 1]) * (1.0f / 255.0f),
+                static_cast<float>(srcRgba[idx + 2]) * (1.0f / 255.0f),
+                1.0f
+            };
+        };
+
+        RGBAf c00 = fetch(x0, y0);
+        RGBAf c10 = fetch(x1, y0);
+        RGBAf c01 = fetch(x0, y1);
+        RGBAf c11 = fetch(x1, y1);
+        float w00 = (1.0f - wx) * (1.0f - wy);
+        float w10 = wx * (1.0f - wy);
+        float w01 = (1.0f - wx) * wy;
+        float w11 = wx * wy;
+        return {
+            c00.r * w00 + c10.r * w10 + c01.r * w01 + c11.r * w11,
+            c00.g * w00 + c10.g * w10 + c01.g * w01 + c11.g * w11,
+            c00.b * w00 + c10.b * w10 + c01.b * w01 + c11.b * w11,
+            1.0f
+        };
+    };
+
+    #pragma omp parallel for schedule(static)
+    for (int y = 0; y < static_cast<int>(dstH); ++y) {
+        const float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(dstH);
+        for (int x = 0; x < static_cast<int>(dstW); ++x) {
+            const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(dstW);
+
+            // High-frequency FBM UV jitter breaks up upscaled pixel softness along vein edges
+            float jx = 0.0f;
+            float jy = 0.0f;
+            if (jitterStrength > 1e-5f) {
+                float n1 = perlinPeriodic(u, v, 12, 12, seed + 101u)
+                         + 0.5f * perlinPeriodic(u, v, 24, 24, seed + 202u);
+                float n2 = perlinPeriodic(u, v, 12, 12, seed + 303u)
+                         + 0.5f * perlinPeriodic(u, v, 24, 24, seed + 404u);
+                jx = n1 * jitterStrength;
+                jy = n2 * jitterStrength;
+            }
+
+            float su = u * tileScale + jx;
+            float sv = v * tileScale + jy;
+            RGBAf c = sampleMirrorBilinear(su, sv);
+
+            // Local unsharp contrast + procedural crystalline micro-grain
+            if (detailStrength > 1e-5f) {
+                const float eps = 1.5f / static_cast<float>(std::max(srcW, srcH));
+                RGBAf cL = sampleMirrorBilinear(su - eps, sv);
+                RGBAf cR = sampleMirrorBilinear(su + eps, sv);
+                RGBAf cU = sampleMirrorBilinear(su, sv - eps);
+                RGBAf cD = sampleMirrorBilinear(su, sv + eps);
+                float blurR = (cL.r + cR.r + cU.r + cD.r) * 0.25f;
+                float blurG = (cL.g + cR.g + cU.g + cD.g) * 0.25f;
+                float blurB = (cL.b + cR.b + cU.b + cD.b) * 0.25f;
+
+                float sharp = detailStrength * 1.15f;
+                c.r += (c.r - blurR) * sharp;
+                c.g += (c.g - blurG) * sharp;
+                c.b += (c.b - blurB) * sharp;
+
+                // Subtle multi-frequency mineral crystal grain
+                float g1 = perlinPeriodic(u, v, 32, 32, seed + 505u);
+                float g2 = perlinPeriodic(u, v, 64, 64, seed + 606u);
+                float grain = (g1 * 0.65f + g2 * 0.35f) * (detailStrength * 0.14f);
+                c.r += grain;
+                c.g += grain;
+                c.b += grain;
+            }
+
+            out.pixels[static_cast<size_t>(y) * dstW + static_cast<size_t>(x)] = {
+                std::clamp(c.r, 0.0f, 1.0f),
+                std::clamp(c.g, 0.0f, 1.0f),
+                std::clamp(c.b, 0.0f, 1.0f),
+                1.0f
+            };
+        }
+    }
+    return out;
+}
+
 } // namespace eatstextures

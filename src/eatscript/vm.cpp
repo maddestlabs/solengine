@@ -928,7 +928,11 @@ void VM::executePixelShader(const ShaderPixelContext& ctx,
     const uint8_t* code = processChunk_.code.data();
     const size_t codeSize = processChunk_.code.size();
     const double* constants = processChunk_.constants.data();
-    uint32_t rng = static_cast<uint32_t>(ctx.px * 374761393.0 + ctx.py * 668265263.0) ^ 0x9E3779B9u;
+    uint32_t h1 = static_cast<uint32_t>(static_cast<int64_t>(ctx.px)) * 374761393u
+                + static_cast<uint32_t>(static_cast<int64_t>(ctx.py)) * 668265263u
+                + 0x9E3779B9u;
+    h1 = (h1 ^ (h1 >> 13)) * 1274126177u;
+    uint32_t rng = h1 ^ (h1 >> 16);
 
     // Hard instruction budget prevents any infinite loop from stalling a worker thread
     constexpr size_t kMaxPixelOps = 1024;

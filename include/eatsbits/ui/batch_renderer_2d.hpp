@@ -96,6 +96,8 @@ public:
                                 float /*colR*/ = 1.04f, float /*colG*/ = 1.00f, float /*colB*/ = 0.94f,
                                 float /*ambR*/ = 0.35f, float /*ambG*/ = 0.35f, float /*ambB*/ = 0.35f,
                                 float /*sceneDarkness*/ = 0.0f, float /*lightStrength*/ = 1.0f) {}
+    virtual void setTableSurfaceLighting(float /*lacquerStrength*/, float /*bumpStrength*/ = 2.4f) {}
+    virtual void invalidateBgTexture() {}
     virtual void setShaderTime(float /*timeSeconds*/) {}
     virtual void setScissorRect(float /*x*/, float /*y*/, float /*w*/, float /*h*/) {}
     virtual void clearScissorRect() {}
@@ -226,6 +228,10 @@ public:
                         float colR = 1.04f, float colG = 1.00f, float colB = 0.94f,
                         float ambR = 0.35f, float ambG = 0.35f, float ambB = 0.35f,
                         float sceneDarkness = 0.0f, float lightStrength = 1.0f);
+    void setTableSurfaceLighting(float lacquerStrength, float bumpStrength = 2.4f) noexcept;
+    void invalidateBgTexture() noexcept;
+    [[nodiscard]] float getTableLacquer() const noexcept { return tableLacquer_; }
+    [[nodiscard]] float getTableBump() const noexcept { return tableBump_; }
     void setSceneLightingActive(bool active) noexcept;
     [[nodiscard]] bool isSceneLightingActive() const noexcept { return sceneLightingActive_; }
     void setShaderTime(float timeSeconds);
@@ -527,10 +533,11 @@ public:
 
     // Helper for packing RGBA floats into uint32_t (ABGR/RGBA order matching shader layout)
     static inline uint32_t packColor(float r, float g, float b, float a) noexcept {
-        uint32_t ur = static_cast<uint32_t>(r * 255.0f) & 0xFF;
-        uint32_t ug = static_cast<uint32_t>(g * 255.0f) & 0xFF;
-        uint32_t ub = static_cast<uint32_t>(b * 255.0f) & 0xFF;
-        uint32_t ua = static_cast<uint32_t>(a * 255.0f) & 0xFF;
+        auto clamp01 = [](float v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+        uint32_t ur = static_cast<uint32_t>(clamp01(r) * 255.0f) & 0xFF;
+        uint32_t ug = static_cast<uint32_t>(clamp01(g) * 255.0f) & 0xFF;
+        uint32_t ub = static_cast<uint32_t>(clamp01(b) * 255.0f) & 0xFF;
+        uint32_t ua = static_cast<uint32_t>(clamp01(a) * 255.0f) & 0xFF;
         return (ua << 24) | (ub << 16) | (ug << 8) | ur;
     }
 
@@ -549,6 +556,8 @@ private:
     bool monospaceAtlasReady_{false};
     bool sceneLightingActive_{false};
     size_t sceneLitStartIdx_{0};
+    float tableLacquer_{0.0f};
+    float tableBump_{2.4f};
 
     // 2D Rotation Transform State
     bool transformActive_{false};

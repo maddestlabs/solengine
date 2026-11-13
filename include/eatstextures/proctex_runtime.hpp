@@ -46,6 +46,14 @@ public:
         hasOverrideSeed_ = enabled;
     }
 
+    void setOptionVariables(const std::string& optionId, float u0, float u1, float u2, float u3) {
+        evaluator_.setVariable("option_id", eatsbits::eatscript::Value(optionId));
+        evaluator_.setVariable("u0", eatsbits::eatscript::Value(static_cast<double>(u0)));
+        evaluator_.setVariable("u1", eatsbits::eatscript::Value(static_cast<double>(u1)));
+        evaluator_.setVariable("u2", eatsbits::eatscript::Value(static_cast<double>(u2)));
+        evaluator_.setVariable("u3", eatsbits::eatscript::Value(static_cast<double>(u3)));
+    }
+
 private:
     void registerBindings();
     int allocField(FloatField&& f);

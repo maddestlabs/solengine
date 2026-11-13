@@ -63,8 +63,11 @@ public:
     );
 
     bool handleChar(unsigned int codepoint);
+    bool handleScroll(float yoffset);
 
     std::function<void()> onSettingsChanged;
+    std::function<void()> onOpenGameBrowser;
+    std::function<void(const std::string& gameId)> onSelectFavoriteGame;
 
 private:
     void randomizeSeed();
@@ -84,6 +87,7 @@ private:
 
     // Slider dragging states
     bool draggingVolume_{false};
+    bool draggingAmbienceVolume_{false};
     bool draggingDeviation_{false};
     bool draggingDarkness_{false};
     bool draggingLightStrength_{false};
@@ -91,6 +95,10 @@ private:
     float volTrackY_{0.0f};
     float volTrackW_{280.0f};
     float volTrackH_{26.0f};
+    float ambVolTrackX_{0.0f};
+    float ambVolTrackY_{0.0f};
+    float ambVolTrackW_{220.0f};
+    float ambVolTrackH_{26.0f};
     float devTrackX_{0.0f};
     float devTrackY_{0.0f};
     float devTrackW_{280.0f};
@@ -103,6 +111,18 @@ private:
     float lightStrTrackY_{0.0f};
     float lightStrTrackW_{280.0f};
     float lightStrTrackH_{26.0f};
+
+    // Themes tab vertical scroll state (for mobile/compact viewports)
+    float themeScrollY_{0.0f};
+    float themeMaxScrollY_{0.0f};
+    float contentRectX_{0.0f};
+    float contentRectY_{0.0f};
+    float contentRectW_{0.0f};
+    float contentRectH_{0.0f};
+    bool pointerDownInContent_{false};
+    bool draggingThemeScroll_{false};
+    float dragStartY_{0.0f};
+    float dragLastY_{0.0f};
 };
 
 } // namespace solengine

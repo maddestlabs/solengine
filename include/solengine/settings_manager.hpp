@@ -8,6 +8,7 @@
 #include "solengine/audio_foley.hpp"
 #include <string>
 #include <cstdint>
+#include <unordered_map>
 
 namespace solengine {
 
@@ -17,6 +18,8 @@ struct AppSettings {
     GameVariant variant{GameVariant::KlondikeDraw1};
     TableThemeId tableTheme{TableThemeId::PastelTan};
     std::string tableThemeSlug;
+    std::string tableThemeOption; // Active option id for current theme (e.g. "navy_blue", "cognac")
+    std::unordered_map<std::string, std::string> tableThemeOptions; // Per-theme option preference cache
     TableTintPreset tableTint{TableTintPreset::Auto};
     DeckThemeId deckTheme{DeckThemeId::SolEnshade};
     std::string cardBackId{"auto"};
@@ -39,6 +42,9 @@ struct AppSettings {
     float masterVolume{0.85f};
     bool muted{false};
     ShuffleStyle shuffleStyle{ShuffleStyle::Soft};
+    std::string soundPackId{"default"};
+    std::string ambienceId{"off"};
+    float ambienceVolume{0.55f};
     bool randomizeOnNewDeal{true};
     bool guaranteeSolvable{false};
     uint32_t lastSeed{2026u};

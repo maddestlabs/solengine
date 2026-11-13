@@ -7,7 +7,9 @@ sol.set_theme({
     author: "SolEngine / Eatscript",
     description: "Warm honey-blonde birch tabletop with continuous vertical grain, silky timber fibers, and soft ambient sheen",
     version: 1,
-    procedural: true
+    procedural: true,
+    lacquer: 0.60,
+    relief_bump: 2.2
 })
 
 def birch_shader(u, v, nx, ny, in_r, in_g, in_b):

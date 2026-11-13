@@ -1,0 +1,66 @@
+# SolEngine Procedural Background Theme — Gingham
+# Pure Eatscript Bytecode Shader: Woven card-table baize felt with organic wool nap & brass border
+
+sol.set_theme({
+    id: "gingham",
+    name: "Gingham",
+    author: "Maddest Labs",
+    description: "Classic British card-table baize felt with tactile wool weave and rich nap sheen",
+    version: 3,
+    procedural: true,
+    lacquer: 0.15,
+    relief_bump: 2.4,
+    option_label: "Felt",
+    options: [
+        { id: "emerald",    name: "Emerald Green",  u: [0.06, 0.24, 0.12, 1.0] },
+        { id: "royal_blue", name: "Royal Blue",     u: [0.08, 0.16, 0.36, 1.0] },
+        { id: "burgundy",   name: "Burgundy Wine",  u: [0.28, 0.07, 0.10, 1.0] },
+        { id: "slate_gray", name: "Slate Charcoal", u: [0.16, 0.17, 0.19, 1.0] },
+        { id: "camel_tan",  name: "Camel Tan",      u: [0.36, 0.29, 0.18, 1.0] }
+    ]
+})
+
+def emerald_felt_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Tactile 1:1 Plain Weave Yarn Harmonics (~7px yarn thread pitch)
+    w_x = sin(px * 0.90)
+    w_y = sin(py * 0.90)
+    weave = (w_x * w_y) * 0.055
+
+    # 2. Wool micro-fibers & directional nap
+    fibers = (fbm(px * 0.08, py * 0.08) - 0.5) * 0.04
+    nap_sheen = exp(-dist * 1.6) * 0.06
+
+    # 3. Card-table felt baize palette via uniforms
+    ur = mix(0.06, u0, u3)
+    ug = mix(0.24, u1, u3)
+    ub = mix(0.12, u2, u3)
+
+    mod = weave + fibers
+    base_r = ur + mod + nap_sheen * (ur * 1.5)
+    base_g = ug + mod + nap_sheen * (ug * 1.2)
+    base_b = ub + mod + nap_sheen * (ub * 1.5)
+
+    # 4. Deep vignette optical falloff
+    vignette = smoothstep(3.0, 0.25, dist)
+    grain = (random() - 0.5) * 0.015
+
+    r = clamp(base_r * vignette + grain, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base underlay matching felt tone
+    ur = mix(0.06, u0, u3)
+    ug = mix(0.24, u1, u3)
+    ub = mix(0.12, u2, u3)
+    ctx.fill_rect(0, 0, w, h, [ur * 0.7, ug * 0.7, ub * 0.7])
+
+    # 2. Gilded brass perimeter rail with subtle felt color influence
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, [ur * 1.6 + 0.15, ug * 1.3 + 0.12, ub * 1.2 + 0.05], 2.0)
+
+    # 3. Run full-canvas felt shader
+    ctx.apply_shader("emerald_felt_shader", intensity=1.0)

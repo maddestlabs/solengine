@@ -7,7 +7,9 @@ sol.set_theme({
     author: "SolEngine / Eatscript",
     description: "Authentic workshop birch table with distinctive vertical grain, subtle surface patina, hairline tool mark, and warm organic character",
     version: 1,
-    procedural: true
+    procedural: true,
+    lacquer: 0.65,
+    relief_bump: 2.2
 })
 
 def artisan_shader(u, v, nx, ny, in_r, in_g, in_b):

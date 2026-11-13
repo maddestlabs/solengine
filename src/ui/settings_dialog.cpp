@@ -49,7 +49,10 @@ void SettingsDialog::close() {
     isOpen_ = false;
     editingSeed_ = false;
     draggingVolume_ = false;
+    draggingAmbienceVolume_ = false;
     draggingDeviation_ = false;
+    draggingDarkness_ = false;
+    draggingLightStrength_ = false;
 }
 
 void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley) {
@@ -57,6 +60,13 @@ void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& fo
     board.setCardDeviation(s.cardDeviation);
     foley.setMasterVolume(s.masterVolume);
     foley.setMuted(s.muted);
+    foley.setAmbienceVolume(s.ambienceVolume);
+    if (tempSettings_.soundPackId != s.soundPackId) {
+        foley.setSoundPackId(s.soundPackId);
+    }
+    if (tempSettings_.ambienceId != s.ambienceId) {
+        foley.setAmbience(s.ambienceId);
+    }
 
     if (tempSettings_.cardBackId != s.cardBackId) {
         CardTextureCache::instance().setActiveCardBack(s.cardBackId);
@@ -68,6 +78,11 @@ void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& fo
     bool themeChanged = (board.tableThemeSlug() != s.tableThemeSlug || board.tableTheme() != s.tableTheme);
     if (tempSettings_.tableTint != s.tableTint) {
         ProceduralBackgroundSystem::instance().setTableTint(s.tableTint);
+        ProceduralBackgroundSystem::instance().invalidateCache();
+    }
+    if (tempSettings_.tableThemeOption != s.tableThemeOption) {
+        board.setTableThemeOption(s.tableThemeOption);
+        ProceduralBackgroundSystem::instance().setThemeOption(s.tableThemeOption);
         ProceduralBackgroundSystem::instance().invalidateCache();
     }
     if (themeChanged) {
@@ -269,6 +284,10 @@ void SettingsDialog::render(
     const float contentY = tabY + tabH + 12.0f;
     const float contentW = dialogW_ - 32.0f;
     const float contentH = dialogH_ - (headerH + tabH + 74.0f);
+    contentRectX_ = contentX;
+    contentRectY_ = contentY;
+    contentRectW_ = contentW;
+    contentRectH_ = contentH;
 
     if (isClockwork) {
         r.drawRoundedRect(contentX, contentY, contentW, contentH, 6.0f, cpal.panelBedR, cpal.panelBedG, cpal.panelBedB, 0.94f, 4);
@@ -305,25 +324,34 @@ void SettingsDialog::render(
         const float stepBtnW = 28.0f;
         const float minusX = seedBoxX + seedBoxW + 8.0f;
         bool minusHov = (mouseX >= minusX && mouseX <= minusX + stepBtnW && mouseY >= curY && mouseY <= curY + seedBoxH);
-        r.drawRoundedRect(minusX, curY, stepBtnW, seedBoxH, 4.0f, pal.woodR0 + 0.05f + (minusHov ? 0.08f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
-        r.drawRoundedRectOutline(minusX, curY, stepBtnW, seedBoxH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
-        eatsbits::ui::glyph::drawVectorText(r, "-", minusX + 10.0f, curY + 9.0f, 14.0f, 0.95f, 0.92f, 0.85f, 1.0f);
 
         // [+] step button
         const float plusX = minusX + stepBtnW + 6.0f;
         bool plusHov = (mouseX >= plusX && mouseX <= plusX + stepBtnW && mouseY >= curY && mouseY <= curY + seedBoxH);
-        r.drawRoundedRect(plusX, curY, stepBtnW, seedBoxH, 4.0f, pal.woodR0 + 0.05f + (plusHov ? 0.08f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
-        r.drawRoundedRectOutline(plusX, curY, stepBtnW, seedBoxH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
-        eatsbits::ui::glyph::drawVectorText(r, "+", plusX + 9.0f, curY + 9.0f, 14.0f, 0.95f, 0.92f, 0.85f, 1.0f);
 
         // [RANDOMIZE] button
         const float randBtnX = plusX + stepBtnW + 12.0f;
         const float randBtnW = 140.0f;
         bool randHov = (mouseX >= randBtnX && mouseX <= randBtnX + randBtnW && mouseY >= curY && mouseY <= curY + seedBoxH);
-        r.drawRoundedRect(randBtnX, curY, randBtnW, seedBoxH, 4.0f, pal.woodR0 + 0.08f + (randHov ? 0.10f : 0.0f), pal.woodG0 + 0.07f, pal.woodB0 + 0.05f, 0.95f, 4);
-        r.drawRoundedRectOutline(randBtnX, curY, randBtnW, seedBoxH, 4.0f, randHov ? pal.accentR : pal.trimR, randHov ? pal.accentG : pal.trimG, randHov ? pal.accentB : pal.trimB, 0.90f, 1.3f, 4);
-        float randTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.5f, "* RANDOMIZE");
-        eatsbits::ui::glyph::drawVectorText(r, "* RANDOMIZE", randBtnX + (randBtnW - randTxtW) * 0.5f, curY + 9.0f, 11.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+
+        if (isClockwork) {
+            clockwork_ui::drawPewterButton(r, minusX, curY, stepBtnW, seedBoxH, 4.0f, "-", minusHov, false, 14.0f);
+            clockwork_ui::drawPewterButton(r, plusX, curY, stepBtnW, seedBoxH, 4.0f, "+", plusHov, false, 14.0f);
+            clockwork_ui::drawBrassButton(r, randBtnX, curY, randBtnW, seedBoxH, 4.0f, "* RANDOMIZE", randHov, false, 11.5f);
+        } else {
+            r.drawRoundedRect(minusX, curY, stepBtnW, seedBoxH, 4.0f, pal.woodR0 + 0.05f + (minusHov ? 0.08f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
+            r.drawRoundedRectOutline(minusX, curY, stepBtnW, seedBoxH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+            eatsbits::ui::glyph::drawVectorText(r, "-", minusX + 10.0f, curY + 9.0f, 14.0f, 0.95f, 0.92f, 0.85f, 1.0f);
+
+            r.drawRoundedRect(plusX, curY, stepBtnW, seedBoxH, 4.0f, pal.woodR0 + 0.05f + (plusHov ? 0.08f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
+            r.drawRoundedRectOutline(plusX, curY, stepBtnW, seedBoxH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+            eatsbits::ui::glyph::drawVectorText(r, "+", plusX + 9.0f, curY + 9.0f, 14.0f, 0.95f, 0.92f, 0.85f, 1.0f);
+
+            r.drawRoundedRect(randBtnX, curY, randBtnW, seedBoxH, 4.0f, pal.woodR0 + 0.08f + (randHov ? 0.10f : 0.0f), pal.woodG0 + 0.07f, pal.woodB0 + 0.05f, 0.95f, 4);
+            r.drawRoundedRectOutline(randBtnX, curY, randBtnW, seedBoxH, 4.0f, randHov ? pal.accentR : pal.trimR, randHov ? pal.accentG : pal.trimG, randHov ? pal.accentB : pal.trimB, 0.90f, 1.3f, 4);
+            float randTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.5f, "* RANDOMIZE");
+            eatsbits::ui::glyph::drawVectorText(r, "* RANDOMIZE", randBtnX + (randBtnW - randTxtW) * 0.5f, curY + 9.0f, 11.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        }
 
         curY += 42.0f;
 
@@ -331,9 +359,15 @@ void SettingsDialog::render(
         const float checkSize = 18.0f;
         const float checkX = contentX + 16.0f;
         r.drawRoundedRect(checkX, curY, checkSize, checkSize, 3.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
-        r.drawRoundedRectOutline(checkX, curY, checkSize, checkSize, 3.0f, pal.trimR, pal.trimG, pal.trimB, 0.80f, 1.2f, 4);
+        r.drawRoundedRectOutline(checkX, curY, checkSize, checkSize, 3.0f,
+                                 isClockwork ? cpal.brassBrightR : pal.trimR,
+                                 isClockwork ? cpal.brassBrightG : pal.trimG,
+                                 isClockwork ? cpal.brassBrightB : pal.trimB, 0.80f, 1.2f, 4);
         if (tempSettings_.randomizeOnNewDeal) {
-            eatsbits::ui::glyph::drawVectorText(r, "X", checkX + 5.0f, curY + 2.5f, 12.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, "X", checkX + 5.0f, curY + 2.5f, 12.0f,
+                                                isClockwork ? cpal.brassHighlightR : pal.accentR,
+                                                isClockwork ? cpal.brassHighlightG : pal.accentG,
+                                                isClockwork ? cpal.brassHighlightB : pal.accentB, 1.0f);
         }
         eatsbits::ui::glyph::drawVectorText(r, "Auto-randomize seed on every 'New Deal' action", checkX + 26.0f, curY + 4.0f, 11.5f, 0.92f, 0.90f, 0.85f, 1.0f);
 
@@ -341,43 +375,105 @@ void SettingsDialog::render(
 
         // "Guarantee Solvable Deals" toggle
         r.drawRoundedRect(checkX, curY, checkSize, checkSize, 3.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
-        r.drawRoundedRectOutline(checkX, curY, checkSize, checkSize, 3.0f, pal.trimR, pal.trimG, pal.trimB, 0.80f, 1.2f, 4);
+        r.drawRoundedRectOutline(checkX, curY, checkSize, checkSize, 3.0f,
+                                 isClockwork ? cpal.brassBrightR : pal.trimR,
+                                 isClockwork ? cpal.brassBrightG : pal.trimG,
+                                 isClockwork ? cpal.brassBrightB : pal.trimB, 0.80f, 1.2f, 4);
         if (tempSettings_.guaranteeSolvable) {
-            eatsbits::ui::glyph::drawVectorText(r, "X", checkX + 5.0f, curY + 2.5f, 12.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, "X", checkX + 5.0f, curY + 2.5f, 12.0f,
+                                                isClockwork ? cpal.brassHighlightR : pal.accentR,
+                                                isClockwork ? cpal.brassHighlightG : pal.accentG,
+                                                isClockwork ? cpal.brassHighlightB : pal.accentB, 1.0f);
         }
         eatsbits::ui::glyph::drawVectorText(r, "Guarantee solvable deals (analyzes deal before starting)", checkX + 26.0f, curY + 4.0f, 11.5f, 0.92f, 0.90f, 0.85f, 1.0f);
 
         curY += 34.0f;
 
-        // "GAME VARIANT" selector
-        drawSectionHeader("GAME RULES & VARIANT");
-        const char* variants[8] = {
-            "KLONDIKE (DRAW 1)", "KLONDIKE (DRAW 3)",
-            "FREECELL",          "SPIDER (1 SUIT)",
-            "SPIDER (2 SUITS)",  "SPIDER (3 SUITS)",
-            "SPIDER (4 SUITS)",  "GOLF"
-        };
-        const float varBtnW = (contentW - 48.0f) * 0.5f;
-        const float varBtnH = 28.0f;
+        // "GAME LIBRARY & FAVORITES" section
+        drawSectionHeader("GAME LIBRARY & FAVORITE GAMES");
 
-        for (int v = 0; v < 8; ++v) {
-            float curW = varBtnW;
-            float vx = contentX + 16.0f + ((v % 2) * (varBtnW + 16.0f));
-            float vy = curY + (v / 2) * (varBtnH + 8.0f);
-            bool isSel = (static_cast<int>(tempSettings_.variant) == v);
-            bool vHov = (mouseX >= vx && mouseX <= vx + curW && mouseY >= vy && mouseY <= vy + varBtnH);
+        const float libBtnW = std::min(220.0f, contentW - 32.0f);
+        const float libBtnH = 30.0f;
+        const float libBtnX = contentX + 16.0f;
+        bool libHov = (mouseX >= libBtnX && mouseX <= libBtnX + libBtnW && mouseY >= curY && mouseY <= curY + libBtnH);
 
-            r.drawRoundedRect(vx, vy, curW, varBtnH, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (vHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-            r.drawRoundedRectOutline(vx, vy, curW, varBtnH, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-            float vTextW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, variants[v]);
-            eatsbits::ui::glyph::drawVectorText(r, variants[v], vx + (curW - vTextW) * 0.5f, vy + 8.0f, 11.0f, isSel ? pal.accentR : 0.92f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+        if (isClockwork) {
+            clockwork_ui::drawBrassButton(r, libBtnX, curY, libBtnW, libBtnH, 4.0f, "BROWSE ALL GAMES...", libHov, false, 11.5f);
+        } else {
+            r.drawRoundedRect(libBtnX, curY, libBtnW, libBtnH, 4.0f,
+                              pal.woodR0 + 0.08f + (libHov ? 0.10f : 0.0f),
+                              pal.woodG0 + 0.06f + (libHov ? 0.08f : 0.0f),
+                              pal.woodB0 + 0.04f + (libHov ? 0.06f : 0.0f), 0.96f, 4);
+            r.drawRoundedRectOutline(libBtnX, curY, libBtnW, libBtnH, 4.0f,
+                                     libHov ? pal.accentR : pal.trimR,
+                                     libHov ? pal.accentG : pal.trimG,
+                                     libHov ? pal.accentB : pal.trimB, 0.90f, 1.3f, 4);
+            float libTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.5f, "BROWSE ALL GAMES...");
+            eatsbits::ui::glyph::drawVectorText(r, "BROWSE ALL GAMES...", libBtnX + (libBtnW - libTxtW) * 0.5f, curY + 9.0f, 11.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        }
+
+        const auto* activeDef = GameRegistry::instance().findByVariant(tempSettings_.variant);
+        std::string activeLabel = std::string("ACTIVE: ") + (activeDef ? activeDef->name : "Klondike (Draw 1)");
+        eatsbits::ui::glyph::drawVectorText(r, activeLabel.c_str(), libBtnX + libBtnW + 14.0f, curY + 9.0f, 10.5f, 0.85f, 0.82f, 0.76f, 0.95f);
+
+        curY += libBtnH + 12.0f;
+
+        // Sleek grid of favorited games (up to 6)
+        const auto& favIds = SettingsManager::instance().settings().favorites;
+        std::vector<const SolitaireGameDef*> favDefs;
+        favDefs.reserve(6);
+        for (const auto& id : favIds) {
+            if (const auto* def = GameRegistry::instance().findById(id)) {
+                favDefs.push_back(def);
+                if (favDefs.size() >= 6) break;
+            }
+        }
+
+        if (favDefs.empty()) {
+            eatsbits::ui::glyph::drawVectorText(
+                r, "No favorite games pinned yet. Star games in Browse All Games!",
+                contentX + 16.0f, curY + 6.0f, 10.5f, 0.72f, 0.70f, 0.65f, 0.85f
+            );
+        } else {
+            const float favBtnW = (contentW - 48.0f) * 0.5f;
+            const float favBtnH = 30.0f;
+            for (size_t i = 0; i < favDefs.size(); ++i) {
+                const auto* def = favDefs[i];
+                float fx = contentX + 16.0f + (static_cast<int>(i % 2) * (favBtnW + 16.0f));
+                float fy = curY + static_cast<int>(i / 2) * (favBtnH + 8.0f);
+                bool isSel = (def->nativeVariant == tempSettings_.variant);
+                bool fHov = (mouseX >= fx && mouseX <= fx + favBtnW && mouseY >= fy && mouseY <= fy + favBtnH);
+
+                std::string label = "* " + def->name;
+                if (isClockwork) {
+                    clockwork_ui::drawPewterButton(r, fx, fy, favBtnW, favBtnH, 4.0f, label.c_str(), fHov, isSel, 10.5f);
+                } else {
+                    r.drawRoundedRect(fx, fy, favBtnW, favBtnH, 4.0f,
+                                      isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (fHov ? 0.06f : 0.0f)),
+                                      pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                    r.drawRoundedRectOutline(fx, fy, favBtnW, favBtnH, 4.0f,
+                                             isSel ? pal.accentR : pal.trimR,
+                                             isSel ? pal.accentG : pal.trimG,
+                                             isSel ? pal.accentB : pal.trimB,
+                                             isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                    eatsbits::ui::glyph::drawVectorText(r, label.c_str(), fx + 10.0f, fy + 9.0f, 10.5f,
+                                                        isSel ? pal.accentR : 0.92f,
+                                                        isSel ? pal.accentG : 0.88f,
+                                                        isSel ? pal.accentB : 0.80f, 1.0f);
+                }
+            }
         }
     } else if (currentTab_ == 1) {
-        // --- TAB 1: THEMES & PHYSICAL FINISHES ---
-        const bool useTwoCol = (dialogW_ >= 340.0f);
+        // --- TAB 1: THEMES & PHYSICAL FINISHES (Scrollable on compact/mobile viewports) ---
+        auto scissor = r.makeScissorScope(contentX + 2.0f, contentY + 2.0f, contentW - 4.0f, contentH - 4.0f);
+        const bool mouseInContent = (mouseX >= contentX && mouseX <= contentX + contentW && mouseY >= contentY && mouseY <= contentY + contentH);
+        const float startCurY = curY;
+        curY -= themeScrollY_;
+
+        const bool useTwoCol = (dialogW_ >= 420.0f);
         const float col1W = useTwoCol ? (contentW * (dialogW_ < 540.0f ? 0.60f : 0.56f)) : contentW;
         const float rowX = contentX + 16.0f;
-        const float rowW = useTwoCol ? (col1W - 12.0f) : (contentW - 32.0f);
+        const float rowW = useTwoCol ? (col1W - 12.0f) : (contentW - 36.0f);
         const float rowH = 28.0f;
         const float btnW = 32.0f;
         const float rowGap = 5.0f;
@@ -386,9 +482,9 @@ void SettingsDialog::render(
         const float nextX = rowX + rowW - btnW;
 
         auto drawStepper = [&](const std::string& text) {
-            bool prevHov = (mouseX >= rowX && mouseX <= rowX + btnW && mouseY >= curY && mouseY <= curY + rowH);
-            bool nextHov = (mouseX >= nextX && mouseX <= nextX + btnW && mouseY >= curY && mouseY <= curY + rowH);
-            bool centerHov = (mouseX >= labelX && mouseX <= labelX + labelW && mouseY >= curY && mouseY <= curY + rowH);
+            bool prevHov = mouseInContent && (mouseX >= rowX && mouseX <= rowX + btnW && mouseY >= curY && mouseY <= curY + rowH);
+            bool nextHov = mouseInContent && (mouseX >= nextX && mouseX <= nextX + btnW && mouseY >= curY && mouseY <= curY + rowH);
+            bool centerHov = mouseInContent && (mouseX >= labelX && mouseX <= labelX + labelW && mouseY >= curY && mouseY <= curY + rowH);
 
             if (isClockwork) {
                 clockwork_ui::drawStepperBar(r, rowX, curY, rowW, rowH, text, prevHov, nextHov, centerHov);
@@ -464,12 +560,23 @@ void SettingsDialog::render(
         drawStepper(themeStr);
         curY += rowH + rowGap;
 
-        // 1b. Table Surface Tint
-        const auto* tintInfo = getTableTintInfo(tempSettings_.tableTint);
-        std::string tintName = tintInfo ? tintInfo->name : "AUTO (ORIGINAL)";
-        std::string tintStr = "Surface Tint: " + tintName;
-        drawStepper(tintStr);
-        curY += rowH + rowGap;
+        // 1b. Table Theme Option (displays sub-theme options if provided by the theme)
+        const TableThemeDef* curThemeDef = (curThemeIdx < availableThemes.size()) ? &availableThemes[curThemeIdx] : nullptr;
+        bool hasThemeOptions = (curThemeDef != nullptr && !curThemeDef->options.empty());
+        if (hasThemeOptions) {
+            std::string optLabel = curThemeDef->optionLabel.empty() ? "Option" : curThemeDef->optionLabel;
+            size_t optIdx = 0;
+            const auto& opts = curThemeDef->options;
+            for (size_t i = 0; i < opts.size(); ++i) {
+                if (opts[i].id == tempSettings_.tableThemeOption) {
+                    optIdx = i;
+                    break;
+                }
+            }
+            std::string optStr = optLabel + ": " + opts[optIdx].name;
+            drawStepper(optStr);
+            curY += rowH + rowGap;
+        }
 
         // 2. Deck Theme
         std::string deckStr = "Deck: " + std::string(CardTextureCache::deckThemeName(tempSettings_.deckTheme));
@@ -564,8 +671,8 @@ void SettingsDialog::render(
 
         // --- SAMPLE AREA (Real-time Shader Stock & Wear) ---
         const float col2X = useTwoCol ? (contentX + col1W + 4.0f) : (contentX + 16.0f);
-        const float col2W = useTwoCol ? (contentW - col1W - 8.0f) : (contentW - 32.0f);
-        const float col2Y = useTwoCol ? (contentY + 14.0f) : (curY + 36.0f);
+        const float col2W = useTwoCol ? (contentW - col1W - 8.0f) : (contentW - 36.0f);
+        const float col2Y = useTwoCol ? (startCurY - 2.0f - themeScrollY_) : (curY + 38.0f);
 
         // Header: "Sample"
         const char* titleStr = "Sample";
@@ -602,22 +709,56 @@ void SettingsDialog::render(
 
         eatsbits::ui::LightSource2D pLight{cardX + previewCardW * 0.5f, cardY - 60.0f, 300.0f};
 
-        // Draw Card Front (Queen of Spades)
-        r.drawRectDropShadow(cardX, cardY, previewCardW, previewCardH, previewRadius, 6.0f, pLight, 0.50f);
+        // Draw Staggered Card Back (+3 deg) and Card Front (-3 deg)
+        // 1. Card Back in back (staggered slightly right/up, rotated +3 deg)
+        const float backX = cardX + 14.0f;
+        const float backY = cardY - 2.0f;
+        const float backCx = backX + previewCardW * 0.5f;
+        const float backCy = backY + previewCardH * 0.5f;
+        eatsbits::ui::LightSource2D pLightBack{backCx, backY - 60.0f, 300.0f};
+
+        r.setRotation(3.0f, backCx, backCy);
+        r.drawRectDropShadow(backX, backY, previewCardW, previewCardH, previewRadius, 6.0f, pLightBack, 0.45f);
+        if (r.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU && CardTextureCache::instance().hasGpuAtlas()) {
+            const auto& slotBack = CardTextureCache::instance().getBackAtlasSlot();
+            r.drawTexturedRoundedRectGpu(backX, backY, previewCardW, previewCardH, previewRadius,
+                                         slotBack.u0, slotBack.v0, slotBack.u1, slotBack.v1,
+                                         1.0f, 1.0f, 1.0f, 1.0f, previewScratch, previewCond);
+        } else {
+            const CardTexture* bTex = CardTextureCache::instance().getCardBackTexture();
+            if (bTex && !bTex->argb32.empty()) {
+                r.drawTexturedRoundedRect(backX, backY, previewCardW, previewCardH, previewRadius,
+                                          bTex->argb32.data(), bTex->width, bTex->height, 1.0f);
+            }
+        }
+        r.drawRoundedRectOutline(backX, backY, previewCardW, previewCardH, previewRadius,
+                                 0.20f, 0.18f, 0.14f, 0.75f, 1.1f, 4);
+        r.resetRotation();
+
+        // 2. Card Front in front (staggered slightly left/down, rotated -3 deg)
+        const float frontX = cardX - 10.0f;
+        const float frontY = cardY + 2.0f;
+        const float frontCx = frontX + previewCardW * 0.5f;
+        const float frontCy = frontY + previewCardH * 0.5f;
+        eatsbits::ui::LightSource2D pLightFront{frontCx, frontY - 60.0f, 300.0f};
+
+        r.setRotation(-3.0f, frontCx, frontCy);
+        r.drawRectDropShadow(frontX, frontY, previewCardW, previewCardH, previewRadius, 8.0f, pLightFront, 0.55f);
         if (r.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU && CardTextureCache::instance().hasGpuAtlas()) {
             const auto& slotFront = CardTextureCache::instance().getPreviewFaceAtlasSlot();
-            r.drawTexturedRoundedRectGpu(cardX, cardY, previewCardW, previewCardH, previewRadius,
+            r.drawTexturedRoundedRectGpu(frontX, frontY, previewCardW, previewCardH, previewRadius,
                                          slotFront.u0, slotFront.v0, slotFront.u1, slotFront.v1,
                                          1.0f, 1.0f, 1.0f, 1.0f, previewScratch, previewCond);
         } else {
             const CardTexture* fTex = CardTextureCache::instance().getPreviewFaceTexture();
             if (fTex && !fTex->argb32.empty()) {
-                r.drawTexturedRoundedRect(cardX, cardY, previewCardW, previewCardH, previewRadius,
+                r.drawTexturedRoundedRect(frontX, frontY, previewCardW, previewCardH, previewRadius,
                                           fTex->argb32.data(), fTex->width, fTex->height, 1.0f);
             }
         }
-        r.drawRoundedRectOutline(cardX, cardY, previewCardW, previewCardH, previewRadius,
+        r.drawRoundedRectOutline(frontX, frontY, previewCardW, previewCardH, previewRadius,
                                  0.20f, 0.18f, 0.14f, 0.75f, 1.1f, 4);
+        r.resetRotation();
 
         // Centered Details Badges below card
         float infoY = cardY + previewCardH + 12.0f;
@@ -637,27 +778,33 @@ void SettingsDialog::render(
                                             0.88f, 0.85f, 0.80f, 0.90f);
         eatsbits::ui::glyph::drawVectorText(r, badgeCorn.c_str(),  col2X + (col2W - bCornW) * 0.5f,  infoY + 24.0f, 8.5f,
                                             0.80f, 0.78f, 0.74f, 0.85f);
+
+        // Compute scrollable height & clamp themeScrollY_
+        const float col1Bottom = curY + 34.0f + themeScrollY_;
+        const float col2Bottom = infoY + 42.0f + themeScrollY_;
+        const float totalBottom = std::max(col1Bottom, col2Bottom);
+        themeMaxScrollY_ = std::max(0.0f, totalBottom - (contentY + contentH));
+        themeScrollY_ = std::clamp(themeScrollY_, 0.0f, themeMaxScrollY_);
+
+        // Subtle vertical scrollbar indicator when content overflows
+        if (themeMaxScrollY_ > 1.0f) {
+            const float sbW = 4.0f;
+            const float sbX = contentX + contentW - sbW - 4.0f;
+            const float sbTrackY = contentY + 8.0f;
+            const float sbTrackH = std::max(24.0f, contentH - 16.0f);
+            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, 2.0f, 0.08f, 0.07f, 0.06f, 0.45f, 2);
+
+            const float visibleRatio = std::clamp(contentH / std::max(1.0f, totalBottom - contentY), 0.15f, 1.0f);
+            const float thumbH = std::max(20.0f, sbTrackH * visibleRatio);
+            const float scrollFrac = themeScrollY_ / themeMaxScrollY_;
+            const float thumbY = sbTrackY + (sbTrackH - thumbH) * scrollFrac;
+            r.drawRoundedRect(sbX, thumbY, sbW, thumbH, 2.0f,
+                              isClockwork ? cpal.brassBrightR : pal.accentR,
+                              isClockwork ? cpal.brassBrightG : pal.accentG,
+                              isClockwork ? cpal.brassBrightB : pal.accentB, 0.75f, 2);
+        }
     } else if (currentTab_ == 2) {
         // --- TAB 2: DISPLAY & RESPONSIVE ---
-        drawSectionHeader("HUD MENU PRESENTATION STYLE");
-        const char* menuModes[3] = { "AUTO (ADAPTIVE)", "ICON + TEXT", "ICONS ONLY" };
-        const MenuDisplayMode menuVals[3] = {
-            MenuDisplayMode::Auto,
-            MenuDisplayMode::IconAndText,
-            MenuDisplayMode::IconOnly
-        };
-        const float mmBtnW = (contentW - 48.0f) / 3.0f;
-        for (int m = 0; m < 3; ++m) {
-            float mmx = contentX + 16.0f + m * (mmBtnW + 8.0f);
-            bool isSel = (tempSettings_.menuDisplayMode == menuVals[m]);
-            bool mHov = (mouseX >= mmx && mouseX <= mmx + mmBtnW && mouseY >= curY && mouseY <= curY + 28.0f);
-            r.drawRoundedRect(mmx, curY, mmBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (mHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-            r.drawRoundedRectOutline(mmx, curY, mmBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-            eatsbits::ui::glyph::drawVectorText(r, menuModes[m], mmx + 12.0f, curY + 8.0f, 10.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
-        }
-
-        curY += 36.0f;
-
         drawSectionHeader("RESPONSIVE LAYOUT & ASPECT-RATIO ADAPTATION");
         const char* layoutModes[3] = { "AUTO (ADAPTIVE)", "DESKTOP (CLASSIC)", "MOBILE (COMPACT)" };
         const ResponsiveLayoutMode layoutVals[3] = {
@@ -670,9 +817,13 @@ void SettingsDialog::render(
             float lx = contentX + 16.0f + m * (lBtnW + 8.0f);
             bool isSel = (tempSettings_.layoutMode == layoutVals[m]);
             bool lHov = (mouseX >= lx && mouseX <= lx + lBtnW && mouseY >= curY && mouseY <= curY + 28.0f);
-            r.drawRoundedRect(lx, curY, lBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (lHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-            r.drawRoundedRectOutline(lx, curY, lBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-            eatsbits::ui::glyph::drawVectorText(r, layoutModes[m], lx + 12.0f, curY + 8.0f, 10.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            if (isClockwork) {
+                clockwork_ui::drawBrassButton(r, lx, curY, lBtnW, 28.0f, 4.0f, layoutModes[m], lHov, isSel, 10.5f);
+            } else {
+                r.drawRoundedRect(lx, curY, lBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (lHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(lx, curY, lBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                eatsbits::ui::glyph::drawVectorText(r, layoutModes[m], lx + 12.0f, curY + 8.0f, 10.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            }
         }
 
         curY += 38.0f;
@@ -690,9 +841,13 @@ void SettingsDialog::render(
             float sx = contentX + 16.0f + s * (sBtnW + 8.0f);
             bool isSel = (tempSettings_.stockPosition == stockPosVals[s]);
             bool sHov = (mouseX >= sx && mouseX <= sx + sBtnW && mouseY >= curY && mouseY <= curY + 28.0f);
-            r.drawRoundedRect(sx, curY, sBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (sHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-            r.drawRoundedRectOutline(sx, curY, sBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-            eatsbits::ui::glyph::drawVectorText(r, stockPosLabels[s], sx + 6.0f, curY + 8.0f, 9.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            if (isClockwork) {
+                clockwork_ui::drawBrassButton(r, sx, curY, sBtnW, 28.0f, 4.0f, stockPosLabels[s], sHov, isSel, 9.5f);
+            } else {
+                r.drawRoundedRect(sx, curY, sBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (sHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(sx, curY, sBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                eatsbits::ui::glyph::drawVectorText(r, stockPosLabels[s], sx + 6.0f, curY + 8.0f, 9.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            }
         }
 
         curY += 38.0f;
@@ -704,9 +859,13 @@ void SettingsDialog::render(
             float ax = contentX + 16.0f + a * (anchorBtnW + 8.0f);
             bool isSel = (static_cast<int>(tempSettings_.menuAnchor) == a);
             bool aHov = (mouseX >= ax && mouseX <= ax + anchorBtnW && mouseY >= curY && mouseY <= curY + 28.0f);
-            r.drawRoundedRect(ax, curY, anchorBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (aHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-            r.drawRoundedRectOutline(ax, curY, anchorBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-            eatsbits::ui::glyph::drawVectorText(r, anchors[a], ax + 14.0f, curY + 8.0f, 10.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            if (isClockwork) {
+                clockwork_ui::drawBrassButton(r, ax, curY, anchorBtnW, 28.0f, 4.0f, anchors[a], aHov, isSel, 10.5f);
+            } else {
+                r.drawRoundedRect(ax, curY, anchorBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (aHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(ax, curY, anchorBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                eatsbits::ui::glyph::drawVectorText(r, anchors[a], ax + 14.0f, curY + 8.0f, 10.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            }
         }
 
         curY += 38.0f;
@@ -718,55 +877,143 @@ void SettingsDialog::render(
             float gx = contentX + 16.0f + g * (gBtnW + 8.0f);
             bool isSel = (g == 0 ? tempSettings_.showTableMarkings : !tempSettings_.showTableMarkings);
             bool gHov = (mouseX >= gx && mouseX <= gx + gBtnW && mouseY >= curY && mouseY <= curY + 28.0f);
-            r.drawRoundedRect(gx, curY, gBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (gHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-            r.drawRoundedRectOutline(gx, curY, gBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-            float gTextW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, guideModes[g]);
-            eatsbits::ui::glyph::drawVectorText(r, guideModes[g], gx + (gBtnW - gTextW) * 0.5f, curY + 8.0f, 10.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            if (isClockwork) {
+                clockwork_ui::drawBrassButton(r, gx, curY, gBtnW, 28.0f, 4.0f, guideModes[g], gHov, isSel, 10.5f);
+            } else {
+                r.drawRoundedRect(gx, curY, gBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (gHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(gx, curY, gBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                float gTextW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, guideModes[g]);
+                eatsbits::ui::glyph::drawVectorText(r, guideModes[g], gx + (gBtnW - gTextW) * 0.5f, curY + 8.0f, 10.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            }
         }
 
         curY += 34.0f;
         eatsbits::ui::glyph::drawVectorText(r, "Hides pile wells, suit runes, and board guides for a pure real-world card table feel.", contentX + 16.0f, curY, 9.5f, 0.70f, 0.68f, 0.62f, 0.85f);
     } else {
         // --- TAB 3: AUDIO & LIGHT ---
-        drawSectionHeader("PROCEDURAL FOLEY AUDIO SYNTHESIZER");
+        drawSectionHeader("PROCEDURAL FOLEY & AMBIENCE MIX");
 
-        // Master Volume slider row
+        // Master Volume, Ambience Volume, and Mute toggle on one clean row
+        const float muteBtnW = 92.0f;
+        const float mixGap = 10.0f;
+        const float availMixW = contentW - 32.0f - muteBtnW - mixGap * 2.0f;
+        const float eachSliderW = availMixW * 0.5f;
+
         volTrackX_ = contentX + 16.0f;
-        volTrackW_ = 280.0f;
-        volTrackH_ = 26.0f;
+        volTrackW_ = eachSliderW;
+        volTrackH_ = 24.0f;
         volTrackY_ = curY;
 
+        ambVolTrackX_ = volTrackX_ + volTrackW_ + mixGap;
+        ambVolTrackW_ = eachSliderW;
+        ambVolTrackH_ = 24.0f;
+        ambVolTrackY_ = curY;
+
         int volPct = static_cast<int>(std::round(tempSettings_.masterVolume * 100.0f));
-        std::string volStr = "VOLUME: " + std::to_string(volPct) + "%";
+        std::string volStr = "MASTER: " + std::to_string(volPct) + "%";
+
+        int ambPct = static_cast<int>(std::round(tempSettings_.ambienceVolume * 100.0f));
+        std::string ambStr = "AMBIENCE: " + std::to_string(ambPct) + "%";
 
         if (isClockwork) {
             bool volHov = (mouseX >= volTrackX_ && mouseX <= volTrackX_ + volTrackW_ && mouseY >= volTrackY_ && mouseY <= volTrackY_ + volTrackH_);
             clockwork_ui::drawGlassSlider(r, volTrackX_, volTrackY_, volTrackW_, volTrackH_, tempSettings_.masterVolume, nullptr, volHov, 0.0f);
-            eatsbits::ui::glyph::drawVectorText(r, volStr.c_str(), volTrackX_ + 14.0f, volTrackY_ + 7.5f, 11.0f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, volStr.c_str(), volTrackX_ + 12.0f, volTrackY_ + 6.5f, 10.0f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+
+            bool ambHov = (mouseX >= ambVolTrackX_ && mouseX <= ambVolTrackX_ + ambVolTrackW_ && mouseY >= ambVolTrackY_ && mouseY <= ambVolTrackY_ + ambVolTrackH_);
+            clockwork_ui::drawGlassSlider(r, ambVolTrackX_, ambVolTrackY_, ambVolTrackW_, ambVolTrackH_, tempSettings_.ambienceVolume, nullptr, ambHov, 0.0f);
+            eatsbits::ui::glyph::drawVectorText(r, ambStr.c_str(), ambVolTrackX_ + 12.0f, ambVolTrackY_ + 6.5f, 10.0f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
         } else {
             r.drawRoundedRect(volTrackX_, volTrackY_, volTrackW_, volTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
             r.drawRoundedRectOutline(volTrackX_, volTrackY_, volTrackW_, volTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
-
             float fillW = (volTrackW_ - 4.0f) * tempSettings_.masterVolume;
             r.drawRoundedRect(volTrackX_ + 2.0f, volTrackY_ + 2.0f, fillW, volTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
-            eatsbits::ui::glyph::drawVectorText(r, volStr.c_str(), volTrackX_ + 10.0f, volTrackY_ + 7.5f, 11.0f, 0.98f, 0.95f, 0.88f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, volStr.c_str(), volTrackX_ + 10.0f, volTrackY_ + 6.5f, 10.0f, 0.98f, 0.95f, 0.88f, 1.0f);
+
+            r.drawRoundedRect(ambVolTrackX_, ambVolTrackY_, ambVolTrackW_, ambVolTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
+            r.drawRoundedRectOutline(ambVolTrackX_, ambVolTrackY_, ambVolTrackW_, ambVolTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+            float ambFillW = (ambVolTrackW_ - 4.0f) * tempSettings_.ambienceVolume;
+            r.drawRoundedRect(ambVolTrackX_ + 2.0f, ambVolTrackY_ + 2.0f, ambFillW, ambVolTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, ambStr.c_str(), ambVolTrackX_ + 10.0f, ambVolTrackY_ + 6.5f, 10.0f, 0.98f, 0.95f, 0.88f, 1.0f);
         }
 
         // Mute toggle button
-        const float muteBtnX = volTrackX_ + volTrackW_ + 12.0f;
-        const float muteBtnW = 100.0f;
+        const float muteBtnX = ambVolTrackX_ + ambVolTrackW_ + mixGap;
         bool muteHov = (mouseX >= muteBtnX && mouseX <= muteBtnX + muteBtnW && mouseY >= curY && mouseY <= curY + volTrackH_);
         const char* muteLabel = tempSettings_.muted ? "MUTED" : "UNMUTED";
         if (isClockwork) {
-            clockwork_ui::drawPewterButton(r, muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, muteLabel, muteHov, tempSettings_.muted, 11.0f);
+            clockwork_ui::drawPewterButton(r, muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, muteLabel, muteHov, tempSettings_.muted, 10.0f);
         } else {
             r.drawRoundedRect(muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, pal.woodR0 + 0.06f + (muteHov ? 0.08f : 0.0f), pal.woodG0 + 0.05f, pal.woodB0 + 0.04f, 0.95f, 4);
             r.drawRoundedRectOutline(muteBtnX, curY, muteBtnW, volTrackH_, 4.0f, tempSettings_.muted ? 0.85f : pal.trimR, tempSettings_.muted ? 0.35f : pal.trimG, tempSettings_.muted ? 0.35f : pal.trimB, 0.80f, 1.2f, 4);
-            float muteTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, muteLabel);
-            eatsbits::ui::glyph::drawVectorText(r, muteLabel, muteBtnX + (muteBtnW - muteTxtW) * 0.5f, curY + (volTrackH_ - 11.0f) * 0.5f, 11.0f, tempSettings_.muted ? 0.90f : 0.95f, tempSettings_.muted ? 0.45f : 0.92f, tempSettings_.muted ? 0.45f : 0.85f, 1.0f);
+            float muteTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.0f, muteLabel);
+            eatsbits::ui::glyph::drawVectorText(r, muteLabel, muteBtnX + (muteBtnW - muteTxtW) * 0.5f, curY + (volTrackH_ - 10.0f) * 0.5f, 10.0f, tempSettings_.muted ? 0.90f : 0.95f, tempSettings_.muted ? 0.45f : 0.92f, tempSettings_.muted ? 0.45f : 0.85f, 1.0f);
         }
 
-        curY += 40.0f;
+        curY += 32.0f;
+
+        // UI Sound Set (/sounds/*.eats)
+        drawSectionHeader("UI FOLEY SOUND SET (/SOUNDS)");
+        struct SoundPackOption { const char* id; const char* label; };
+        const SoundPackOption soundPacks[9] = {
+            { "default",         "DEFAULT" },
+            { "authentic_place", "AUTHENTIC" },
+            { "copag_plastic",   "COPAG" },
+            { "vintage_bicycle", "BICYCLE" },
+            { "vegas_linen",     "LINEN" },
+            { "bass_heavy",      "BASS" },
+            { "glass_crystal",   "CRYSTAL" },
+            { "futuristic",      "FUTURISTIC" },
+            { "retro_8bit",      "8-BIT" }
+        };
+        const float packBtnW = (contentW - 64.0f) / 5.0f;
+        for (int i = 0; i < 9; ++i) {
+            int row = i / 5;
+            int col = i % 5;
+            float px = contentX + 16.0f + col * (packBtnW + 8.0f);
+            float py = curY + row * 27.0f;
+            bool isSel = (tempSettings_.soundPackId == soundPacks[i].id);
+            bool pHov = (mouseX >= px && mouseX <= px + packBtnW && mouseY >= py && mouseY <= py + 23.0f);
+            if (isClockwork) {
+                clockwork_ui::drawBrassButton(r, px, py, packBtnW, 23.0f, 4.0f, soundPacks[i].label, pHov, isSel, 9.0f);
+            } else {
+                r.drawRoundedRect(px, py, packBtnW, 23.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (pHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(px, py, packBtnW, 23.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                eatsbits::ui::glyph::drawVectorText(r, soundPacks[i].label, px + 8.0f, py + 6.5f, 9.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            }
+        }
+        curY += 58.0f;
+
+        // Procedural Environmental Ambience (/ambience/*.eats)
+        drawSectionHeader("PROCEDURAL AMBIENCE ENVIRONMENT (/AMBIENCE)");
+        struct AmbienceOption { const char* id; const char* label; };
+        const AmbienceOption ambOptions[8] = {
+            { "off",        "OFF" },
+            { "rain",       "RAIN" },
+            { "fireplace",  "FIREPLACE" },
+            { "campfire",   "CAMPFIRE" },
+            { "wind",       "WIND" },
+            { "woodlands",  "WOODLANDS" },
+            { "riverbed",   "RIVERBED" },
+            { "whitenoise", "WHITE NOISE" }
+        };
+        const float ambBtnW = (contentW - 56.0f) / 4.0f;
+        for (int i = 0; i < 8; ++i) {
+            int row = i / 4;
+            int col = i % 4;
+            float ax = contentX + 16.0f + col * (ambBtnW + 8.0f);
+            float ay = curY + row * 27.0f;
+            bool isSel = (tempSettings_.ambienceId == ambOptions[i].id);
+            bool aHov = (mouseX >= ax && mouseX <= ax + ambBtnW && mouseY >= ay && mouseY <= ay + 23.0f);
+            if (isClockwork) {
+                clockwork_ui::drawBrassButton(r, ax, ay, ambBtnW, 23.0f, 4.0f, ambOptions[i].label, aHov, isSel, 9.0f);
+            } else {
+                r.drawRoundedRect(ax, ay, ambBtnW, 23.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (aHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(ax, ay, ambBtnW, 23.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                eatsbits::ui::glyph::drawVectorText(r, ambOptions[i].label, ax + 8.0f, ay + 6.5f, 9.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            }
+        }
+        curY += 58.0f;
 
         drawSectionHeader("PHYSICAL ILLUMINATION & DYNAMIC LIGHT (OFF = RECOMMENDED)");
         const char* lightModes[5] = { "OFF (STEADY)", "CHANDELIER", "CANDLE", "HAUNTED", "CYBERPUNK" };
@@ -781,18 +1028,18 @@ void SettingsDialog::render(
         for (int l = 0; l < 5; ++l) {
             float lx = contentX + 16.0f + l * (lightBtnW + 8.0f);
             bool isSel = (tempSettings_.lightingPreset == lightVals[l]);
-            bool lHov = (mouseX >= lx && mouseX <= lx + lightBtnW && mouseY >= curY && mouseY <= curY + 28.0f);
+            bool lHov = (mouseX >= lx && mouseX <= lx + lightBtnW && mouseY >= curY && mouseY <= curY + 24.0f);
             if (isClockwork) {
-                clockwork_ui::drawBrassButton(r, lx, curY, lightBtnW, 28.0f, 4.0f, lightModes[l], lHov, isSel, 9.5f);
+                clockwork_ui::drawBrassButton(r, lx, curY, lightBtnW, 24.0f, 4.0f, lightModes[l], lHov, isSel, 9.0f);
             } else {
-                r.drawRoundedRect(lx, curY, lightBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (lHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-                r.drawRoundedRectOutline(lx, curY, lightBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-                eatsbits::ui::glyph::drawVectorText(r, lightModes[l], lx + 8.0f, curY + 8.0f, 9.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+                r.drawRoundedRect(lx, curY, lightBtnW, 24.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (lHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(lx, curY, lightBtnW, 24.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                eatsbits::ui::glyph::drawVectorText(r, lightModes[l], lx + 8.0f, curY + 7.0f, 9.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
             }
         }
 
-        curY += 40.0f;
-        drawSectionHeader("SCENE DARKNESS & LIGHT SOURCE STRENGTH (NATURAL VIGNETTE)");
+        curY += 32.0f;
+        drawSectionHeader("SCENE DARKNESS & LIGHT SOURCE STRENGTH");
 
         const float sliderGap = 16.0f;
         const float halfSliderW = (contentW - 32.0f - sliderGap) * 0.5f;
@@ -801,7 +1048,7 @@ void SettingsDialog::render(
         darkTrackX_ = contentX + 16.0f;
         darkTrackY_ = curY;
         darkTrackW_ = halfSliderW;
-        darkTrackH_ = 26.0f;
+        darkTrackH_ = 24.0f;
 
         float darkNorm = std::clamp(tempSettings_.sceneDarkness / 0.85f, 0.0f, 1.0f);
         int darkPct = static_cast<int>(std::round(tempSettings_.sceneDarkness * 100.0f));
@@ -811,7 +1058,7 @@ void SettingsDialog::render(
         lightStrTrackX_ = darkTrackX_ + darkTrackW_ + sliderGap;
         lightStrTrackY_ = curY;
         lightStrTrackW_ = halfSliderW;
-        lightStrTrackH_ = 26.0f;
+        lightStrTrackH_ = 24.0f;
 
         float lightNorm = std::clamp(tempSettings_.lightStrength / 2.0f, 0.0f, 1.0f);
         int lightPct = static_cast<int>(std::round(tempSettings_.lightStrength * 100.0f));
@@ -820,27 +1067,24 @@ void SettingsDialog::render(
         if (isClockwork) {
             bool darkHov = (mouseX >= darkTrackX_ && mouseX <= darkTrackX_ + darkTrackW_ && mouseY >= darkTrackY_ && mouseY <= darkTrackY_ + darkTrackH_);
             clockwork_ui::drawGlassSlider(r, darkTrackX_, darkTrackY_, darkTrackW_, darkTrackH_, darkNorm, nullptr, darkHov, 0.0f);
-            eatsbits::ui::glyph::drawVectorText(r, darkStr.c_str(), darkTrackX_ + 14.0f, darkTrackY_ + 7.5f, 10.5f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, darkStr.c_str(), darkTrackX_ + 12.0f, darkTrackY_ + 6.5f, 10.0f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
 
             bool lightHov = (mouseX >= lightStrTrackX_ && mouseX <= lightStrTrackX_ + lightStrTrackW_ && mouseY >= lightStrTrackY_ && mouseY <= lightStrTrackY_ + lightStrTrackH_);
             clockwork_ui::drawGlassSlider(r, lightStrTrackX_, lightStrTrackY_, lightStrTrackW_, lightStrTrackH_, lightNorm, nullptr, lightHov, 0.0f);
-            eatsbits::ui::glyph::drawVectorText(r, lightStr.c_str(), lightStrTrackX_ + 14.0f, lightStrTrackY_ + 7.5f, 10.5f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, lightStr.c_str(), lightStrTrackX_ + 12.0f, lightStrTrackY_ + 6.5f, 10.0f, cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
         } else {
             r.drawRoundedRect(darkTrackX_, darkTrackY_, darkTrackW_, darkTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
             r.drawRoundedRectOutline(darkTrackX_, darkTrackY_, darkTrackW_, darkTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
             float darkFillW = (darkTrackW_ - 4.0f) * darkNorm;
             r.drawRoundedRect(darkTrackX_ + 2.0f, darkTrackY_ + 2.0f, darkFillW, darkTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
-            eatsbits::ui::glyph::drawVectorText(r, darkStr.c_str(), darkTrackX_ + 10.0f, darkTrackY_ + 7.5f, 10.5f, 0.98f, 0.95f, 0.88f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, darkStr.c_str(), darkTrackX_ + 10.0f, darkTrackY_ + 6.5f, 10.0f, 0.98f, 0.95f, 0.88f, 1.0f);
 
             r.drawRoundedRect(lightStrTrackX_, lightStrTrackY_, lightStrTrackW_, lightStrTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
             r.drawRoundedRectOutline(lightStrTrackX_, lightStrTrackY_, lightStrTrackW_, lightStrTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
             float lightFillW = (lightStrTrackW_ - 4.0f) * lightNorm;
             r.drawRoundedRect(lightStrTrackX_ + 2.0f, lightStrTrackY_ + 2.0f, lightFillW, lightStrTrackH_ - 4.0f, 3.0f, pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
-            eatsbits::ui::glyph::drawVectorText(r, lightStr.c_str(), lightStrTrackX_ + 10.0f, lightStrTrackY_ + 7.5f, 10.5f, 0.98f, 0.95f, 0.88f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, lightStr.c_str(), lightStrTrackX_ + 10.0f, lightStrTrackY_ + 6.5f, 10.0f, 0.98f, 0.95f, 0.88f, 1.0f);
         }
-
-        curY += 34.0f;
-        eatsbits::ui::glyph::drawVectorText(r, "Subtle scene darkness + elevated light strength creates a warm, natural overhead vignette.", contentX + 16.0f, curY, 9.5f, 0.70f, 0.68f, 0.62f, 0.85f);
     }
 
     // 6. Action Footer: [RESET TO DEFAULTS] and [APPLY & CLOSE]
@@ -883,9 +1127,15 @@ bool SettingsDialog::handleMouseButton(
     if (button != 0) return true;
     if (action == 0) {
         draggingVolume_ = false;
+        draggingAmbienceVolume_ = false;
         draggingDeviation_ = false;
         draggingDarkness_ = false;
         draggingLightStrength_ = false;
+        pointerDownInContent_ = false;
+        if (draggingThemeScroll_) {
+            draggingThemeScroll_ = false;
+            return true;
+        }
         return true;
     }
     if (action != 1) return true;
@@ -992,24 +1242,58 @@ bool SettingsDialog::handleMouseButton(
         }
 
         curY += 34.0f + 24.0f;
-        const float varBtnW = (contentW - 48.0f) * 0.5f;
-        const float varBtnH = 28.0f;
-        for (int v = 0; v < 8; ++v) {
-            float curW = varBtnW;
-            float vx = contentX + 16.0f + ((v % 2) * (varBtnW + 16.0f));
-            float vy = curY + (v / 2) * (varBtnH + 8.0f);
-            if (mouseX >= vx && mouseX <= vx + curW && mouseY >= vy && mouseY <= vy + varBtnH) {
-                tempSettings_.variant = static_cast<GameVariant>(v);
-                foley.triggerSound(FoleySound::WoodClick, 0.8f);
-                return true;
+        const float libBtnW = std::min(220.0f, contentW - 32.0f);
+        const float libBtnH = 30.0f;
+        const float libBtnX = contentX + 16.0f;
+        if (mouseX >= libBtnX && mouseX <= libBtnX + libBtnW && mouseY >= curY && mouseY <= curY + libBtnH) {
+            foley.triggerSound(FoleySound::WoodClick, 0.8f);
+            close();
+            if (onOpenGameBrowser) onOpenGameBrowser();
+            return true;
+        }
+
+        curY += libBtnH + 12.0f;
+        const auto& favIds = SettingsManager::instance().settings().favorites;
+        std::vector<const SolitaireGameDef*> favDefs;
+        favDefs.reserve(6);
+        for (const auto& id : favIds) {
+            if (const auto* def = GameRegistry::instance().findById(id)) {
+                favDefs.push_back(def);
+                if (favDefs.size() >= 6) break;
+            }
+        }
+        if (!favDefs.empty()) {
+            const float favBtnW = (contentW - 48.0f) * 0.5f;
+            const float favBtnH = 30.0f;
+            for (size_t i = 0; i < favDefs.size(); ++i) {
+                float fx = contentX + 16.0f + (static_cast<int>(i % 2) * (favBtnW + 16.0f));
+                float fy = curY + static_cast<int>(i / 2) * (favBtnH + 8.0f);
+                if (mouseX >= fx && mouseX <= fx + favBtnW && mouseY >= fy && mouseY <= fy + favBtnH) {
+                    const std::string chosenId = favDefs[i]->id;
+                    foley.triggerSound(FoleySound::WoodClick, 0.8f);
+                    close();
+                    if (onSelectFavoriteGame) onSelectFavoriteGame(chosenId);
+                    return true;
+                }
             }
         }
     } else if (currentTab_ == 1) {
-        float curY = tabContentY + 16.0f;
-        const bool useTwoCol = (dialogW_ >= 340.0f);
-        const float col1W = useTwoCol ? (contentW * (dialogW_ < 540.0f ? 0.60f : 0.56f)) : contentW;
-        const float rowX = contentX + 16.0f;
-        const float rowW = useTwoCol ? (col1W - 12.0f) : (contentW - 32.0f);
+        if (mouseY < contentRectY_ || mouseY > contentRectY_ + contentRectH_) {
+            // Outside scrollable content bounds — fall through to footer buttons
+        } else {
+            // Track pointer press for mobile touch-drag scrolling
+            if (themeMaxScrollY_ > 1.0f &&
+                !(mouseX >= devTrackX_ && mouseX <= devTrackX_ + devTrackW_ && mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_)) {
+                pointerDownInContent_ = true;
+                draggingThemeScroll_ = false;
+                dragStartY_ = mouseY;
+                dragLastY_ = mouseY;
+            }
+            float curY = tabContentY + 16.0f - themeScrollY_;
+            const bool useTwoCol = (dialogW_ >= 420.0f);
+            const float col1W = useTwoCol ? (contentW * (dialogW_ < 540.0f ? 0.60f : 0.56f)) : contentW;
+            const float rowX = contentX + 16.0f;
+            const float rowW = useTwoCol ? (col1W - 12.0f) : (contentW - 36.0f);
         const float rowH = 28.0f;
         const float btnW = 32.0f;
         const float rowGap = 5.0f;
@@ -1057,6 +1341,22 @@ bool SettingsDialog::handleMouseButton(
                 if (!availableThemes[curIdx].filePath.empty()) {
                     ProceduralBackgroundSystem::instance().loadCustomEatsTheme(availableThemes[curIdx].filePath);
                 }
+
+                // Synchronize active option for the newly selected theme
+                const auto& newDef = availableThemes[curIdx];
+                if (!newDef.options.empty()) {
+                    auto it = tempSettings_.tableThemeOptions.find(newDef.id);
+                    if (it != tempSettings_.tableThemeOptions.end()) {
+                        tempSettings_.tableThemeOption = it->second;
+                    } else {
+                        tempSettings_.tableThemeOption = newDef.options[0].id;
+                        tempSettings_.tableThemeOptions[newDef.id] = newDef.options[0].id;
+                    }
+                } else {
+                    tempSettings_.tableThemeOption.clear();
+                }
+                board.setTableThemeOption(tempSettings_.tableThemeOption);
+                ProceduralBackgroundSystem::instance().setThemeOption(tempSettings_.tableThemeOption);
                 ProceduralBackgroundSystem::instance().invalidateCache();
             }
             foley.triggerSound(FoleySound::WoodClick, 0.8f);
@@ -1064,20 +1364,37 @@ bool SettingsDialog::handleMouseButton(
         }
         curY += rowH + rowGap;
 
-        // 1b. Table Surface Tint
-        if (testStepper(stepDelta)) {
-            constexpr uint8_t count = static_cast<uint8_t>(TableTintPreset::Count);
-            if (stepDelta < 0) {
-                tempSettings_.tableTint = static_cast<TableTintPreset>((static_cast<uint8_t>(tempSettings_.tableTint) + count - 1u) % count);
-            } else {
-                tempSettings_.tableTint = static_cast<TableTintPreset>((static_cast<uint8_t>(tempSettings_.tableTint) + 1u) % count);
+        // 1b. Table Theme Option (displays sub-theme options if provided by the theme)
+        const auto& availableThemesForOpt = ProceduralBackgroundSystem::instance().availableThemes();
+        size_t curThemeIdxForOpt = ProceduralBackgroundSystem::instance().findThemeIndex(tempSettings_.tableThemeSlug, tempSettings_.tableTheme);
+        const TableThemeDef* curThemeDefForOpt = (curThemeIdxForOpt < availableThemesForOpt.size()) ? &availableThemesForOpt[curThemeIdxForOpt] : nullptr;
+        bool hasThemeOptionsForOpt = (curThemeDefForOpt != nullptr && !curThemeDefForOpt->options.empty());
+        if (hasThemeOptionsForOpt) {
+            if (testStepper(stepDelta)) {
+                const auto& opts = curThemeDefForOpt->options;
+                size_t optIdx = 0;
+                for (size_t i = 0; i < opts.size(); ++i) {
+                    if (opts[i].id == tempSettings_.tableThemeOption) {
+                        optIdx = i;
+                        break;
+                    }
+                }
+                size_t optCount = opts.size();
+                if (stepDelta < 0) {
+                    optIdx = (optIdx + optCount - 1u) % optCount;
+                } else {
+                    optIdx = (optIdx + 1u) % optCount;
+                }
+                tempSettings_.tableThemeOption = opts[optIdx].id;
+                tempSettings_.tableThemeOptions[curThemeDefForOpt->id] = opts[optIdx].id;
+                board.setTableThemeOption(tempSettings_.tableThemeOption);
+                ProceduralBackgroundSystem::instance().setThemeOption(tempSettings_.tableThemeOption);
+                ProceduralBackgroundSystem::instance().invalidateCache();
+                foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                return true;
             }
-            ProceduralBackgroundSystem::instance().setTableTint(tempSettings_.tableTint);
-            ProceduralBackgroundSystem::instance().invalidateCache();
-            foley.triggerSound(FoleySound::WoodClick, 0.75f);
-            return true;
+            curY += rowH + rowGap;
         }
-        curY += rowH + rowGap;
 
         // 2. Deck Theme
         if (testStepper(stepDelta)) {
@@ -1182,24 +1499,9 @@ bool SettingsDialog::handleMouseButton(
             foley.triggerSound(FoleySound::WoodClick, 0.75f);
             return true;
         }
+        } // end else inside scrollable content bounds
     } else if (currentTab_ == 2) {
         float curY = tabContentY + 16.0f + 24.0f;
-        const MenuDisplayMode menuVals[3] = {
-            MenuDisplayMode::Auto,
-            MenuDisplayMode::IconAndText,
-            MenuDisplayMode::IconOnly
-        };
-        const float mmBtnW = (contentW - 48.0f) / 3.0f;
-        for (int m = 0; m < 3; ++m) {
-            float mmx = contentX + 16.0f + m * (mmBtnW + 8.0f);
-            if (mouseX >= mmx && mouseX <= mmx + mmBtnW && mouseY >= curY && mouseY <= curY + 28.0f) {
-                tempSettings_.menuDisplayMode = menuVals[m];
-                foley.triggerSound(FoleySound::WoodClick, 0.75f);
-                return true;
-            }
-        }
-
-        curY += 36.0f + 24.0f;
         const ResponsiveLayoutMode layoutVals[3] = {
             ResponsiveLayoutMode::Auto,
             ResponsiveLayoutMode::DesktopStandard,
@@ -1267,8 +1569,19 @@ bool SettingsDialog::handleMouseButton(
             return true;
         }
 
-        const float muteBtnX = volTrackX_ + volTrackW_ + 12.0f;
-        const float muteBtnW = 100.0f;
+        if (mouseX >= ambVolTrackX_ && mouseX <= ambVolTrackX_ + ambVolTrackW_ &&
+            mouseY >= ambVolTrackY_ && mouseY <= ambVolTrackY_ + ambVolTrackH_) {
+            float pct = std::clamp((mouseX - ambVolTrackX_) / ambVolTrackW_, 0.0f, 1.0f);
+            tempSettings_.ambienceVolume = pct;
+            foley.setAmbienceVolume(pct);
+            draggingAmbienceVolume_ = true;
+            foley.triggerSound(FoleySound::WoodClick, 0.6f);
+            return true;
+        }
+
+        const float muteBtnW = 92.0f;
+        const float mixGap = 10.0f;
+        const float muteBtnX = ambVolTrackX_ + ambVolTrackW_ + mixGap;
         if (mouseX >= muteBtnX && mouseX <= muteBtnX + muteBtnW && mouseY >= curY && mouseY <= curY + volTrackH_) {
             tempSettings_.muted = !tempSettings_.muted;
             foley.setMuted(tempSettings_.muted);
@@ -1276,7 +1589,45 @@ bool SettingsDialog::handleMouseButton(
             return true;
         }
 
-        curY += 40.0f + 24.0f;
+        curY += 32.0f + 24.0f;
+        const char* soundPackIds[9] = {
+            "default", "authentic_place", "copag_plastic", "vintage_bicycle", "vegas_linen",
+            "bass_heavy", "glass_crystal", "futuristic", "retro_8bit"
+        };
+        const float packBtnW = (contentW - 64.0f) / 5.0f;
+        for (int i = 0; i < 9; ++i) {
+            int row = i / 5;
+            int col = i % 5;
+            float px = contentX + 16.0f + col * (packBtnW + 8.0f);
+            float py = curY + row * 27.0f;
+            if (mouseX >= px && mouseX <= px + packBtnW && mouseY >= py && mouseY <= py + 23.0f) {
+                tempSettings_.soundPackId = soundPackIds[i];
+                foley.setSoundPackId(tempSettings_.soundPackId);
+                foley.triggerSound(FoleySound::Deal, 0.8f);
+                return true;
+            }
+        }
+
+        curY += 58.0f + 24.0f;
+        const char* ambIds[8] = {
+            "off", "rain", "fireplace", "campfire",
+            "wind", "woodlands", "riverbed", "whitenoise"
+        };
+        const float ambBtnW = (contentW - 56.0f) / 4.0f;
+        for (int i = 0; i < 8; ++i) {
+            int row = i / 4;
+            int col = i % 4;
+            float ax = contentX + 16.0f + col * (ambBtnW + 8.0f);
+            float ay = curY + row * 27.0f;
+            if (mouseX >= ax && mouseX <= ax + ambBtnW && mouseY >= ay && mouseY <= ay + 23.0f) {
+                tempSettings_.ambienceId = ambIds[i];
+                foley.setAmbience(tempSettings_.ambienceId);
+                foley.triggerSound(FoleySound::WoodClick, 0.7f);
+                return true;
+            }
+        }
+
+        curY += 58.0f + 24.0f;
         const LightingPreset lightVals[5] = {
             LightingPreset::StudioSteady,
             LightingPreset::GentleChandelier,
@@ -1287,7 +1638,7 @@ bool SettingsDialog::handleMouseButton(
         const float lightBtnW = (contentW - 64.0f) / 5.0f;
         for (int l = 0; l < 5; ++l) {
             float lx = contentX + 16.0f + l * (lightBtnW + 8.0f);
-            if (mouseX >= lx && mouseX <= lx + lightBtnW && mouseY >= curY && mouseY <= curY + 28.0f) {
+            if (mouseX >= lx && mouseX <= lx + lightBtnW && mouseY >= curY && mouseY <= curY + 24.0f) {
                 tempSettings_.lightingPreset = lightVals[l];
                 foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 return true;
@@ -1324,6 +1675,9 @@ bool SettingsDialog::handleMouseButton(
         board.setCardDeviation(tempSettings_.cardDeviation);
         foley.setMasterVolume(tempSettings_.masterVolume);
         foley.setMuted(tempSettings_.muted);
+        foley.setSoundPackId(tempSettings_.soundPackId);
+        foley.setAmbienceVolume(tempSettings_.ambienceVolume);
+        foley.setAmbience(tempSettings_.ambienceId);
         foley.triggerSound(FoleySound::WoodClick, 0.8f);
         return true;
     }
@@ -1362,6 +1716,12 @@ bool SettingsDialog::handleMouseMove(
         foley.setMasterVolume(pct);
         return true;
     }
+    if (draggingAmbienceVolume_ && ambVolTrackW_ > 1.0f) {
+        float pct = std::clamp((mouseX - ambVolTrackX_) / ambVolTrackW_, 0.0f, 1.0f);
+        tempSettings_.ambienceVolume = pct;
+        foley.setAmbienceVolume(pct);
+        return true;
+    }
     if (draggingDeviation_ && devTrackW_ > 1.0f) {
         float dev = std::clamp((mouseX - devTrackX_) / devTrackW_, 0.0f, 1.0f);
         tempSettings_.cardDeviation = dev;
@@ -1376,6 +1736,17 @@ bool SettingsDialog::handleMouseMove(
     if (draggingLightStrength_ && lightStrTrackW_ > 1.0f) {
         float pct = std::clamp((mouseX - lightStrTrackX_) / lightStrTrackW_, 0.0f, 1.0f);
         tempSettings_.lightStrength = pct * 2.0f;
+        return true;
+    }
+    if (pointerDownInContent_ && currentTab_ == 1 && themeMaxScrollY_ > 1.0f) {
+        float dy = mouseY - dragLastY_;
+        if (!draggingThemeScroll_ && std::abs(mouseY - dragStartY_) > 6.0f) {
+            draggingThemeScroll_ = true;
+        }
+        if (draggingThemeScroll_) {
+            themeScrollY_ = std::clamp(themeScrollY_ - dy, 0.0f, themeMaxScrollY_);
+        }
+        dragLastY_ = mouseY;
         return true;
     }
     return false;
@@ -1435,6 +1806,15 @@ bool SettingsDialog::handleChar(unsigned int codepoint) {
         return true;
     }
     return false;
+}
+
+bool SettingsDialog::handleScroll(float yoffset) {
+    if (!isOpen_) return false;
+    if (currentTab_ == 1 && themeMaxScrollY_ > 1.0f) {
+        themeScrollY_ = std::clamp(themeScrollY_ - yoffset * 28.0f, 0.0f, themeMaxScrollY_);
+        return true;
+    }
+    return true;
 }
 
 } // namespace solengine

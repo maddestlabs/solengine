@@ -25,6 +25,8 @@ struct ProceduralBakeOptions {
     bool overrideDimensions{false};
     bool overrideSeed{false};
     bool seamless{true};
+    std::string optionId;
+    float u[4]{0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 /**

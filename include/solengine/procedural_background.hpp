@@ -13,12 +13,22 @@
 
 namespace solengine {
 
+struct ThemeOptionChoice {
+    std::string id;         // e.g. "navy_blue", "light_blue", "cognac", "camel"
+    std::string name;       // e.g. "Navy Blue", "Light Blue", "Cognac", "Camel"
+    float u[4]{0.0f, 0.0f, 0.0f, 0.0f}; // Uniform registers passed to bytecode shader (e.g. RGB dye tint)
+};
+
 struct TableThemeDef {
     std::string id;         // e.g. "ambientcg_paintedwood008c", "paintedwood_redcedar", "pastel_tan"
     std::string name;       // e.g. "PAINTED WOOD 008C", "PAINTED RED CEDAR", "PASTEL TAN"
     std::string filePath;   // Relative or absolute path to .eats file (empty for PastelTan)
     TableThemeId legacyId{TableThemeId::PastelTan};
     bool isProcedural{true};
+    float lacquer{0.0f};    // 0.0 = completely matte (felt/fabric), 1.0 = high-gloss piano finish
+    float reliefBump{2.4f}; // micro-relief normal bump intensity
+    std::string optionLabel; // e.g. "Color", "Wash", "Leather", "Species" (defaults to "Option" if empty)
+    std::vector<ThemeOptionChoice> options; // Author-defined theme sub-options
 };
 
 /**
@@ -50,10 +60,18 @@ public:
     ProceduralBackgroundSystem& operator=(const ProceduralBackgroundSystem&) = delete;
 
     /**
-     * Render the procedural table background across the specified rectangle.
-     * When PBR is enabled and AmbientCG texture sets are present in /textures/,
-     * a seamless physically-lit normal-mapped surface is baked and rendered.
-     * Otherwise, falls back to pure vector geometry passes.
+     * Render the procedural table background across the specified rectangle by theme slug / ID.
+     */
+    void renderBackground(
+        eatsbits::ui::BatchRenderer2D& r,
+        float x, float y, float w, float h,
+        const std::string& themeSlug,
+        const eatsbits::ui::LightSource2D& light,
+        uint32_t seed = 2026u
+    );
+
+    /**
+     * Render the procedural table background across the specified rectangle by legacy theme ID.
      */
     void renderBackground(
         eatsbits::ui::BatchRenderer2D& r,
@@ -62,6 +80,10 @@ public:
         const eatsbits::ui::LightSource2D& light,
         uint32_t seed = 2026u
     );
+
+    [[nodiscard]] float activeLacquer() const noexcept;
+    [[nodiscard]] float activeReliefBump() const noexcept;
+    void setActiveLacquer(float lacquer, float reliefBump = 2.4f) noexcept;
 
     /**
      * Invalidate cached procedural textures (e.g. on window resize or theme switch).
@@ -114,6 +136,18 @@ public:
      */
     void setPbrTexturesEnabled(bool enable) noexcept;
     [[nodiscard]] bool isPbrTexturesEnabled() const noexcept;
+
+    /**
+     * Set the active theme option / variant for the current theme (e.g. "navy_blue", "cognac").
+     */
+    void setThemeOption(const std::string& optionId) noexcept;
+    [[nodiscard]] const std::string& themeOption() const noexcept;
+
+    /**
+     * Helper to resolve the active ThemeOptionChoice for a given theme definition.
+     * Returns nullptr if the theme defines no options.
+     */
+    [[nodiscard]] const ThemeOptionChoice* getActiveOption(const TableThemeDef& def) const noexcept;
 
     /**
      * Set the global table surface tint preset (recolors procedural & PBR backgrounds).

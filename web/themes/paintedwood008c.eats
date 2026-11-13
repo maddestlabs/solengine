@@ -7,7 +7,9 @@ sol.set_theme({
     author: "SolEngine / Eatscript",
     description: "Weathered antique painted wood planks with continuous longitudinal grain and faded seams",
     version: 2,
-    procedural: true
+    procedural: true,
+    lacquer: 0.45,
+    relief_bump: 2.2
 })
 
 def wood_shader(u, v, nx, ny, in_r, in_g, in_b):

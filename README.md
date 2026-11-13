@@ -13,7 +13,9 @@
 
 ## The Crucible
 
-**SolEngine** is an ode to solitaire classics like *Hardwood Solitaire III* and the boundless monolith of *PySolFC*, resurrected through modern **WebGPU** compute and fragment sorcery.
+**SolEngine** is an ode to solitaire classics like *Hardwood Solitaire III* and the boundless monolith of *PySolFC*, remixed through modern **WebGPU** compute and fragment sorcery and a hybrid of procedural, vector and bitmap assets.
+
+To minimize runtime, SolEngine leans heavily into procedural generation.
 
 Every shuffle is deterministic, powered by an editable seed. Easily replay games via seeds. Built-in solver can ensure solvable games (depending on variant) and allows walkthrough of gameplay to facilitate learning new dynamics.
 
@@ -24,7 +26,7 @@ Play instantly in your browser:
 
 ## The Core
 
-### The Scripted Pantheon
+### Scripting
 SolEngine is built around **Eatscript**: a declarative, Pythonic scripting dialect where game logic, layout topology, and card movement are define:
 - **Classic Solitaries:** *Klondike (Draw 1 & 3)*, *FreeCell*, *Spider (1, 2, & 4 Suits)*, *Yukon*.
 - **Custom Variations:** Craft your own game rules via `.eats` scripts. Define tableaux, cell constraints, foundation ranks, reserve cascades, and victory conditions.
@@ -37,7 +39,7 @@ Table backgrounds in SolEngine are forged in WebGPU fragment shaders while card 
 - **Unreal World Physics:** Dragged and airborne cards fly with physical weight, damping, and spring restitution.
 - **Elevation Shadow Casters:** Cards in flight elevate dynamically above the board, casting soft, spring-damped drop shadows that react to card velocity and height.
 
-### Procedural Foley Audio
+### Hybrid Procedural Foley Audio
 Embued with the power of `miniaudio`, sound is synthesized dynamically and can likewise be designed via Eatscript.
 
 ---

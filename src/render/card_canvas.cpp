@@ -7,11 +7,14 @@
 #include "eatsbits/ui/monospace_font_8x16.hpp"
 #include "nanosvg.h"
 #include "nanosvgrast.h"
+#include "stb_image.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <vector>
@@ -342,7 +345,7 @@ void CardCanvas::compositeBuffer(const uint8_t* srcRgba, int srcW, int srcH, flo
     }
 }
 
-void CardCanvas::rasterizeSvgFragment(const std::string& svgXml, float x, float y, float w, float h) {
+void CardCanvas::rasterizeSvgFragment(const std::string& svgXml, float x, float y, float w, float h, bool cover) {
     if (svgXml.empty()) return;
 
     std::vector<char> xmlCopy(svgXml.begin(), svgXml.end());
@@ -367,7 +370,9 @@ void CardCanvas::rasterizeSvgFragment(const std::string& svgXml, float x, float 
 
     float scaleX = (img->width > 0.0f) ? (static_cast<float>(renderW) / img->width) : 1.0f;
     float scaleY = (img->height > 0.0f) ? (static_cast<float>(renderH) / img->height) : 1.0f;
-    float scale = std::min(scaleX, scaleY);
+    float scale = cover ? std::max(scaleX, scaleY) : std::min(scaleX, scaleY);
+    float tx = cover ? (static_cast<float>(renderW) - img->width * scale) * 0.5f : 0.0f;
+    float ty = cover ? (static_cast<float>(renderH) - img->height * scale) * 0.5f : 0.0f;
 
     thread_local static std::vector<uint8_t> sTmpBuffer;
     size_t needed = static_cast<size_t>(renderW * renderH * 4);
@@ -376,7 +381,7 @@ void CardCanvas::rasterizeSvgFragment(const std::string& svgXml, float x, float 
     }
     std::fill(sTmpBuffer.begin(), sTmpBuffer.begin() + needed, 0);
 
-    nsvgRasterize(sRast, img, 0.0f, 0.0f, scale, sTmpBuffer.data(), renderW, renderH, renderW * 4);
+    nsvgRasterize(sRast, img, tx, ty, scale, sTmpBuffer.data(), renderW, renderH, renderW * 4);
     nsvgDelete(img);
 
     compositeBuffer(sTmpBuffer.data(), renderW, renderH, x, y, static_cast<float>(renderW), static_cast<float>(renderH));
@@ -527,6 +532,114 @@ void CardCanvas::drawSvg(const std::string& svgXml, float x, float y, float w, f
         symmetryQueue_.push_back([this, svgXml, x, y, w, h]() { drawSvg(svgXml, x, y, w, h); });
     }
     rasterizeSvgFragment(svgXml, state_.tx + state_.a * x, state_.ty + state_.d * y, w * std::abs(state_.a), h * std::abs(state_.d));
+}
+
+namespace {
+
+std::filesystem::path resolveThemeAssetPath(const std::string& filePath) {
+    static const char* kPrefixes[] = {"", "themes/", "../themes/", "../../themes/", "assets/", "../assets/"};
+    for (const char* prefix : kPrefixes) {
+        std::filesystem::path candidate = std::filesystem::path(prefix) / filePath;
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(candidate, ec)) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+void CardCanvas::drawSvgFile(const std::string& filePath, float x, float y, float w, float h, bool cover) {
+    if (filePath.empty()) return;
+    if (symmetryActive_) {
+        symmetryQueue_.push_back([this, filePath, x, y, w, h, cover]() { drawSvgFile(filePath, x, y, w, h, cover); });
+    }
+
+    std::filesystem::path resolved = resolveThemeAssetPath(filePath);
+    if (resolved.empty()) return;
+
+    std::ifstream ifs(resolved, std::ios::binary);
+    if (!ifs) return;
+    std::ostringstream ss;
+    ss << ifs.rdbuf();
+    std::string svgXml = ss.str();
+    if (svgXml.empty()) return;
+
+    rasterizeSvgFragment(
+        svgXml,
+        state_.tx + state_.a * x,
+        state_.ty + state_.d * y,
+        (w > 0.0f) ? w * std::abs(state_.a) : w,
+        (h > 0.0f) ? h * std::abs(state_.d) : h,
+        cover
+    );
+}
+
+void CardCanvas::drawImageFile(const std::string& filePath, float x, float y, float w, float h, bool cover) {
+    if (filePath.empty()) return;
+    if (symmetryActive_) {
+        symmetryQueue_.push_back([this, filePath, x, y, w, h, cover]() { drawImageFile(filePath, x, y, w, h, cover); });
+    }
+
+    std::filesystem::path resolved = resolveThemeAssetPath(filePath);
+    if (resolved.empty()) return;
+
+    int imgW = 0, imgH = 0, comp = 0;
+    std::string pathStr = resolved.string();
+    stbi_uc* pixels = stbi_load(pathStr.c_str(), &imgW, &imgH, &comp, 4);
+    if (!pixels || imgW <= 0 || imgH <= 0) {
+        if (pixels) stbi_image_free(pixels);
+        return;
+    }
+
+    float dstX = state_.tx + state_.a * x;
+    float dstY = state_.ty + state_.d * y;
+    float dstW = (w > 0.0f) ? (w * std::abs(state_.a)) : static_cast<float>(imgW);
+    float dstH = (h > 0.0f) ? (h * std::abs(state_.d)) : static_cast<float>(imgH);
+    int renderW = std::clamp(static_cast<int>(std::ceil(dstW)), 1, 4096);
+    int renderH = std::clamp(static_cast<int>(std::ceil(dstH)), 1, 4096);
+
+    float scaleX = static_cast<float>(renderW) / static_cast<float>(imgW);
+    float scaleY = static_cast<float>(renderH) / static_cast<float>(imgH);
+    float scale = cover ? std::max(scaleX, scaleY) : std::min(scaleX, scaleY);
+    float tx = (static_cast<float>(renderW) - static_cast<float>(imgW) * scale) * 0.5f;
+    float ty = (static_cast<float>(renderH) - static_cast<float>(imgH) * scale) * 0.5f;
+    float invScale = 1.0f / std::max(scale, 1e-6f);
+
+    std::vector<uint8_t> upsampled(static_cast<size_t>(renderW * renderH * 4), 0);
+    for (int py = 0; py < renderH; ++py) {
+        float sy = (static_cast<float>(py) + 0.5f - ty) * invScale - 0.5f;
+        int y0 = std::clamp(static_cast<int>(std::floor(sy)), 0, imgH - 1);
+        int y1 = std::clamp(y0 + 1, 0, imgH - 1);
+        float wy = std::clamp(sy - static_cast<float>(y0), 0.0f, 1.0f);
+
+        for (int px = 0; px < renderW; ++px) {
+            float sx = (static_cast<float>(px) + 0.5f - tx) * invScale - 0.5f;
+            int x0 = std::clamp(static_cast<int>(std::floor(sx)), 0, imgW - 1);
+            int x1 = std::clamp(x0 + 1, 0, imgW - 1);
+            float wx = std::clamp(sx - static_cast<float>(x0), 0.0f, 1.0f);
+
+            const uint8_t* p00 = pixels + (static_cast<size_t>(y0 * imgW + x0) * 4);
+            const uint8_t* p10 = pixels + (static_cast<size_t>(y0 * imgW + x1) * 4);
+            const uint8_t* p01 = pixels + (static_cast<size_t>(y1 * imgW + x0) * 4);
+            const uint8_t* p11 = pixels + (static_cast<size_t>(y1 * imgW + x1) * 4);
+
+            float w00 = (1.0f - wx) * (1.0f - wy);
+            float w10 = wx * (1.0f - wy);
+            float w01 = (1.0f - wx) * wy;
+            float w11 = wx * wy;
+
+            size_t dstIdx = static_cast<size_t>(py * renderW + px) * 4;
+            for (int c = 0; c < 4; ++c) {
+                float v = p00[c] * w00 + p10[c] * w10 + p01[c] * w01 + p11[c] * w11;
+                upsampled[dstIdx + c] = static_cast<uint8_t>(std::clamp(v, 0.0f, 255.0f));
+            }
+        }
+    }
+
+    stbi_image_free(pixels);
+    compositeBuffer(upsampled.data(), renderW, renderH, dstX, dstY, static_cast<float>(renderW), static_cast<float>(renderH));
 }
 
 void CardCanvas::drawSvgPath(const std::string& pathD, float cx, float cy, float scale, uint32_t color) {
@@ -3869,25 +3982,44 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         return eatsbits::eatscript::Value(canvas ? static_cast<double>(canvas->height()) : 0.0);
     });
 
+    auto resolveColorVal = [](const eatsbits::eatscript::Value& val) -> uint32_t {
+        if (val.isString()) return CardCanvas::parseColor(val.asString());
+        if (val.isList()) {
+            const auto& l = val.listVal;
+            if (l.size() >= 3) {
+                float r = l[0].asFloat();
+                float g = l[1].asFloat();
+                float b = l[2].asFloat();
+                float a = (l.size() > 3) ? l[3].asFloat(1.0f) : 1.0f;
+                uint32_t ir = static_cast<uint32_t>(std::clamp(r <= 1.0f ? r * 255.0f : r, 0.0f, 255.0f));
+                uint32_t ig = static_cast<uint32_t>(std::clamp(g <= 1.0f ? g * 255.0f : g, 0.0f, 255.0f));
+                uint32_t ib = static_cast<uint32_t>(std::clamp(b <= 1.0f ? b * 255.0f : b, 0.0f, 255.0f));
+                uint32_t ia = static_cast<uint32_t>(std::clamp(a <= 1.0f ? a * 255.0f : a, 0.0f, 255.0f));
+                return (ia << 24) | (ir << 16) | (ig << 8) | ib;
+            }
+        }
+        return static_cast<uint32_t>(val.asInt(0xFFFFFFFF));
+    };
+
     // 1. ctx.fill_rect(x, y, w, h, color)
-    eval.registerMemberFunction("ctx", "fill_rect", [canvas](const auto& args, const auto&) {
+    eval.registerMemberFunction("ctx", "fill_rect", [canvas, resolveColorVal](const auto& args, const auto&) {
         if (!canvas || args.size() < 5) return eatsbits::eatscript::Value(false);
-        uint32_t col = args[4].isString() ? CardCanvas::parseColor(args[4].asString()) : static_cast<uint32_t>(args[4].asInt());
+        uint32_t col = resolveColorVal(args[4]);
         canvas->fillRect(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), args[3].asFloat(), col);
         return eatsbits::eatscript::Value(true);
     });
 
     // 2. ctx.stroke_rect(x, y, w, h, color, width)
-    eval.registerMemberFunction("ctx", "stroke_rect", [canvas](const auto& args, const auto&) {
+    eval.registerMemberFunction("ctx", "stroke_rect", [canvas, resolveColorVal](const auto& args, const auto&) {
         if (!canvas || args.size() < 5) return eatsbits::eatscript::Value(false);
-        uint32_t col = args[4].isString() ? CardCanvas::parseColor(args[4].asString()) : static_cast<uint32_t>(args[4].asInt());
+        uint32_t col = resolveColorVal(args[4]);
         float lw = (args.size() > 5) ? args[5].asFloat(1.0f) : 1.0f;
         canvas->strokeRect(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), args[3].asFloat(), col, lw);
         return eatsbits::eatscript::Value(true);
     });
 
     // 3. ctx.fill_rounded_rect(x, y, w, h, radius, color)
-    eval.registerMemberFunction("ctx", "fill_rounded_rect", [canvas](const auto& args, const auto& kwargs) {
+    eval.registerMemberFunction("ctx", "fill_rounded_rect", [canvas, resolveColorVal](const auto& args, const auto& kwargs) {
         if (!canvas) return eatsbits::eatscript::Value(false);
         float x = eatsbits::eatscript::resolveArg(args, kwargs, 0, "x", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
         float y = eatsbits::eatscript::resolveArg(args, kwargs, 1, "y", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
@@ -3896,13 +4028,13 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         float defR = canvas ? canvas->cornerRadius() : 8.0f;
         float rad = eatsbits::eatscript::resolveArg(args, kwargs, 4, "radius", eatsbits::eatscript::Value(defR)).asFloat(defR);
         auto colVal = eatsbits::eatscript::resolveArg(args, kwargs, 5, "color", eatsbits::eatscript::Value("#ffffff"));
-        uint32_t col = colVal.isString() ? CardCanvas::parseColor(colVal.asString()) : static_cast<uint32_t>(colVal.asInt(0xFFFFFFFF));
+        uint32_t col = resolveColorVal(colVal);
         canvas->fillRoundedRect(x, y, w, h, rad, col);
         return eatsbits::eatscript::Value(true);
     });
 
     // 4. ctx.stroke_rounded_rect(x, y, w, h, radius, color, width)
-    eval.registerMemberFunction("ctx", "stroke_rounded_rect", [canvas](const auto& args, const auto& kwargs) {
+    eval.registerMemberFunction("ctx", "stroke_rounded_rect", [canvas, resolveColorVal](const auto& args, const auto& kwargs) {
         if (!canvas) return eatsbits::eatscript::Value(false);
         float x = eatsbits::eatscript::resolveArg(args, kwargs, 0, "x", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
         float y = eatsbits::eatscript::resolveArg(args, kwargs, 1, "y", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
@@ -3911,33 +4043,33 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         float defR = canvas ? canvas->cornerRadius() : 8.0f;
         float rad = eatsbits::eatscript::resolveArg(args, kwargs, 4, "radius", eatsbits::eatscript::Value(defR)).asFloat(defR);
         auto colVal = eatsbits::eatscript::resolveArg(args, kwargs, 5, "color", eatsbits::eatscript::Value("#ffffff"));
-        uint32_t col = colVal.isString() ? CardCanvas::parseColor(colVal.asString()) : static_cast<uint32_t>(colVal.asInt(0xFFFFFFFF));
+        uint32_t col = resolveColorVal(colVal);
         float lw = eatsbits::eatscript::resolveArg(args, kwargs, 6, "line_width", eatsbits::eatscript::Value(1.0)).asFloat(1.0f);
         canvas->strokeRoundedRect(x, y, w, h, rad, col, lw);
         return eatsbits::eatscript::Value(true);
     });
 
     // 5. ctx.fill_circle(cx, cy, radius, color)
-    eval.registerMemberFunction("ctx", "fill_circle", [canvas](const auto& args, const auto&) {
+    eval.registerMemberFunction("ctx", "fill_circle", [canvas, resolveColorVal](const auto& args, const auto&) {
         if (!canvas || args.size() < 4) return eatsbits::eatscript::Value(false);
-        uint32_t col = args[3].isString() ? CardCanvas::parseColor(args[3].asString()) : static_cast<uint32_t>(args[3].asInt());
+        uint32_t col = resolveColorVal(args[3]);
         canvas->fillCircle(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), col);
         return eatsbits::eatscript::Value(true);
     });
 
     // 6. ctx.stroke_circle(cx, cy, radius, color, width)
-    eval.registerMemberFunction("ctx", "stroke_circle", [canvas](const auto& args, const auto&) {
+    eval.registerMemberFunction("ctx", "stroke_circle", [canvas, resolveColorVal](const auto& args, const auto&) {
         if (!canvas || args.size() < 4) return eatsbits::eatscript::Value(false);
-        uint32_t col = args[3].isString() ? CardCanvas::parseColor(args[3].asString()) : static_cast<uint32_t>(args[3].asInt());
+        uint32_t col = resolveColorVal(args[3]);
         float lw = (args.size() > 4) ? args[4].asFloat(1.0f) : 1.0f;
         canvas->strokeCircle(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), col, lw);
         return eatsbits::eatscript::Value(true);
     });
 
     // 7. ctx.draw_line(x0, y0, x1, y1, color, width)
-    eval.registerMemberFunction("ctx", "draw_line", [canvas](const auto& args, const auto&) {
+    eval.registerMemberFunction("ctx", "draw_line", [canvas, resolveColorVal](const auto& args, const auto&) {
         if (!canvas || args.size() < 5) return eatsbits::eatscript::Value(false);
-        uint32_t col = args[4].isString() ? CardCanvas::parseColor(args[4].asString()) : static_cast<uint32_t>(args[4].asInt());
+        uint32_t col = resolveColorVal(args[4]);
         float lw = (args.size() > 5) ? args[5].asFloat(1.0f) : 1.0f;
         canvas->drawLine(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), args[3].asFloat(), col, lw);
         return eatsbits::eatscript::Value(true);
@@ -4568,10 +4700,10 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         auto sVal = eatsbits::eatscript::resolveArg(args, kwargs, 2, "suit", eatsbits::eatscript::Value("spades"));
         Suit suit = sVal.isString() ? CardCanvas::parseSuit(sVal.asString()) : static_cast<Suit>( std::clamp(sVal.asInt(0), 0, 3) );
         float intensity = eatsbits::eatscript::resolveArg(args, kwargs, 3, "intensity", eatsbits::eatscript::Value(1.0)).asFloat(1.0f);
-        float u0 = eatsbits::eatscript::resolveArg(args, kwargs, 4, "u0", eval.hasVariable("tint_r") ? eval.getVariable("tint_r") : eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
-        float u1 = eatsbits::eatscript::resolveArg(args, kwargs, 5, "u1", eval.hasVariable("tint_g") ? eval.getVariable("tint_g") : eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
-        float u2 = eatsbits::eatscript::resolveArg(args, kwargs, 6, "u2", eval.hasVariable("tint_b") ? eval.getVariable("tint_b") : eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
-        float u3 = eatsbits::eatscript::resolveArg(args, kwargs, 7, "u3", eval.hasVariable("tint_active") ? eval.getVariable("tint_active") : eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float u0 = eatsbits::eatscript::resolveArg(args, kwargs, 4, "u0", eval.hasVariable("u0") ? eval.getVariable("u0") : (eval.hasVariable("tint_r") ? eval.getVariable("tint_r") : eatsbits::eatscript::Value(0.0))).asFloat(0.0f);
+        float u1 = eatsbits::eatscript::resolveArg(args, kwargs, 5, "u1", eval.hasVariable("u1") ? eval.getVariable("u1") : (eval.hasVariable("tint_g") ? eval.getVariable("tint_g") : eatsbits::eatscript::Value(0.0))).asFloat(0.0f);
+        float u2 = eatsbits::eatscript::resolveArg(args, kwargs, 6, "u2", eval.hasVariable("u2") ? eval.getVariable("u2") : (eval.hasVariable("tint_b") ? eval.getVariable("tint_b") : eatsbits::eatscript::Value(0.0))).asFloat(0.0f);
+        float u3 = eatsbits::eatscript::resolveArg(args, kwargs, 7, "u3", eval.hasVariable("u3") ? eval.getVariable("u3") : (eval.hasVariable("tint_active") ? eval.getVariable("tint_active") : eatsbits::eatscript::Value(0.0))).asFloat(0.0f);
 
         canvas->applyShader(funcDef, inlineCode, r, suit, intensity, u0, u1, u2, u3);
         return eatsbits::eatscript::Value(true);
@@ -4579,6 +4711,44 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
 
     eval.registerMemberFunction("ctx", "apply_shader", applyShaderFn);
     eval.registerMemberFunction("ctx", "draw_shader", applyShaderFn);
+
+    eval.registerMemberFunction("ctx", "draw_svg", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto svgVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "svg", eatsbits::eatscript::Value(""));
+        if (!svgVal.isString()) return eatsbits::eatscript::Value(false);
+        float x = eatsbits::eatscript::resolveArg(args, kwargs, 1, "x", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float y = eatsbits::eatscript::resolveArg(args, kwargs, 2, "y", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float w = eatsbits::eatscript::resolveArg(args, kwargs, 3, "w", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        float h = eatsbits::eatscript::resolveArg(args, kwargs, 4, "h", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        canvas->drawSvg(svgVal.asString(), x, y, w, h);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("ctx", "draw_svg_file", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto pathVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "path", eatsbits::eatscript::Value(""));
+        if (!pathVal.isString()) return eatsbits::eatscript::Value(false);
+        float x = eatsbits::eatscript::resolveArg(args, kwargs, 1, "x", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float y = eatsbits::eatscript::resolveArg(args, kwargs, 2, "y", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float w = eatsbits::eatscript::resolveArg(args, kwargs, 3, "w", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        float h = eatsbits::eatscript::resolveArg(args, kwargs, 4, "h", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 5, "cover", eatsbits::eatscript::Value(true)).asInt(1) != 0;
+        canvas->drawSvgFile(pathVal.asString(), x, y, w, h, cover);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("ctx", "draw_image_file", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto pathVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "path", eatsbits::eatscript::Value(""));
+        if (!pathVal.isString()) return eatsbits::eatscript::Value(false);
+        float x = eatsbits::eatscript::resolveArg(args, kwargs, 1, "x", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float y = eatsbits::eatscript::resolveArg(args, kwargs, 2, "y", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float w = eatsbits::eatscript::resolveArg(args, kwargs, 3, "w", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        float h = eatsbits::eatscript::resolveArg(args, kwargs, 4, "h", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 5, "cover", eatsbits::eatscript::Value(true)).asInt(1) != 0;
+        canvas->drawImageFile(pathVal.asString(), x, y, w, h, cover);
+        return eatsbits::eatscript::Value(true);
+    });
 }
 
 } // namespace solengine

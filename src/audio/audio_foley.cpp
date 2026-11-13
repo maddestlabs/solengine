@@ -2,8 +2,6 @@
 #include "miniaudio.h"
 #include "solengine/audio_foley.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
-#include "eatsbits/ui/base64.hpp"
-#include "stb_image.h"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -15,57 +13,6 @@ namespace {
 constexpr float kTwoPi = 6.28318530717958647692f;
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kHalfPi = 1.5707963267948966f;
-
-static bool decodeEmbeddedAudio(const std::string& b64String, std::vector<float>& outPcm) {
-    if (b64String.empty()) return false;
-
-    // 1. Base64 decode
-    std::vector<uint8_t> rawBytes = eatsbits::ui::base64Decode(b64String);
-    if (rawBytes.empty()) return false;
-
-    // 2. Check if zlib-compressed (WAV files start with "RIFF" 0x52 0x49 0x46 0x46)
-    const uint8_t* pAudioData = rawBytes.data();
-    size_t audioDataSize = rawBytes.size();
-    char* decomp = nullptr;
-
-    bool isRiff = (rawBytes.size() >= 4 && rawBytes[0] == 'R' && rawBytes[1] == 'I' && rawBytes[2] == 'F' && rawBytes[3] == 'F');
-    if (!isRiff) {
-        int outLen = 0;
-        decomp = stbi_zlib_decode_malloc(reinterpret_cast<const char*>(rawBytes.data()), static_cast<int>(rawBytes.size()), &outLen);
-        if (!decomp) {
-            decomp = stbi_zlib_decode_noheader_malloc(reinterpret_cast<const char*>(rawBytes.data()), static_cast<int>(rawBytes.size()), &outLen);
-        }
-        if (decomp && outLen > 0) {
-            pAudioData = reinterpret_cast<const uint8_t*>(decomp);
-            audioDataSize = static_cast<size_t>(outLen);
-        }
-    }
-
-    // 3. Decode via miniaudio memory decoder (automatically resamples to 48kHz mono float)
-    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 1, 48000);
-    ma_decoder decoder;
-    ma_result result = ma_decoder_init_memory(pAudioData, audioDataSize, &config, &decoder);
-    if (result != MA_SUCCESS) {
-        if (decomp) free(decomp);
-        return false;
-    }
-
-    ma_uint64 totalFrames = 0;
-    ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
-    if (totalFrames == 0) {
-        totalFrames = 48000 * 2;
-    }
-
-    outPcm.resize(static_cast<size_t>(totalFrames));
-    ma_uint64 framesRead = 0;
-    ma_decoder_read_pcm_frames(&decoder, outPcm.data(), totalFrames, &framesRead);
-    outPcm.resize(static_cast<size_t>(framesRead));
-
-    ma_decoder_uninit(&decoder);
-    if (decomp) free(decomp);
-
-    return !outPcm.empty();
-}
 
 inline AudioFoleyEngine::BiquadCoeffs makeBandpass(float f0, float Q, float sr) noexcept {
     float w0 = kTwoPi * std::clamp(f0, 20.0f, sr * 0.45f) / sr;
@@ -150,47 +97,12 @@ inline AudioFoleyEngine::BiquadCoeffs makeNotch(float f0, float Q, float sr) noe
 }
 
     // 16th-order Linear Predictive Coding coefficients trained on cardsounds/deal-series.wav
-    // Captures cellulose resonance formants (3.5kHz, 6.3kHz, 11.0kHz, 13.7kHz) with LSD 1.08 dB
+    // Captures cellulose resonance formants (3.0kHz, 6.1kHz, 11.0kHz, 13.7kHz) with LSD 0.96 dB
     static constexpr std::array<float, 16> kLpcDeal = {
-        -1.1232f, 1.0078f, -0.8596f, 0.7548f, -0.6460f, 0.5738f, -0.6435f, 0.5256f,
-        -0.5334f, 0.5139f, -0.5716f, 0.3876f, -0.4906f, 0.3628f, -0.3130f, 0.1184f
+        -1.534673f, +1.803655f, -1.885687f, +1.771341f, -1.613252f, +1.467351f, -1.373514f, +1.182798f,
+        -1.019356f, +0.838832f, -0.643898f, +0.485627f, -0.384877f, +0.203584f, -0.091463f, -0.013349f
     };
-    static constexpr float kLpcDealGain = 0.1317f;
-
-    struct ShuffleSnapEvent {
-        float timeSec;
-        float amplitude;
-    };
-
-    // Empirical card release schedules extracted from physical deck recordings:
-    static constexpr size_t kSoftSnapCount = 8;
-    static constexpr std::array<ShuffleSnapEvent, kSoftSnapCount> kSoftSnaps = {{
-        { 0.048f, 0.30f },
-        { 0.096f, 0.22f },
-        { 0.138f, 0.70f },
-        { 0.174f, 0.40f },
-        { 0.207f, 0.36f },
-        { 0.237f, 0.45f },
-        { 0.288f, 0.65f },
-        { 0.342f, 0.32f }
-    }};
-
-    static constexpr size_t kLoudSnapCount = 13;
-    static constexpr std::array<ShuffleSnapEvent, kLoudSnapCount> kLoudSnaps = {{
-        { 0.057f, 0.35f },
-        { 0.090f, 0.45f },
-        { 0.111f, 0.25f },
-        { 0.132f, 0.50f },
-        { 0.150f, 0.32f },
-        { 0.177f, 0.20f },
-        { 0.192f, 0.46f },
-        { 0.204f, 0.88f },
-        { 0.222f, 0.75f },
-        { 0.243f, 0.80f },
-        { 0.276f, 1.00f },
-        { 0.300f, 0.85f },
-        { 0.327f, 0.55f }
-    }};
+    static constexpr float kLpcDealGain = 0.0820f;
 
 void miniaudioCallback(ma_device* pDevice, void* pOutput, const void* /*pInput*/, ma_uint32 frameCount) {
     auto* engine = static_cast<AudioFoleyEngine*>(pDevice->pUserData);
@@ -568,27 +480,30 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
     };
 
     // Helper to spawn a procedural Slide voice modeled on authentic paper baize friction via LPC-16 formants
-    auto makeSlideVoice = [&](float delay, float amp, float duration = 0.11f, float voicePan = 0.0f) noexcept -> Voice {
+    auto makeSlideVoice = [&](float delay, float amp, float duration = 0.11f, float voicePan = 0.0f, bool isDealSwell = false) noexcept -> Voice {
         Voice v{};
         v.reset();
         v.active = true;
         v.type = VoiceType::Slide;
         v.soundId = FoleySound::Slide;
         v.delaySec = std::max(0.0f, delay);
-        v.durationSec = std::clamp(duration * (1.0f + nextNoise() * 0.08f * varScale), 0.05f, 0.35f);
+        v.durationSec = std::clamp(duration * (1.0f + nextNoise() * 0.08f * varScale), 0.045f, 0.35f);
         v.intensity = amp;
         v.pan = std::clamp(voicePan + nextNoise() * 0.035f * varScale, -1.0f, 1.0f);
         v.velvetIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
-        v.velvetPlaybackRate = 0.95f + std::abs(nextNoise()) * 0.15f * varScale;
+        v.velvetPlaybackRate = 0.94f + std::abs(nextNoise()) * 0.14f * varScale;
         v.continuousIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
+        v.isDealSwell = isDealSwell;
 
         float feltCutoff = pp.feltDampingCutoff * (1.0f + nextNoise() * 0.06f * varScale);
-        float airBoost = (pp.airBoostDb * 0.4f) + nextNoise() * 0.4f * varScale;
+        float airBoost = (pp.airBoostDb * 0.45f) + nextNoise() * 0.4f * varScale;
 
         // Biquad 1: Felt acoustic damping lowpass
         v.biquad1.c = makeLowpass(feltCutoff, 0.707f, sr);
         // Biquad 2: High-frequency air presence shelf
         v.biquad2.c = makeHighshelf(8500.0f, airBoost, sr);
+        // Biquad 3: Cardboard flexion resonance
+        v.biquad3.c = makeBandpass(pp.cardRigidityFreq * (1.0f + nextNoise() * 0.06f * varScale), 2.2f, sr);
 
         v.combDelaySamples = 0.0f;
         v.lfoPhase = 0.0f;
@@ -596,7 +511,7 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
     };
 
     // Helper to spawn an authentic single-voice Procedural Shuffle Riffle
-    // Physical phenomenon: Interleaving card flutter friction with discrete micro-snap releases & Baize gather
+    // Physical phenomenon: Interleaving card flutter friction with dynamic PhISEM micro-snap releases & Baize gather
     auto makeShuffleRiffleVoice = [&](ShuffleStyle style, float delay, float amp, float voicePan = 0.0f) noexcept -> Voice {
         Voice v{};
         v.reset();
@@ -605,8 +520,6 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         v.soundId = FoleySound::Shuffle;
         v.delaySec = std::max(0.0f, delay);
         v.shuffleMode = (style == ShuffleStyle::Loud) ? 1 : 0;
-        v.durationSec = (style == ShuffleStyle::Loud) ? (0.46f * (1.0f + nextNoise() * 0.05f * varScale))
-                                                      : (0.42f * (1.0f + nextNoise() * 0.05f * varScale));
         v.intensity = amp;
         v.pan = std::clamp(voicePan + nextNoise() * 0.035f * varScale, -1.0f, 1.0f);
         v.velvetIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
@@ -614,6 +527,31 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         v.continuousIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
         v.snapEnv = 0.0f;
         v.snapIdx = 0;
+
+        // Dynamic PhISEM stochastic particle cascade generation:
+        int nSnaps = (style == ShuffleStyle::Loud) ? (13 + static_cast<int>(nextRng() % 5))
+                                                   : (8 + static_cast<int>(nextRng() % 5));
+        nSnaps = std::min<int>(nSnaps, static_cast<int>(Voice::kMaxRiffleSnaps));
+        v.numRiffleSnaps = static_cast<uint8_t>(nSnaps);
+
+        float curTime = (style == ShuffleStyle::Loud) ? 0.045f : 0.040f;
+        curTime += std::abs(nextNoise()) * 0.010f * varScale;
+        float baseGap = (style == ShuffleStyle::Loud) ? 0.024f : 0.032f;
+        for (int i = 0; i < nSnaps; ++i) {
+            float progress = (nSnaps > 1) ? (static_cast<float>(i) / static_cast<float>(nSnaps - 1)) : 0.5f;
+            // Physical U-gap interleave curve: slower thumb peel at start and end, rapid flurry zipper in middle
+            float gapMult = 1.35f - 0.70f * std::sin(progress * kPi);
+            float step = baseGap * gapMult + (nextNoise() * 0.0035f * varScale);
+            curTime += std::max(0.010f, step);
+            v.riffleSnaps[i].timeSec = curTime;
+
+            float ampBase = (style == ShuffleStyle::Loud) ? 0.45f : 0.28f;
+            float ampPeak = (style == ShuffleStyle::Loud) ? 0.55f : 0.42f;
+            float snapAmp = (ampBase + ampPeak * std::sin(progress * kPi)) * (1.0f + nextNoise() * 0.15f * varScale);
+            v.riffleSnaps[i].amplitude = std::clamp(snapAmp, 0.15f, 1.10f);
+            v.riffleSnaps[i].pitchMod = 1.0f + (nextNoise() * 0.07f * varScale);
+        }
+        v.durationSec = curTime + 0.12f;
 
         // Filter 1: Discrete card snap edge release bandpass
         // Soft shuffle has primary resonance around 2800 Hz; Loud has crisp resonance around 4170 Hz
@@ -650,24 +588,35 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         v.velvetIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
         v.velvetPlaybackRate = 1.0f + (nextNoise() * 0.10f * varScale);
 
-        // Filter 1: Main card face air slap bandpass (3800 Hz)
-        float slapFreq = 3800.0f * (1.0f + nextNoise() * 0.06f * varScale);
-        float slapQ = 1.4f * (1.0f + nextNoise() * 0.08f * varScale);
+        // Randomize contact tilt angle: flat landing ~7ms split, tilted landing ~13ms split
+        float split = 0.0075f + std::abs(nextNoise()) * 0.0065f * varScale;
+        v.dropSplitSec = std::clamp(split, 0.006f, 0.015f);
+
+        // Tilt-dependent balance between leading corner impact and air squeeze slap
+        float tilt = nextNoise() * 0.5f + 0.5f;
+        v.dropEdgeGain = 0.65f + 0.60f * tilt;
+        v.dropSlapGain = 1.30f - 0.40f * tilt;
+        v.dropKnockGain = 0.45f * (1.0f + nextNoise() * 0.10f * varScale);
+        v.dropThudGain = 0.16f * (1.0f + nextNoise() * 0.10f * varScale);
+
+        // Filter 1: Main card face air slap bandpass (4150 Hz, modeled from deal-series.wav & place.wav)
+        float slapFreq = 4150.0f * (1.0f + nextNoise() * 0.05f * varScale);
+        float slapQ = 1.45f * (1.0f + nextNoise() * 0.08f * varScale);
         v.biquad1.c = makeBandpass(slapFreq, slapQ, sr);
 
-        // Filter 2: Leading edge touch tick bandpass (5800 Hz)
-        float edgeFreq = 5800.0f * (1.0f + nextNoise() * 0.05f * varScale);
-        float edgeQ = 1.8f * (1.0f + nextNoise() * 0.08f * varScale);
+        // Filter 2: Leading edge touch tick bandpass (6100 Hz)
+        float edgeFreq = 6100.0f * (1.0f + nextNoise() * 0.05f * varScale);
+        float edgeQ = 1.9f * (1.0f + nextNoise() * 0.08f * varScale);
         v.biquad2.c = makeBandpass(edgeFreq, edgeQ, sr);
 
-        // Filter 3: Card body acoustic knock bandpass (920 Hz)
-        float knockFreq = 920.0f * (1.0f + nextNoise() * 0.07f * varScale);
-        float knockQ = 1.6f * (1.0f + nextNoise() * 0.08f * varScale);
+        // Filter 3: Card body acoustic knock bandpass (2450 Hz)
+        float knockFreq = 2450.0f * (1.0f + nextNoise() * 0.06f * varScale);
+        float knockQ = 1.8f * (1.0f + nextNoise() * 0.08f * varScale);
         v.biquad3.c = makeBandpass(knockFreq, knockQ, sr);
 
-        // Low table coupling thump: starts around 95Hz and rapidly settles to 48Hz
-        float fStart = 95.0f * (1.0f + nextNoise() * 0.05f * varScale);
-        float fEnd = 48.0f * (1.0f + nextNoise() * 0.05f * varScale);
+        // Low table coupling thump: starts around 88Hz and rapidly settles to 46Hz
+        float fStart = (88.0f + nextNoise() * 10.0f * varScale);
+        float fEnd = (46.0f + nextNoise() * 5.0f * varScale);
         v.dropFreq = fStart;
         float dropSamples = std::max(1.0f, 0.020f * sr);
         v.dropFreqStep = std::pow(fEnd / fStart, 1.0f / dropSamples);
@@ -808,26 +757,9 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         }
     };
 
-    // Helper to spawn an embedded authentic sample playback voice
-    auto makeSampleVoice = [&](const std::vector<float>& pcm, float delay, float amp, float pitchMod = 1.0f, float voicePan = 0.0f) noexcept -> Voice {
-        Voice v{};
-        v.reset();
-        v.active = true;
-        v.type = VoiceType::SamplePlayback;
-        v.delaySec = std::max(0.0f, delay);
-        v.intensity = amp;
-        v.pan = std::clamp(voicePan, -1.0f, 1.0f);
-        v.sampleData = pcm.data();
-        v.sampleLength = pcm.size();
-        v.sampleCursor = 0.0f;
-        v.sampleRateRatio = std::clamp(pitchMod, 0.5f, 2.0f);
-        v.durationSec = (static_cast<float>(pcm.size()) / 48000.0f) / v.sampleRateRatio + v.delaySec;
-        return v;
-    };
-
     // 1. Custom Procedural DSP & Modal Resonator Layer Fast-Path (audio.define_sound):
     // If the active Eatscript soundpack defined custom procedural synth layers or modal physics,
-    // they take highest priority over both embedded samples and default routines:
+    // they take highest priority over default routines:
     if (soundId < FoleySound::MaxCoreSounds && bank.coreSounds[soundId].hasModalResonators) {
         dispatchModalSound(bank.coreSounds[soundId], intensity, pan + bank.coreSounds[soundId].panBase);
         return;
@@ -847,57 +779,7 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         return;
     }
 
-    // 2. Embedded Authentic Audio Sample Playback (audio.embed_sound):
-    // If the active Eatscript soundpack embedded authentic physical recordings, play them:
-    if (soundId == FoleySound::Place && !bank.samplePlace.empty()) {
-        float pitch = 1.0f + (nextNoise() * 0.035f * varScale);
-        allocateVoice(makeSampleVoice(bank.samplePlace, 0.0f, intensity * 1.05f, pitch, pan));
-        return;
-    }
-    if (soundId == FoleySound::Deal && !bank.sampleDeal.empty()) {
-        float pitch = 1.0f + (nextNoise() * 0.035f * varScale);
-        allocateVoice(makeSampleVoice(bank.sampleDeal, 0.0f, intensity * 1.10f, pitch, pan));
-        return;
-    }
-    if (soundId == FoleySound::Slide && !bank.sampleDeal.empty()) {
-        float pitch = 0.95f + (nextNoise() * 0.035f * varScale);
-        allocateVoice(makeSampleVoice(bank.sampleDeal, 0.0f, intensity * 0.95f, pitch, pan));
-        return;
-    }
-    if (soundId == FoleySound::Shuffle) {
-        const auto style = shuffleStyle_.load(std::memory_order_relaxed);
-        const auto& pcm = (style == ShuffleStyle::Loud && !bank.sampleShuffleLoud.empty())
-            ? bank.sampleShuffleLoud
-            : bank.sampleShuffleSoft;
-        if (!pcm.empty()) {
-            float pitch = 1.0f + (nextNoise() * 0.025f * varScale);
-            allocateVoice(makeSampleVoice(pcm, 0.0f, intensity * 1.15f, pitch, pan));
-            return;
-        }
-    }
-    if (soundId == FoleySound::Flip && !bank.sampleDeal.empty() && !bank.samplePlace.empty()) {
-        float pitchSlide = 1.05f + (nextNoise() * 0.04f * varScale);
-        float pitchDrop = 1.0f + (nextNoise() * 0.04f * varScale);
-        allocateVoice(makeSampleVoice(bank.sampleDeal, 0.0f, intensity * 0.90f, pitchSlide, pan));
-        allocateVoice(makeSampleVoice(bank.samplePlace, 0.11f, intensity * 1.0f, pitchDrop, pan));
-        return;
-    }
-    if (soundId == FoleySound::TexasPitch && !bank.sampleDeal.empty()) {
-        for (int i = 0; i < 4; ++i) {
-            float tossDelay = static_cast<float>(i) * 0.145f + (nextNoise() * 0.006f * varScale);
-            float pitch = 0.98f + static_cast<float>(i) * 0.035f + nextNoise() * 0.03f * varScale;
-            float tossPan = std::clamp(pan + (static_cast<float>(i) - 1.5f) * 0.08f * varScale, -1.0f, 1.0f);
-            allocateVoice(makeSampleVoice(bank.sampleDeal, tossDelay, intensity * 0.90f, pitch, tossPan));
-        }
-        return;
-    }
-    if (soundId == FoleySound::Snap && !bank.sampleSnap.empty()) {
-        float pitch = 1.0f + (nextNoise() * 0.05f * varScale);
-        allocateVoice(makeSampleVoice(bank.sampleSnap, 0.0f, intensity * 1.0f, pitch, pan));
-        return;
-    }
-
-    // 3. HD Physical Procedural Synthesis Routines (Built-in LPC-16, Dirac snaps, 2-stage touchdown, discrete riffle):
+    // 2. HD Physical Procedural Synthesis Routines (Built-in LPC-16, Dirac snaps, 2-stage touchdown, discrete riffle):
     switch (soundId) {
         case FoleySound::Snap: {
             // Core Dirac Edge Snap (Card click / tap / selection interaction)
@@ -908,28 +790,44 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         }
 
         case FoleySound::Deal: {
-            // Authentic Deal swipe (pre-peel micro-tick into velvet Baize slide from deal-series.wav)
-            float pitchJitter = 1.0f + (nextNoise() * 0.05f * varScale);
-            float snapAmp = 0.55f * intensity * (1.0f + nextNoise() * 0.06f * varScale);
-            float slideDelay = 0.008f + std::abs(nextNoise()) * 0.004f * varScale;
-            float slideDur = 0.11f * (1.0f + nextNoise() * 0.08f * varScale);
-            float slideAmp = 0.95f * intensity * (1.0f + nextNoise() * 0.05f * varScale);
+            // Authentic Deal swipe modeled directly from cardsounds/deal-series.wav
+            // Structure: Pre-lift whisper (t=0) + accelerating baize swell glide (t=2ms) + arrival touchdown tap (t=slideDur)
+            dealAlternator_++;
+            float dealPan = std::clamp(pan + ((static_cast<float>(dealAlternator_ % 5) - 2.0f) * 0.035f * varScale), -1.0f, 1.0f);
+            float pitchOffset = 1.0f + ((static_cast<float>(dealAlternator_ % 7) - 3.0f) * 0.018f) + (nextNoise() * 0.035f * varScale);
 
-            allocateVoice(makeSnapVoice(0.0f, snapAmp, pitchJitter * 1.15f, pan));
-            allocateVoice(makeSlideVoice(slideDelay, slideAmp, slideDur, pan));
+            // Variable swipe duration matching empirical deals in deal-series.wav (68ms to 102ms)
+            static constexpr std::array<float, 5> kDealDurations = { 0.088f, 0.068f, 0.098f, 0.076f, 0.092f };
+            float baseDur = kDealDurations[dealAlternator_ % kDealDurations.size()];
+            float slideDur = std::clamp(baseDur * (1.0f + nextNoise() * 0.06f * varScale), 0.055f, 0.115f);
+            float slideAmp = 1.08f * intensity * (1.0f + nextNoise() * 0.06f * varScale);
+
+            // 1. Soft deck-lift whisper (subtle, 18% volume, 2.4kHz)
+            float liftAmp = 0.20f * intensity * (1.0f + nextNoise() * 0.08f * varScale);
+            allocateVoice(makeSnapVoice(0.0f, liftAmp, pitchOffset * 0.85f, dealPan));
+
+            // 2. Swell card glide across baize (accelerates from t=0 up to slideDur)
+            allocateVoice(makeSlideVoice(0.002f, slideAmp, slideDur, dealPan, true));
+
+            // 3. Arrival touchdown tap right at the end of the slide
+            float hitDelay = slideDur - 0.006f;
+            float hitAmp = 0.92f * intensity * (1.0f + nextNoise() * 0.06f * varScale);
+            allocateVoice(makeDropVoice(hitDelay, hitAmp, dealPan));
             break;
         }
 
         case FoleySound::Place: {
-            // Table Drop / Thud (card landing on surface)
-            float dropAmp = intensity * (1.0f + nextNoise() * 0.06f * varScale);
-            allocateVoice(makeDropVoice(0.0f, dropAmp, pan));
+            // Table Drop / Thud (card landing on surface with 3-stage physical contact)
+            dealAlternator_++;
+            float dropPan = std::clamp(pan + ((static_cast<float>(dealAlternator_ % 5) - 2.0f) * 0.03f * varScale), -1.0f, 1.0f);
+            float dropAmp = intensity * (1.0f + nextNoise() * 0.08f * varScale);
+            allocateVoice(makeDropVoice(0.0f, dropAmp, dropPan));
             break;
         }
 
         case FoleySound::Shuffle: {
             // Authentic Single-Voice Procedural Riffle Cascade
-            // Physical model: Interleaving card flutter friction with accelerating micro-snap releases & Baize gather
+            // Physical model: Interleaving card flutter friction with dynamic PhISEM micro-snap releases & Baize gather
             const auto style = shuffleStyle_.load(std::memory_order_relaxed);
             allocateVoice(makeShuffleRiffleVoice(style, 0.0f, intensity, pan));
             break;
@@ -937,36 +835,45 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
 
         case FoleySound::TexasPitch: {
             // Texas Pitch (4 crisp dealer tosses with trailing friction)
+            static constexpr std::array<float, 4> kTossDurs = { 0.078f, 0.068f, 0.084f, 0.072f };
             for (int i = 0; i < 4; ++i) {
-                float tossDelay = static_cast<float>(i) * 0.145f + (nextNoise() * 0.006f * varScale);
-                float slideDelay = tossDelay + 0.010f + std::abs(nextNoise()) * 0.004f * varScale;
-                float pitch = 0.98f + static_cast<float>(i) * 0.035f + nextNoise() * 0.03f * varScale;
-                float tossPan = std::clamp(pan + (static_cast<float>(i) - 1.5f) * 0.08f * varScale, -1.0f, 1.0f);
-                float tossAmp = intensity * 0.90f * (1.0f + nextNoise() * 0.05f * varScale);
+                float tossDelay = static_cast<float>(i) * 0.138f + (nextNoise() * 0.006f * varScale);
+                float slideDur = kTossDurs[i % 4] * (1.0f + nextNoise() * 0.06f * varScale);
+                float pitch = 0.97f + static_cast<float>(i) * 0.028f + nextNoise() * 0.025f * varScale;
+                float tossPan = std::clamp(pan + (static_cast<float>(i) - 1.5f) * 0.09f * varScale, -1.0f, 1.0f);
+                float tossAmp = intensity * 0.92f * (1.0f + nextNoise() * 0.05f * varScale);
 
-                allocateVoice(makeSnapVoice(tossDelay, tossAmp * 0.60f, pitch, tossPan));
-                allocateVoice(makeSlideVoice(slideDelay, tossAmp * 0.95f, 0.10f, tossPan));
+                // Lift
+                allocateVoice(makeSnapVoice(tossDelay, tossAmp * 0.18f, pitch * 0.90f, tossPan));
+                // Swell slide
+                allocateVoice(makeSlideVoice(tossDelay + 0.002f, tossAmp * 1.05f, slideDur, tossPan, true));
+                // Arrival tap
+                float hitDelay = tossDelay + slideDur - 0.006f;
+                allocateVoice(makeDropVoice(hitDelay, tossAmp * 0.88f, tossPan));
             }
             break;
         }
 
         case FoleySound::Flip: {
             // Turnover Flip (Edge peel friction into crisp snap & drop)
-            float slideDur = 0.12f * (1.0f + nextNoise() * 0.10f * varScale);
-            float contactDelay = 0.105f + std::abs(nextNoise()) * 0.015f * varScale;
-            float snapPitch = 1.15f * (1.0f + nextNoise() * 0.06f * varScale);
+            dealAlternator_++;
+            float flipPan = std::clamp(pan + nextNoise() * 0.035f * varScale, -1.0f, 1.0f);
+            float slideDur = 0.085f * (1.0f + nextNoise() * 0.08f * varScale);
+            float contactDelay = slideDur + 0.015f + std::abs(nextNoise()) * 0.010f * varScale;
+            float snapPitch = 1.10f * (1.0f + nextNoise() * 0.04f * varScale);
 
-            allocateVoice(makeSlideVoice(0.0f, intensity * 1.40f, slideDur, pan));
-            allocateVoice(makeSnapVoice(contactDelay, intensity * 0.75f, snapPitch, pan));
-            allocateVoice(makeDropVoice(contactDelay, intensity * 0.85f, pan));
+            allocateVoice(makeSlideVoice(0.0f, intensity * 1.15f, slideDur, flipPan, false));
+            allocateVoice(makeSnapVoice(contactDelay, intensity * 0.50f, snapPitch, flipPan));
+            allocateVoice(makeDropVoice(contactDelay, intensity * 0.85f, flipPan));
             break;
         }
 
         case FoleySound::Slide: {
             // Standalone card drag / glide sweep across felt
-            float slideDur = 0.11f * (1.0f + nextNoise() * 0.08f * varScale);
-            float slideAmp = intensity * 0.88f * (1.0f + nextNoise() * 0.05f * varScale);
-            allocateVoice(makeSlideVoice(0.0f, slideAmp, slideDur, pan));
+            float slideDur = std::clamp(0.12f * (1.0f + nextNoise() * 0.12f * varScale), 0.07f, 0.25f);
+            float slideAmp = intensity * 0.90f * (1.0f + nextNoise() * 0.08f * varScale);
+            float slidePan = std::clamp(pan + nextNoise() * 0.04f * varScale, -1.0f, 1.0f);
+            allocateVoice(makeSlideVoice(0.0f, slideAmp, slideDur, slidePan));
             break;
         }
 
@@ -1010,6 +917,7 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
         return;
     }
     const float masterVol = masterVolume_.load(std::memory_order_relaxed);
+    const float ambVol = masterVol * ambienceVolume_.load(std::memory_order_relaxed);
     const auto& bank = soundBanks_[activeBankIndex_.load(std::memory_order_acquire)];
     const auto& pp = bank.physicalParams;
 
@@ -1026,6 +934,7 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
     }
     if (activeCount == 0) {
         std::fill_n(outInterleavedStereo, frameCount * 2, 0.0f);
+        mixAmbience(outInterleavedStereo, frameCount, sr, ambVol);
         return;
     }
 
@@ -1261,19 +1170,33 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                         // Felt acoustic damping lowpass + Air presence shelf
                         float feltFiltered = v.biquad1.process(lpcOut);
                         float airFiltered = v.biquad2.process(feltFiltered);
+                        float flexFiltered = v.biquad3.process(inNoise) * 0.25f;
 
-                        // Authentic physical deal glide envelope:
-                        // 14ms attack (card acceleration), body glide, exponential decay (friction deceleration)
+                        // Envelope selection: accelerating swell for deal swipes vs smooth ease for drags
                         float fricGain = 0.0f;
-                        const float attT = 0.014f;
-                        if (v.ageSec < attT) {
-                            fricGain = 0.95f * (v.ageSec / attT);
+                        if (v.isDealSwell) {
+                            // Authentic accelerating deal swipe modeled from cardsounds/deal-series.wav
+                            // Friction swells as card is flicked across baize, peaking at arrival (t ~ durationSec - 10ms)
+                            const float swellPeak = std::max(0.020f, v.durationSec - 0.010f);
+                            if (v.ageSec < swellPeak) {
+                                float progress = v.ageSec / swellPeak;
+                                fricGain = 0.16f + 0.84f * std::pow(progress, 1.35f);
+                            } else {
+                                float decayFraction = (v.ageSec - swellPeak) / 0.010f;
+                                fricGain = 1.0f * std::exp(-6.5f * decayFraction);
+                            }
                         } else {
-                            float decayFraction = (v.ageSec - attT) / std::max(0.010f, v.durationSec - attT);
-                            fricGain = 0.95f * std::exp(-5.2f * decayFraction);
+                            // Standard ease-in card drag across baize
+                            const float attT = 0.014f;
+                            if (v.ageSec < attT) {
+                                fricGain = 0.95f * (v.ageSec / attT);
+                            } else {
+                                float decayFraction = (v.ageSec - attT) / std::max(0.010f, v.durationSec - attT);
+                                fricGain = 0.95f * std::exp(-5.2f * decayFraction);
+                            }
                         }
 
-                        sample = airFiltered * fricGain * v.intensity * 2.2f;
+                        sample = (airFiltered + flexFiltered) * fricGain * v.intensity * 2.2f;
 
                         // Sweeping flanger comb modulation for futuristic flare on card slides & deals
                         if (pp.flangerDepth > 0.00001f) {
@@ -1298,9 +1221,8 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
 
                     case VoiceType::Drop: {
                         // Two-stage physical touchdown modeled from cardsounds/place.wav:
-                        // Stage 1 (t=0 to ~8ms): Leading corner/edge touch (crisp 5.8kHz micro-tick)
-                        // Stage 2 (t >= ~9.5ms): Card face air slap (3.8kHz) + body knock (920Hz) + table thump (95->48Hz)
-                        const float splitSec = 0.0095f;
+                        // Stage 1 (t=0 to split): Leading corner/edge touch (crisp 5.8kHz micro-tick)
+                        // Stage 2 (t >= split): Card face air slap (3.8kHz) + body knock (920Hz) + table thump (95->48Hz)
                         float edgeOut = 0.0f;
                         float slapOut = 0.0f;
                         float knockOut = 0.0f;
@@ -1314,28 +1236,28 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                         }
 
                         // Stage 1: Leading edge touch tick
-                        if (v.ageSec < 0.009f) {
+                        if (v.ageSec < v.dropSplitSec) {
                             float edgeFilt = v.biquad2.process(noiseSample);
                             float edgeGain = 0.0f;
                             if (v.ageSec < 0.0008f) {
-                                edgeGain = 0.95f * (v.ageSec / 0.0008f);
+                                edgeGain = v.dropEdgeGain * (v.ageSec / 0.0008f);
                             } else {
-                                edgeGain = 0.95f * std::exp(-(v.ageSec - 0.0008f) / 0.0025f);
+                                edgeGain = v.dropEdgeGain * std::exp(-(v.ageSec - 0.0008f) / 0.0022f);
                             }
                             edgeOut = edgeFilt * edgeGain;
                         }
 
                         // Stage 2: Main touchdown
-                        if (v.ageSec >= splitSec) {
-                            const float bodyAge = v.ageSec - splitSec;
+                        if (v.ageSec >= v.dropSplitSec) {
+                            const float bodyAge = v.ageSec - v.dropSplitSec;
 
                             // 1. Air Slap (3.8kHz)
                             float slapFilt = v.biquad1.process(noiseSample);
                             float slapGain = 0.0f;
                             if (bodyAge < 0.0010f) {
-                                slapGain = 1.10f * (bodyAge / 0.0010f);
+                                slapGain = v.dropSlapGain * (bodyAge / 0.0010f);
                             } else {
-                                slapGain = 1.10f * std::exp(-(bodyAge - 0.0010f) / 0.0055f);
+                                slapGain = v.dropSlapGain * std::exp(-(bodyAge - 0.0010f) / 0.0050f);
                             }
                             slapOut = slapFilt * slapGain;
 
@@ -1343,9 +1265,9 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                             float knockFilt = v.biquad3.process(noiseSample);
                             float knockGain = 0.0f;
                             if (bodyAge < 0.0012f) {
-                                knockGain = 0.45f * (bodyAge / 0.0012f);
+                                knockGain = v.dropKnockGain * (bodyAge / 0.0012f);
                             } else {
-                                knockGain = 0.45f * std::exp(-(bodyAge - 0.0012f) / 0.0065f);
+                                knockGain = v.dropKnockGain * std::exp(-(bodyAge - 0.0012f) / 0.0065f);
                             }
                             knockOut = knockFilt * knockGain;
 
@@ -1354,7 +1276,7 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                             v.phaseSine += v.dropFreq * dt;
                             if (v.phaseSine >= 1.0f) v.phaseSine -= 1.0f;
                             float rawSine = std::sin(v.phaseSine * kTwoPi);
-                            float thudGain = 0.16f * std::exp(-bodyAge / 0.014f);
+                            float thudGain = v.dropThudGain * std::exp(-bodyAge / 0.014f);
                             thudOut = rawSine * thudGain;
                         }
 
@@ -1364,7 +1286,7 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
 
                     case VoiceType::ShuffleRiffle: {
                         // 100% Procedural Single-Voice Discrete Transient Riffle Cascade
-                        // Models empirical discrete physical card corner releases (8 snaps for Soft, 13 snaps for Loud)
+                        // Models dynamic PhISEM card corner releases with non-repeating stochastic intervals
                         float inNoise = 0.0f;
                         if (hasVelvet) {
                             size_t vIdx = static_cast<size_t>(v.velvetIdx) % kNoiseBufferSize;
@@ -1376,26 +1298,23 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                         }
 
                         const bool isLoud = (v.shuffleMode == 1);
-                        const size_t snapCount = isLoud ? kLoudSnapCount : kSoftSnapCount;
 
-                        // Check empirical card snap schedule:
-                        if (v.snapIdx < snapCount) {
-                            float eventTime = isLoud ? kLoudSnaps[v.snapIdx].timeSec : kSoftSnaps[v.snapIdx].timeSec;
-                            if (v.ageSec >= eventTime) {
-                                float eventAmp = isLoud ? kLoudSnaps[v.snapIdx].amplitude : kSoftSnaps[v.snapIdx].amplitude;
-                                v.snapEnv = eventAmp;
+                        // Check dynamic PhISEM card snap schedule:
+                        if (v.snapIdx < v.numRiffleSnaps) {
+                            if (v.ageSec >= v.riffleSnaps[v.snapIdx].timeSec) {
+                                v.snapEnv = v.riffleSnaps[v.snapIdx].amplitude;
                                 v.snapIdx++;
                             }
                         }
 
-                        // Exponential decay of discrete card corner snap (~2.8 ms)
+                        // Exponential decay of discrete card corner snap (~2.6 ms)
                         v.snapEnv *= 0.9926f;
 
                         // 1. Discrete card corner snap impulse (formant bandpass + crisp air presence)
                         float snapSignal = inNoise * v.snapEnv;
                         float snapBp = v.biquad1.process(snapSignal);
                         float snapAir = v.biquad2.process(snapSignal) * 0.35f;
-                        float snapOut = (snapBp + snapAir) * (isLoud ? 1.5f : 1.1f);
+                        float snapOut = (snapBp + snapAir) * (isLoud ? 1.45f : 1.10f);
 
                         // 2. Continuous background card-on-card friction flutter
                         float flutterFilt = v.biquad3.process(inNoise);
@@ -1412,24 +1331,6 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                         }
 
                         sample = (snapOut + flutterOut + gatherOut) * v.intensity * 1.15f;
-                        break;
-                    }
-
-                    case VoiceType::SamplePlayback: {
-                        if (!v.sampleData || v.sampleLength == 0) {
-                            v.active = false;
-                            break;
-                        }
-                        size_t idx0 = static_cast<size_t>(v.sampleCursor);
-                        if (idx0 + 1 >= v.sampleLength) {
-                            v.active = false;
-                            break;
-                        }
-                        float frac = v.sampleCursor - static_cast<float>(idx0);
-                        float s0 = v.sampleData[idx0];
-                        float s1 = v.sampleData[idx0 + 1];
-                        sample = (s0 + frac * (s1 - s0)) * v.intensity;
-                        v.sampleCursor += v.sampleRateRatio;
                         break;
                     }
 
@@ -1460,6 +1361,8 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
         outInterleavedStereo[f * 2 + 0] = mixL;
         outInterleavedStereo[f * 2 + 1] = mixR;
     }
+
+    mixAmbience(outInterleavedStereo, frameCount, sr, ambVol);
 }
 
 bool AudioFoleyEngine::loadFromEatsScript(const std::string& script) {
@@ -1467,8 +1370,9 @@ bool AudioFoleyEngine::loadFromEatsScript(const std::string& script) {
 
     uint32_t inactiveIdx = 1 - activeBankIndex_.load(std::memory_order_relaxed);
     FoleySoundBank& targetBank = soundBanks_[inactiveIdx];
-    // Copy current configuration as baseline
-    targetBank = soundBanks_[activeBankIndex_.load(std::memory_order_relaxed)];
+    // Start from a clean default baseline so custom DSP overrides or embedded samples
+    // from a previously loaded pack do not leak into the new soundpack.
+    populateDefaultBank(targetBank);
 
     auto parseDev = [](const eatsbits::eatscript::Value& val, float defBase, float defDev) -> std::pair<float, float> {
         if (val.isNumber()) {
@@ -1864,52 +1768,16 @@ bool AudioFoleyEngine::loadFromEatsScript(const std::string& script) {
         return eatsbits::eatscript::Value(false);
     };
 
-    auto embedSoundFn = [&](const std::vector<eatsbits::eatscript::Value>& args,
-                            const std::map<std::string, eatsbits::eatscript::Value>&) -> eatsbits::eatscript::Value {
-        if (args.size() < 2 || !args[0].isString() || !args[1].isString()) {
-            return eatsbits::eatscript::Value(false);
-        }
-        std::string soundName = args[0].asString();
-        std::string b64Data = args[1].asString();
-        for (char& c : soundName) c = static_cast<char>(std::tolower(c));
-
-        std::vector<float> decodedPcm;
-        if (!decodeEmbeddedAudio(b64Data, decodedPcm)) {
-            std::cerr << "[SolEngine Foley] Failed to decode embedded audio for: " << soundName << "\n";
-            return eatsbits::eatscript::Value(false);
-        }
-
-        if (soundName == "place" || soundName == "drop" || soundName == "card_place" || soundName == "card_drop") {
-            targetBank.samplePlace = std::move(decodedPcm);
-        } else if (soundName == "deal" || soundName == "slide" || soundName == "card_deal" || soundName == "card_slide" || soundName == "deal_series") {
-            targetBank.sampleDeal = std::move(decodedPcm);
-        } else if (soundName == "shuffle" || soundName == "shuffle_soft" || soundName == "deck_shuffle") {
-            targetBank.sampleShuffleSoft = std::move(decodedPcm);
-        } else if (soundName == "shuffle_loud") {
-            targetBank.sampleShuffleLoud = std::move(decodedPcm);
-        } else if (soundName == "snap" || soundName == "tap" || soundName == "card_snap") {
-            targetBank.sampleSnap = std::move(decodedPcm);
-        } else {
-            return eatsbits::eatscript::Value(false);
-        }
-        return eatsbits::eatscript::Value(true);
-    };
-
-    auto clearEmbedsFn = [&](const std::vector<eatsbits::eatscript::Value>&,
-                             const std::map<std::string, eatsbits::eatscript::Value>&) -> eatsbits::eatscript::Value {
-        targetBank.samplePlace.clear();
-        targetBank.sampleDeal.clear();
-        targetBank.sampleShuffleSoft.clear();
-        targetBank.sampleShuffleLoud.clear();
-        targetBank.sampleSnap.clear();
+    auto embedNoop = [](const std::vector<eatsbits::eatscript::Value>&,
+                        const std::map<std::string, eatsbits::eatscript::Value>&) -> eatsbits::eatscript::Value {
         return eatsbits::eatscript::Value(true);
     };
 
     evaluator.setVariable("audio", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
-    evaluator.registerMemberFunction("audio", "embed_sound", embedSoundFn);
-    evaluator.registerMemberFunction("audio", "embed_sample", embedSoundFn);
-    evaluator.registerMemberFunction("audio", "clear_embedded_sounds", clearEmbedsFn);
-    evaluator.registerMemberFunction("audio", "clear_embeds", clearEmbedsFn);
+    evaluator.registerMemberFunction("audio", "embed_sound", embedNoop);
+    evaluator.registerMemberFunction("audio", "embed_sample", embedNoop);
+    evaluator.registerMemberFunction("audio", "clear_embedded_sounds", embedNoop);
+    evaluator.registerMemberFunction("audio", "clear_embeds", embedNoop);
     evaluator.registerMemberFunction("audio", "define_sound", defineSoundFn);
     evaluator.registerMemberFunction("audio", "define_sequence", defineSeqFn);
     evaluator.registerMemberFunction("audio", "set_master_variance", setVarianceFn);
@@ -1917,10 +1785,10 @@ bool AudioFoleyEngine::loadFromEatsScript(const std::string& script) {
     evaluator.registerMemberFunction("audio", "set_physical_params", setPhysicalParamsFn);
     evaluator.registerMemberFunction("audio", "apply_preset", applyPresetFn);
 
-    evaluator.registerFunction("embed_sound", embedSoundFn);
-    evaluator.registerFunction("embed_sample", embedSoundFn);
-    evaluator.registerFunction("clear_embedded_sounds", clearEmbedsFn);
-    evaluator.registerFunction("clear_embeds", clearEmbedsFn);
+    evaluator.registerFunction("embed_sound", embedNoop);
+    evaluator.registerFunction("embed_sample", embedNoop);
+    evaluator.registerFunction("clear_embedded_sounds", embedNoop);
+    evaluator.registerFunction("clear_embeds", embedNoop);
     evaluator.registerFunction("define_sound", defineSoundFn);
     evaluator.registerFunction("define_sequence", defineSeqFn);
     evaluator.registerFunction("set_master_variance", setVarianceFn);
@@ -1968,6 +1836,419 @@ bool AudioFoleyEngine::loadFromEatsFile(const std::string& filePath) {
         }
     }
     return false;
+}
+
+void AudioFoleyEngine::setSoundPackId(const std::string& packId) {
+    std::string target = packId.empty() ? "default" : packId;
+    if (target == "default") {
+        if (!loadFromEatsFile("sounds/default.eats")) {
+            resetToDefaults();
+        }
+        activeSoundPackId_ = "default";
+        return;
+    }
+    std::string filename = target;
+    if (filename.size() < 5 || filename.substr(filename.size() - 5) != ".eats") {
+        filename += ".eats";
+    }
+    if (loadFromEatsFile(filename)) {
+        activeSoundPackId_ = target;
+    } else {
+        resetToDefaults();
+        activeSoundPackId_ = "default";
+    }
+}
+
+void AudioFoleyEngine::clearAmbience() {
+    activeAmbienceId_ = "off";
+    ambienceEnabled_.store(false, std::memory_order_release);
+}
+
+bool AudioFoleyEngine::setAmbience(const std::string& envId) {
+    std::string lower;
+    for (char c : envId) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower.empty() || lower == "off" || lower == "none") {
+        clearAmbience();
+        return true;
+    }
+
+    std::string filename = lower;
+    if (filename.size() < 5 || filename.substr(filename.size() - 5) != ".eats") {
+        filename += ".eats";
+    }
+    if (loadAmbienceFromEatsFile(filename)) {
+        activeAmbienceId_ = lower;
+        return true;
+    }
+
+    // Fallback to built-in procedural definition if .eats file wasn't found
+    uint32_t inactiveIdx = 1 - activeAmbienceBankIdx_.load(std::memory_order_relaxed);
+    AmbienceEnvDef def{};
+    if (populateBuiltinAmbience(lower, def)) {
+        ambienceBanks_[inactiveIdx] = std::move(def);
+        activeAmbienceBankIdx_.store(inactiveIdx, std::memory_order_release);
+        ambienceGeneration_.fetch_add(1, std::memory_order_release);
+        ambienceEnabled_.store(true, std::memory_order_release);
+        activeAmbienceId_ = lower;
+        return true;
+    }
+    return false;
+}
+
+bool AudioFoleyEngine::loadAmbienceFromEatsFile(const std::string& filePath) {
+    const std::vector<std::string> searchPaths = {
+        filePath,
+        "ambience/" + filePath,
+        "web/ambience/" + filePath,
+        "../ambience/" + filePath,
+        "../../ambience/" + filePath,
+        "../" + filePath,
+        "../../" + filePath
+    };
+
+    for (const auto& candidate : searchPaths) {
+        std::ifstream file(candidate);
+        if (file.is_open()) {
+            std::string script((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            return loadAmbienceFromEatsScript(script);
+        }
+    }
+    return false;
+}
+
+bool AudioFoleyEngine::loadAmbienceFromEatsScript(const std::string& script) {
+    if (script.empty()) return false;
+
+    uint32_t inactiveIdx = 1 - activeAmbienceBankIdx_.load(std::memory_order_relaxed);
+    AmbienceEnvDef parsedEnv{};
+    bool hasEnv = false;
+
+    eatsbits::eatscript::Evaluator evaluator;
+
+    auto defineEnvFn = [&](const std::vector<eatsbits::eatscript::Value>& args,
+                           const std::map<std::string, eatsbits::eatscript::Value>&) -> eatsbits::eatscript::Value {
+        if (args.empty() || !args[0].isDict()) return eatsbits::eatscript::Value(false);
+        const auto& d = args[0];
+
+        if (d.hasKey("id") && d.get("id").isString()) parsedEnv.id = d.get("id").asString();
+        if (d.hasKey("name") && d.get("name").isString()) parsedEnv.name = d.get("name").asString();
+        if (d.hasKey("master_gain")) parsedEnv.masterGain = std::clamp(d.get("master_gain").asFloat(1.0f), 0.0f, 2.0f);
+
+        parsedEnv.layers.clear();
+        if (d.hasKey("layers") && d.get("layers").isList()) {
+            const auto& list = d.get("layers").listVal;
+            for (const auto& item : list) {
+                if (!item.isDict() || parsedEnv.layers.size() >= kMaxAmbienceLayers) continue;
+                AmbienceLayerDef layer{};
+
+                std::string typeStr = (item.hasKey("type") && item.get("type").isString()) ? item.get("type").asString() : "noise_bed";
+                for (char& c : typeStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (typeStr == "stochastic_grains" || typeStr == "grains") {
+                    layer.type = AmbienceLayerType::StochasticGrains;
+                } else if (typeStr == "chirp_spawner" || typeStr == "chirps") {
+                    layer.type = AmbienceLayerType::ChirpSpawner;
+                } else {
+                    layer.type = AmbienceLayerType::NoiseBed;
+                }
+
+                std::string colorStr = (item.hasKey("color") && item.get("color").isString()) ? item.get("color").asString() : "pink";
+                for (char& c : colorStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (colorStr == "white") layer.noiseColor = AmbienceNoiseColor::White;
+                else if (colorStr == "brown" || colorStr == "red") layer.noiseColor = AmbienceNoiseColor::Brown;
+                else layer.noiseColor = AmbienceNoiseColor::Pink;
+
+                std::string filtStr = (item.hasKey("filter") && item.get("filter").isString()) ? item.get("filter").asString() : "lowpass";
+                for (char& c : filtStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (filtStr == "none") layer.filterType = FoleyFilter::None;
+                else if (filtStr == "highpass") layer.filterType = FoleyFilter::Highpass;
+                else if (filtStr == "bandpass") layer.filterType = FoleyFilter::Bandpass;
+                else layer.filterType = FoleyFilter::Lowpass;
+
+                if (item.hasKey("gain")) layer.gain = std::clamp(item.get("gain").asFloat(0.35f), 0.0f, 2.0f);
+                if (item.hasKey("cutoff")) layer.cutoff = std::clamp(item.get("cutoff").asFloat(1000.0f), 20.0f, 20000.0f);
+                if (item.hasKey("q")) layer.q = std::clamp(item.get("q").asFloat(0.707f), 0.1f, 20.0f);
+                if (item.hasKey("lfo_rate")) layer.lfoRate = std::clamp(item.get("lfo_rate").asFloat(0.0f), 0.0f, 20.0f);
+                if (item.hasKey("lfo_depth")) layer.lfoDepth = std::max(0.0f, item.get("lfo_depth").asFloat(0.0f));
+                if (item.hasKey("amp_mod")) layer.ampModDepth = std::clamp(item.get("amp_mod").asFloat(0.0f), 0.0f, 0.95f);
+
+                if (item.hasKey("rate")) layer.rate = std::clamp(item.get("rate").asFloat(8.0f), 0.05f, 200.0f);
+                if (item.hasKey("freq_min")) layer.freqMin = std::clamp(item.get("freq_min").asFloat(800.0f), 40.0f, 18000.0f);
+                if (item.hasKey("freq_max")) layer.freqMax = std::clamp(item.get("freq_max").asFloat(4000.0f), layer.freqMin, 19000.0f);
+                if (item.hasKey("freq_sweep")) layer.freqSweep = std::clamp(item.get("freq_sweep").asFloat(1.0f), 0.1f, 4.0f);
+                if (item.hasKey("decay")) layer.decaySec = std::clamp(item.get("decay").asFloat(0.02f), 0.002f, 1.5f);
+                if (item.hasKey("stereo_spread")) layer.stereoSpread = std::clamp(item.get("stereo_spread").asFloat(0.5f), 0.0f, 1.0f);
+                if (item.hasKey("tonal")) layer.tonal = item.get("tonal").asBoolean(false);
+
+                parsedEnv.layers.push_back(layer);
+            }
+        }
+        hasEnv = !parsedEnv.layers.empty();
+        return eatsbits::eatscript::Value(hasEnv);
+    };
+
+    evaluator.setVariable("ambience", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
+    evaluator.registerMemberFunction("ambience", "define_environment", defineEnvFn);
+    evaluator.registerFunction("define_environment", defineEnvFn);
+
+    try {
+        evaluator.evaluateSource(script);
+        if (!evaluator.getLastError().empty() || !hasEnv) {
+            return false;
+        }
+    } catch (...) {
+        return false;
+    }
+
+    ambienceBanks_[inactiveIdx] = std::move(parsedEnv);
+    activeAmbienceBankIdx_.store(inactiveIdx, std::memory_order_release);
+    ambienceGeneration_.fetch_add(1, std::memory_order_release);
+    ambienceEnabled_.store(true, std::memory_order_release);
+    return true;
+}
+
+bool AudioFoleyEngine::populateBuiltinAmbience(const std::string& envId, AmbienceEnvDef& outDef) {
+    outDef = AmbienceEnvDef{};
+    outDef.id = envId;
+    if (envId == "whitenoise") {
+        outDef.name = "White Noise";
+        AmbienceLayerDef l{};
+        l.type = AmbienceLayerType::NoiseBed;
+        l.noiseColor = AmbienceNoiseColor::White;
+        l.filterType = FoleyFilter::Lowpass;
+        l.cutoff = 11000.0f;
+        l.q = 0.707f;
+        l.gain = 0.22f;
+        outDef.layers.push_back(l);
+        return true;
+    }
+    if (envId == "rain") {
+        outDef.name = "Rain";
+        AmbienceLayerDef sheet{};
+        sheet.type = AmbienceLayerType::NoiseBed;
+        sheet.noiseColor = AmbienceNoiseColor::Pink;
+        sheet.filterType = FoleyFilter::Lowpass;
+        sheet.cutoff = 2400.0f;
+        sheet.q = 0.7f;
+        sheet.lfoRate = 0.08f;
+        sheet.lfoDepth = 450.0f;
+        sheet.ampModDepth = 0.15f;
+        sheet.gain = 0.34f;
+        AmbienceLayerDef drops{};
+        drops.type = AmbienceLayerType::StochasticGrains;
+        drops.rate = 38.0f;
+        drops.freqMin = 1400.0f;
+        drops.freqMax = 5200.0f;
+        drops.decaySec = 0.012f;
+        drops.q = 3.2f;
+        drops.gain = 0.28f;
+        drops.stereoSpread = 0.85f;
+        outDef.layers = { sheet, drops };
+        return true;
+    }
+    if (envId == "fireplace") {
+        outDef.name = "Fireplace Crackle";
+        AmbienceLayerDef rumble{};
+        rumble.type = AmbienceLayerType::NoiseBed;
+        rumble.noiseColor = AmbienceNoiseColor::Brown;
+        rumble.filterType = FoleyFilter::Lowpass;
+        rumble.cutoff = 240.0f;
+        rumble.gain = 0.42f;
+        rumble.lfoRate = 0.14f;
+        rumble.lfoDepth = 60.0f;
+        AmbienceLayerDef crackle{};
+        crackle.type = AmbienceLayerType::StochasticGrains;
+        crackle.rate = 14.0f;
+        crackle.freqMin = 2000.0f;
+        crackle.freqMax = 6500.0f;
+        crackle.decaySec = 0.007f;
+        crackle.q = 2.4f;
+        crackle.gain = 0.48f;
+        crackle.stereoSpread = 0.55f;
+        outDef.layers = { rumble, crackle };
+        return true;
+    }
+    return false;
+}
+
+void AudioFoleyEngine::mixAmbience(float* outInterleavedStereo, uint32_t frameCount, float sampleRate, float ambVol) noexcept {
+    const bool enabled = ambienceEnabled_.load(std::memory_order_acquire);
+    const uint32_t gen = ambienceGeneration_.load(std::memory_order_acquire);
+
+    if (gen != lastObservedAmbienceGen_) {
+        lastObservedAmbienceGen_ = gen;
+        for (auto& bed : ambienceBedStates_) bed.reset();
+        for (auto& g : ambienceGrains_) g.active = false;
+        ambienceFadeGain_ = 0.0f;
+    }
+
+    if (!enabled && ambienceFadeGain_ <= 0.0001f) {
+        return;
+    }
+
+    const auto& env = ambienceBanks_[activeAmbienceBankIdx_.load(std::memory_order_acquire)];
+    const float dt = 1.0f / sampleRate;
+    const float fadeStep = dt / 0.35f; // 350ms smooth fade in/out
+    const float targetFade = enabled ? 1.0f : 0.0f;
+    const size_t numLayers = std::min(env.layers.size(), kMaxAmbienceLayers);
+
+    auto rand01 = [&]() noexcept -> float {
+        return static_cast<float>(nextRng() & 0x00FFFFFFu) / 16777216.0f;
+    };
+
+    for (uint32_t f = 0; f < frameCount; ++f) {
+        if (ambienceFadeGain_ < targetFade) {
+            ambienceFadeGain_ = std::min(targetFade, ambienceFadeGain_ + fadeStep);
+        } else if (ambienceFadeGain_ > targetFade) {
+            ambienceFadeGain_ = std::max(targetFade, ambienceFadeGain_ - fadeStep);
+        }
+        if (ambienceFadeGain_ <= 0.0001f && !enabled) {
+            break;
+        }
+
+        float ambL = 0.0f;
+        float ambR = 0.0f;
+
+        for (size_t li = 0; li < numLayers; ++li) {
+            const auto& layer = env.layers[li];
+            auto& bed = ambienceBedStates_[li];
+
+            if (layer.type == AmbienceLayerType::NoiseBed) {
+                float wL = nextNoise();
+                float wR = nextNoise();
+                float sL = wL;
+                float sR = wR;
+
+                if (layer.noiseColor == AmbienceNoiseColor::Pink) {
+                    bed.pinkL0 = 0.99765f * bed.pinkL0 + wL * 0.0990460f;
+                    bed.pinkL1 = 0.96300f * bed.pinkL1 + wL * 0.2965164f;
+                    bed.pinkL2 = 0.57000f * bed.pinkL2 + wL * 1.0526913f;
+                    sL = (bed.pinkL0 + bed.pinkL1 + bed.pinkL2 + wL * 0.1848f) * 0.18f;
+
+                    bed.pinkR0 = 0.99765f * bed.pinkR0 + wR * 0.0990460f;
+                    bed.pinkR1 = 0.96300f * bed.pinkR1 + wR * 0.2965164f;
+                    bed.pinkR2 = 0.57000f * bed.pinkR2 + wR * 1.0526913f;
+                    sR = (bed.pinkR0 + bed.pinkR1 + bed.pinkR2 + wR * 0.1848f) * 0.18f;
+                } else if (layer.noiseColor == AmbienceNoiseColor::Brown) {
+                    bed.brownL = std::clamp((bed.brownL + wL * 0.045f) * 0.9965f, -1.0f, 1.0f);
+                    bed.brownR = std::clamp((bed.brownR + wR * 0.045f) * 0.9965f, -1.0f, 1.0f);
+                    sL = bed.brownL * 1.6f;
+                    sR = bed.brownR * 1.6f;
+                } else {
+                    sL = wL * 0.45f;
+                    sR = wR * 0.45f;
+                }
+
+                // Dual-sine organic LFO for non-repetitive gusts & swells
+                float lfoVal = 0.0f;
+                if (layer.lfoRate > 0.001f) {
+                    bed.lfoPhase1 += kTwoPi * layer.lfoRate * dt;
+                    bed.lfoPhase2 += kTwoPi * (layer.lfoRate * 1.37f) * dt;
+                    if (bed.lfoPhase1 >= kTwoPi) bed.lfoPhase1 -= kTwoPi;
+                    if (bed.lfoPhase2 >= kTwoPi) bed.lfoPhase2 -= kTwoPi;
+                    lfoVal = 0.65f * std::sin(bed.lfoPhase1) + 0.35f * std::sin(bed.lfoPhase2);
+                }
+
+                if ((bed.subCounter++ & 31) == 0 && layer.filterType != FoleyFilter::None) {
+                    float modCutoff = std::clamp(layer.cutoff + lfoVal * layer.lfoDepth, 30.0f, sampleRate * 0.42f);
+                    BiquadCoeffs c{};
+                    if (layer.filterType == FoleyFilter::Highpass) c = makeHighpass(modCutoff, layer.q, sampleRate);
+                    else if (layer.filterType == FoleyFilter::Bandpass) c = makeBandpass(modCutoff, layer.q, sampleRate);
+                    else c = makeLowpass(modCutoff, layer.q, sampleRate);
+                    bed.filterL.c = c;
+                    bed.filterR.c = c;
+                }
+
+                if (layer.filterType != FoleyFilter::None) {
+                    sL = bed.filterL.process(sL);
+                    sR = bed.filterR.process(sR);
+                }
+
+                float ampMod = 1.0f + lfoVal * layer.ampModDepth;
+                ambL += sL * layer.gain * ampMod;
+                ambR += sR * layer.gain * ampMod;
+            } else {
+                // StochasticGrains / ChirpSpawner: check spawn every 32 samples
+                if ((bed.subCounter++ & 31) == 0) {
+                    float prob = layer.rate * (32.0f * dt);
+                    if (rand01() < prob) {
+                        for (auto& g : ambienceGrains_) {
+                            if (!g.active) {
+                                g.active = true;
+                                g.isChirp = (layer.type == AmbienceLayerType::ChirpSpawner);
+                                g.tonal = layer.tonal || g.isChirp;
+                                g.ageSec = 0.0f;
+                                g.durationSec = g.isChirp
+                                    ? layer.decaySec * (0.75f + 0.55f * rand01())
+                                    : std::max(0.004f, layer.decaySec * (0.65f + 0.75f * rand01()) * 4.5f);
+                                g.decayRate = 1.0f / std::max(0.002f, layer.decaySec * (0.75f + 0.5f * rand01()));
+                                g.phase = 0.0f;
+                                g.freq = layer.freqMin + (layer.freqMax - layer.freqMin) * rand01();
+                                float endFreq = std::clamp(g.freq * layer.freqSweep, 40.0f, sampleRate * 0.42f);
+                                float totalSamples = std::max(1.0f, g.durationSec * sampleRate);
+                                g.freqMult = std::pow(endFreq / std::max(40.0f, g.freq), 1.0f / totalSamples);
+                                g.chirpModPhase = 0.0f;
+                                g.chirpModRate = 14.0f + 16.0f * rand01();
+                                g.chirpModDepth = g.isChirp ? 0.14f : 0.0f;
+
+                                float pan = (rand01() * 2.0f - 1.0f) * layer.stereoSpread;
+                                float amp = layer.gain * (0.55f + 0.45f * rand01());
+                                g.gainL = amp * std::sqrt(0.5f * (1.0f - pan));
+                                g.gainR = amp * std::sqrt(0.5f * (1.0f + pan));
+                                g.filter.reset();
+                                if (!g.tonal) {
+                                    g.filter.c = makeBandpass(g.freq, layer.q, sampleRate);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Render active ambient grains / chirps
+        for (auto& g : ambienceGrains_) {
+            if (!g.active) continue;
+            g.ageSec += dt;
+            if (g.ageSec >= g.durationSec) {
+                g.active = false;
+                continue;
+            }
+
+            float sample = 0.0f;
+            if (g.tonal) {
+                float instFreq = g.freq;
+                if (g.isChirp) {
+                    g.chirpModPhase += kTwoPi * g.chirpModRate * dt;
+                    instFreq *= (1.0f + g.chirpModDepth * std::sin(g.chirpModPhase));
+                }
+                g.phase += kTwoPi * instFreq * dt;
+                if (g.phase >= kTwoPi) g.phase -= kTwoPi;
+                g.freq *= g.freqMult;
+
+                float grainEnv = 1.0f;
+                if (g.isChirp) {
+                    float tNorm = g.ageSec / g.durationSec;
+                    // Smooth bell/2-syllable woodland chirp envelope
+                    grainEnv = std::sin(kPi * tNorm) * (0.65f + 0.35f * std::sin(kTwoPi * 2.0f * tNorm));
+                } else {
+                    float att = std::min(1.0f, g.ageSec / 0.0025f);
+                    grainEnv = att * std::exp(-g.ageSec * g.decayRate);
+                }
+                sample = std::sin(g.phase) * grainEnv * 0.35f;
+            } else {
+                float grainEnv = std::exp(-g.ageSec * g.decayRate);
+                sample = g.filter.process(nextNoise()) * grainEnv;
+            }
+
+            ambL += sample * g.gainL;
+            ambR += sample * g.gainR;
+        }
+
+        const float scale = ambVol * env.masterGain * ambienceFadeGain_;
+        outInterleavedStereo[f * 2 + 0] = std::clamp(outInterleavedStereo[f * 2 + 0] + ambL * scale, -0.95f, 0.95f);
+        outInterleavedStereo[f * 2 + 1] = std::clamp(outInterleavedStereo[f * 2 + 1] + ambR * scale, -0.95f, 0.95f);
+    }
 }
 
 } // namespace solengine

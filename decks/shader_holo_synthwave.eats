@@ -88,7 +88,7 @@ def on_draw_card_face(ctx, rank, suit, w, h):
     ctx.reset_elevation()
 
     # 4. 3D Relief Lighting -> Custom Polychrome Foil Shader -> Bloom -> CRT Scanline Pass
-    ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=46.0, ao_intensity=1.40, relief_depth=3.5)
+    # ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=46.0, ao_intensity=1.40, relief_depth=3.5)
     ctx.apply_shader("polychrome_foil_shader", rank=rank, suit=suit, intensity=1.0)
     if is_court:
         ctx.apply_filter("vhs_glitch", intensity=0.35, aberration=2.2, jitter=0.45)
@@ -107,7 +107,7 @@ def on_draw_card_back(ctx, w, h):
     ctx.draw_baroque_spade(cx, cy, size=w * 0.28, body_color="#141824", filigree_color=chrome_sil, accent_color=chrome_hi)
     ctx.draw_gem_pip(suit="diamonds", cx=cx, cy=cy - 6.0, size=26.0, gem_color="#e01a68", gold_color=chrome_sil, style="faceted_gem")
 
-    ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=46.0, ao_intensity=1.45, relief_depth=3.6)
+    # ctx.apply_finish(style="relief", light_azimuth=135.0, light_elevation=46.0, ao_intensity=1.45, relief_depth=3.6)
     ctx.apply_shader("polychrome_foil_shader", rank=1, suit="spades", intensity=1.0)
     ctx.apply_filter("bloom", intensity=0.65, threshold=0.56, radius=9.0)
     ctx.apply_filter("crt", intensity=0.55, curvature=0.06, scanlines=0.34)

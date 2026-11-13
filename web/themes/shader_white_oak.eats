@@ -1,0 +1,83 @@
+# SolEngine Custom Background Theme — Crown White Oak
+# Classic American White Oak tabletop with rich cathedral flame arches, medullary ray flecks, and deep open vessel pores
+
+sol.set_theme({
+    id: "shader_white_oak",
+    name: "Crown White Oak",
+    author: "SolEngine / Eatscript",
+    description: "Classic American White Oak tabletop with rich cathedral flame arches, medullary ray flecks, and deep open vessel pores",
+    version: 1,
+    procedural: true,
+    lacquer: 0.50,
+    relief_bump: 2.2
+})
+
+def crown_oak_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.85, ny)
+
+    # 1. Organic domain warp
+    warp_y = fbm(nx * 2.2 + 5.7, ny * 1.8 + 1.2) * 0.30 + sin(nx * 3.1) * 0.06
+
+    # 2. Crown grain arches with dual cathedral peaks
+    cathedral = min((nx + 0.35) * (nx + 0.35) * 0.38, (nx - 0.45) * (nx - 0.45) * 0.30)
+    ring_coord = ny * 12.0 + cathedral + warp_y * 2.2
+
+    # 3. Latewood growth rings
+    ring_val = 0.5 + 0.5 * sin(ring_coord * 3.14159265)
+    latewood = smoothstep(0.35, 0.88, ring_val) * 0.32
+
+    # 4. Medullary ray flecks (radial ribbons characteristic of white oak)
+    ray_noise = fbm(nx * 32.0, ny * 18.0)
+    medullary_rays = smoothstep(0.70, 0.85, ray_noise) * 0.12
+
+    # 5. Open vessel pores (dense horizontal capillary ticks)
+    pore_noise = fbm(nx * 18.0, ny * 160.0)
+    vessel_pores = smoothstep(0.65, 0.86, pore_noise) * 0.40
+
+    # 6. Fine background tracheid fibers
+    fiber_noise = fbm(nx * 10.0, ny * 85.0)
+    fibers = (fiber_noise - 0.5) * 0.11
+
+    # 7. Subtle organic heartwood warmth variation
+    heartwood_drift = (fbm(nx * 1.5, ny * 1.5) - 0.5) * 0.12
+
+    # 8. Crown White Oak Palette (Mean ~#D0A878 matching reference photo)
+    wood_r = 0.86 - latewood * 0.22 + medullary_rays * 0.14 - vessel_pores * 0.44 + fibers * 0.4 + heartwood_drift * 0.12
+    wood_g = 0.70 - latewood * 0.21 + medullary_rays * 0.12 - vessel_pores * 0.40 + fibers * 0.3 + heartwood_drift * 0.10
+    wood_b = 0.51 - latewood * 0.18 + medullary_rays * 0.09 - vessel_pores * 0.34 + fibers * 0.2 + heartwood_drift * 0.08
+
+    # 9. Natural lighting falloff
+    vignette = smoothstep(1.45, 0.50, dist)
+    speck = (random() - 0.5) * 0.010
+
+    base_r = wood_r * (0.94 + 0.06 * vignette) + speck
+    base_g = wood_g * (0.94 + 0.06 * vignette) + speck
+    base_b = wood_b * (0.94 + 0.06 * vignette) + speck
+
+    # 10. Optional Surface Tinting (when u3 > 0.5)
+    if (u3 > 0.5):
+        luma = (base_r * 0.299 + base_g * 0.587 + base_b * 0.114) / 0.68
+        final_r = clamp(u0 * luma, 0.0, 1.0)
+        final_g = clamp(u1 * luma, 0.0, 1.0)
+        final_b = clamp(u2 * luma, 0.0, 1.0)
+    else:
+        final_r = base_r
+        final_g = base_g
+        final_b = base_b
+
+    # Composite with canvas edge trim if present
+    r = clamp(mix(final_r, in_r, in_r * 0.35), 0.0, 1.0)
+    g = clamp(mix(final_g, in_g, in_g * 0.35), 0.0, 1.0)
+    b = clamp(mix(final_b, in_b, in_b * 0.35), 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Warm white oak base
+    ctx.fill_rect(0, 0, w, h, "#d0a878")
+
+    # 2. Subtle hand-finished table edge border
+    inset = 14.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#a07040", 1.5)
+
+    # 3. Apply procedural bytecode shader
+    ctx.apply_shader("crown_oak_shader", intensity=1.0)

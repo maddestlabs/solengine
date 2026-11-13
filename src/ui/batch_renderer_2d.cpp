@@ -2926,12 +2926,12 @@ public:
         uint32_t vMode = (bgTexture_ ? VertexMode::BgTexture : 3u) | 16u;
 
         std::vector<Vertex2D> quad(6);
-        quad[0] = { x,     y,     qU0, qV0, col, vMode, {0.0f, 0.0f} };
-        quad[1] = { x + w, y,     qU1, qV0, col, vMode, {0.0f, 0.0f} };
-        quad[2] = { x + w, y + h, qU1, qV1, col, vMode, {0.0f, 0.0f} };
-        quad[3] = { x,     y,     qU0, qV0, col, vMode, {0.0f, 0.0f} };
-        quad[4] = { x + w, y + h, qU1, qV1, col, vMode, {0.0f, 0.0f} };
-        quad[5] = { x,     y + h, qU0, qV1, col, vMode, {0.0f, 0.0f} };
+        quad[0] = { x,     y,     qU0, qV0, col, vMode, {tableLacquer_, tableBump_} };
+        quad[1] = { x + w, y,     qU1, qV0, col, vMode, {tableLacquer_, tableBump_} };
+        quad[2] = { x + w, y + h, qU1, qV1, col, vMode, {tableLacquer_, tableBump_} };
+        quad[3] = { x,     y,     qU0, qV0, col, vMode, {tableLacquer_, tableBump_} };
+        quad[4] = { x + w, y + h, qU1, qV1, col, vMode, {tableLacquer_, tableBump_} };
+        quad[5] = { x,     y + h, qU0, qV1, col, vMode, {tableLacquer_, tableBump_} };
 
         renderBatch(quad);
     }
@@ -3034,9 +3034,18 @@ public:
         shaderTime_ = timeSeconds;
     }
 
+    void setTableSurfaceLighting(float lacquerStrength, float bumpStrength = 2.4f) override {
+        tableLacquer_ = lacquerStrength;
+        tableBump_ = bumpStrength;
+    }
+
+    void invalidateBgTexture() override {
+        lastBgRgba_ = nullptr;
+    }
+
 private:
     void initShadersAndPipeline() {
-        static const char* wgslSource = R"(
+        static const std::string wgslSource = std::string(R"(
             struct Uniforms {
                 viewport: vec2<f32>,
                 gamma: f32,
@@ -3107,7 +3116,7 @@ private:
                 let q = abs(pos) - baseHalf + vec2<f32>(baseRad, baseRad);
                 return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - baseRad;
             }
-
+        )") + R"(
             @fragment
             fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 var col = in.color;
@@ -3267,6 +3276,64 @@ private:
 
                         // Modulate gain by physical curvature so edges shade naturally
                         gain = gain * mix(1.0 - 0.07 * camberScale, 1.0 + 0.07 * camberScale, nDotL);
+                    } else if (baseMode == 6u) {
+                        let lacquerLevel = in.localPos.x;
+                        if (lacquerLevel > 0.001) {
+                            // 3D vector from table surface point to dynamic overhead light
+                            let toLight = vec3<f32>(uniforms.lightPos.xy - in.worldPos, max(120.0, uniforms.lightPos.z));
+                            let lightDir = normalize(toLight);
+                            // View vector looking straight down onto table plane (+Z)
+                            let viewDir = vec3<f32>(0.0, 0.0, 1.0);
+                            let halfDir = normalize(lightDir + viewDir);
+
+                            if (in.localPos.y <= 0.05) {
+                                // Flat-Plane Dielectric Specular (polished stone / marble: optically flat normal, no vein embossing)
+                                let nDotH = max(0.0, halfDir.z);
+                                let luma = dot(col.rgb, vec3<f32>(0.299, 0.587, 0.114));
+                                // Calcite veins & harder matrix polish to slightly different micro-roughness
+                                let specPower = mix(115.0, 210.0, luma);
+                                let specCrisp = pow(nDotH, specPower);
+                                let specHalo = pow(nDotH, 28.0) * 0.12;
+                                let fresnel = 0.045 + 0.955 * pow(1.0 - nDotH, 5.0);
+                                let stoneSheen = (specCrisp * (0.65 + fresnel * 1.4) + specHalo) * 0.24 * strength * falloff * lacquerLevel;
+                                specHighlight = uniforms.lightColor.rgb * stoneSheen;
+                            } else {
+                                // Procedural Normal Relief & Lacquer Specular Clearcoat (Shadertoy / Sobel style)
+                                // Finite-difference sampling on background texture to derive micro-relief surface gradient
+                                let step = vec2<f32>(1.0 / 2048.0, 1.0 / 2048.0);
+                                let sR = textureSampleLevel(bgTexture, fontSampler, in.uv + vec2<f32>(step.x, 0.0), 0.0).rgb;
+                                let sL = textureSampleLevel(bgTexture, fontSampler, in.uv - vec2<f32>(step.x, 0.0), 0.0).rgb;
+                                let sD = textureSampleLevel(bgTexture, fontSampler, in.uv + vec2<f32>(0.0, step.y), 0.0).rgb;
+                                let sU = textureSampleLevel(bgTexture, fontSampler, in.uv - vec2<f32>(0.0, step.y), 0.0).rgb;
+
+                                // Perceptual luminance weights for micro-relief height reconstruction
+                                let lumaW = vec3<f32>(0.299, 0.587, 0.114);
+                                let hR = dot(sR, lumaW);
+                                let hL = dot(sL, lumaW);
+                                let hD = dot(sD, lumaW);
+                                let hU = dot(sU, lumaW);
+
+                                // Gradient of surface relief
+                                let dX = hR - hL;
+                                let dY = hD - hU;
+
+                                // Reconstructed tangent-space normal on tabletop plane (+Z normal)
+                                let bumpStrength = in.localPos.y;
+                                let bgNormal = normalize(vec3<f32>(-dX * bumpStrength, -dY * bumpStrength, 1.0));
+
+                                let nDotL = max(0.0, dot(bgNormal, lightDir));
+                                let nDotH = max(0.0, dot(bgNormal, halfDir));
+
+                                // Lacquer Clearcoat: Dual-lobe specular (crisp gloss reflection + soft satin sheen)
+                                let specGloss = pow(nDotH, 36.0);
+                                let specSatin = pow(nDotH, 10.0);
+                                let lacquerSheen = (specGloss * 0.70 + specSatin * 0.30) * 0.25 * strength * falloff * lacquerLevel;
+                                specHighlight = uniforms.lightColor.rgb * lacquerSheen;
+
+                                // Modulate gain by surface micro-relief: crevices get subtle self-shadow, ridges catch warmth
+                                gain = gain * mix(1.0, mix(0.90, 1.12, nDotL), clamp(lacquerLevel, 0.0, 1.0));
+                            }
+                        }
                     }
                     let tint = mix(vec3<f32>(1.0, 1.0, 1.0), uniforms.lightColor.rgb, clamp(falloff * 0.40 * strength, 0.0, 1.0));
                     col = vec4<f32>(clamp(col.rgb * gain * tint + specHighlight, vec3<f32>(0.0), vec3<f32>(1.0)), col.a);
@@ -3280,7 +3347,7 @@ private:
 
         WGPUShaderSourceWGSL wgslDesc{};
         wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
-        wgslDesc.code = makeWgpuStringView(wgslSource);
+        wgslDesc.code = makeWgpuStringView(wgslSource.c_str());
 
         WGPUShaderModuleDescriptor smDesc{};
         smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
@@ -3508,6 +3575,8 @@ private:
     float lightColor_[4]{1.04f, 1.00f, 0.94f, 1.0f};
     float ambientLight_[4]{0.35f, 0.35f, 0.35f, 1.0f};
     float shaderTime_{0.0f};
+    float tableLacquer_{0.0f};
+    float tableBump_{2.4f};
     WGPUBindGroup bindGroup1x_{nullptr};
     WGPUBindGroup bindGroup4x_{nullptr};
     WGPUBindGroup bindGroup_{nullptr};
@@ -3723,6 +3792,20 @@ void BatchRenderer2D::setGlobalLight(const LightSource2D& light,
 void BatchRenderer2D::setShaderTime(float timeSeconds) {
     if (backend_) {
         backend_->setShaderTime(timeSeconds);
+    }
+}
+
+void BatchRenderer2D::setTableSurfaceLighting(float lacquerStrength, float bumpStrength) noexcept {
+    tableLacquer_ = lacquerStrength;
+    tableBump_ = bumpStrength;
+    if (backend_) {
+        backend_->setTableSurfaceLighting(lacquerStrength, bumpStrength);
+    }
+}
+
+void BatchRenderer2D::invalidateBgTexture() noexcept {
+    if (backend_) {
+        backend_->invalidateBgTexture();
     }
 }
 

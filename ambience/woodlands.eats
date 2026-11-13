@@ -1,0 +1,56 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Woodlands (.eats)
+# Rustling canopy leaves, forest stillness, and sparse procedural bird chirps.
+# ==============================================================================
+
+ambience.define_environment({
+    id: "woodlands",
+    name: "Woodlands",
+    master_gain: 1.0,
+    layers: [
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 2200.0,
+            q: 0.65,
+            gain: 0.20,
+            lfo_rate: 0.11,
+            lfo_depth: 700.0,
+            amp_mod: 0.35
+        },
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 220.0,
+            q: 0.707,
+            gain: 0.18,
+            lfo_rate: 0.06,
+            lfo_depth: 40.0,
+            amp_mod: 0.12
+        },
+        {
+            type: "chirp_spawner",
+            rate: 0.55,
+            freq_min: 2200.0,
+            freq_max: 4400.0,
+            freq_sweep: 1.18,
+            decay: 0.14,
+            gain: 0.24,
+            stereo_spread: 0.85,
+            tonal: true
+        },
+        {
+            type: "chirp_spawner",
+            rate: 0.25,
+            freq_min: 1400.0,
+            freq_max: 2600.0,
+            freq_sweep: 0.88,
+            decay: 0.20,
+            gain: 0.18,
+            stereo_spread: 0.75,
+            tonal: true
+        }
+    ]
+})

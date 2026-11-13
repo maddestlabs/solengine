@@ -2,6 +2,7 @@
 #include "solengine/card_canvas.hpp"
 #include "solengine/solitaire_board.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
+#include "eatsbits/eatscript/stdlib.hpp"
 #include "eatsbits/ui/base64.hpp"
 #include "stb_image.h"
 #include <algorithm>
@@ -196,113 +197,6 @@ std::string resolveThemePath(const std::string& filename) {
         }
     }
     return "";
-}
-
-const PbrMaterialDef* getMaterialDefForTheme(TableThemeId theme) {
-    switch (theme) {
-        case TableThemeId::PastelTan:
-            return nullptr;
-        case TableThemeId::EmeraldLawn: {
-            static const PbrMaterialDef d{
-                "Fabric037", "emerald_lawn", 2.8f, 1.25f, 0.18f, 0.26f, 0.85f, 0.50f, 1.15f, 0.65f
-            };
-            return &d;
-        }
-        case TableThemeId::HopsackTweed: {
-            static const PbrMaterialDef d{
-                "Fabric063", "hopsack_tweed", 2.5f, 1.50f, 0.15f, 0.24f, 0.85f, 1.0f, 1.0f, 1.0f
-            };
-            return &d;
-        }
-        case TableThemeId::DenimChambray: {
-            static const PbrMaterialDef d{
-                "Fabric077", "denim_chambray", 3.0f, 1.25f, 0.18f, 0.22f, 0.85f, 0.65f, 0.80f, 1.15f
-            };
-            return &d;
-        }
-        case TableThemeId::StripedJersey: {
-            static const PbrMaterialDef d{
-                "Fabric079", "striped_jersey", 2.6f, 1.40f, 0.20f, 0.24f, 0.85f, 1.0f, 1.0f, 1.0f
-            };
-            return &d;
-        }
-        case TableThemeId::SunkenSanctum: {
-            static const PbrMaterialDef d{
-                "Onyx013", "sunken_sanctum", 1.7f, 1.15f, 0.85f, 0.16f, 0.84f, 0.75f, 0.88f, 1.05f
-            };
-            return &d;
-        }
-        case TableThemeId::PerilousShores: {
-            static const PbrMaterialDef d{
-                "Ground091", "perilous_shores", 2.0f, 1.50f, 0.20f, 0.22f, 0.88f, 1.0f, 0.98f, 0.92f
-            };
-            return &d;
-        }
-        case TableThemeId::PebbledCowhide: {
-            static const PbrMaterialDef d{
-                "LeatherPebbled", "pebbled_cowhide", 2.0f, 1.60f, 0.35f, 0.20f, 0.88f, 1.0f, 1.0f, 1.0f
-            };
-            return &d;
-        }
-        case TableThemeId::LeatherNubuck: {
-            static const PbrMaterialDef d{
-                "Leather006", "leather006", 2.0f, 1.40f, 0.25f, 0.22f, 0.85f, 1.0f, 1.0f, 1.0f
-            };
-            return &d;
-        }
-        case TableThemeId::PaintedWood: {
-            static const PbrMaterialDef d{
-                "PaintedWood008C", "paintedwood008c", 2.2f, 1.50f, 0.30f, 0.22f, 0.88f, 1.0f, 1.0f, 1.0f
-            };
-            return &d;
-        }
-        case TableThemeId::PixelDungeon: {
-            static const PbrMaterialDef d{
-                "PixelDungeon", "pixel_dungeon_brick", 1.5f, 1.80f, 0.20f, 0.25f, 0.85f, 1.0f, 1.0f, 1.0f
-            };
-            return &d;
-        }
-        case TableThemeId::PixelWater: {
-            static const PbrMaterialDef d{
-                "PixelWater", "pixel_emerald_water", 1.5f, 1.20f, 0.70f, 0.25f, 0.85f, 1.0f, 1.0f, 1.0f
-            };
-            return &d;
-        }
-        case TableThemeId::ShaderVelvetNoir: {
-            static const PbrMaterialDef d{ "ShaderVelvetNoir", "shader_velvet_noir", 1.0f, 1.0f, 0.5f, 0.2f, 0.8f, 1.0f, 1.0f, 1.0f };
-            return &d;
-        }
-        case TableThemeId::ShaderCarraraMarble: {
-            static const PbrMaterialDef d{ "ShaderCarraraMarble", "shader_carrara_marble", 1.0f, 1.0f, 0.5f, 0.2f, 0.8f, 1.0f, 1.0f, 1.0f };
-            return &d;
-        }
-        case TableThemeId::ShaderWateredSilk: {
-            static const PbrMaterialDef d{ "ShaderWateredSilk", "shader_watered_silk", 1.0f, 1.0f, 0.5f, 0.2f, 0.8f, 1.0f, 1.0f, 1.0f };
-            return &d;
-        }
-        case TableThemeId::ShaderPoolCaustics: {
-            static const PbrMaterialDef d{ "ShaderPoolCaustics", "shader_pool_caustics", 1.0f, 1.0f, 0.5f, 0.2f, 0.8f, 1.0f, 1.0f, 1.0f };
-            return &d;
-        }
-        case TableThemeId::ShaderArcaneParchment: {
-            static const PbrMaterialDef d{ "ShaderArcaneParchment", "shader_arcane_parchment", 1.0f, 1.0f, 0.5f, 0.2f, 0.8f, 1.0f, 1.0f, 1.0f };
-            return &d;
-        }
-        case TableThemeId::ShaderCosmicNebula: {
-            static const PbrMaterialDef d{ "ShaderCosmicNebula", "shader_cosmic_nebula", 1.0f, 1.0f, 0.5f, 0.2f, 0.8f, 1.0f, 1.0f, 1.0f };
-            return &d;
-        }
-        case TableThemeId::ShaderSynthwaveSunset: {
-            static const PbrMaterialDef d{ "ShaderSynthwaveSunset", "shader_synthwave_sunset", 1.0f, 1.0f, 0.5f, 0.2f, 0.8f, 1.0f, 1.0f, 1.0f };
-            return &d;
-        }
-        case TableThemeId::ShaderTopographic: {
-            static const PbrMaterialDef d{ "ShaderTopographic", "shader_topographic", 1.0f, 1.0f, 0.5f, 0.2f, 0.8f, 1.0f, 1.0f, 1.0f };
-            return &d;
-        }
-        default:
-            return nullptr;
-    }
 }
 
 bool loadMaterialFromBytes(const uint8_t* blobPtr, size_t blobSize, PbrTextureData& outTex, [[maybe_unused]] PbrMaterialDef& ioDef) {
@@ -571,6 +465,7 @@ bool bakePbrSurface(
     float x, float y, float w, float h,
     std::vector<uint8_t>& outRgba,
     int& outW, int& outH,
+    const ThemeOptionChoice* optChoice = nullptr,
     TableTintPreset tint = TableTintPreset::Auto
 ) {
     int bakeW = static_cast<int>(std::ceil(w));
@@ -594,9 +489,14 @@ bool bakePbrSurface(
 
     const auto* tintInfo = getTableTintInfo(tint);
     bool tintActive = (tint != TableTintPreset::Auto && tintInfo != nullptr);
-    const float tintR = tintActive ? tintInfo->r : def.tintR;
-    const float tintG = tintActive ? tintInfo->g : def.tintG;
-    const float tintB = tintActive ? tintInfo->b : def.tintB;
+    float tintR = tintActive ? tintInfo->r : def.tintR;
+    float tintG = tintActive ? tintInfo->g : def.tintG;
+    float tintB = tintActive ? tintInfo->b : def.tintB;
+    if (optChoice && (optChoice->u[0] > 0.0f || optChoice->u[1] > 0.0f || optChoice->u[2] > 0.0f)) {
+        tintR = optChoice->u[0];
+        tintG = optChoice->u[1];
+        tintB = optChoice->u[2];
+    }
 
     const bool hasNormal = (tex.normal.size() >= static_cast<size_t>(texW * texH * 3));
     const bool hasOrm = (tex.orm.size() >= static_cast<size_t>(texW * texH * 3));
@@ -612,13 +512,18 @@ bool bakePbrSurface(
     constexpr float hy = lDirY * 0.505f;
     constexpr float hz = (lDirZ + 1.0f) * 0.505f;
 
+    const float span = std::max(1.0f, std::max(w, h) * 0.5f);
+    const bool viewportNormalized = (uvScale <= 0.0f);
+
 #if defined(_OPENMP)
     #pragma omp parallel for schedule(static)
 #endif
     for (int py = 0; py < bakeH; ++py) {
         float worldY = y + static_cast<float>(py);
 
-        float vNorm = (worldY * uvScale) / static_cast<float>(texH);
+        float vNorm = viewportNormalized
+            ? (((static_cast<float>(py) + 0.5f) - h * 0.5f) / span + 0.5f)
+            : ((worldY * uvScale) / static_cast<float>(texH));
         float vWrap = vNorm - std::floor(vNorm);
         float fy = vWrap * static_cast<float>(texH) - 0.5f;
         int y0 = static_cast<int>(std::floor(fy));
@@ -632,7 +537,9 @@ bool bakePbrSurface(
         for (int px = 0; px < bakeW; ++px) {
             float worldX = x + static_cast<float>(px);
 
-            float uNorm = (worldX * uvScale) / static_cast<float>(texW);
+            float uNorm = viewportNormalized
+                ? (((static_cast<float>(px) + 0.5f) - w * 0.5f) / span + 0.5f)
+                : ((worldX * uvScale) / static_cast<float>(texW));
             float uWrap = uNorm - std::floor(uNorm);
             float fx = uWrap * static_cast<float>(texW) - 0.5f;
             int x0 = static_cast<int>(std::floor(fx));
@@ -749,6 +656,11 @@ inline bool readTextFile(const std::string& path, std::string& out) {
     return true;
 }
 
+static inline std::string toLowerStr(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
 inline bool hasCanvasBackground(const std::string& script) {
     return script.find("on_draw_background") != std::string::npos ||
            script.find("on_draw_table") != std::string::npos ||
@@ -761,7 +673,10 @@ bool bakeCanvasSurface(
     const eatsbits::ui::LightSource2D& light,
     std::vector<uint8_t>& outRgba,
     int& outW, int& outH,
-    TableTintPreset tint = TableTintPreset::Auto
+    const ThemeOptionChoice* optChoice = nullptr,
+    TableTintPreset tint = TableTintPreset::Auto,
+    float* outLacquer = nullptr,
+    float* outBump = nullptr
 ) {
     int bakeW = static_cast<int>(std::ceil(w));
     int bakeH = static_cast<int>(std::ceil(h));
@@ -771,6 +686,7 @@ bool bakeCanvasSurface(
     canvas.setCornerRadius(0.0f);
 
     eatsbits::eatscript::Evaluator evaluator;
+    eatsbits::eatscript::registerStandardLibrary(evaluator);
     CardCanvas::bindToEvaluator(evaluator, &canvas);
 
     // Context & layout variables
@@ -784,34 +700,124 @@ bool bakeCanvasSurface(
     evaluator.setVariable("table_y", eatsbits::eatscript::Value(static_cast<double>(y)));
     evaluator.setVariable("light_x", eatsbits::eatscript::Value(static_cast<double>(light.x)));
     evaluator.setVariable("light_y", eatsbits::eatscript::Value(static_cast<double>(light.y)));
+    evaluator.setVariable("light_z", eatsbits::eatscript::Value(static_cast<double>(light.z)));
+    evaluator.setVariable("light_intensity", eatsbits::eatscript::Value(static_cast<double>(light.intensity)));
 
-    const auto* tintInfo = getTableTintInfo(tint);
-    bool tintActive = (tint != TableTintPreset::Auto && tintInfo != nullptr);
-    float tR = tintActive ? tintInfo->r : 0.0f;
-    float tG = tintActive ? tintInfo->g : 0.0f;
-    float tB = tintActive ? tintInfo->b : 0.0f;
-    float tAct = tintActive ? 1.0f : 0.0f;
+    if (optChoice) {
+        float u0 = optChoice->u[0];
+        float u1 = optChoice->u[1];
+        float u2 = optChoice->u[2];
+        float u3 = optChoice->u[3];
 
-    evaluator.setVariable("tint_r", eatsbits::eatscript::Value(static_cast<double>(tR)));
-    evaluator.setVariable("tint_g", eatsbits::eatscript::Value(static_cast<double>(tG)));
-    evaluator.setVariable("tint_b", eatsbits::eatscript::Value(static_cast<double>(tB)));
-    evaluator.setVariable("tint_active", eatsbits::eatscript::Value(static_cast<double>(tAct)));
-    evaluator.setVariable("u0", eatsbits::eatscript::Value(static_cast<double>(tR)));
-    evaluator.setVariable("u1", eatsbits::eatscript::Value(static_cast<double>(tG)));
-    evaluator.setVariable("u2", eatsbits::eatscript::Value(static_cast<double>(tB)));
-    evaluator.setVariable("u3", eatsbits::eatscript::Value(static_cast<double>(tAct)));
+        evaluator.setVariable("u0", eatsbits::eatscript::Value(static_cast<double>(u0)));
+        evaluator.setVariable("u1", eatsbits::eatscript::Value(static_cast<double>(u1)));
+        evaluator.setVariable("u2", eatsbits::eatscript::Value(static_cast<double>(u2)));
+        evaluator.setVariable("u3", eatsbits::eatscript::Value(static_cast<double>(u3)));
 
-    // Theme metadata registration dummies
-    auto dummyFn = [](const auto&, const auto&) { return eatsbits::eatscript::Value(true); };
+        evaluator.setVariable("option_id", eatsbits::eatscript::Value(optChoice->id));
+        evaluator.setVariable("option_name", eatsbits::eatscript::Value(optChoice->name));
+        evaluator.setVariable("theme_option", eatsbits::eatscript::Value(optChoice->id));
+
+        evaluator.setVariable("tint_r", eatsbits::eatscript::Value(static_cast<double>(u0)));
+        evaluator.setVariable("tint_g", eatsbits::eatscript::Value(static_cast<double>(u1)));
+        evaluator.setVariable("tint_b", eatsbits::eatscript::Value(static_cast<double>(u2)));
+        evaluator.setVariable("tint_active", eatsbits::eatscript::Value(1.0));
+    } else {
+        const auto* tintInfo = getTableTintInfo(tint);
+        bool tintActive = (tint != TableTintPreset::Auto && tintInfo != nullptr);
+        float tR = tintActive ? tintInfo->r : 0.0f;
+        float tG = tintActive ? tintInfo->g : 0.0f;
+        float tB = tintActive ? tintInfo->b : 0.0f;
+        float tAct = tintActive ? 1.0f : 0.0f;
+
+        evaluator.setVariable("tint_r", eatsbits::eatscript::Value(static_cast<double>(tR)));
+        evaluator.setVariable("tint_g", eatsbits::eatscript::Value(static_cast<double>(tG)));
+        evaluator.setVariable("tint_b", eatsbits::eatscript::Value(static_cast<double>(tB)));
+        evaluator.setVariable("tint_active", eatsbits::eatscript::Value(static_cast<double>(tAct)));
+        evaluator.setVariable("u0", eatsbits::eatscript::Value(static_cast<double>(tR)));
+        evaluator.setVariable("u1", eatsbits::eatscript::Value(static_cast<double>(tG)));
+        evaluator.setVariable("u2", eatsbits::eatscript::Value(static_cast<double>(tB)));
+        evaluator.setVariable("u3", eatsbits::eatscript::Value(static_cast<double>(tAct)));
+        evaluator.setVariable("option_id", eatsbits::eatscript::Value(""));
+        evaluator.setVariable("option_name", eatsbits::eatscript::Value(""));
+        evaluator.setVariable("theme_option", eatsbits::eatscript::Value(""));
+    }
+
+    // Theme metadata & surface lacquer API hooks
+    float parsedLacquer = 0.0f;
+    float parsedBump = 2.4f;
+
+    using HostArgs = const std::vector<eatsbits::eatscript::Value>&;
+    using HostKwargs = const std::map<std::string, eatsbits::eatscript::Value>&;
+
+    auto setThemeFn = [&](HostArgs args, HostKwargs kwargs) -> eatsbits::eatscript::Value {
+        auto dictVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "theme", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
+        if (dictVal.isDict()) {
+            if (dictVal.hasKey("lacquer")) parsedLacquer = dictVal.get("lacquer").asFloat(0.0f);
+            else if (dictVal.hasKey("surface_sheen")) parsedLacquer = dictVal.get("surface_sheen").asFloat(0.0f);
+            if (dictVal.hasKey("relief_bump")) parsedBump = dictVal.get("relief_bump").asFloat(2.4f);
+            else if (dictVal.hasKey("lacquer_bump")) parsedBump = dictVal.get("lacquer_bump").asFloat(2.4f);
+        }
+        return eatsbits::eatscript::Value(true);
+    };
+
+    auto setLacquerFn = [&](HostArgs args, HostKwargs kwargs) -> eatsbits::eatscript::Value {
+        parsedLacquer = eatsbits::eatscript::resolveArg(args, kwargs, 0, "lacquer", eatsbits::eatscript::Value(0.65)).asFloat(0.65f);
+        if (args.size() > 1 || kwargs.find("relief_bump") != kwargs.end() || kwargs.find("bump") != kwargs.end()) {
+            parsedBump = eatsbits::eatscript::resolveArg(args, kwargs, 1, "bump", eatsbits::eatscript::Value(2.4)).asFloat(2.4f);
+        }
+        return eatsbits::eatscript::Value(true);
+    };
+
+    auto dummyFn = [](HostArgs, HostKwargs) -> eatsbits::eatscript::Value { return eatsbits::eatscript::Value(true); };
     evaluator.setVariable("sol", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
-    evaluator.registerMemberFunction("sol", "set_theme", dummyFn);
-    evaluator.registerMemberFunction("sol", "create_theme", dummyFn);
+    evaluator.registerMemberFunction("sol", "set_theme", setThemeFn);
+    evaluator.registerMemberFunction("sol", "create_theme", setThemeFn);
     evaluator.registerMemberFunction("sol", "set_background", dummyFn);
-    evaluator.registerFunction("set_theme", dummyFn);
-    evaluator.registerFunction("create_theme", dummyFn);
+    evaluator.registerMemberFunction("sol", "set_surface_lacquer", setLacquerFn);
+    evaluator.registerMemberFunction("sol", "set_lacquer", setLacquerFn);
+
+    evaluator.registerMemberFunction("ctx", "set_surface_lacquer", setLacquerFn);
+    evaluator.registerMemberFunction("ctx", "set_lacquer", setLacquerFn);
+
+    // Intercept apply_shader / draw_shader for "lacquer", "clearcoat", or "varnish" built-in shader filter
+    auto origApplyShader = evaluator.getMemberFunction("ctx", "apply_shader");
+    auto applyShaderHandler = [origApplyShader, &parsedLacquer, &parsedBump](HostArgs args, HostKwargs kwargs) -> eatsbits::eatscript::Value {
+        auto nameVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "shader", eatsbits::eatscript::resolveArg(args, kwargs, 0, "func", eatsbits::eatscript::Value("")));
+        if (nameVal.isString()) {
+            std::string sName = toLowerStr(nameVal.asString());
+            if (sName == "lacquer" || sName == "clearcoat" || sName == "varnish") {
+                float inten = eatsbits::eatscript::resolveArg(args, kwargs, 1, "intensity", eatsbits::eatscript::Value(0.65)).asFloat(0.65f);
+                parsedLacquer = inten;
+                if (args.size() > 2 || kwargs.find("relief_bump") != kwargs.end() || kwargs.find("bump") != kwargs.end()) {
+                    parsedBump = eatsbits::eatscript::resolveArg(args, kwargs, 2, "bump", eatsbits::eatscript::Value(2.4)).asFloat(2.4f);
+                }
+                return eatsbits::eatscript::Value(true);
+            }
+        }
+        if (origApplyShader) {
+            return origApplyShader(args, kwargs);
+        }
+        return eatsbits::eatscript::Value(false);
+    };
+
+    evaluator.registerMemberFunction("ctx", "apply_shader", applyShaderHandler);
+    evaluator.registerMemberFunction("ctx", "draw_shader", applyShaderHandler);
+
+    evaluator.registerFunction("set_theme", setThemeFn);
+    evaluator.registerFunction("create_theme", setThemeFn);
     evaluator.registerFunction("set_background", dummyFn);
+    evaluator.registerFunction("set_surface_lacquer", setLacquerFn);
+    evaluator.registerFunction("set_lacquer", setLacquerFn);
 
     evaluator.evaluateSource(scriptSource);
+
+    if (evaluator.hasVariable("lacquer")) {
+        parsedLacquer = static_cast<float>(evaluator.getVariable("lacquer").asFloat(parsedLacquer));
+    }
+    if (evaluator.hasVariable("relief_bump")) {
+        parsedBump = static_cast<float>(evaluator.getVariable("relief_bump").asFloat(parsedBump));
+    }
 
     if (evaluator.hasFunction("on_draw_background")) {
         evaluator.callFunction("on_draw_background", {
@@ -834,43 +840,20 @@ bool bakeCanvasSurface(
     } else if (evaluator.hasFunction("background_shader")) {
         auto fnVal = evaluator.getVariable("background_shader");
         if (fnVal.isFunction() && fnVal.funcDef) {
-            canvas.applyShader(fnVal.funcDef.get(), "", 1, Suit::Spades, 1.0f);
+            float sU0 = static_cast<float>(evaluator.getVariable("u0").asFloat());
+            float sU1 = static_cast<float>(evaluator.getVariable("u1").asFloat());
+            float sU2 = static_cast<float>(evaluator.getVariable("u2").asFloat());
+            float sU3 = static_cast<float>(evaluator.getVariable("u3").asFloat());
+            canvas.applyShader(fnVal.funcDef.get(), "", 1, Suit::Spades, 1.0f, sU0, sU1, sU2, sU3);
         }
     }
 
     outW = bakeW;
     outH = bakeH;
     outRgba = std::move(canvas.rgba());
+    if (outLacquer) *outLacquer = parsedLacquer;
+    if (outBump) *outBump = parsedBump;
     return true;
-}
-
-static inline std::string toLowerStr(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-static TableThemeId mapSlugToLegacyTheme(const std::string& id, const std::string& stem) {
-    std::string s = toLowerStr(id + " " + stem);
-    if (s.find("carpet012") != std::string::npos || s.find("emerald") != std::string::npos) return TableThemeId::EmeraldLawn;
-    if (s.find("fabric063") != std::string::npos || s.find("hopsack") != std::string::npos) return TableThemeId::HopsackTweed;
-    if (s.find("fabric061") != std::string::npos || s.find("denim") != std::string::npos || s.find("chambray") != std::string::npos) return TableThemeId::DenimChambray;
-    if (s.find("fabric079") != std::string::npos || s.find("jersey") != std::string::npos) return TableThemeId::StripedJersey;
-    if (s.find("onyx013") != std::string::npos || s.find("sanctum") != std::string::npos) return TableThemeId::SunkenSanctum;
-    if (s.find("moss002") != std::string::npos || s.find("perilous") != std::string::npos || s.find("shores") != std::string::npos) return TableThemeId::PerilousShores;
-    if (s.find("pebbled") != std::string::npos || s.find("cowhide") != std::string::npos) return TableThemeId::PebbledCowhide;
-    if (s.find("leather006") != std::string::npos || s.find("distressed") != std::string::npos) return TableThemeId::LeatherNubuck;
-    if (s.find("paintedwood008c") != std::string::npos) return TableThemeId::PaintedWood;
-    if (s.find("pixel_dungeon") != std::string::npos) return TableThemeId::PixelDungeon;
-    if (s.find("pixel_emerald_water") != std::string::npos || s.find("pixel_water") != std::string::npos) return TableThemeId::PixelWater;
-    if (s.find("velvet_noir") != std::string::npos) return TableThemeId::ShaderVelvetNoir;
-    if (s.find("carrara_marble") != std::string::npos) return TableThemeId::ShaderCarraraMarble;
-    if (s.find("watered_silk") != std::string::npos) return TableThemeId::ShaderWateredSilk;
-    if (s.find("pool_caustics") != std::string::npos) return TableThemeId::ShaderPoolCaustics;
-    if (s.find("arcane_parchment") != std::string::npos) return TableThemeId::ShaderArcaneParchment;
-    if (s.find("cosmic_nebula") != std::string::npos) return TableThemeId::ShaderCosmicNebula;
-    if (s.find("synthwave_sunset") != std::string::npos) return TableThemeId::ShaderSynthwaveSunset;
-    if (s.find("topographic") != std::string::npos) return TableThemeId::ShaderTopographic;
-    return TableThemeId::Count;
 }
 
 } // namespace
@@ -878,9 +861,7 @@ static TableThemeId mapSlugToLegacyTheme(const std::string& id, const std::strin
 struct ProceduralBackgroundSystem::Impl {
     mutable std::recursive_mutex cacheMutex;
     bool pbrEnabled{true};
-    std::unordered_map<TableThemeId, PbrTextureData> materials;
-    std::unordered_map<TableThemeId, PbrMaterialDef> materialDefs;
-    std::unordered_map<TableThemeId, std::string> themeCanvasSources;
+    std::unordered_map<std::string, std::string> themeSources;
 
     bool customThemeLoaded{false};
     bool isCanvasTheme{false};
@@ -892,21 +873,129 @@ struct ProceduralBackgroundSystem::Impl {
     bool themesScanned{false};
 
     TableThemeId cachedTheme{static_cast<TableThemeId>(-1)};
+    std::string cachedSlug;
     TableTintPreset currentTint{TableTintPreset::Auto};
     TableTintPreset cachedTint{TableTintPreset::Count};
+    std::string currentOption;
+    std::string cachedOption{"__none__"};
+    TableThemeDef activeCustomThemeDef;
     bool cachedCustom{false};
     int cachedW{0};
     int cachedH{0};
     std::vector<uint8_t> cachedBakedRgba;
+    float activeLacquer{0.0f};
+    float activeReliefBump{2.4f};
 
     void invalidate() noexcept {
         std::lock_guard<std::recursive_mutex> lock(cacheMutex);
         cachedTheme = static_cast<TableThemeId>(-1);
+        cachedSlug.clear();
         cachedTint = TableTintPreset::Count;
+        cachedOption = "__none__";
         cachedCustom = false;
         cachedW = 0;
         cachedH = 0;
         cachedBakedRgba.clear();
+        activeLacquer = 0.0f;
+        activeReliefBump = 2.4f;
+    }
+
+    static bool parseThemeMetadata(
+        const std::string& content,
+        std::string& outId,
+        std::string& outName,
+        float& outLacquer,
+        float& outBump,
+        std::string& outOptionLabel,
+        std::vector<ThemeOptionChoice>& outOptions
+    ) {
+        size_t callPos = content.find("set_theme");
+        if (callPos == std::string::npos) return false;
+
+        size_t openParen = content.find('(', callPos);
+        if (openParen == std::string::npos) return false;
+
+        int depth = 1;
+        bool inQuote = false;
+        char quoteChar = 0;
+        size_t closeParen = std::string::npos;
+        for (size_t i = openParen + 1; i < content.size(); ++i) {
+            char ch = content[i];
+            if (inQuote) {
+                if (ch == '\\' && i + 1 < content.size()) {
+                    ++i;
+                } else if (ch == quoteChar) {
+                    inQuote = false;
+                }
+            } else {
+                if (ch == '"' || ch == '\'') {
+                    inQuote = true;
+                    quoteChar = ch;
+                } else if (ch == '(' || ch == '{' || ch == '[') {
+                    depth++;
+                } else if (ch == ')' || ch == '}' || ch == ']') {
+                    depth--;
+                    if (depth == 0) {
+                        closeParen = i;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (closeParen == std::string::npos) return false;
+
+        std::string callCode = "sol = {}\nsol." + content.substr(callPos, closeParen - callPos + 1);
+
+        eatsbits::eatscript::Evaluator eval;
+        eval.setVariable("sol", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
+
+        bool parsed = false;
+        auto handler = [&](const std::vector<eatsbits::eatscript::Value>& args,
+                           const std::map<std::string, eatsbits::eatscript::Value>& kwargs) -> eatsbits::eatscript::Value {
+            auto dictVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "theme", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
+            if (dictVal.isDict()) {
+                if (dictVal.hasKey("id")) outId = dictVal.get("id").asString();
+                if (dictVal.hasKey("name")) outName = dictVal.get("name").asString();
+                if (dictVal.hasKey("lacquer")) outLacquer = dictVal.get("lacquer").asFloat(outLacquer);
+                else if (dictVal.hasKey("surface_sheen")) outLacquer = dictVal.get("surface_sheen").asFloat(outLacquer);
+                if (dictVal.hasKey("relief_bump")) outBump = dictVal.get("relief_bump").asFloat(outBump);
+                else if (dictVal.hasKey("lacquer_bump")) outBump = dictVal.get("lacquer_bump").asFloat(outBump);
+                if (dictVal.hasKey("option_label")) outOptionLabel = dictVal.get("option_label").asString();
+                if (dictVal.hasKey("options")) {
+                    auto opts = dictVal.get("options");
+                    if (opts.isList()) {
+                        for (const auto& item : opts.listVal) {
+                            if (item.isDict()) {
+                                ThemeOptionChoice choice;
+                                choice.id = item.get("id").asString();
+                                choice.name = item.get("name").asString();
+                                if (item.hasKey("u") && item.get("u").isList()) {
+                                    const auto& uList = item.get("u").listVal;
+                                    for (size_t ui = 0; ui < 4 && ui < uList.size(); ++ui) {
+                                        choice.u[ui] = uList[ui].asFloat(0.0f);
+                                    }
+                                }
+                                if (!choice.id.empty()) {
+                                    if (choice.name.empty()) choice.name = choice.id;
+                                    outOptions.push_back(std::move(choice));
+                                }
+                            }
+                        }
+                    }
+                }
+                parsed = true;
+            }
+            return eatsbits::eatscript::Value(true);
+        };
+
+        eval.registerMemberFunction("sol", "set_theme", handler);
+        eval.registerMemberFunction("sol", "create_theme", handler);
+        eval.registerFunction("set_theme", handler);
+        eval.registerFunction("create_theme", handler);
+
+        eval.evaluateSource(callCode);
+        return parsed;
     }
 
     void scanThemes(const std::string& themesDir = "themes") {
@@ -972,32 +1061,79 @@ struct ProceduralBackgroundSystem::Impl {
 
             std::ifstream f(filePath);
             if (!f.is_open()) continue;
-            std::string line;
+            std::string fileContent;
+            {
+                std::stringstream ss;
+                ss << f.rdbuf();
+                fileContent = ss.str();
+            }
+
             std::string parsedId;
             std::string parsedName;
-            int linesRead = 0;
-            while (std::getline(f, line) && linesRead++ < 50) {
-                size_t cPos = line.find('#');
-                if (cPos != std::string::npos && line.find('"') == std::string::npos && line.find('\'') == std::string::npos) {
-                    line = line.substr(0, cPos);
-                }
-                auto extractQuoted = [](const std::string& l, const std::string& key) -> std::string {
-                    size_t k = l.find(key);
-                    if (k == std::string::npos) return "";
-                    size_t q1 = l.find_first_of("\"'", k + key.size());
-                    if (q1 == std::string::npos) return "";
-                    char qChar = l[q1];
-                    size_t q2 = l.find(qChar, q1 + 1);
-                    if (q2 == std::string::npos) return "";
-                    return l.substr(q1 + 1, q2 - q1 - 1);
-                };
-                if (parsedId.empty()) {
-                    parsedId = extractQuoted(line, "id");
-                }
-                if (parsedName.empty()) {
-                    parsedName = extractQuoted(line, "name");
+            float parsedLacquer = -1.0f;
+            float parsedBump = -1.0f;
+            std::string parsedOptionLabel;
+            std::vector<ThemeOptionChoice> parsedOptions;
+
+            if (!parseThemeMetadata(fileContent, parsedId, parsedName, parsedLacquer, parsedBump, parsedOptionLabel, parsedOptions)) {
+                std::istringstream iss(fileContent);
+                std::string line;
+                int linesRead = 0;
+                while (std::getline(iss, line) && linesRead++ < 50) {
+                    size_t cPos = line.find('#');
+                    if (cPos != std::string::npos && line.find('"') == std::string::npos && line.find('\'') == std::string::npos) {
+                        line = line.substr(0, cPos);
+                    }
+                    auto extractQuoted = [](const std::string& l, const std::string& key) -> std::string {
+                        size_t k = l.find(key);
+                        if (k == std::string::npos) return "";
+                        size_t q1 = l.find_first_of("\"'", k + key.size());
+                        if (q1 == std::string::npos) return "";
+                        char qChar = l[q1];
+                        size_t q2 = l.find(qChar, q1 + 1);
+                        if (q2 == std::string::npos) return "";
+                        return l.substr(q1 + 1, q2 - q1 - 1);
+                    };
+                    auto extractNum = [](const std::string& l, const std::string& key) -> float {
+                        size_t k = l.find(key);
+                        if (k == std::string::npos) return -1.0f;
+                        size_t colon = l.find(':', k + key.size());
+                        if (colon == std::string::npos) return -1.0f;
+                        size_t start = l.find_first_not_of(" \t", colon + 1);
+                        if (start == std::string::npos) return -1.0f;
+                        try {
+                            return std::stof(l.substr(start));
+                        } catch (...) {
+                            return -1.0f;
+                        }
+                    };
+                    if (parsedId.empty()) {
+                        parsedId = extractQuoted(line, "id");
+                    }
+                    if (parsedName.empty()) {
+                        parsedName = extractQuoted(line, "name");
+                    }
+                    if (parsedLacquer < 0.0f) {
+                        float fVal = extractNum(line, "lacquer");
+                        if (fVal >= 0.0f) parsedLacquer = fVal;
+                        else {
+                            fVal = extractNum(line, "surface_sheen");
+                            if (fVal >= 0.0f) parsedLacquer = fVal;
+                        }
+                    }
+                    if (parsedBump < 0.0f) {
+                        float bVal = extractNum(line, "relief_bump");
+                        if (bVal >= 0.0f) parsedBump = bVal;
+                        else {
+                            bVal = extractNum(line, "lacquer_bump");
+                            if (bVal >= 0.0f) parsedBump = bVal;
+                        }
+                    }
                 }
             }
+
+            float themeLacquer = (parsedLacquer >= 0.0f) ? parsedLacquer : 0.0f;
+            float themeBump = (parsedBump >= 0.0f) ? parsedBump : 2.4f;
 
             if (parsedId.empty()) parsedId = stem;
             if (parsedName.empty()) {
@@ -1009,7 +1145,7 @@ struct ProceduralBackgroundSystem::Impl {
 
             for (char& c : parsedName) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 
-            TableThemeId legacy = mapSlugToLegacyTheme(parsedId, stem);
+            TableThemeId legacy = (parsedId == "pastel_tan") ? TableThemeId::PastelTan : TableThemeId::Count;
 
             std::string lowerId = toLowerStr(parsedId);
             std::string lowerName = toLowerStr(parsedName);
@@ -1017,20 +1153,26 @@ struct ProceduralBackgroundSystem::Impl {
             auto itName = nameToIndex.find(lowerName);
             if (itName != nameToIndex.end()) {
                 size_t existingIdx = itName->second;
-                if (stem.find("carpet") == std::string::npos && stem.find("fabric") == std::string::npos && stem.find("moss") == std::string::npos) {
-                    scannedThemes[existingIdx].filePath = filePath;
-                    scannedThemes[existingIdx].id = parsedId;
-                }
+                scannedThemes[existingIdx].filePath = filePath;
+                scannedThemes[existingIdx].id = parsedId;
+                scannedThemes[existingIdx].lacquer = themeLacquer;
+                scannedThemes[existingIdx].reliefBump = themeBump;
+                scannedThemes[existingIdx].optionLabel = parsedOptionLabel;
+                scannedThemes[existingIdx].options = std::move(parsedOptions);
+                themeSources[parsedId] = std::move(fileContent);
                 continue;
             }
 
             auto itId = idToIndex.find(lowerId);
             if (itId != idToIndex.end()) {
                 size_t existingIdx = itId->second;
-                if (stem.find("carpet") == std::string::npos && stem.find("fabric") == std::string::npos && stem.find("moss") == std::string::npos) {
-                    scannedThemes[existingIdx].filePath = filePath;
-                    scannedThemes[existingIdx].name = parsedName;
-                }
+                scannedThemes[existingIdx].filePath = filePath;
+                scannedThemes[existingIdx].name = parsedName;
+                scannedThemes[existingIdx].lacquer = themeLacquer;
+                scannedThemes[existingIdx].reliefBump = themeBump;
+                scannedThemes[existingIdx].optionLabel = parsedOptionLabel;
+                scannedThemes[existingIdx].options = std::move(parsedOptions);
+                themeSources[parsedId] = std::move(fileContent);
                 continue;
             }
 
@@ -1040,8 +1182,13 @@ struct ProceduralBackgroundSystem::Impl {
                 parsedName,
                 filePath,
                 legacy,
-                true
+                true,
+                themeLacquer,
+                themeBump,
+                parsedOptionLabel,
+                std::move(parsedOptions)
             });
+            themeSources[parsedId] = std::move(fileContent);
             idToIndex[lowerId] = newIdx;
             nameToIndex[lowerName] = newIdx;
         }
@@ -1054,83 +1201,6 @@ struct ProceduralBackgroundSystem::Impl {
         }
 
         themesScanned = true;
-    }
-
-    bool ensureMaterial(TableThemeId theme, const PbrMaterialDef& defaultDef) {
-        {
-            std::lock_guard<std::recursive_mutex> lock(cacheMutex);
-            auto it = materials.find(theme);
-            if (it != materials.end()) {
-                if (it->second.loaded) return true;
-                if (it->second.loadAttempted) return false;
-            }
-            materials[theme].loadAttempted = true;
-        }
-
-        PbrTextureData localTex;
-        PbrMaterialDef activeDef = defaultDef;
-        bool loaded = false;
-
-        // 1. Priority 1: Check single-file .eats theme package FIRST
-        std::string themeFile = std::string(defaultDef.themeSlug) + ".eats";
-        std::string themePath = resolveThemePath(themeFile);
-        if (themePath.empty()) {
-            themePath = resolveThemePath(std::string(defaultDef.materialName) + ".eats");
-        }
-        if (!themePath.empty()) {
-            std::string scriptContent;
-            if (readTextFile(themePath, scriptContent) && hasCanvasBackground(scriptContent)) {
-                std::lock_guard<std::recursive_mutex> lock(cacheMutex);
-                themeCanvasSources[theme] = std::move(scriptContent);
-                materials[theme].loaded = true;
-                return true;
-            }
-            if (loadMaterialFromEats(themePath, localTex, activeDef)) {
-                loaded = true;
-            }
-        }
-
-        // 2. Priority 2: Check procedural .eat script (Zero heavy PNGs, CPU SIMD synthesis)
-        if (!loaded) {
-            std::string procPath = resolveProceduralScriptPath(defaultDef.themeSlug);
-            if (procPath.empty()) {
-                procPath = resolveProceduralScriptPath(defaultDef.materialName);
-            }
-            if (!procPath.empty()) {
-                std::string scriptContent;
-                if (readTextFile(procPath, scriptContent) && hasCanvasBackground(scriptContent)) {
-                    std::lock_guard<std::recursive_mutex> lock(cacheMutex);
-                    themeCanvasSources[theme] = std::move(scriptContent);
-                    materials[theme].loaded = true;
-                    return true;
-                }
-                ProceduralPbrMaps maps;
-                ProceduralBakeOptions opts;
-                opts.width = 512;
-                opts.height = 512;
-                opts.overrideDimensions = true;
-                if (bakeProceduralPbrBundle(procPath, maps, opts)) {
-                    localTex.width = maps.width;
-                    localTex.height = maps.height;
-                    localTex.color = std::move(maps.colorRgb);
-                    localTex.normal = std::move(maps.normalRgb);
-                    localTex.orm = std::move(maps.orm);
-                    localTex.loaded = true;
-                    loaded = true;
-                    std::cout << "[SolEngine] Synthesized procedural PBR theme: " << defaultDef.themeSlug
-                              << " from " << procPath << " (" << localTex.width << "x" << localTex.height << ")\n";
-                }
-            }
-        }
-
-        std::lock_guard<std::recursive_mutex> lock(cacheMutex);
-        if (loaded && localTex.loaded) {
-            materials[theme] = std::move(localTex);
-            materialDefs[theme] = activeDef;
-            return true;
-        }
-        materials[theme].loaded = false;
-        return false;
     }
 };
 
@@ -1234,22 +1304,26 @@ bool ProceduralBackgroundSystem::prebakeThemeDef(
         return false;
     }
 
-    int bakeW = static_cast<int>(std::ceil(w));
-    int bakeH = static_cast<int>(std::ceil(h));
+    const ThemeOptionChoice* optChoice = getActiveOption(def);
     {
         std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
         if (impl_->isCanvasTheme && !impl_->canvasThemeSource.empty()) {
+            impl_->activeLacquer = def.lacquer;
+            impl_->activeReliefBump = def.reliefBump;
             bakeCanvasSurface(impl_->canvasThemeSource, 0.0f, 0.0f, w, h, light,
-                              impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint);
+                              impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, optChoice, impl_->currentTint,
+                              &impl_->activeLacquer, &impl_->activeReliefBump);
             impl_->cachedCustom = true;
             impl_->cachedTheme = def.legacyId;
             impl_->cachedTint = impl_->currentTint;
+            impl_->cachedOption = impl_->currentOption;
         } else if (impl_->customTexture.loaded) {
             bakePbrSurface(impl_->customTexture, impl_->customDef, 0.0f, 0.0f, w, h,
-                           impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint);
+                           impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, optChoice, impl_->currentTint);
             impl_->cachedCustom = true;
             impl_->cachedTheme = def.legacyId;
             impl_->cachedTint = impl_->currentTint;
+            impl_->cachedOption = impl_->currentOption;
         }
     }
 
@@ -1268,76 +1342,14 @@ void ProceduralBackgroundSystem::invalidateCache() noexcept {
 bool ProceduralBackgroundSystem::prebakeTheme(
     TableThemeId theme,
     float w, float h,
-    [[maybe_unused]] const eatsbits::ui::LightSource2D& light,
+    const eatsbits::ui::LightSource2D& light,
     const std::function<bool(float progress, const std::string& status)>& onProgress
 ) {
     if (!impl_) return false;
-
-    if (onProgress && !onProgress(0.10f, "Analyzing theme material definition...")) {
-        return false;
-    }
-
-    const PbrMaterialDef* def = getMaterialDefForTheme(theme);
-    if (!def) {
-        if (onProgress) onProgress(1.0f, "Vector table surface ready.");
-        return true;
-    }
-
-    if (onProgress && !onProgress(0.30f, "Synthesizing procedural PBR normal & color maps...")) {
-        return false;
-    }
-
-    if (!impl_->ensureMaterial(theme, *def)) {
-        if (onProgress) onProgress(1.0f, "Procedural surface fallback ready.");
-        return true;
-    }
-
-    if (onProgress && !onProgress(0.60f, "Baking initial tactile surface relief...")) {
-        return false;
-    }
-
-    PbrTextureData texCopy;
-    PbrMaterialDef activeDef;
-    std::string canvasSrc;
-    {
-        std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
-        texCopy = impl_->materials[theme];
-        activeDef = impl_->materialDefs[theme];
-        auto it = impl_->themeCanvasSources.find(theme);
-        if (it != impl_->themeCanvasSources.end()) {
-            canvasSrc = it->second;
-        }
-    }
-
-    std::vector<uint8_t> localBaked;
-    int localW = 0;
-    int localH = 0;
-    if (!canvasSrc.empty()) {
-        if (bakeCanvasSurface(canvasSrc, 0.0f, 0.0f, w, h, light, localBaked, localW, localH, impl_->currentTint)) {
-            std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
-            impl_->cachedBakedRgba = std::move(localBaked);
-            impl_->cachedW = localW;
-            impl_->cachedH = localH;
-            impl_->cachedCustom = false;
-            impl_->cachedTheme = theme;
-            impl_->cachedTint = impl_->currentTint;
-        }
-    } else {
-        if (bakePbrSurface(texCopy, activeDef, 0.0f, 0.0f, w, h, localBaked, localW, localH, impl_->currentTint)) {
-            std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
-            impl_->cachedBakedRgba = std::move(localBaked);
-            impl_->cachedW = localW;
-            impl_->cachedH = localH;
-            impl_->cachedCustom = false;
-            impl_->cachedTheme = theme;
-            impl_->cachedTint = impl_->currentTint;
-        }
-    }
-
-    if (onProgress && !onProgress(1.0f, "Table surface synthesis complete.")) {
-        return false;
-    }
-    return true;
+    size_t idx = findThemeIndex("", theme);
+    const auto* def = getThemeDef(idx);
+    if (def) return prebakeThemeDef(*def, w, h, light, onProgress);
+    return false;
 }
 
 void ProceduralBackgroundSystem::setPbrTexturesEnabled(bool enable) noexcept {
@@ -1358,6 +1370,34 @@ bool ProceduralBackgroundSystem::isPbrTexturesEnabled() const noexcept {
     return impl_->pbrEnabled;
 }
 
+void ProceduralBackgroundSystem::setThemeOption(const std::string& optionId) noexcept {
+    if (impl_) {
+        std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+        if (impl_->currentOption != optionId) {
+            impl_->currentOption = optionId;
+            impl_->invalidate();
+        }
+    }
+}
+
+const std::string& ProceduralBackgroundSystem::themeOption() const noexcept {
+    static const std::string s_empty;
+    if (!impl_) return s_empty;
+    std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+    return impl_->currentOption;
+}
+
+const ThemeOptionChoice* ProceduralBackgroundSystem::getActiveOption(const TableThemeDef& def) const noexcept {
+    if (def.options.empty()) return nullptr;
+    std::string curOpt = themeOption();
+    if (!curOpt.empty()) {
+        for (const auto& opt : def.options) {
+            if (opt.id == curOpt) return &opt;
+        }
+    }
+    return &def.options[0];
+}
+
 void ProceduralBackgroundSystem::setTableTint(TableTintPreset tint) noexcept {
     if (impl_) {
         std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
@@ -1375,22 +1415,11 @@ TableTintPreset ProceduralBackgroundSystem::tableTint() const noexcept {
 }
 
 bool ProceduralBackgroundSystem::hasProceduralMaterial(TableThemeId theme) const noexcept {
-    const PbrMaterialDef* def = getMaterialDefForTheme(theme);
-    if (!def) return false;
-    if (!resolveProceduralScriptPath(def->themeSlug).empty()) return true;
-    if (!resolveProceduralScriptPath(def->materialName).empty()) return true;
-    return false;
+    return theme != TableThemeId::PastelTan;
 }
 
 bool ProceduralBackgroundSystem::hasPbrMaterial(TableThemeId theme) const noexcept {
-    if (theme == TableThemeId::PastelTan) return false;
-    if (impl_ && impl_->customThemeLoaded) return true;
-    if (hasProceduralMaterial(theme)) return true;
-    const PbrMaterialDef* def = getMaterialDefForTheme(theme);
-    if (!def) return false;
-    std::string themeFile = std::string(def->themeSlug) + ".eats";
-    if (!resolveThemePath(themeFile).empty()) return true;
-    return !resolveThemePath(std::string(def->materialName) + ".eats").empty();
+    return theme != TableThemeId::PastelTan;
 }
 
 bool ProceduralBackgroundSystem::loadCustomThemeFromMemory(
@@ -1452,13 +1481,53 @@ bool ProceduralBackgroundSystem::loadProceduralTheme(
         impl_->isCanvasTheme = true;
         impl_->canvasThemeSource = std::move(content);
         impl_->customTexture = PbrTextureData{};
+        if (impl_->activeCustomThemeDef.options.empty()) {
+            std::string pId, pName, pOptLbl;
+            float pLac = 0.0f, pBmp = 2.4f;
+            std::vector<ThemeOptionChoice> pOpts;
+            if (Impl::parseThemeMetadata(impl_->canvasThemeSource, pId, pName, pLac, pBmp, pOptLbl, pOpts)) {
+                impl_->activeCustomThemeDef.id = pId;
+                impl_->activeCustomThemeDef.name = pName;
+                impl_->activeCustomThemeDef.optionLabel = pOptLbl;
+                impl_->activeCustomThemeDef.options = std::move(pOpts);
+                impl_->activeCustomThemeDef.lacquer = pLac;
+                impl_->activeCustomThemeDef.reliefBump = pBmp;
+            }
+        }
         impl_->invalidate();
         std::cout << "[SolEngine] Successfully loaded canvas background theme script\n";
         return true;
     }
 
+    if (impl_->activeCustomThemeDef.options.empty()) {
+        std::string pId, pName, pOptLbl;
+        float pLac = 0.0f, pBmp = 2.4f;
+        std::vector<ThemeOptionChoice> pOpts;
+        if (Impl::parseThemeMetadata(content, pId, pName, pLac, pBmp, pOptLbl, pOpts)) {
+            std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+            impl_->activeCustomThemeDef.id = pId;
+            impl_->activeCustomThemeDef.name = pName;
+            impl_->activeCustomThemeDef.optionLabel = pOptLbl;
+            impl_->activeCustomThemeDef.options = std::move(pOpts);
+            impl_->activeCustomThemeDef.lacquer = pLac;
+            impl_->activeCustomThemeDef.reliefBump = pBmp;
+        }
+    }
+
+    const ThemeOptionChoice* initOpt = getActiveOption(impl_->activeCustomThemeDef);
+    ProceduralBakeOptions pbrOpts = options;
+    pbrOpts.width = 512;
+    pbrOpts.height = 512;
+    if (initOpt) {
+        pbrOpts.optionId = initOpt->id;
+        pbrOpts.u[0] = initOpt->u[0];
+        pbrOpts.u[1] = initOpt->u[1];
+        pbrOpts.u[2] = initOpt->u[2];
+        pbrOpts.u[3] = initOpt->u[3];
+    }
+
     ProceduralPbrMaps maps;
-    if (!bakeProceduralPbrBundle(scriptPathOrSource, maps, options)) {
+    if (!bakeProceduralPbrBundle(content, maps, pbrOpts)) {
         std::cerr << "[SolEngine] Failed to synthesize procedural theme: " << maps.errorMessage << "\n";
         return false;
     }
@@ -1471,9 +1540,10 @@ bool ProceduralBackgroundSystem::loadProceduralTheme(
     customTex.orm = std::move(maps.orm);
     customTex.loaded = true;
 
+    const float normStr = (impl_->activeCustomThemeDef.reliefBump <= 0.05f) ? 0.0f : 1.35f;
     PbrMaterialDef customDef{
         "ProceduralTheme", "procedural",
-        2.0f, 1.35f, 0.65f, 0.22f, 0.88f,
+        0.0f, normStr, 0.25f, 0.22f, 0.85f,
         1.0f, 1.0f, 1.0f
     };
 
@@ -1481,14 +1551,12 @@ bool ProceduralBackgroundSystem::loadProceduralTheme(
         std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
         impl_->customThemeLoaded = true;
         impl_->isCanvasTheme = false;
-        impl_->canvasThemeSource.clear();
+        impl_->canvasThemeSource = std::move(content);
         impl_->customTexture = std::move(customTex);
         impl_->customDef = customDef;
-        impl_->cachedTheme = static_cast<TableThemeId>(-1);
-        impl_->cachedCustom = false;
-        impl_->cachedW = 0;
-        impl_->cachedH = 0;
-        impl_->cachedBakedRgba.clear();
+        impl_->activeLacquer = impl_->activeCustomThemeDef.lacquer;
+        impl_->activeReliefBump = impl_->activeCustomThemeDef.reliefBump;
+        impl_->invalidate();
     }
     std::cout << "[SolEngine] Successfully loaded procedural theme ("
               << impl_->customTexture.width << "x" << impl_->customTexture.height << ")\n";
@@ -1500,6 +1568,17 @@ bool ProceduralBackgroundSystem::loadCustomEatsTheme(const std::string& eatsFile
     std::string resolved = resolveProceduralScriptPath(eatsFilePath);
     if (resolved.empty()) resolved = resolveThemePath(eatsFilePath);
     if (resolved.empty()) resolved = eatsFilePath;
+
+    {
+        std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+        impl_->activeCustomThemeDef = TableThemeDef{};
+        for (const auto& d : impl_->scannedThemes) {
+            if (d.filePath == resolved || d.filePath == eatsFilePath || d.id == eatsFilePath) {
+                impl_->activeCustomThemeDef = d;
+                break;
+            }
+        }
+    }
 
     std::string lower = resolved;
     for (char& c : lower) c = static_cast<char>(std::tolower(c));
@@ -1539,6 +1618,7 @@ bool ProceduralBackgroundSystem::loadCustomEatsTheme(const std::string& eatsFile
 void ProceduralBackgroundSystem::clearCustomEatsTheme() noexcept {
     if (impl_) {
         std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+        impl_->activeCustomThemeDef = TableThemeDef{};
         impl_->customThemeLoaded = false;
         impl_->isCanvasTheme = false;
         impl_->canvasThemeSource.clear();
@@ -1560,15 +1640,14 @@ bool ProceduralBackgroundSystem::hasCustomEatsTheme() const noexcept {
 void ProceduralBackgroundSystem::renderBackground(
     eatsbits::ui::BatchRenderer2D& r,
     float x, float y, float w, float h,
-    TableThemeId theme,
+    const std::string& themeSlug,
     const eatsbits::ui::LightSource2D& light,
-    uint32_t seed
+    [[maybe_unused]] uint32_t seed
 ) {
     if (w <= 0.0f || h <= 0.0f) return;
 
-    if (theme == TableThemeId::PastelTan) {
-        // Pure solid pastel tan background: zero baking, instant clear & draw.
-        // Physical radial illumination & natural vignette are applied dynamically by the 3D scene light source.
+    if (themeSlug == "pastel_tan") {
+        r.setTableSurfaceLighting(0.0f, 2.4f);
         r.drawRect(x, y, w, h, 0.83f, 0.77f, 0.69f, 1.0f);
         r.drawRectVignette(x, y, w, h, 0.0f, 0.15f, 0.68f, 0.61f, 0.52f);
         return;
@@ -1576,101 +1655,224 @@ void ProceduralBackgroundSystem::renderBackground(
 
     if (impl_ && impl_->pbrEnabled) {
         std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
-        // 1. Check if custom user-loaded .eats theme is active
-        if (impl_->customThemeLoaded) {
-            int bakeW = static_cast<int>(std::ceil(w));
-            int bakeH = static_cast<int>(std::ceil(h));
+        const TableThemeDef* themeDef = nullptr;
+        if (impl_->customThemeLoaded && !impl_->activeCustomThemeDef.id.empty()) {
+            themeDef = &impl_->activeCustomThemeDef;
+        } else if (!themeSlug.empty()) {
+            size_t idx = findThemeIndex(themeSlug);
+            themeDef = getThemeDef(idx);
+        }
 
+        if (!themeDef || themeDef->id == "pastel_tan" || (themeDef->filePath.empty() && !impl_->customThemeLoaded)) {
+            r.setTableSurfaceLighting(0.0f, 2.4f);
+            r.drawRect(x, y, w, h, 0.83f, 0.77f, 0.69f, 1.0f);
+            r.drawRectVignette(x, y, w, h, 0.0f, 0.15f, 0.68f, 0.61f, 0.52f);
+            return;
+        }
+
+        const ThemeOptionChoice* optChoice = getActiveOption(*themeDef);
+        int bakeW = static_cast<int>(std::ceil(w));
+        int bakeH = static_cast<int>(std::ceil(h));
+
+        // 1. Custom dynamically loaded theme (via loadCustomEatsTheme / drag-and-drop)
+        if (impl_->customThemeLoaded) {
             if (impl_->isCanvasTheme && !impl_->canvasThemeSource.empty()) {
                 if (!impl_->cachedCustom ||
                     impl_->cachedTint != impl_->currentTint ||
+                    impl_->cachedOption != impl_->currentOption ||
                     impl_->cachedW != bakeW ||
                     impl_->cachedH != bakeH ||
                     impl_->cachedBakedRgba.empty()) {
-                    if (bakeCanvasSurface(impl_->canvasThemeSource, x, y, w, h, light, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint)) {
+                    if (bakeCanvasSurface(impl_->canvasThemeSource, x, y, w, h, light,
+                                          impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH,
+                                          optChoice, impl_->currentTint,
+                                          &impl_->activeLacquer, &impl_->activeReliefBump)) {
+                        r.invalidateBgTexture();
                         impl_->cachedCustom = true;
-                        impl_->cachedTheme = static_cast<TableThemeId>(-1);
+                        impl_->cachedSlug = themeDef->id;
                         impl_->cachedTint = impl_->currentTint;
+                        impl_->cachedOption = impl_->currentOption;
+                        impl_->cachedW = bakeW;
+                        impl_->cachedH = bakeH;
                     }
                 }
 
                 if (!impl_->cachedBakedRgba.empty() && impl_->cachedW > 0 && impl_->cachedH > 0) {
+                    r.setTableSurfaceLighting(impl_->activeLacquer, impl_->activeReliefBump);
                     r.drawRgbaBitmap(x, y, w, h, impl_->cachedBakedRgba.data(), impl_->cachedW, impl_->cachedH, 1.0f);
                     return;
                 }
             } else if (impl_->customTexture.loaded) {
-                // Bake ONCE for the initial render or viewport resize:
                 if (!impl_->cachedCustom ||
                     impl_->cachedTint != impl_->currentTint ||
+                    impl_->cachedOption != impl_->currentOption ||
                     impl_->cachedW != bakeW ||
                     impl_->cachedH != bakeH ||
                     impl_->cachedBakedRgba.empty()) {
-                    if (bakePbrSurface(impl_->customTexture, impl_->customDef, x, y, w, h, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint)) {
+                    if (impl_->cachedOption != impl_->currentOption && !impl_->canvasThemeSource.empty()) {
+                        ProceduralPbrMaps maps;
+                        ProceduralBakeOptions pbrOpts;
+                        pbrOpts.width = 512;
+                        pbrOpts.height = 512;
+                        if (optChoice) {
+                            pbrOpts.optionId = optChoice->id;
+                            pbrOpts.u[0] = optChoice->u[0];
+                            pbrOpts.u[1] = optChoice->u[1];
+                            pbrOpts.u[2] = optChoice->u[2];
+                            pbrOpts.u[3] = optChoice->u[3];
+                        }
+                        if (bakeProceduralPbrBundle(impl_->canvasThemeSource, maps, pbrOpts)) {
+                            impl_->customTexture.width = maps.width;
+                            impl_->customTexture.height = maps.height;
+                            impl_->customTexture.color = std::move(maps.colorRgb);
+                            impl_->customTexture.normal = std::move(maps.normalRgb);
+                            impl_->customTexture.orm = std::move(maps.orm);
+                            impl_->customTexture.loaded = true;
+                        }
+                    }
+                    impl_->activeLacquer = themeDef->lacquer;
+                    impl_->activeReliefBump = themeDef->reliefBump;
+                    if (bakePbrSurface(impl_->customTexture, impl_->customDef, x, y, w, h,
+                                       impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH,
+                                       optChoice, impl_->currentTint)) {
+                        r.invalidateBgTexture();
                         impl_->cachedCustom = true;
-                        impl_->cachedTheme = static_cast<TableThemeId>(-1);
+                        impl_->cachedSlug = themeDef->id;
                         impl_->cachedTint = impl_->currentTint;
+                        impl_->cachedOption = impl_->currentOption;
+                        impl_->cachedW = bakeW;
+                        impl_->cachedH = bakeH;
                     }
                 }
 
                 if (!impl_->cachedBakedRgba.empty() && impl_->cachedW > 0 && impl_->cachedH > 0) {
+                    r.setTableSurfaceLighting(impl_->activeLacquer, impl_->activeReliefBump);
                     r.drawRgbaBitmap(x, y, w, h, impl_->cachedBakedRgba.data(), impl_->cachedW, impl_->cachedH, 1.0f);
                     return;
                 }
             }
         }
 
-        // 2. Built-in theme: single-file .eats package or procedural synthesis
-        const PbrMaterialDef* def = getMaterialDefForTheme(theme);
-        if (def && impl_->ensureMaterial(theme, *def)) {
-            int bakeW = static_cast<int>(std::ceil(w));
-            int bakeH = static_cast<int>(std::ceil(h));
+        // 2. Scanned package from themes/ (all .eats files)
+        auto itSrc = impl_->themeSources.find(themeDef->id);
+        if (itSrc == impl_->themeSources.end() && !themeDef->filePath.empty()) {
+            std::string content;
+            if (readTextFile(themeDef->filePath, content)) {
+                impl_->themeSources[themeDef->id] = std::move(content);
+                itSrc = impl_->themeSources.find(themeDef->id);
+            }
+        }
 
-            auto canvasIt = impl_->themeCanvasSources.find(theme);
-            if (canvasIt != impl_->themeCanvasSources.end()) {
-                if (impl_->cachedCustom ||
-                    impl_->cachedTheme != theme ||
-                    impl_->cachedTint != impl_->currentTint ||
-                    impl_->cachedW != bakeW ||
-                    impl_->cachedH != bakeH ||
-                    impl_->cachedBakedRgba.empty()) {
-                    if (bakeCanvasSurface(canvasIt->second, x, y, w, h, light, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint)) {
-                        impl_->cachedCustom = false;
-                        impl_->cachedTheme = theme;
-                        impl_->cachedTint = impl_->currentTint;
-                    }
-                }
-
-                if (!impl_->cachedBakedRgba.empty() && impl_->cachedW > 0 && impl_->cachedH > 0) {
-                    r.drawRgbaBitmap(x, y, w, h, impl_->cachedBakedRgba.data(), impl_->cachedW, impl_->cachedH, 1.0f);
-                    return;
-                }
+        if (itSrc != impl_->themeSources.end() && !itSrc->second.empty()) {
+            const std::string& srcContent = itSrc->second;
+            if (!impl_->cachedCustom &&
+                impl_->cachedSlug == themeDef->id &&
+                impl_->cachedTint == impl_->currentTint &&
+                impl_->cachedOption == impl_->currentOption &&
+                impl_->cachedW == bakeW &&
+                impl_->cachedH == bakeH &&
+                !impl_->cachedBakedRgba.empty()) {
+                // Cache hit
             } else {
-                const auto& tex = impl_->materials[theme];
-                const auto& activeDef = impl_->materialDefs[theme];
-
-                // Bake ONCE for the initial render or viewport resize:
-                if (impl_->cachedCustom ||
-                    impl_->cachedTheme != theme ||
-                    impl_->cachedTint != impl_->currentTint ||
-                    impl_->cachedW != bakeW ||
-                    impl_->cachedH != bakeH ||
-                    impl_->cachedBakedRgba.empty()) {
-                    if (bakePbrSurface(tex, activeDef, x, y, w, h, impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH, impl_->currentTint)) {
+                if (hasCanvasBackground(srcContent)) {
+                    impl_->activeLacquer = themeDef->lacquer;
+                    impl_->activeReliefBump = themeDef->reliefBump;
+                    if (bakeCanvasSurface(srcContent, x, y, w, h, light,
+                                          impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH,
+                                          optChoice, impl_->currentTint,
+                                          &impl_->activeLacquer, &impl_->activeReliefBump)) {
                         impl_->cachedCustom = false;
-                        impl_->cachedTheme = theme;
+                        impl_->cachedSlug = themeDef->id;
                         impl_->cachedTint = impl_->currentTint;
+                        impl_->cachedOption = impl_->currentOption;
+                        impl_->cachedW = bakeW;
+                        impl_->cachedH = bakeH;
+                    }
+                } else {
+                    impl_->activeLacquer = themeDef->lacquer;
+                    impl_->activeReliefBump = themeDef->reliefBump;
+                    ProceduralPbrMaps maps;
+                    ProceduralBakeOptions pbrOpts;
+                    pbrOpts.width = 512;
+                    pbrOpts.height = 512;
+                    if (optChoice) {
+                        pbrOpts.optionId = optChoice->id;
+                        pbrOpts.u[0] = optChoice->u[0];
+                        pbrOpts.u[1] = optChoice->u[1];
+                        pbrOpts.u[2] = optChoice->u[2];
+                        pbrOpts.u[3] = optChoice->u[3];
+                    }
+                    if (bakeProceduralPbrBundle(srcContent, maps, pbrOpts)) {
+                        PbrTextureData customTex;
+                        customTex.width = maps.width;
+                        customTex.height = maps.height;
+                        customTex.color = std::move(maps.colorRgb);
+                        customTex.normal = std::move(maps.normalRgb);
+                        customTex.orm = std::move(maps.orm);
+                        customTex.loaded = true;
+                        const float normStr = (themeDef->reliefBump <= 0.05f) ? 0.0f : 1.35f;
+                        PbrMaterialDef pbrDef{themeDef->name.c_str(), themeDef->id.c_str(), 0.0f, normStr, 0.25f, 0.22f, 0.85f, 1.0f, 1.0f, 1.0f};
+                        if (bakePbrSurface(customTex, pbrDef, x, y, w, h,
+                                           impl_->cachedBakedRgba, impl_->cachedW, impl_->cachedH,
+                                           optChoice, impl_->currentTint)) {
+                            r.invalidateBgTexture();
+                            impl_->cachedCustom = false;
+                            impl_->cachedSlug = themeDef->id;
+                            impl_->cachedTint = impl_->currentTint;
+                            impl_->cachedOption = impl_->currentOption;
+                            impl_->cachedW = bakeW;
+                            impl_->cachedH = bakeH;
+                        }
                     }
                 }
+            }
 
-                if (!impl_->cachedBakedRgba.empty() && impl_->cachedW > 0 && impl_->cachedH > 0) {
-                    r.drawRgbaBitmap(x, y, w, h, impl_->cachedBakedRgba.data(), impl_->cachedW, impl_->cachedH, 1.0f);
-                    return;
-                }
+            if (!impl_->cachedBakedRgba.empty() && impl_->cachedW > 0 && impl_->cachedH > 0) {
+                r.setTableSurfaceLighting(impl_->activeLacquer, impl_->activeReliefBump);
+                r.drawRgbaBitmap(x, y, w, h, impl_->cachedBakedRgba.data(), impl_->cachedW, impl_->cachedH, 1.0f);
+                return;
             }
         }
     }
 
-    renderVectorFallback(r, x, y, w, h, theme, light, seed);
+    r.setTableSurfaceLighting(0.0f, 2.4f);
+    r.drawRect(x, y, w, h, 0.83f, 0.77f, 0.69f, 1.0f);
+    r.drawRectVignette(x, y, w, h, 0.0f, 0.15f, 0.68f, 0.61f, 0.52f);
+}
+
+void ProceduralBackgroundSystem::renderBackground(
+    eatsbits::ui::BatchRenderer2D& r,
+    float x, float y, float w, float h,
+    TableThemeId theme,
+    const eatsbits::ui::LightSource2D& light,
+    uint32_t seed
+) {
+    if (theme == TableThemeId::PastelTan) {
+        renderBackground(r, x, y, w, h, "pastel_tan", light, seed);
+        return;
+    }
+    size_t idx = findThemeIndex("", theme);
+    const auto* def = getThemeDef(idx);
+    if (def && !def->id.empty()) {
+        renderBackground(r, x, y, w, h, def->id, light, seed);
+        return;
+    }
+    renderBackground(r, x, y, w, h, "pastel_tan", light, seed);
+}
+
+float ProceduralBackgroundSystem::activeLacquer() const noexcept {
+    return impl_ ? impl_->activeLacquer : 0.0f;
+}
+
+float ProceduralBackgroundSystem::activeReliefBump() const noexcept {
+    return impl_ ? impl_->activeReliefBump : 2.4f;
+}
+
+void ProceduralBackgroundSystem::setActiveLacquer(float lacquer, float reliefBump) noexcept {
+    if (impl_) {
+        impl_->activeLacquer = lacquer;
+        impl_->activeReliefBump = reliefBump;
+    }
 }
 
 } // namespace solengine

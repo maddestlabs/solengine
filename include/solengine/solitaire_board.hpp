@@ -24,6 +24,8 @@ public:
     [[nodiscard]] TableThemeId tableTheme() const noexcept { return theme_; }
     void setTableThemeSlug(const std::string& slug) { themeSlug_ = slug; }
     [[nodiscard]] const std::string& tableThemeSlug() const noexcept { return themeSlug_; }
+    void setTableThemeOption(const std::string& opt) { themeOption_ = opt; }
+    [[nodiscard]] const std::string& tableThemeOption() const noexcept { return themeOption_; }
 
     [[nodiscard]] GameVariant variant() const noexcept { return variant_; }
     [[nodiscard]] const SolitaireGameDef& activeGameDef() const noexcept { return activeDef_; }
@@ -119,6 +121,7 @@ private:
     SolitaireGameDef activeDef_;
     TableThemeId theme_{TableThemeId::PastelTan};
     std::string themeSlug_;
+    std::string themeOption_;
     ResponsiveLayoutMode layoutMode_{ResponsiveLayoutMode::Auto};
     StockPosition stockPosition_{StockPosition::Auto};
 
