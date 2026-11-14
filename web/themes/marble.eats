@@ -1,0 +1,69 @@
+# SolEngine Procedural Background Theme — Marble Countertop
+# Dual-Scale Gradient Mapping + 4-Color Macro Geological Gradient:
+# 1. Single 42.4 KB 512x512 seamless mineral map (q=32 JPEG) supplies crisp stone structure
+# 2. 256x1 1D Color Gradient LUT (~220 bytes) maps authentic photo-sampled stone colors
+# 3. Viewport-wide 4-color geological gradient (with organic FBM drift) breaks up tile repetition
+
+sol.set_theme({
+    id: "marble",
+    name: "Marble",
+    author: "Maddest Labs",
+    description: "Polished natural marble slabs: 1D photo color LUT + 512px mineral map + 4-color macro gradient",
+    version: 9,
+    procedural: true,
+    lacquer: 0.65,
+    relief_bump: 0.0,
+    option_label: "Stone",
+    options: [
+        { id: "carrara",         name: "Bianco Carrara",  u: [1.0, 1.0, 1.0, 0.0] },
+        { id: "calacatta_gold",  name: "Calacatta Gold",  u: [1.0, 1.0, 1.0, 1.0] },
+        { id: "nero_marquina",   name: "Nero Marquina",   u: [1.0, 1.0, 1.0, 2.0] },
+        { id: "emperador_dark",  name: "Emperador Dark",  u: [1.0, 1.0, 1.0, 3.0] },
+        { id: "verde_alpi",      name: "Verde Alpi",      u: [1.0, 1.0, 1.0, 4.0] },
+        { id: "rosa_portogallo", name: "Rosa Portogallo", u: [1.0, 1.0, 1.0, 5.0] },
+        { id: "rosso_levanto",   name: "Rosso Levanto",   u: [1.0, 1.0, 1.0, 6.0] },
+        { id: "giallo_siena",    name: "Giallo Siena",    u: [1.0, 1.0, 1.0, 7.0] }
+    ]
+})
+
+def marble_macro_gradient_shader(u, v, nx, ny, in_r, in_g, in_b):
+    # Viewport-wide 4-color geological gradient with organic FBM drift (breaks up 512px tile repeat)
+    gu = clamp(u + (fbm(nx * 1.4 + 2.1, ny * 1.4 + 4.3, 2) - 0.5) * 0.38, 0.0, 1.0)
+    gv = clamp(v + (fbm(nx * 1.4 + 7.7, ny * 1.4 + 1.9, 2) - 0.5) * 0.38, 0.0, 1.0)
+
+    # 4 corner tonal multipliers derived from the LUT-mapped pixel color:
+    # TL: warm mineral drift | TR: cool slate drift | BL: deeper shadow tone | BR: brighter calcite lift
+    c_tl_r = in_r * 1.14 + 0.03
+    c_tl_g = in_g * 1.04 + 0.01
+    c_tl_b = in_b * 0.86
+
+    c_tr_r = in_r * 0.86
+    c_tr_g = in_g * 1.00
+    c_tr_b = in_b * 1.16 + 0.03
+
+    c_bl_r = in_r * 0.72
+    c_bl_g = in_g * 0.72
+    c_bl_b = in_b * 0.74
+
+    c_br_r = in_r * 1.16 + 0.04
+    c_br_g = in_g * 1.14 + 0.04
+    c_br_b = in_b * 1.12 + 0.04
+
+    gr = mix(mix(c_tl_r, c_tr_r, gu), mix(c_bl_r, c_br_r, gu), gv)
+    gg = mix(mix(c_tl_g, c_tr_g, gu), mix(c_bl_g, c_br_g, gu), gv)
+    gb = mix(mix(c_tl_b, c_tr_b, gu), mix(c_bl_b, c_br_b, gu), gv)
+
+    # Apply macro zoning while preserving high-contrast vein highlights
+    lum = in_r * 0.299 + in_g * 0.587 + in_b * 0.114
+    gw = 0.26 * (1.0 - smoothstep(0.65, 0.95, lum) * 0.55)
+    r = clamp(mix(in_r, gr, gw), 0.0, 1.0)
+    g = clamp(mix(in_g, gg, gw), 0.0, 1.0)
+    b = clamp(mix(in_b, gb, gw), 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    opt = option_id
+    if (opt == ""):
+        opt = "carrara"
+    ctx.apply_gradient_lut("marble/rosso_levanto_mineral_low.jpg", "marble/" + opt + "_lut.png", 0.020, true, 512.0)
+    ctx.apply_shader("marble_macro_gradient_shader", intensity=1.0)

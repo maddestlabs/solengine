@@ -110,6 +110,25 @@ bool SettingsManager::load() {
                     }
                 }
             }
+            if (a.contains("postFxId") && a["postFxId"].isString()) {
+                settings_.postFxId = a["postFxId"].asString();
+            }
+            if (a.contains("postFxOption") && a["postFxOption"].isString()) {
+                settings_.postFxOption = a["postFxOption"].asString();
+            }
+            if (a.contains("postFxOptions") && a["postFxOptions"].isObject()) {
+                for (const auto& [k, v] : a["postFxOptions"].asObject()) {
+                    if (v.isString()) {
+                        settings_.postFxOptions[k] = v.asString();
+                    }
+                }
+            }
+            if (a.contains("postFxIntensity") && a["postFxIntensity"].isNumber()) {
+                settings_.postFxIntensity = std::clamp(a["postFxIntensity"].asFloat(1.0f), 0.0f, 1.0f);
+            }
+            if (a.contains("postFxAffectUi") && a["postFxAffectUi"].isBool()) {
+                settings_.postFxAffectUi = a["postFxAffectUi"].asBool(false);
+            }
             if (a.contains("tableTint") && a["tableTint"].isString()) {
                 settings_.tableTint = parseTableTint(a["tableTint"].asString());
             } else if (a.contains("tableTint") && a["tableTint"].isNumber()) {
@@ -196,6 +215,21 @@ bool SettingsManager::save() {
         }
         a["tableThemeOptions"] = optsObj;
     }
+    if (!settings_.postFxId.empty() && settings_.postFxId != "none") {
+        a["postFxId"] = settings_.postFxId;
+    }
+    if (!settings_.postFxOption.empty()) {
+        a["postFxOption"] = settings_.postFxOption;
+    }
+    if (!settings_.postFxOptions.empty()) {
+        json::Object pfxObj;
+        for (const auto& [k, v] : settings_.postFxOptions) {
+            pfxObj[k] = v;
+        }
+        a["postFxOptions"] = pfxObj;
+    }
+    a["postFxIntensity"] = static_cast<double>(settings_.postFxIntensity);
+    a["postFxAffectUi"] = settings_.postFxAffectUi;
     const auto* tintInfo = getTableTintInfo(settings_.tableTint);
     if (tintInfo && settings_.tableTint != TableTintPreset::Auto) {
         a["tableTint"] = tintInfo->id;

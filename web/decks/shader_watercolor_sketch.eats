@@ -95,7 +95,7 @@ def on_draw_card_face(ctx, rank, suit, w, h):
 
     # 4. Execute Vitruvian Codex Shader -> Watercolor Kuwahara Pooling -> Graphite Cross-Hatch -> Tilt-Shift
     ctx.apply_shader("vitruvian_codex_shader", rank=rank, suit=suit, intensity=1.0)
-    ctx.apply_finish(style="hand_sketched", paper_grain=0.18, ink_bleed=0.22)
+    # ctx.apply_finish(style="hand_sketched", paper_grain=0.18, ink_bleed=0.22)
     ctx.apply_filter("watercolor", intensity=0.78, radius=2.5, edge_darkening=0.70)
     ctx.apply_filter("pencil_sketch", intensity=0.36, hatch_density=1.1, color_mix=0.82, color="#f2eadb")
     ctx.apply_filter("tilt_shift", intensity=0.55, focus_y=0.50, focus_width=0.34)
@@ -114,7 +114,7 @@ def on_draw_card_back(ctx, w, h):
     ctx.draw_baroque_spade(cx, cy, size=w * 0.26, body_color="#2c3545", filigree_color=sepia_bronze, accent_color=sepia_gold)
 
     ctx.apply_shader("vitruvian_codex_shader", rank=1, suit="hearts", intensity=1.0)
-    ctx.apply_finish(style="hand_sketched", paper_grain=0.18, ink_bleed=0.22)
+    # ctx.apply_finish(style="hand_sketched", paper_grain=0.18, ink_bleed=0.22)
     ctx.apply_filter("watercolor", intensity=0.78, radius=2.5, edge_darkening=0.70)
     ctx.apply_filter("pencil_sketch", intensity=0.36, hatch_density=1.1, color_mix=0.82, color="#f2eadb")
     ctx.apply_filter("vignette", intensity=0.38, radius=0.76, softness=0.45, color="#4a3828")

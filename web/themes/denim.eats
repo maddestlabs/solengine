@@ -1,0 +1,65 @@
+# SolEngine Procedural Background Theme — Denim
+# Pure Eatscript Bytecode Shader: Diagonal twill denim weave with horizontal white weft slubs
+
+sol.set_theme({
+    id: "denim",
+    name: "Denim",
+    author: "Maddest Labs",
+    description: "Denim with 2/1 twill diagonal ribs and horizontal weft slubs",
+    version: 3,
+    procedural: true,
+    lacquer: 0.5,
+    relief_bump: 1.0,
+    option_label: "Color",
+    options: [
+        { id: "navy_blue",  name: "Navy Blue",  u: [0.12, 0.22, 0.38, 1.0] },
+        { id: "light_blue", name: "Light Blue", u: [0.35, 0.48, 0.68, 1.0] },
+        { id: "dark_gray",  name: "Dark Gray",  u: [0.19, 0.20, 0.22, 1.0] },
+        { id: "pink",       name: "Pink",        u: [0.70, 0.36, 0.48, 1.0] }
+    ]
+})
+
+def denim_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Diagonal 2/1 Twill Weave Ribbing (1:1 scale: ~5-6px twill lines)
+    twill = sin((px * 1.2 + py) * 0.7) * 0.07
+
+    # 2. Horizontal white cotton weft slubs (1:1 scale: ~4px slub spacing)
+    weft = sin(py * 0.8) * 0.05 + (fbm(px * 0.03, py * 0.25) - 0.5) * 0.07
+
+    # 3. Dynamic dye palette via uniform registers
+    dye_luma = twill + weft
+    ur = mix(0.12, u0, u3)
+    ug = mix(0.22, u1, u3)
+    ub = mix(0.38, u2, u3)
+
+    base_r = ur + dye_luma * 0.4
+    base_g = ug + dye_luma * 0.5
+    base_b = ub + dye_luma * 0.7
+
+    # 4. Cotton fiber fuzz
+    fuzz = (fbm(px * 0.12, py * 0.12) - 0.5) * 0.03
+
+    # 5. Vignette optical edge falloff
+    vignette = smoothstep(3.0, 0.25, dist)
+    grain = (random() - 0.5) * 0.015
+
+    r = clamp((base_r + fuzz) * vignette + grain, 0.0, 1.0)
+    g = clamp((base_g + fuzz) * vignette + grain, 0.0, 1.0)
+    b = clamp((base_b + fuzz) * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    # 1. Base wash underlay
+    ur = mix(0.07, u0 * 0.5, u3)
+    ug = mix(0.12, u1 * 0.5, u3)
+    ub = mix(0.21, u2 * 0.5, u3)
+    ctx.fill_rect(0, 0, w, h, [ur, ug, ub])
+
+    # 2. Golden-orange denim thread stitch border
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, "#9e6522", 1.8)
+
+    # 3. Run denim shader
+    ctx.apply_shader("denim_shader", intensity=1.0)

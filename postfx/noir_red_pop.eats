@@ -1,0 +1,32 @@
+# SolEngine Post-FX — Noir Red Pop
+# Desaturates everything except red tones (ideal for Hearts & Diamonds!)
+
+sol.set_postfx({
+    id: "noir_red_pop",
+    name: "Noir (Red Pop)",
+    author: "Maddest Labs",
+    description: "Desaturates the entire scene except crimson/red tones",
+    option_label: "Style",
+    gpu_cost: "Low",
+    options: [
+        { id: "sin_city",   name: "Sin City",        u: [0.00, 1.25, 0.18, 0.0] },
+        { id: "warm_noir",  name: "Warm Sepia + Red",u: [0.22, 1.15, 0.22, 0.0] }
+    ]
+})
+
+def noir_red_pop_shader(u, v, nx, ny, in_r, in_g, in_b):
+    lum = 0.299 * in_r + 0.587 * in_g + 0.114 * in_b
+    # Red dominance over green and blue
+    max_gb = max(in_g, in_b)
+    red_delta = in_r - max_gb
+    red_mask = smoothstep(0.08, u2 + 0.12, red_delta) * smoothstep(0.10, 0.35, in_r)
+
+    # Desaturated base (pure B&W or warm sepia tint via u0)
+    bw_r = clamp((lum - 0.5) * u1 + 0.5 + u0 * 0.08, 0.0, 1.0)
+    bw_g = clamp((lum - 0.5) * u1 + 0.5 + u0 * 0.02, 0.0, 1.0)
+    bw_b = clamp((lum - 0.5) * u1 + 0.5 - u0 * 0.08, 0.0, 1.0)
+
+    r = mix(bw_r, clamp(in_r * 1.08, 0.0, 1.0), red_mask)
+    g = mix(bw_g, in_g * 0.92, red_mask)
+    b = mix(bw_b, in_b * 0.92, red_mask)
+    return [r, g, b]

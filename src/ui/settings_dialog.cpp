@@ -6,6 +6,7 @@
 #include "solengine/audio_foley.hpp"
 #include "solengine/card_texture_cache.hpp"
 #include "solengine/procedural_background.hpp"
+#include "solengine/postfx_system.hpp"
 #include "eatsbits/ui/glyph/font_engine.hpp"
 #include <random>
 #include <chrono>
@@ -51,6 +52,8 @@ void SettingsDialog::close() {
     draggingVolume_ = false;
     draggingAmbienceVolume_ = false;
     draggingDeviation_ = false;
+    draggingPostFxIntensity_ = false;
+    peekingPostFx_ = false;
     draggingDarkness_ = false;
     draggingLightStrength_ = false;
 }
@@ -668,6 +671,82 @@ void SettingsDialog::render(
             float devBtnTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, devBtnLabel);
             eatsbits::ui::glyph::drawVectorText(r, devBtnLabel, devBtnX + (devBtnW - devBtnTxtW) * 0.5f, devTrackY_ + 8.5f, 10.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
         }
+        curY += devTrackH_ + 10.0f;
+
+        // Section: Post-Processing
+        drawSectionHeader("Post-Processing");
+        (void)PostFxSystem::instance().availableEffects();
+        size_t curPfxIdx = PostFxSystem::instance().findEffectIndex(tempSettings_.postFxId);
+        const PostFxDef* curPfxDef = PostFxSystem::instance().getEffectDef(curPfxIdx);
+        std::string pfxTitle = curPfxDef ? curPfxDef->name : "None (Off)";
+        drawStepper("Post-FX: " + pfxTitle);
+        curY += rowH + rowGap;
+
+        if (curPfxDef && !curPfxDef->options.empty()) {
+            std::string optLabel = curPfxDef->optionLabel.empty() ? "Preset" : curPfxDef->optionLabel;
+            size_t optIdx = 0;
+            for (size_t i = 0; i < curPfxDef->options.size(); ++i) {
+                if (curPfxDef->options[i].id == tempSettings_.postFxOption) {
+                    optIdx = i;
+                    break;
+                }
+            }
+            drawStepper(optLabel + ": " + curPfxDef->options[optIdx].name);
+            curY += rowH + rowGap;
+        }
+
+        if (curPfxDef && curPfxDef->id != "none") {
+            postFxTrackX_ = rowX;
+            postFxTrackW_ = useTwoCol ? (rowW - 74.0f) : (contentW - 148.0f);
+            postFxTrackH_ = 26.0f;
+            postFxTrackY_ = curY;
+            const float peekBtnX = postFxTrackX_ + postFxTrackW_ + (useTwoCol ? 6.0f : 12.0f);
+            const float peekBtnW = useTwoCol ? 68.0f : 104.0f;
+            bool peekHov = (mouseX >= peekBtnX && mouseX <= peekBtnX + peekBtnW &&
+                            mouseY >= postFxTrackY_ && mouseY <= postFxTrackY_ + postFxTrackH_);
+            int pfxPct = static_cast<int>(std::round(tempSettings_.postFxIntensity * 100.0f));
+            char pfxStr[48];
+            std::snprintf(pfxStr, sizeof(pfxStr), "MIX: %d%%", pfxPct);
+            if (isClockwork) {
+                bool knobHov = (mouseX >= postFxTrackX_ && mouseX <= postFxTrackX_ + postFxTrackW_ &&
+                                mouseY >= postFxTrackY_ && mouseY <= postFxTrackY_ + postFxTrackH_);
+                clockwork_ui::drawGlassSlider(r, postFxTrackX_, postFxTrackY_, postFxTrackW_, postFxTrackH_,
+                                              tempSettings_.postFxIntensity, nullptr, knobHov, 0.0f);
+                eatsbits::ui::glyph::drawVectorText(r, pfxStr, postFxTrackX_ + 10.0f, postFxTrackY_ + 7.5f, 10.5f,
+                                                    cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+                clockwork_ui::drawPewterButton(r, peekBtnX, postFxTrackY_, peekBtnW, postFxTrackH_, 4.0f,
+                                               peekingPostFx_ ? "RAW" : "PEEK", peekHov, peekingPostFx_, 10.5f);
+            } else {
+                r.drawRoundedRect(postFxTrackX_, postFxTrackY_, postFxTrackW_, postFxTrackH_, 4.0f, 0.10f, 0.09f, 0.08f, 0.95f, 4);
+                r.drawRoundedRectOutline(postFxTrackX_, postFxTrackY_, postFxTrackW_, postFxTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+                float fillW = (postFxTrackW_ - 4.0f) * tempSettings_.postFxIntensity;
+                if (fillW > 0.0f) {
+                    r.drawRoundedRect(postFxTrackX_ + 2.0f, postFxTrackY_ + 2.0f, fillW, postFxTrackH_ - 4.0f, 3.0f,
+                                      pal.accentR * 0.8f, pal.accentG * 0.8f, pal.accentB * 0.8f, 0.90f, 3);
+                }
+                eatsbits::ui::glyph::drawVectorText(r, pfxStr, postFxTrackX_ + 8.0f, postFxTrackY_ + 7.5f, 10.5f, 0.98f, 0.95f, 0.88f, 1.0f);
+                r.drawRoundedRect(peekBtnX, postFxTrackY_, peekBtnW, postFxTrackH_, 4.0f,
+                                  pal.woodR0 + 0.06f + (peekHov ? 0.08f : 0.0f), pal.woodG0 + 0.05f, pal.woodB0 + 0.04f, 0.95f, 4);
+                r.drawRoundedRectOutline(peekBtnX, postFxTrackY_, peekBtnW, postFxTrackH_, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
+                const char* peekLbl = peekingPostFx_ ? "RAW" : "PEEK";
+                float peekTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, peekLbl);
+                eatsbits::ui::glyph::drawVectorText(r, peekLbl, peekBtnX + (peekBtnW - peekTxtW) * 0.5f, postFxTrackY_ + 7.5f, 10.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+            }
+            curY += postFxTrackH_ + rowGap;
+
+            postFxAffectUiY_ = curY;
+            bool affHov = (mouseX >= rowX && mouseX <= rowX + rowW && mouseY >= curY && mouseY <= curY + rowH);
+            std::string affStr = std::string("Affect UI / Menus: ") + (tempSettings_.postFxAffectUi ? "ON" : "OFF");
+            if (isClockwork) {
+                clockwork_ui::drawPewterButton(r, rowX, curY, rowW, rowH, 4.0f, affStr.c_str(), affHov, tempSettings_.postFxAffectUi, 10.5f);
+            } else {
+                r.drawRoundedRect(rowX, curY, rowW, rowH, 4.0f,
+                                  pal.woodR0 + 0.04f + (affHov ? 0.06f : 0.0f), pal.woodG0 + 0.03f, pal.woodB0 + 0.03f, 0.92f, 4);
+                r.drawRoundedRectOutline(rowX, curY, rowW, rowH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.65f, 1.0f, 4);
+                eatsbits::ui::glyph::drawVectorText(r, affStr.c_str(), rowX + 10.0f, curY + 8.0f, 10.5f, 0.92f, 0.88f, 0.82f, 1.0f);
+            }
+            curY += rowH + rowGap;
+        }
 
         // --- SAMPLE AREA (Real-time Shader Stock & Wear) ---
         const float col2X = useTwoCol ? (contentX + col1W + 4.0f) : (contentX + 16.0f);
@@ -788,20 +867,26 @@ void SettingsDialog::render(
 
         // Subtle vertical scrollbar indicator when content overflows
         if (themeMaxScrollY_ > 1.0f) {
-            const float sbW = 4.0f;
-            const float sbX = contentX + contentW - sbW - 4.0f;
             const float sbTrackY = contentY + 8.0f;
             const float sbTrackH = std::max(24.0f, contentH - 16.0f);
-            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, 2.0f, 0.08f, 0.07f, 0.06f, 0.45f, 2);
-
             const float visibleRatio = std::clamp(contentH / std::max(1.0f, totalBottom - contentY), 0.15f, 1.0f);
-            const float thumbH = std::max(20.0f, sbTrackH * visibleRatio);
+            const float thumbH = std::max(24.0f, sbTrackH * visibleRatio);
             const float scrollFrac = themeScrollY_ / themeMaxScrollY_;
             const float thumbY = sbTrackY + (sbTrackH - thumbH) * scrollFrac;
-            r.drawRoundedRect(sbX, thumbY, sbW, thumbH, 2.0f,
+
+            themeSbTrackY_ = sbTrackY;
+            themeSbTrackH_ = sbTrackH;
+            themeSbThumbH_ = thumbH;
+
+            const bool sbHov = (mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
+                                mouseY >= sbTrackY && mouseY <= sbTrackY + sbTrackH) || draggingThemeScrollbar_;
+            const float sbW = sbHov ? 7.0f : 5.0f;
+            const float sbX = contentX + contentW - sbW - 4.0f;
+            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, sbHov ? 0.65f : 0.45f, 2);
+            r.drawRoundedRect(sbX, thumbY, sbW, thumbH, sbW * 0.5f,
                               isClockwork ? cpal.brassBrightR : pal.accentR,
                               isClockwork ? cpal.brassBrightG : pal.accentG,
-                              isClockwork ? cpal.brassBrightB : pal.accentB, 0.75f, 2);
+                              isClockwork ? cpal.brassBrightB : pal.accentB, sbHov ? 0.95f : 0.78f, 2);
         }
     } else if (currentTab_ == 2) {
         // --- TAB 2: DISPLAY & RESPONSIVE ---
@@ -1129,9 +1214,14 @@ bool SettingsDialog::handleMouseButton(
         draggingVolume_ = false;
         draggingAmbienceVolume_ = false;
         draggingDeviation_ = false;
+        draggingPostFxIntensity_ = false;
+        peekingPostFx_ = false;
+    draggingPostFxIntensity_ = false;
+    peekingPostFx_ = false;
         draggingDarkness_ = false;
         draggingLightStrength_ = false;
         pointerDownInContent_ = false;
+        draggingThemeScrollbar_ = false;
         if (draggingThemeScroll_) {
             draggingThemeScroll_ = false;
             return true;
@@ -1278,12 +1368,26 @@ bool SettingsDialog::handleMouseButton(
             }
         }
     } else if (currentTab_ == 1) {
-        if (mouseY < contentRectY_ || mouseY > contentRectY_ + contentRectH_) {
+        if (mouseY < contentRectY_ || mouseY > contentRectY_ + contentRectH_ ||
+            mouseX < contentRectX_ || mouseX > contentRectX_ + contentRectW_) {
             // Outside scrollable content bounds — fall through to footer buttons
         } else {
-            // Track pointer press for mobile touch-drag scrolling
+            // Direct scrollbar track/thumb grab (wide 22px hit zone for mouse & touch)
             if (themeMaxScrollY_ > 1.0f &&
-                !(mouseX >= devTrackX_ && mouseX <= devTrackX_ + devTrackW_ && mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_)) {
+                mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
+                mouseY >= themeSbTrackY_ && mouseY <= themeSbTrackY_ + themeSbTrackH_) {
+                draggingThemeScrollbar_ = true;
+                float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
+                float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
+                themeScrollY_ = frac * themeMaxScrollY_;
+                return true;
+            }
+            // Track pointer press for touch/empty-space drag scrolling
+            const bool onDevSlider = (mouseX >= devTrackX_ && mouseX <= devTrackX_ + devTrackW_ &&
+                                      mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_);
+            const bool onPfxSlider = (mouseX >= postFxTrackX_ && mouseX <= postFxTrackX_ + postFxTrackW_ &&
+                                      mouseY >= postFxTrackY_ && mouseY <= postFxTrackY_ + postFxTrackH_);
+            if (themeMaxScrollY_ > 1.0f && !onDevSlider && !onPfxSlider) {
                 pointerDownInContent_ = true;
                 draggingThemeScroll_ = false;
                 dragStartY_ = mouseY;
@@ -1497,6 +1601,80 @@ bool SettingsDialog::handleMouseButton(
             }
             board.setCardDeviation(tempSettings_.cardDeviation);
             foley.triggerSound(FoleySound::WoodClick, 0.75f);
+            return true;
+        }
+        curY += devTrackH_ + 10.0f + 22.0f; // advance past Card Deviation + "Post-Processing" header
+
+        // Post-FX Stepper
+        const auto& availablePfx = PostFxSystem::instance().availableEffects();
+        size_t curPfxIdx = PostFxSystem::instance().findEffectIndex(tempSettings_.postFxId);
+        const PostFxDef* curPfxDef = PostFxSystem::instance().getEffectDef(curPfxIdx);
+        if (testStepper(stepDelta)) {
+            if (!availablePfx.empty()) {
+                size_t count = availablePfx.size();
+                curPfxIdx = (stepDelta < 0) ? ((curPfxIdx + count - 1u) % count) : ((curPfxIdx + 1u) % count);
+                tempSettings_.postFxId = availablePfx[curPfxIdx].id;
+                const auto& newPfx = availablePfx[curPfxIdx];
+                if (!newPfx.options.empty()) {
+                    auto it = tempSettings_.postFxOptions.find(newPfx.id);
+                    if (it != tempSettings_.postFxOptions.end()) {
+                        tempSettings_.postFxOption = it->second;
+                    } else {
+                        tempSettings_.postFxOption = newPfx.options[0].id;
+                        tempSettings_.postFxOptions[newPfx.id] = newPfx.options[0].id;
+                    }
+                } else {
+                    tempSettings_.postFxOption.clear();
+                }
+            }
+            foley.triggerSound(FoleySound::WoodClick, 0.8f);
+            return true;
+        }
+        curY += rowH + rowGap;
+
+        if (curPfxDef && !curPfxDef->options.empty()) {
+            if (testStepper(stepDelta)) {
+                const auto& opts = curPfxDef->options;
+                size_t optIdx = 0;
+                for (size_t i = 0; i < opts.size(); ++i) {
+                    if (opts[i].id == tempSettings_.postFxOption) {
+                        optIdx = i;
+                        break;
+                    }
+                }
+                size_t optCount = opts.size();
+                optIdx = (stepDelta < 0) ? ((optIdx + optCount - 1u) % optCount) : ((optIdx + 1u) % optCount);
+                tempSettings_.postFxOption = opts[optIdx].id;
+                tempSettings_.postFxOptions[curPfxDef->id] = opts[optIdx].id;
+                foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                return true;
+            }
+            curY += rowH + rowGap;
+        }
+
+        if (curPfxDef && curPfxDef->id != "none") {
+            if (mouseX >= postFxTrackX_ && mouseX <= postFxTrackX_ + postFxTrackW_ &&
+                mouseY >= postFxTrackY_ && mouseY <= postFxTrackY_ + postFxTrackH_) {
+                draggingPostFxIntensity_ = true;
+                tempSettings_.postFxIntensity = std::clamp((mouseX - postFxTrackX_) / postFxTrackW_, 0.0f, 1.0f);
+                return true;
+            }
+            const float peekBtnX = postFxTrackX_ + postFxTrackW_ + (useTwoCol ? 6.0f : 12.0f);
+            const float peekBtnW = useTwoCol ? 68.0f : 104.0f;
+            if (mouseX >= peekBtnX && mouseX <= peekBtnX + peekBtnW &&
+                mouseY >= postFxTrackY_ && mouseY <= postFxTrackY_ + postFxTrackH_) {
+                peekingPostFx_ = true;
+                foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                return true;
+            }
+            if (mouseX >= rowX && mouseX <= rowX + rowW &&
+                mouseY >= postFxAffectUiY_ && mouseY <= postFxAffectUiY_ + rowH) {
+                tempSettings_.postFxAffectUi = !tempSettings_.postFxAffectUi;
+                foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                return true;
+            }
+        }
+        if (pointerDownInContent_) {
             return true;
         }
         } // end else inside scrollable content bounds
@@ -1728,6 +1906,10 @@ bool SettingsDialog::handleMouseMove(
         board.setCardDeviation(dev);
         return true;
     }
+    if (draggingPostFxIntensity_ && postFxTrackW_ > 1.0f) {
+        tempSettings_.postFxIntensity = std::clamp((mouseX - postFxTrackX_) / postFxTrackW_, 0.0f, 1.0f);
+        return true;
+    }
     if (draggingDarkness_ && darkTrackW_ > 1.0f) {
         float pct = std::clamp((mouseX - darkTrackX_) / darkTrackW_, 0.0f, 1.0f);
         tempSettings_.sceneDarkness = pct * 0.85f;
@@ -1738,9 +1920,15 @@ bool SettingsDialog::handleMouseMove(
         tempSettings_.lightStrength = pct * 2.0f;
         return true;
     }
+    if (draggingThemeScrollbar_ && currentTab_ == 1 && themeMaxScrollY_ > 1.0f) {
+        float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
+        float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
+        themeScrollY_ = frac * themeMaxScrollY_;
+        return true;
+    }
     if (pointerDownInContent_ && currentTab_ == 1 && themeMaxScrollY_ > 1.0f) {
         float dy = mouseY - dragLastY_;
-        if (!draggingThemeScroll_ && std::abs(mouseY - dragStartY_) > 6.0f) {
+        if (!draggingThemeScroll_ && std::abs(mouseY - dragStartY_) > 4.0f) {
             draggingThemeScroll_ = true;
         }
         if (draggingThemeScroll_) {

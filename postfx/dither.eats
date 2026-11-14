@@ -1,0 +1,15 @@
+# SolEngine Post-FX — Ordered Bayer Dither
+sol.set_postfx({
+    id: "dither",
+    name: "Bayer Dither",
+    author: "Maddest Labs",
+    description: "Ordered 4x4 Bayer matrix dithering",
+    filter: "dither",
+    option_label: "Depth",
+    gpu_cost: "Low",
+    options: [
+        { id: "retro_4bit", name: "4-Bit Retro",    param1: 8.0, param2: 1.0 },
+        { id: "handheld",   name: "2-Bit Handheld", param1: 4.0, param2: 2.0 },
+        { id: "ink_1bit",   name: "1-Bit Crisp",    param1: 2.0, param2: 1.0 }
+    ]
+})

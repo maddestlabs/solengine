@@ -1,0 +1,18 @@
+# SolEngine Post-FX — Realism (Optical Soften + Natural Desaturation)
+# Softens razor-sharp digital edges with a sub-pixel optical lens blur,
+# tones down oversaturated primaries, and adds gentle filmic roll-off & micro-grain.
+
+sol.set_postfx({
+    id: "realism",
+    name: "Realism",
+    author: "Maddest Labs",
+    description: "Soft optical lens blur + natural desaturation + filmic highlight roll-off",
+    filter: "realism",
+    option_label: "Tone",
+    gpu_cost: "Low",
+    options: [
+        { id: "natural",   name: "Natural (60% Desat)",  u: [0.42, 0.85, 1.06,  0.012] },
+        { id: "editorial", name: "Editorial Muted",      u: [0.35, 1.05, 1.10, -0.008] },
+        { id: "daylight",  name: "Soft Daylight",        u: [0.58, 0.65, 1.03,  0.018] }
+    ]
+})

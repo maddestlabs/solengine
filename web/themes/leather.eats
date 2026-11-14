@@ -1,0 +1,60 @@
+# SolEngine Procedural Background Theme — Leather
+# Pure Eatscript Bytecode Shader: Distressed aniline nubuck suede with velvety nap and oil pull-up
+
+sol.set_theme({
+    id: "leather",
+    name: "Leather",
+    author: "Maddest Labs",
+    description: "Distressed aniline nubuck leather with velvety micro-suede nap and rich pull-up undertones",
+    version: 3,
+    procedural: true,
+    option_label: "Leather",
+    lacquer: 0.95,
+    relief_bump: 4.0,
+    options: [
+        { id: "cognac",  name: "Cognac",  u: [0.36, 0.18, 0.08, 1.0] },
+        { id: "camel",   name: "Camel",   u: [0.48, 0.33, 0.16, 1.0] },
+        { id: "muscade", name: "Muscade", u: [0.38, 0.22, 0.12, 1.0] },
+        { id: "latte",   name: "Latte",   u: [0.55, 0.46, 0.36, 1.0] },
+        { id: "marron",  name: "Marron",  u: [0.20, 0.11, 0.06, 1.0] },
+        { id: "white",   name: "White",   u: [0.72, 0.70, 0.66, 1.0] }
+    ]
+})
+
+def nubuck_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Broad aniline tanning oil pull-up mottle
+    pullup = fbm(nx * 2.8, ny * 2.8) * 0.18
+
+    # 2. Fine velvety suede nap fibers
+    nap = (fbm(nx * 32.0, ny * 32.0) - 0.5) * 0.08
+    fuzz = (fbm(nx * 64.0, ny * 64.0) - 0.5) * 0.04
+
+    # 3. Aniline leather color modulation via uniform registers
+    t = pullup + nap + fuzz + 0.5
+    ur = mix(0.36, u0, u3)
+    ug = mix(0.18, u1, u3)
+    ub = mix(0.08, u2, u3)
+
+    base_r = mix(ur * 0.45, ur * 1.35, t)
+    base_g = mix(ug * 0.45, ug * 1.35, t)
+    base_b = mix(ub * 0.45, ub * 1.35, t)
+
+    # 4. Vignette falloff
+    vignette = smoothstep(3.0, 0.25, dist)
+    grain = (random() - 0.5) * 0.01
+
+    r = clamp(base_r * vignette + grain, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ur = mix(0.15, u0 * 0.45, u3)
+    ug = mix(0.09, u1 * 0.45, u3)
+    ub = mix(0.05, u2 * 0.45, u3)
+    ctx.fill_rect(0, 0, w, h, [ur, ug, ub])
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, [ur * 1.4, ug * 1.4, ub * 1.4], 1.8)
+    ctx.apply_shader("nubuck_shader", intensity=1.0)

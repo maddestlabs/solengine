@@ -1,0 +1,84 @@
+# SolEngine Procedural Background Theme — Timber Grain
+# Pure Eatscript Bytecode Shader: Anisotropic 6-octave hash grain with HSV hue variation (no baked lighting)
+
+sol.set_theme({
+    id: "timber_grain",
+    name: "Timber Grain",
+    author: "Maddest Labs",
+    description: "Anisotropic fractal wood grain with subtle white-noise micro-texture and natural hue variation",
+    version: 1,
+    procedural: true,
+    lacquer: 0.55,
+    relief_bump: 2.0,
+    option_label: "Finish",
+    options: [
+        { id: "amber_oak",       name: "Amber Oak",       u: [0.78, 0.72, 0.66, 1.0] },
+        { id: "cherry_mahogany", name: "Cherry Mahogany", u: [0.74, 0.44, 0.36, 1.0] },
+        { id: "smoked_walnut",   name: "Smoked Walnut",   u: [0.48, 0.38, 0.32, 1.0] },
+        { id: "bleached_ash",    name: "Bleached Ash",    u: [0.96, 0.94, 0.88, 1.0] },
+        { id: "ebony_charcoal",  name: "Ebony Charcoal",  u: [0.30, 0.28, 0.28, 1.0] }
+    ]
+})
+
+def timber_grain_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Anisotropic 6-octave hash noise (unrolled for Eatscript shader VM)
+    ux = px * 0.000000001
+    vy = v
+
+    n0 = fract(sin((ux * 12.9898 + vy * 78.233) * 1.0) * 43758.5453) * 1.0
+    ux = ux * 8.0
+    n1 = fract(sin((ux * 12.9898 + vy * 78.233) * 2.0) * 43758.5453) * 0.5
+    ux = ux * 8.0
+    n2 = fract(sin((ux * 12.9898 + vy * 78.233) * 3.0) * 43758.5453) * 0.25
+    ux = ux * 8.0
+    n3 = fract(sin((ux * 12.9898 + vy * 78.233) * 4.0) * 43758.5453) * 0.125
+    ux = ux * 8.0
+    n4 = fract(sin((ux * 12.9898 + vy * 78.233) * 5.0) * 43758.5453) * 0.0625
+    ux = ux * 8.0
+    n5 = fract(sin((ux * 12.9898 + vy * 78.233) * 6.0) * 43758.5453) * 0.03125
+
+    noise = n0 + n1 + n2 + n3 + n4 + n5
+
+    # 2. Blend fine white noise and remap core grain density
+    white_noise = fract(sin(px * 12.9898 + py * 78.233) * 43758.5453)
+    blended_noise = mix(noise, noise - 0.5 * white_noise, 0.5)
+    blended_noise = blended_noise * 0.15 + 0.25
+
+    # 3. Map blended_noise to warm HSV hue range [0.0, 0.2] and desaturate 50%
+    hue = mix(0.0, 0.2, blended_noise)
+    hr = clamp(abs(fract(hue + 1.0) * 6.0 - 3.0) - 1.0, 0.0, 1.0)
+    hg = clamp(abs(fract(hue + 0.6666667) * 6.0 - 3.0) - 1.0, 0.0, 1.0)
+    hb = clamp(abs(fract(hue + 0.3333333) * 6.0 - 3.0) - 1.0, 0.0, 1.0)
+
+    lum = hr * 0.299 + hg * 0.587 + hb * 0.114
+    sat_r = mix(hr, lum, 0.5)
+    sat_g = mix(hg, lum, 0.5)
+    sat_b = mix(hb, lum, 0.5)
+
+    # 4. Tint by finish variant via uniform registers
+    ur = mix(0.78, u0, u3)
+    ug = mix(0.72, u1, u3)
+    ub = mix(0.66, u2, u3)
+
+    base_r = sat_r * blended_noise * ur * 1.35
+    base_g = sat_g * blended_noise * ug * 1.35
+    base_b = sat_b * blended_noise * ub * 1.35
+
+    # 5. Subtle vignette falloff
+    vignette = smoothstep(3.0, 0.25, dist)
+
+    r = clamp(base_r * vignette, 0.0, 1.0)
+    g = clamp(base_g * vignette, 0.0, 1.0)
+    b = clamp(base_b * vignette, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ur = mix(0.24, u0 * 0.30, u3)
+    ug = mix(0.16, u1 * 0.22, u3)
+    ub = mix(0.10, u2 * 0.16, u3)
+    ctx.fill_rect(0, 0, w, h, [ur, ug, ub])
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, [ur * 1.5, ug * 1.5, ub * 1.5], 1.8)
+    ctx.apply_shader("timber_grain_shader", intensity=1.0)

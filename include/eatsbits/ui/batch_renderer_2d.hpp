@@ -135,6 +135,11 @@ public:
         float /*opacity*/ = 1.0f
     ) {}
     virtual void updateRgbaTexture(int /*x*/, int /*y*/, int /*w*/, int /*h*/, const uint8_t* /*data*/, int /*atlasW*/, int /*atlasH*/) {}
+    virtual bool setPostFxShader(const std::string& /*wgslSource*/) { return false; }
+    virtual void setPostFxParams(float /*intensity*/, float /*u0*/, float /*u1*/, float /*u2*/, float /*u3*/, float /*param1*/, float /*param2*/) {}
+    virtual void setPostFxActive(bool /*active*/) {}
+    virtual void applyPostFxPass() {}
+    virtual void beginPostFxFrame() {}
 };
 
 class BatchRenderer2D;
@@ -218,6 +223,12 @@ public:
     void endFrame();
     void flush();
     void applyBackdropBlur(float radius = 3.0f, float dimFactor = 0.50f);
+
+    // --- Fullscreen GPU Post-Processing ---
+    bool setPostFxShader(const std::string& wgslSource);
+    void setPostFxParams(float intensity, float u0, float u1, float u2, float u3, float param1, float param2);
+    void setPostFxActive(bool active);
+    void applyPostFxPass();
 
     // --- Blend Modes ---
     void setBlendMode(BlendMode mode);

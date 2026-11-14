@@ -642,6 +642,187 @@ void CardCanvas::drawImageFile(const std::string& filePath, float x, float y, fl
     compositeBuffer(upsampled.data(), renderW, renderH, dstX, dstY, static_cast<float>(renderW), static_cast<float>(renderH));
 }
 
+void CardCanvas::drawTiledDetailFile(const std::string& filePath, float tileSizePx, float strength) {
+    if (filePath.empty() || width_ <= 0 || height_ <= 0 || rgba_.empty()) return;
+
+    std::filesystem::path resolved = resolveThemeAssetPath(filePath);
+    if (resolved.empty()) return;
+
+    int imgW = 0, imgH = 0, comp = 0;
+    std::string pathStr = resolved.string();
+    stbi_uc* pixels = stbi_load(pathStr.c_str(), &imgW, &imgH, &comp, 4);
+    if (!pixels || imgW <= 0 || imgH <= 0) {
+        if (pixels) stbi_image_free(pixels);
+        return;
+    }
+
+    const float invTile = 1.0f / std::max(tileSizePx, 8.0f);
+    const float fImgW = static_cast<float>(imgW);
+    const float fImgH = static_cast<float>(imgH);
+
+    #pragma omp parallel for schedule(static)
+    for (int py = 0; py < height_; ++py) {
+        float v = (static_cast<float>(py) + 0.5f) * invTile;
+        v = v - std::floor(v);
+        float sy = v * fImgH - 0.5f;
+        int y0 = static_cast<int>(std::floor(sy));
+        float wy = sy - static_cast<float>(y0);
+        int y1 = (y0 + 1) % imgH;
+        y0 = (y0 % imgH + imgH) % imgH;
+
+        for (int px = 0; px < width_; ++px) {
+            float u = (static_cast<float>(px) + 0.5f) * invTile;
+            u = u - std::floor(u);
+            float sx = u * fImgW - 0.5f;
+            int x0 = static_cast<int>(std::floor(sx));
+            float wx = sx - static_cast<float>(x0);
+            int x1 = (x0 + 1) % imgW;
+            x0 = (x0 % imgW + imgW) % imgW;
+
+            const uint8_t* p00 = pixels + (static_cast<size_t>(y0 * imgW + x0) * 4);
+            const uint8_t* p10 = pixels + (static_cast<size_t>(y0 * imgW + x1) * 4);
+            const uint8_t* p01 = pixels + (static_cast<size_t>(y1 * imgW + x0) * 4);
+            const uint8_t* p11 = pixels + (static_cast<size_t>(y1 * imgW + x1) * 4);
+
+            float w00 = (1.0f - wx) * (1.0f - wy);
+            float w10 = wx * (1.0f - wy);
+            float w01 = (1.0f - wx) * wy;
+            float w11 = wx * wy;
+
+            float det = (p00[0] * w00 + p10[0] * w10 + p01[0] * w01 + p11[0] * w11) / 255.0f;
+            float d = (det - 0.5f) * strength;
+
+            size_t dstIdx = static_cast<size_t>(py * width_ + px) * 4;
+            for (int c = 0; c < 3; ++c) {
+                float base = static_cast<float>(rgba_[dstIdx + c]) / 255.0f;
+                float atten = 0.35f + 0.65f * (1.0f - std::abs(base * 2.0f - 1.0f));
+                float out = std::clamp(base + d * atten, 0.0f, 1.0f);
+                rgba_[dstIdx + c] = static_cast<uint8_t>(out * 255.0f);
+            }
+        }
+    }
+
+    stbi_image_free(pixels);
+}
+
+void CardCanvas::applyGradientLut(const std::string& mineralMapPath, const std::string& lutPath, float noiseAmp, bool cover, float tileSizePx) {
+    if (mineralMapPath.empty() || lutPath.empty() || width_ <= 0 || height_ <= 0) return;
+
+    std::filesystem::path minResolved = resolveThemeAssetPath(mineralMapPath);
+    std::filesystem::path lutResolved = resolveThemeAssetPath(lutPath);
+    if (minResolved.empty() || lutResolved.empty()) return;
+
+    int imgW = 0, imgH = 0, comp = 0;
+    std::string minStr = minResolved.string();
+    stbi_uc* mineral = stbi_load(minStr.c_str(), &imgW, &imgH, &comp, 1);
+    if (!mineral || imgW <= 0 || imgH <= 0) {
+        if (mineral) stbi_image_free(mineral);
+        return;
+    }
+
+    int lutW = 0, lutH = 0, lutComp = 0;
+    std::string lutStr = lutResolved.string();
+    stbi_uc* lut = stbi_load(lutStr.c_str(), &lutW, &lutH, &lutComp, 4);
+    if (!lut || lutW <= 1) {
+        stbi_image_free(mineral);
+        if (lut) stbi_image_free(lut);
+        return;
+    }
+
+    const size_t totalPixels = static_cast<size_t>(width_ * height_);
+    if (rgba_.size() < totalPixels * 4) {
+        rgba_.resize(totalPixels * 4, 255);
+    }
+
+    const float scaleX = static_cast<float>(width_) / static_cast<float>(imgW);
+    const float scaleY = static_cast<float>(height_) / static_cast<float>(imgH);
+    const float scale = cover ? std::max(scaleX, scaleY) : std::min(scaleX, scaleY);
+    const float tx = (static_cast<float>(width_) - static_cast<float>(imgW) * scale) * 0.5f;
+    const float ty = (static_cast<float>(height_) - static_cast<float>(imgH) * scale) * 0.5f;
+    const float invScale = 1.0f / std::max(scale, 1e-6f);
+    const float lutMax = static_cast<float>(lutW - 1);
+
+    const bool tiled = (tileSizePx > 0.0f);
+    const float invTile = tiled ? (1.0f / std::max(tileSizePx, 8.0f)) : 0.0f;
+    const float fImgW = static_cast<float>(imgW);
+    const float fImgH = static_cast<float>(imgH);
+
+    #pragma omp parallel for schedule(static)
+    for (int py = 0; py < height_; ++py) {
+        int y0 = 0, y1 = 0;
+        float wy = 0.0f;
+        if (tiled) {
+            float v = (static_cast<float>(py) + 0.5f) * invTile;
+            v = v - std::floor(v);
+            float sy = v * fImgH - 0.5f;
+            y0 = static_cast<int>(std::floor(sy));
+            wy = sy - static_cast<float>(y0);
+            y1 = (y0 + 1) % imgH;
+            y0 = (y0 % imgH + imgH) % imgH;
+        } else {
+            float sy = (static_cast<float>(py) + 0.5f - ty) * invScale - 0.5f;
+            y0 = std::clamp(static_cast<int>(std::floor(sy)), 0, imgH - 1);
+            y1 = std::clamp(y0 + 1, 0, imgH - 1);
+            wy = std::clamp(sy - static_cast<float>(y0), 0.0f, 1.0f);
+        }
+
+        for (int px = 0; px < width_; ++px) {
+            int x0 = 0, x1 = 0;
+            float wx = 0.0f;
+            if (tiled) {
+                float u = (static_cast<float>(px) + 0.5f) * invTile;
+                u = u - std::floor(u);
+                float sx = u * fImgW - 0.5f;
+                x0 = static_cast<int>(std::floor(sx));
+                wx = sx - static_cast<float>(x0);
+                x1 = (x0 + 1) % imgW;
+                x0 = (x0 % imgW + imgW) % imgW;
+            } else {
+                float sx = (static_cast<float>(px) + 0.5f - tx) * invScale - 0.5f;
+                x0 = std::clamp(static_cast<int>(std::floor(sx)), 0, imgW - 1);
+                x1 = std::clamp(x0 + 1, 0, imgW - 1);
+                wx = std::clamp(sx - static_cast<float>(x0), 0.0f, 1.0f);
+            }
+
+            float m00 = static_cast<float>(mineral[static_cast<size_t>(y0 * imgW + x0)]);
+            float m10 = static_cast<float>(mineral[static_cast<size_t>(y0 * imgW + x1)]);
+            float m01 = static_cast<float>(mineral[static_cast<size_t>(y1 * imgW + x0)]);
+            float m11 = static_cast<float>(mineral[static_cast<size_t>(y1 * imgW + x1)]);
+
+            float w00 = (1.0f - wx) * (1.0f - wy);
+            float w10 = wx * (1.0f - wy);
+            float w01 = (1.0f - wx) * wy;
+            float w11 = wx * wy;
+
+            float scalar = (m00 * w00 + m10 * w10 + m01 * w01 + m11 * w11) / 255.0f;
+
+            // Fast integer hash per-pixel micro-perturbation to break upscaling blur at LUT lookup
+            uint32_t h = static_cast<uint32_t>(px) * 374761393u + static_cast<uint32_t>(py) * 668265263u + 0x9E3779B9u;
+            h = (h ^ (h >> 13)) * 1274126177u;
+            h ^= (h >> 16);
+            float n = (static_cast<float>(h & 0xFFFFu) / 65535.0f - 0.5f) * 2.0f * noiseAmp;
+
+            float t = std::clamp(scalar + n, 0.0f, 1.0f) * lutMax;
+            int i0 = std::clamp(static_cast<int>(std::floor(t)), 0, lutW - 1);
+            int i1 = std::clamp(i0 + 1, 0, lutW - 1);
+            float ft = t - static_cast<float>(i0);
+
+            const uint8_t* c0 = lut + static_cast<size_t>(i0) * 4;
+            const uint8_t* c1 = lut + static_cast<size_t>(i1) * 4;
+
+            size_t dstIdx = static_cast<size_t>(py * width_ + px) * 4;
+            for (int c = 0; c < 3; ++c) {
+                float col = static_cast<float>(c0[c]) * (1.0f - ft) + static_cast<float>(c1[c]) * ft;
+                rgba_[dstIdx + c] = static_cast<uint8_t>(std::clamp(col, 0.0f, 255.0f));
+            }
+            rgba_[dstIdx + 3] = 255;
+        }
+    }
+
+    stbi_image_free(mineral);
+    stbi_image_free(lut);
+}
+
 void CardCanvas::drawSvgPath(const std::string& pathD, float cx, float cy, float scale, uint32_t color) {
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, pathD, cx, cy, scale, color]() { drawSvgPath(pathD, cx, cy, scale, color); });
@@ -4747,6 +4928,28 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         float h = eatsbits::eatscript::resolveArg(args, kwargs, 4, "h", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
         bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 5, "cover", eatsbits::eatscript::Value(true)).asInt(1) != 0;
         canvas->drawImageFile(pathVal.asString(), x, y, w, h, cover);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("ctx", "draw_tiled_detail", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto pathVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "path", eatsbits::eatscript::Value(""));
+        if (!pathVal.isString()) return eatsbits::eatscript::Value(false);
+        float tileSize = eatsbits::eatscript::resolveArg(args, kwargs, 1, "tile_size", eatsbits::eatscript::Value(320.0)).asFloat(320.0f);
+        float strength = eatsbits::eatscript::resolveArg(args, kwargs, 2, "strength", eatsbits::eatscript::Value(0.65)).asFloat(0.65f);
+        canvas->drawTiledDetailFile(pathVal.asString(), tileSize, strength);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("ctx", "apply_gradient_lut", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto minVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "mineral_map", eatsbits::eatscript::Value(""));
+        auto lutVal = eatsbits::eatscript::resolveArg(args, kwargs, 1, "lut", eatsbits::eatscript::Value(""));
+        if (!minVal.isString() || !lutVal.isString()) return eatsbits::eatscript::Value(false);
+        float noiseAmp = eatsbits::eatscript::resolveArg(args, kwargs, 2, "noise_amp", eatsbits::eatscript::Value(0.02)).asFloat(0.02f);
+        bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 3, "cover", eatsbits::eatscript::Value(true)).asInt(1) != 0;
+        float tileSize = eatsbits::eatscript::resolveArg(args, kwargs, 4, "tile_size", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        canvas->applyGradientLut(minVal.asString(), lutVal.asString(), noiseAmp, cover, tileSize);
         return eatsbits::eatscript::Value(true);
     });
 }

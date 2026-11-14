@@ -1,0 +1,95 @@
+# SolEngine Procedural Background Theme — Painted Wood
+# Pure Eatscript Bytecode Shader: Weathered painted wood timber planks with visible grain, beveled seams, and milk paint finish
+
+sol.set_theme({
+    id: "paintedwood",
+    name: "Painted Wood",
+    author: "Maddest Labs",
+    description: "Weathered antique timber planks with visible grain, beveled seams, and milk paint finish",
+    version: 3,
+    procedural: true,
+    lacquer: 0.55,
+    relief_bump: 2.2,
+    option_label: "Finish",
+    options: [
+        { id: "red_cedar",     name: "Red Cedar",     u: [0.27, 0.25, 0.22, 1.0] },
+        { id: "slate_sage",    name: "Slate Sage",    u: [0.24, 0.28, 0.27, 1.0] },
+        { id: "coastal_white", name: "Coastal White", u: [0.38, 0.37, 0.35, 1.0] },
+        { id: "vintage_navy",  name: "Vintage Navy",  u: [0.15, 0.20, 0.28, 1.0] },
+        { id: "barn_charcoal", name: "Barn Charcoal", u: [0.16, 0.16, 0.17, 1.0] }
+    ]
+})
+
+def wood_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Horizontal plank seams with precision-milled 3D beveled chamfers
+    plank_coord = ny * 3.5
+    plank_angle = plank_coord * 3.14159265
+    plank_sin = sin(plank_angle)
+    plank_cos = cos(plank_angle)
+    plank_dist = abs(plank_sin)
+
+    # Tight, crisp milled chamfer bevel
+    bevel_zone = smoothstep(0.048, 0.004, plank_dist)
+    bevel_light = clamp(plank_sin * plank_cos * 14.0, -1.0, 1.0) * bevel_zone * 0.075
+
+    # Crisp, clean seam groove
+    seam_shade = 1.0 - smoothstep(0.020, 0.002, plank_dist) * 0.58
+
+    # 2. Curly/flame heartwood timber grain (spatially modulated density)
+    grain_density = smoothstep(0.30, 0.70, fbm(nx * 1.5 + 3.7, ny * 1.7 + 6.2))
+    grain_flame = sin(nx * 4.5 + ny * 5.0) * 0.15
+    grain_warp = fbm(nx * 2.8 + 7.3, ny * 2.2 + 2.1) * 0.35 + grain_flame
+
+    smooth_grain = (fbm(nx * 2.0 + 11.7, ny * 36.0 + grain_warp) - 0.5) * 0.15
+    ring_phase = ny * 18.0 + grain_warp * 2.6
+    ring_raw = abs(sin(ring_phase * 3.14159265))
+    crisp_rings = (1.0 - ring_raw * ring_raw) * 0.16
+    grain = mix(smooth_grain, crisp_rings + smooth_grain * 0.5, grain_density)
+
+    pore_noise = fbm(nx * 6.0 + 4.9, ny * 120.0)
+    micro_pores = (smoothstep(0.38, 0.62, pore_noise) - 0.5) * 0.05 * grain_density
+
+    # 3. Weathered paint wear (vintage wash worn thin exposing bare wood)
+    wear = fbm(nx * 2.6 + 1.2, ny * 3.2 + 4.5)
+
+    # Distressed paint wash color from uniforms
+    paint_base_r = mix(0.27, u0, u3)
+    paint_base_g = mix(0.25, u1, u3)
+    paint_base_b = mix(0.22, u2, u3)
+
+    # Bare timber undertone harmonized with each wood & finish variant
+    wood_base_r = mix(0.28, u0 * 0.92, u3)
+    wood_base_g = mix(0.15, u1 * 0.58, u3)
+    wood_base_b = mix(0.09, u2 * 0.40, u3)
+
+    wood_r = wood_base_r + grain * 1.1 + micro_pores
+    wood_g = wood_base_g + grain * 0.7 + micro_pores * 0.8
+    wood_b = wood_base_b + grain * 0.4 + micro_pores * 0.4
+
+    paint_r = paint_base_r + micro_pores * 0.4
+    paint_g = paint_base_g + micro_pores * 0.4
+    paint_b = paint_base_b + micro_pores * 0.4
+
+    base_r = (mix(wood_r, paint_r, wear) + bevel_light) * seam_shade
+    base_g = (mix(wood_g, paint_g, wear) + bevel_light) * seam_shade
+    base_b = (mix(wood_b, paint_b, wear) + bevel_light) * seam_shade
+
+    # 4. Vignette falloff
+    vignette = smoothstep(3.0, 0.25, dist)
+    grain_speck = (random() - 0.5) * 0.012
+
+    r = clamp(base_r * vignette + grain_speck, 0.0, 1.0)
+    g = clamp(base_g * vignette + grain_speck, 0.0, 1.0)
+    b = clamp(base_b * vignette + grain_speck, 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    ur = mix(0.14, u0 * 0.55, u3)
+    ug = mix(0.10, u1 * 0.50, u3)
+    ub = mix(0.08, u2 * 0.45, u3)
+    ctx.fill_rect(0, 0, w, h, [ur, ug, ub])
+    inset = 18.0
+    ctx.stroke_rect(inset, inset, w - inset * 2.0, h - inset * 2.0, [ur * 1.5, ug * 1.5, ub * 1.5], 1.8)
+    ctx.apply_shader("wood_shader", intensity=1.0)

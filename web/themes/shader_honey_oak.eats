@@ -8,7 +8,7 @@ sol.set_theme({
     description: "Warm blonde honey oak tabletop with horizontal grain flow, subtle cathedral growth rings, and open vessel pores",
     version: 1,
     procedural: true,
-    lacquer: 0.55,
+    lacquer: 0.95,
     relief_bump: 2.0
 })
 

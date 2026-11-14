@@ -25,6 +25,7 @@ public:
     void open();
     void close();
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
+    [[nodiscard]] bool isPeekingPostFx() const noexcept { return peekingPostFx_; }
     [[nodiscard]] const AppSettings& previewSettings() const noexcept { return tempSettings_; }
 
     void render(
@@ -89,8 +90,15 @@ private:
     bool draggingVolume_{false};
     bool draggingAmbienceVolume_{false};
     bool draggingDeviation_{false};
+    bool draggingPostFxIntensity_{false};
+    bool peekingPostFx_{false};
     bool draggingDarkness_{false};
     bool draggingLightStrength_{false};
+    float postFxTrackX_{0.0f};
+    float postFxTrackY_{0.0f};
+    float postFxTrackW_{280.0f};
+    float postFxTrackH_{26.0f};
+    float postFxAffectUiY_{0.0f};
     float volTrackX_{0.0f};
     float volTrackY_{0.0f};
     float volTrackW_{280.0f};
@@ -121,6 +129,10 @@ private:
     float contentRectH_{0.0f};
     bool pointerDownInContent_{false};
     bool draggingThemeScroll_{false};
+    bool draggingThemeScrollbar_{false};
+    float themeSbTrackY_{0.0f};
+    float themeSbTrackH_{0.0f};
+    float themeSbThumbH_{20.0f};
     float dragStartY_{0.0f};
     float dragLastY_{0.0f};
 };

@@ -4,6 +4,7 @@
 #include "solengine/card_texture_cache.hpp"
 #include "solengine/classic_deck_symbols.hpp"
 #include "solengine/procedural_background.hpp"
+#include "solengine/postfx_system.hpp"
 #include "solengine/settings_manager.hpp"
 #include "solengine/session_manager.hpp"
 #include "solengine/ui/svg_icon_renderer.hpp"
@@ -3931,8 +3932,20 @@ struct InteractiveContext {
 
         double mx = 0.0, my = 0.0;
         glfwGetCursorPos(window, &mx, &my);
-        const float fmx = static_cast<float>(mx);
-        const float fmy = static_cast<float>(my);
+        const float rawFmx = static_cast<float>(mx);
+        const float rawFmy = static_cast<float>(my);
+        float fmx = rawFmx;
+        float fmy = rawFmy;
+        const auto& activeMouseCfg = settingsDialog.isOpen()
+            ? settingsDialog.previewSettings()
+            : SettingsManager::instance().settings();
+        if (!(settingsDialog.isOpen() && settingsDialog.isPeekingPostFx())) {
+            PostFxSystem::instance().warpMouseCoords(
+                activeMouseCfg.postFxId, activeMouseCfg.postFxOption, activeMouseCfg.postFxIntensity,
+                static_cast<float>(width), static_cast<float>(height), fmx, fmy);
+        }
+        const float uiFmx = activeMouseCfg.postFxAffectUi ? fmx : rawFmx;
+        const float uiFmy = activeMouseCfg.postFxAffectUi ? fmy : rawFmy;
 
         int hoveredBtn = hitTestHudButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), board, menuAnchor, menuFlowVertical);
         if (autoPlayController.isActive()) {
@@ -3948,32 +3961,32 @@ struct InteractiveContext {
         if (loadingDialog.isOpen() || asyncManager.isBusy.load()) {
             if (loadingDialog.isOpen()) {
                 if (leftDown && !prevLeftDown) {
-                    loadingDialog.handleMouseButton(0, 1, fmx, fmy);
+                    loadingDialog.handleMouseButton(0, 1, uiFmx, uiFmy);
                 }
             }
         } else if (seedDialog.isOpen()) {
             if (leftDown && !prevLeftDown) {
-                seedDialog.handleMouseButton(0, 1, fmx, fmy, board, foley, window);
+                seedDialog.handleMouseButton(0, 1, uiFmx, uiFmy, board, foley, window);
             } else if (leftDown) {
-                seedDialog.handleMouseMove(fmx, fmy);
+                seedDialog.handleMouseMove(uiFmx, uiFmy);
             } else if (!leftDown && prevLeftDown) {
-                seedDialog.handleMouseButton(0, 0, fmx, fmy, board, foley, window);
+                seedDialog.handleMouseButton(0, 0, uiFmx, uiFmy, board, foley, window);
             }
         } else if (gameBrowserDialog.isOpen()) {
             if (leftDown && !prevLeftDown) {
-                gameBrowserDialog.handleMouseButton(0, 1, fmx, fmy, board, foley);
+                gameBrowserDialog.handleMouseButton(0, 1, uiFmx, uiFmy, board, foley);
             } else if (leftDown) {
-                gameBrowserDialog.handleMouseMove(fmx, fmy);
+                gameBrowserDialog.handleMouseMove(uiFmx, uiFmy);
             } else if (!leftDown && prevLeftDown) {
-                gameBrowserDialog.handleMouseButton(0, 0, fmx, fmy, board, foley);
+                gameBrowserDialog.handleMouseButton(0, 0, uiFmx, uiFmy, board, foley);
             }
         } else if (settingsDialog.isOpen()) {
             if (leftDown && !prevLeftDown) {
-                settingsDialog.handleMouseButton(0, 1, fmx, fmy, board, foley);
+                settingsDialog.handleMouseButton(0, 1, uiFmx, uiFmy, board, foley);
             } else if (leftDown) {
-                settingsDialog.handleMouseMove(fmx, fmy, board, foley);
+                settingsDialog.handleMouseMove(uiFmx, uiFmy, board, foley);
             } else if (!leftDown && prevLeftDown) {
-                settingsDialog.handleMouseButton(0, 0, fmx, fmy, board, foley);
+                settingsDialog.handleMouseButton(0, 0, uiFmx, uiFmy, board, foley);
             }
         } else if (playMenuOpen) {
             if (leftDown && !prevLeftDown) {
@@ -3988,10 +4001,10 @@ struct InteractiveContext {
                 menuX = std::clamp(menuX, 8.0f, static_cast<float>(width) - menuW - 8.0f);
                 menuY = std::clamp(menuY, 8.0f, static_cast<float>(height) - menuH - 8.0f);
 
-                if (fmx >= menuX && fmx <= menuX + menuW && fmy >= menuY && fmy <= menuY + menuH) {
+                if (uiFmx >= menuX && uiFmx <= menuX + menuW && uiFmy >= menuY && uiFmy <= menuY + menuH) {
                     float curY = menuY + headerH + pad * 0.5f;
                     for (int i = 0; i < kCount; ++i) {
-                        if (fmx >= menuX + pad && fmx <= menuX + menuW - pad && fmy >= curY && fmy <= curY + itemH) {
+                        if (uiFmx >= menuX + pad && uiFmx <= menuX + menuW - pad && uiFmy >= curY && uiFmy <= curY + itemH) {
                             if (i == 0) { // New Random Deal
                                 triggerAction(BtnNewDeal);
                             } else if (i == 1) { // New Solvable Deal
@@ -4028,13 +4041,13 @@ struct InteractiveContext {
                 menuX = std::clamp(menuX, 8.0f, static_cast<float>(width) - menuW - 8.0f);
                 menuY = std::clamp(menuY, 8.0f, static_cast<float>(height) - menuH - 8.0f);
 
-                if (fmx >= menuX && fmx <= menuX + menuW && fmy >= menuY && fmy <= menuY + menuH) {
+                if (uiFmx >= menuX && uiFmx <= menuX + menuW && uiFmy >= menuY && uiFmy <= menuY + menuH) {
                     float scaleY = menuY + headerH + 6.0f;
                     const float pillW = (menuW - pad * 2.0f - 8.0f) / 3.0f;
                     const float pillH = 22.0f;
                     for (int i = 0; i < 3; ++i) {
                         float px = menuX + pad + static_cast<float>(i) * (pillW + 4.0f);
-                        if (fmx >= px && fmx <= px + pillW && fmy >= scaleY && fmy <= scaleY + pillH) {
+                        if (uiFmx >= px && uiFmx <= px + pillW && uiFmy >= scaleY && uiFmy <= scaleY + pillH) {
                             auto& s = SettingsManager::instance().settings();
                             s.toolbarScale = static_cast<ToolbarScale>(i);
                             SettingsManager::instance().save();
@@ -4050,7 +4063,7 @@ struct InteractiveContext {
                     };
                     float curY = divY + 18.0f;
                     for (int i = 0; i < kNumToggles; ++i) {
-                        if (fmx >= menuX + pad && fmx <= menuX + menuW - pad && fmy >= curY && fmy <= curY + itemH) {
+                        if (uiFmx >= menuX + pad && uiFmx <= menuX + menuW - pad && uiFmy >= curY && uiFmy <= curY + itemH) {
                             auto& s = SettingsManager::instance().settings();
                             s.toolbarItems ^= toggleFlags[i];
                             SettingsManager::instance().save();
@@ -4062,7 +4075,7 @@ struct InteractiveContext {
                     float closeBtnY = curY + 4.0f;
                     float closeBtnW = menuW - pad * 2.0f;
                     float closeBtnH = 22.0f;
-                    if (fmx >= menuX + pad && fmx <= menuX + pad + closeBtnW && fmy >= closeBtnY && fmy <= closeBtnY + closeBtnH) {
+                    if (uiFmx >= menuX + pad && uiFmx <= menuX + pad + closeBtnW && uiFmy >= closeBtnY && uiFmy <= closeBtnY + closeBtnH) {
                         toolbarConfigOpen = false;
                         foley.triggerSound(FoleySound::WoodClick, 0.85f);
                     }
@@ -4463,6 +4476,24 @@ struct InteractiveContext {
         const auto aCol = lightController.getAmbientColor();
 
         if (width > 0 && height > 0) {
+            bool postFxEnabled = false;
+            if (!activeCfg.postFxId.empty() && activeCfg.postFxId != "none" &&
+                !(settingsDialog.isOpen() && settingsDialog.isPeekingPostFx())) {
+                const auto& available = PostFxSystem::instance().availableEffects();
+                (void)available;
+                const PostFxDef* pfx = PostFxSystem::instance().getEffectById(activeCfg.postFxId);
+                if (pfx && !pfx->wgslSource.empty()) {
+                    if (renderer.setPostFxShader(pfx->wgslSource)) {
+                        float u[4]{};
+                        float p1 = 0.0f, p2 = 0.0f;
+                        PostFxSystem::instance().resolveParams(activeCfg.postFxId, activeCfg.postFxOption, u, p1, p2);
+                        renderer.setPostFxParams(activeCfg.postFxIntensity, u[0], u[1], u[2], u[3], p1, p2);
+                        postFxEnabled = true;
+                    }
+                }
+            }
+            renderer.setPostFxActive(postFxEnabled);
+
             renderer.beginFrame(static_cast<float>(width), static_cast<float>(height));
             renderer.setGlobalLight(dynamicLight, lCol[0], lCol[1], lCol[2], aCol[0], aCol[1], aCol[2],
                                     activeCfg.sceneDarkness, activeCfg.lightStrength);
@@ -4472,21 +4503,24 @@ struct InteractiveContext {
                                        menuOpen, menuAnchor, menuFlowVertical, isDraggingMenu, dragPreviewAnchor, dragPreviewFlowVertical,
                                        isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
                                        &dynamicLight, &autoPlayController);
+            if (postFxEnabled && !activeCfg.postFxAffectUi) {
+                renderer.applyPostFxPass();
+            }
             if (settingsDialog.isOpen()) {
                 ThemePalette pal = getPalette(board.tableTheme());
-                settingsDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), fmx, fmy, pal, static_cast<float>(now));
+                settingsDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal, static_cast<float>(now));
             }
             if (seedDialog.isOpen()) {
                 ThemePalette pal = getPalette(board.tableTheme());
-                seedDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), fmx, fmy, pal, static_cast<float>(now), window);
+                seedDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal, static_cast<float>(now), window);
             }
             if (gameBrowserDialog.isOpen()) {
                 ThemePalette pal = getPalette(board.tableTheme());
-                gameBrowserDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), fmx, fmy, pal);
+                gameBrowserDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal);
             }
             if (loadingDialog.isOpen()) {
                 ThemePalette pal = getPalette(board.tableTheme());
-                loadingDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), fmx, fmy, pal, now);
+                loadingDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal, now);
             }
 
             // Draw hold progress ring on active button
@@ -4505,7 +4539,7 @@ struct InteractiveContext {
             if (playMenuOpen) {
                 int dummyHover = -1;
                 drawPlayContextMenu(renderer, static_cast<float>(width), static_cast<float>(height),
-                                    playMenuAnchorX, playMenuAnchorY, fmx, fmy,
+                                    playMenuAnchorX, playMenuAnchorY, uiFmx, uiFmy,
                                     SettingsManager::instance().settings().guaranteeSolvable, dummyHover);
             }
 
@@ -4514,7 +4548,7 @@ struct InteractiveContext {
                 int dummyToggle = -1;
                 bool dummyClose = false;
                 drawToolbarConfigMenu(renderer, static_cast<float>(width), static_cast<float>(height),
-                                      toolbarConfigAnchorX, toolbarConfigAnchorY, fmx, fmy,
+                                      toolbarConfigAnchorX, toolbarConfigAnchorY, uiFmx, uiFmy,
                                       SettingsManager::instance().settings(),
                                       dummyScale, dummyToggle, dummyClose);
             }

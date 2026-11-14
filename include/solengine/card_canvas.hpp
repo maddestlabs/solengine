@@ -143,6 +143,8 @@ public:
     void drawSvg(const std::string& svgXml, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f);
     void drawSvgFile(const std::string& filePath, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = true);
     void drawImageFile(const std::string& filePath, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = true);
+    void drawTiledDetailFile(const std::string& filePath, float tileSizePx = 320.0f, float strength = 0.65f);
+    void applyGradientLut(const std::string& mineralMapPath, const std::string& lutPath, float noiseAmp = 0.02f, bool cover = true, float tileSizePx = 0.0f);
     void drawSvgPath(const std::string& pathD, float cx, float cy, float scale, uint32_t color);
 
     // Typography & Rank Glyphs

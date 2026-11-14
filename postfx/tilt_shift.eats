@@ -1,0 +1,15 @@
+# SolEngine Post-FX — Tilt-Shift Miniature Focus
+sol.set_postfx({
+    id: "tilt_shift",
+    name: "Tilt-Shift",
+    author: "Maddest Labs",
+    description: "Gradual selective-focus miniature blur",
+    filter: "tilt_shift",
+    option_label: "Focus",
+    gpu_cost: "Med",
+    options: [
+        { id: "center", name: "Center Table",   param1: 0.50, param2: 0.22 },
+        { id: "upper",  name: "Upper Tableau",  param1: 0.34, param2: 0.20 },
+        { id: "lower",  name: "Lower Hand",     param1: 0.68, param2: 0.20 }
+    ]
+})

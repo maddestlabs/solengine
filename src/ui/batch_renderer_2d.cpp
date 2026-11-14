@@ -2495,6 +2495,31 @@ public:
             wgpuTextureRelease(msaaTexture_);
             msaaTexture_ = nullptr;
         }
+        releasePostFxSceneTexture();
+        if (postFxPipeline_) {
+            wgpuRenderPipelineRelease(postFxPipeline_);
+            postFxPipeline_ = nullptr;
+        }
+        if (postFxBindGroup_) {
+            wgpuBindGroupRelease(postFxBindGroup_);
+            postFxBindGroup_ = nullptr;
+        }
+        if (postFxBindGroupLayout_) {
+            wgpuBindGroupLayoutRelease(postFxBindGroupLayout_);
+            postFxBindGroupLayout_ = nullptr;
+        }
+        if (postFxPipelineLayout_) {
+            wgpuPipelineLayoutRelease(postFxPipelineLayout_);
+            postFxPipelineLayout_ = nullptr;
+        }
+        if (postFxUniformBuffer_) {
+            wgpuBufferRelease(postFxUniformBuffer_);
+            postFxUniformBuffer_ = nullptr;
+        }
+        if (postFxSampler_) {
+            wgpuSamplerRelease(postFxSampler_);
+            postFxSampler_ = nullptr;
+        }
         if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
         }
@@ -2643,6 +2668,31 @@ public:
             wgpuTextureRelease(msaaTexture_);
             msaaTexture_ = nullptr;
         }
+        releasePostFxSceneTexture();
+        if (postFxPipeline_) {
+            wgpuRenderPipelineRelease(postFxPipeline_);
+            postFxPipeline_ = nullptr;
+        }
+        if (postFxBindGroup_) {
+            wgpuBindGroupRelease(postFxBindGroup_);
+            postFxBindGroup_ = nullptr;
+        }
+        if (postFxBindGroupLayout_) {
+            wgpuBindGroupLayoutRelease(postFxBindGroupLayout_);
+            postFxBindGroupLayout_ = nullptr;
+        }
+        if (postFxPipelineLayout_) {
+            wgpuPipelineLayoutRelease(postFxPipelineLayout_);
+            postFxPipelineLayout_ = nullptr;
+        }
+        if (postFxUniformBuffer_) {
+            wgpuBufferRelease(postFxUniformBuffer_);
+            postFxUniformBuffer_ = nullptr;
+        }
+        if (postFxSampler_) {
+            wgpuSamplerRelease(postFxSampler_);
+            postFxSampler_ = nullptr;
+        }
         if (sampleCount_ <= 1 || !device_ || width == 0 || height == 0) {
             return;
         }
@@ -2743,6 +2793,7 @@ public:
             currentSurfaceTexture_.texture = nullptr;
         }
         isFirstBatchOfFrame_ = true;
+        postFxAppliedThisFrame_ = false;
     }
 
     void updateFontTexture(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH) override {
@@ -2769,26 +2820,36 @@ public:
         if (vertices.empty() || !device_ || !pipeline_) return;
         if (!customTargetView_ && !surface_) return;
 
-        if (customTargetView_) {
-            currentBackBufferView_ = customTargetView_;
-        } else if (!currentBackBufferView_) {
-            wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
-            if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-                currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
-                return;
+        const bool renderToPostFxScene = (postFxActive_ && postFxPipeline_ != nullptr &&
+                                          !postFxAppliedThisFrame_ && !customTargetView_);
+        WGPUTextureView targetView = nullptr;
+        if (renderToPostFxScene) {
+            ensurePostFxSceneTexture();
+            targetView = postFxSceneView_;
+        }
+        if (!targetView) {
+            if (customTargetView_) {
+                currentBackBufferView_ = customTargetView_;
+            } else if (!currentBackBufferView_) {
+                wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
+                if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+                    currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+                    return;
+                }
+
+                WGPUTextureViewDescriptor viewDesc{};
+                viewDesc.format = surfaceFormat_;
+                viewDesc.dimension = WGPUTextureViewDimension_2D;
+                viewDesc.baseMipLevel = 0;
+                viewDesc.mipLevelCount = 1;
+                viewDesc.baseArrayLayer = 0;
+                viewDesc.arrayLayerCount = 1;
+                viewDesc.aspect = WGPUTextureAspect_All;
+
+                currentBackBufferView_ = wgpuTextureCreateView(currentSurfaceTexture_.texture, &viewDesc);
+                if (!currentBackBufferView_) return;
             }
-
-            WGPUTextureViewDescriptor viewDesc{};
-            viewDesc.format = surfaceFormat_;
-            viewDesc.dimension = WGPUTextureViewDimension_2D;
-            viewDesc.baseMipLevel = 0;
-            viewDesc.mipLevelCount = 1;
-            viewDesc.baseArrayLayer = 0;
-            viewDesc.arrayLayerCount = 1;
-            viewDesc.aspect = WGPUTextureAspect_All;
-
-            currentBackBufferView_ = wgpuTextureCreateView(currentSurfaceTexture_.texture, &viewDesc);
-            if (!currentBackBufferView_) return;
+            targetView = currentBackBufferView_;
         }
 
         WGPUCommandEncoderDescriptor encDesc{};
@@ -2798,9 +2859,9 @@ public:
         bool useMsaa = (sampleCount_ > 1 && msaaTextureView_ != nullptr);
         if (useMsaa) {
             colorAttachment.view = msaaTextureView_;
-            colorAttachment.resolveTarget = currentBackBufferView_;
+            colorAttachment.resolveTarget = targetView;
         } else {
-            colorAttachment.view = currentBackBufferView_;
+            colorAttachment.view = targetView;
             colorAttachment.resolveTarget = nullptr;
         }
         colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
@@ -2961,6 +3022,9 @@ public:
     }
 
     void endPass() override {
+        if (postFxActive_ && postFxPipeline_ && !postFxAppliedThisFrame_ && !customTargetView_) {
+            applyPostFxPass();
+        }
 #if !defined(__EMSCRIPTEN__)
         if (surface_) {
             wgpuSurfacePresent(surface_);
@@ -2993,6 +3057,156 @@ public:
 
     void setCustomRenderTargetView(void* view) override {
         customTargetView_ = static_cast<WGPUTextureView>(view);
+    }
+
+    bool setPostFxShader(const std::string& wgslSource) override {
+        if (!device_) return false;
+        if (wgslSource == cachedPostFxWgsl_ && postFxPipeline_) {
+            return true;
+        }
+        if (postFxPipeline_) {
+            wgpuRenderPipelineRelease(postFxPipeline_);
+            postFxPipeline_ = nullptr;
+        }
+        cachedPostFxWgsl_.clear();
+        if (wgslSource.empty()) return true;
+
+        ensurePostFxResources();
+        if (!postFxPipelineLayout_) return false;
+
+        WGPUShaderSourceWGSL wgslDesc{};
+        wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
+        wgslDesc.code = makeWgpuStringView(wgslSource.c_str());
+
+        WGPUShaderModuleDescriptor smDesc{};
+        smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
+        WGPUShaderModule sm = wgpuDeviceCreateShaderModule(device_, &smDesc);
+        if (!sm) return false;
+
+        WGPUColorTargetState colorTarget{};
+        colorTarget.format = surfaceFormat_;
+        colorTarget.blend = nullptr;
+        colorTarget.writeMask = WGPUColorWriteMask_All;
+
+        WGPUFragmentState fragState{};
+        fragState.module = sm;
+        fragState.entryPoint = makeWgpuStringView("fs_main");
+        fragState.targetCount = 1;
+        fragState.targets = &colorTarget;
+
+        WGPURenderPipelineDescriptor pipeDesc{};
+        pipeDesc.layout = postFxPipelineLayout_;
+        pipeDesc.vertex.module = sm;
+        pipeDesc.vertex.entryPoint = makeWgpuStringView("vs_main");
+        pipeDesc.vertex.bufferCount = 0;
+        pipeDesc.vertex.buffers = nullptr;
+        pipeDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        pipeDesc.primitive.frontFace = WGPUFrontFace_CCW;
+        pipeDesc.primitive.cullMode = WGPUCullMode_None;
+        pipeDesc.multisample.count = 1;
+        pipeDesc.multisample.mask = 0xFFFFFFFF;
+        pipeDesc.fragment = &fragState;
+
+        postFxPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &pipeDesc);
+        wgpuShaderModuleRelease(sm);
+
+        if (postFxPipeline_) {
+            cachedPostFxWgsl_ = wgslSource;
+            return true;
+        }
+        return false;
+    }
+
+    void setPostFxParams(float intensity, float u0, float u1, float u2, float u3, float param1, float param2) override {
+        postFxIntensity_ = intensity;
+        postFxU_[0] = u0;
+        postFxU_[1] = u1;
+        postFxU_[2] = u2;
+        postFxU_[3] = u3;
+        postFxParam1_ = param1;
+        postFxParam2_ = param2;
+    }
+
+    void setPostFxActive(bool active) override {
+        postFxActive_ = active;
+    }
+
+    void applyPostFxPass() override {
+        if (!device_ || !queue_ || !postFxActive_ || !postFxPipeline_ ||
+            postFxAppliedThisFrame_ || customTargetView_ || !postFxSceneView_) {
+            return;
+        }
+        if (!currentBackBufferView_) {
+            if (!surface_) return;
+            wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
+            if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+                currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+                return;
+            }
+            WGPUTextureViewDescriptor viewDesc{};
+            viewDesc.format = surfaceFormat_;
+            viewDesc.dimension = WGPUTextureViewDimension_2D;
+            viewDesc.baseMipLevel = 0;
+            viewDesc.mipLevelCount = 1;
+            viewDesc.baseArrayLayer = 0;
+            viewDesc.arrayLayerCount = 1;
+            viewDesc.aspect = WGPUTextureAspect_All;
+            currentBackBufferView_ = wgpuTextureCreateView(currentSurfaceTexture_.texture, &viewDesc);
+            if (!currentBackBufferView_) return;
+        }
+
+        ensurePostFxResources();
+        if (!postFxBindGroup_) return;
+
+        struct PostFxUniforms {
+            float u0, u1, u2, u3;
+            float intensity, param1, param2, time;
+            float width, height, texelX, texelY;
+        } ubo{};
+        ubo.u0 = postFxU_[0];
+        ubo.u1 = postFxU_[1];
+        ubo.u2 = postFxU_[2];
+        ubo.u3 = postFxU_[3];
+        ubo.intensity = postFxIntensity_;
+        ubo.param1 = postFxParam1_;
+        ubo.param2 = postFxParam2_;
+        ubo.time = shaderTime_;
+        ubo.width = static_cast<float>(width_);
+        ubo.height = static_cast<float>(height_);
+        ubo.texelX = (width_ > 0) ? (1.0f / static_cast<float>(width_)) : 0.0f;
+        ubo.texelY = (height_ > 0) ? (1.0f / static_cast<float>(height_)) : 0.0f;
+        wgpuQueueWriteBuffer(queue_, postFxUniformBuffer_, 0, &ubo, sizeof(ubo));
+
+        WGPUCommandEncoderDescriptor encDesc{};
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+
+        WGPURenderPassColorAttachment colorAttachment{};
+        colorAttachment.view = currentBackBufferView_;
+        colorAttachment.resolveTarget = nullptr;
+        colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        colorAttachment.loadOp = WGPULoadOp_Clear;
+        colorAttachment.storeOp = WGPUStoreOp_Store;
+        colorAttachment.clearValue = WGPUColor{0.0, 0.0, 0.0, 1.0};
+
+        WGPURenderPassDescriptor passDesc{};
+        passDesc.colorAttachmentCount = 1;
+        passDesc.colorAttachments = &colorAttachment;
+
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+        wgpuRenderPassEncoderSetPipeline(pass, postFxPipeline_);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, postFxBindGroup_, 0, nullptr);
+        wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+
+        WGPUCommandBufferDescriptor cmdBufDesc{};
+        WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
+        wgpuCommandEncoderRelease(encoder);
+        wgpuQueueSubmit(queue_, 1, &commands);
+        wgpuCommandBufferRelease(commands);
+
+        postFxAppliedThisFrame_ = true;
+        isFirstBatchOfFrame_ = false;
     }
 
     void setGlobalLight(const LightSource2D& light,
@@ -3287,15 +3501,24 @@ private:
                             let halfDir = normalize(lightDir + viewDir);
 
                             if (in.localPos.y <= 0.05) {
-                                // Flat-Plane Dielectric Specular (polished stone / marble: optically flat normal, no vein embossing)
+                                // Flat-Plane Dielectric Specular + Overhead Softbox Reflection (optically flat polished stone)
                                 let nDotH = max(0.0, halfDir.z);
                                 let luma = dot(col.rgb, vec3<f32>(0.299, 0.587, 0.114));
                                 // Calcite veins & harder matrix polish to slightly different micro-roughness
-                                let specPower = mix(115.0, 210.0, luma);
+                                let specPower = mix(96.0, 220.0, luma);
                                 let specCrisp = pow(nDotH, specPower);
-                                let specHalo = pow(nDotH, 28.0) * 0.12;
-                                let fresnel = 0.045 + 0.955 * pow(1.0 - nDotH, 5.0);
-                                let stoneSheen = (specCrisp * (0.65 + fresnel * 1.4) + specHalo) * 0.24 * strength * falloff * lacquerLevel;
+                                let specHalo = pow(nDotH, 14.0) * 0.18;
+                                let fresnel = 0.05 + 0.95 * pow(1.0 - nDotH, 5.0);
+
+                                // Broad overhead softbox / room-light reflection across the polished slab
+                                let vpSafe = max(uniforms.viewport.xy, vec2<f32>(1.0));
+                                let vuv = in.worldPos / vpSafe;
+                                let luv = uniforms.lightPos.xy / vpSafe;
+                                let sbDist = length((vuv - mix(vec2<f32>(0.5, 0.35), luv, 0.65)) * vec2<f32>(0.85, 1.55));
+                                let softbox = exp(-sbDist * sbDist * 3.8) * mix(0.065, 0.125, luma);
+
+                                let stoneSheen = (specCrisp * (0.95 + fresnel * 1.8) + specHalo) * 0.42 * strength * falloff * lacquerLevel
+                                               + softbox * strength * lacquerLevel;
                                 specHighlight = uniforms.lightColor.rgb * stoneSheen;
                             } else {
                                 // Procedural Normal Relief & Lacquer Specular Clearcoat (Shadertoy / Sobel style)
@@ -3598,6 +3821,137 @@ private:
     uint32_t lastBgUploadW_{0};
     uint32_t lastBgUploadH_{0};
     std::vector<uint8_t> bgAlignedUploadBuf_;
+
+    // Post-FX GPU state
+    void releasePostFxSceneTexture() {
+        if (postFxBindGroup_) {
+            wgpuBindGroupRelease(postFxBindGroup_);
+            postFxBindGroup_ = nullptr;
+        }
+        if (postFxSceneView_) {
+            wgpuTextureViewRelease(postFxSceneView_);
+            postFxSceneView_ = nullptr;
+        }
+        if (postFxSceneTexture_) {
+            wgpuTextureDestroy(postFxSceneTexture_);
+            wgpuTextureRelease(postFxSceneTexture_);
+            postFxSceneTexture_ = nullptr;
+        }
+        postFxSceneW_ = 0;
+        postFxSceneH_ = 0;
+    }
+
+    void ensurePostFxSceneTexture() {
+        if (!device_ || width_ == 0 || height_ == 0) return;
+        if (postFxSceneTexture_ && postFxSceneW_ == width_ && postFxSceneH_ == height_) return;
+        releasePostFxSceneTexture();
+
+        WGPUTextureDescriptor desc{};
+        desc.dimension = WGPUTextureDimension_2D;
+        desc.size = WGPUExtent3D{ width_, height_, 1 };
+        desc.format = surfaceFormat_;
+        desc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+        desc.mipLevelCount = 1;
+        desc.sampleCount = 1;
+        postFxSceneTexture_ = wgpuDeviceCreateTexture(device_, &desc);
+        if (postFxSceneTexture_) {
+            WGPUTextureViewDescriptor vdesc{};
+            vdesc.format = surfaceFormat_;
+            vdesc.dimension = WGPUTextureViewDimension_2D;
+            vdesc.baseMipLevel = 0;
+            vdesc.mipLevelCount = 1;
+            vdesc.baseArrayLayer = 0;
+            vdesc.arrayLayerCount = 1;
+            vdesc.aspect = WGPUTextureAspect_All;
+            postFxSceneView_ = wgpuTextureCreateView(postFxSceneTexture_, &vdesc);
+            postFxSceneW_ = width_;
+            postFxSceneH_ = height_;
+        }
+    }
+
+    void ensurePostFxResources() {
+        if (!device_) return;
+        if (!postFxUniformBuffer_) {
+            WGPUBufferDescriptor ubDesc{};
+            ubDesc.size = 64;
+            ubDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+            postFxUniformBuffer_ = wgpuDeviceCreateBuffer(device_, &ubDesc);
+        }
+        if (!postFxSampler_) {
+            WGPUSamplerDescriptor sDesc{};
+            sDesc.addressModeU = WGPUAddressMode_ClampToEdge;
+            sDesc.addressModeV = WGPUAddressMode_ClampToEdge;
+            sDesc.addressModeW = WGPUAddressMode_ClampToEdge;
+            sDesc.magFilter = WGPUFilterMode_Linear;
+            sDesc.minFilter = WGPUFilterMode_Linear;
+            sDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+            sDesc.maxAnisotropy = 1;
+            postFxSampler_ = wgpuDeviceCreateSampler(device_, &sDesc);
+        }
+        if (!postFxBindGroupLayout_) {
+            WGPUBindGroupLayoutEntry entries[3]{};
+            entries[0].binding = 0;
+            entries[0].visibility = WGPUShaderStage_Fragment;
+            entries[0].buffer.type = WGPUBufferBindingType_Uniform;
+            entries[0].buffer.minBindingSize = 48;
+
+            entries[1].binding = 1;
+            entries[1].visibility = WGPUShaderStage_Fragment;
+            entries[1].texture.sampleType = WGPUTextureSampleType_Float;
+            entries[1].texture.viewDimension = WGPUTextureViewDimension_2D;
+
+            entries[2].binding = 2;
+            entries[2].visibility = WGPUShaderStage_Fragment;
+            entries[2].sampler.type = WGPUSamplerBindingType_Filtering;
+
+            WGPUBindGroupLayoutDescriptor bglDesc{};
+            bglDesc.entryCount = 3;
+            bglDesc.entries = entries;
+            postFxBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+
+            WGPUPipelineLayoutDescriptor plDesc{};
+            plDesc.bindGroupLayoutCount = 1;
+            plDesc.bindGroupLayouts = &postFxBindGroupLayout_;
+            postFxPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+        }
+        if (!postFxBindGroup_ && postFxBindGroupLayout_ && postFxUniformBuffer_ && postFxSceneView_ && postFxSampler_) {
+            WGPUBindGroupEntry bgEntries[3]{};
+            bgEntries[0].binding = 0;
+            bgEntries[0].buffer = postFxUniformBuffer_;
+            bgEntries[0].offset = 0;
+            bgEntries[0].size = 48;
+
+            bgEntries[1].binding = 1;
+            bgEntries[1].textureView = postFxSceneView_;
+
+            bgEntries[2].binding = 2;
+            bgEntries[2].sampler = postFxSampler_;
+
+            WGPUBindGroupDescriptor bgDesc{};
+            bgDesc.layout = postFxBindGroupLayout_;
+            bgDesc.entryCount = 3;
+            bgDesc.entries = bgEntries;
+            postFxBindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+        }
+    }
+
+    WGPUTexture postFxSceneTexture_{nullptr};
+    WGPUTextureView postFxSceneView_{nullptr};
+    uint32_t postFxSceneW_{0};
+    uint32_t postFxSceneH_{0};
+    WGPUBuffer postFxUniformBuffer_{nullptr};
+    WGPUSampler postFxSampler_{nullptr};
+    WGPUBindGroupLayout postFxBindGroupLayout_{nullptr};
+    WGPUPipelineLayout postFxPipelineLayout_{nullptr};
+    WGPUBindGroup postFxBindGroup_{nullptr};
+    WGPURenderPipeline postFxPipeline_{nullptr};
+    std::string cachedPostFxWgsl_;
+    bool postFxActive_{false};
+    bool postFxAppliedThisFrame_{false};
+    float postFxIntensity_{1.0f};
+    float postFxU_[4]{0.0f, 0.0f, 0.0f, 0.0f};
+    float postFxParam1_{0.0f};
+    float postFxParam2_{0.0f};
 };
 #endif
 
@@ -3793,6 +4147,28 @@ void BatchRenderer2D::setShaderTime(float timeSeconds) {
     if (backend_) {
         backend_->setShaderTime(timeSeconds);
     }
+}
+
+bool BatchRenderer2D::setPostFxShader(const std::string& wgslSource) {
+    return backend_ ? backend_->setPostFxShader(wgslSource) : false;
+}
+
+void BatchRenderer2D::setPostFxParams(float intensity, float u0, float u1, float u2, float u3, float param1, float param2) {
+    if (backend_) {
+        backend_->setPostFxParams(intensity, u0, u1, u2, u3, param1, param2);
+    }
+}
+
+void BatchRenderer2D::setPostFxActive(bool active) {
+    if (backend_) {
+        backend_->setPostFxActive(active);
+    }
+}
+
+void BatchRenderer2D::applyPostFxPass() {
+    if (!inFrame_ || !backend_) return;
+    flush();
+    backend_->applyPostFxPass();
 }
 
 void BatchRenderer2D::setTableSurfaceLighting(float lacquerStrength, float bumpStrength) noexcept {

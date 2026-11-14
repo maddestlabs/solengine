@@ -20,6 +20,11 @@ struct AppSettings {
     std::string tableThemeSlug;
     std::string tableThemeOption; // Active option id for current theme (e.g. "navy_blue", "cognac")
     std::unordered_map<std::string, std::string> tableThemeOptions; // Per-theme option preference cache
+    std::string postFxId{"none"};
+    std::string postFxOption;
+    std::unordered_map<std::string, std::string> postFxOptions;
+    float postFxIntensity{1.0f};
+    bool postFxAffectUi{false};
     TableTintPreset tableTint{TableTintPreset::Auto};
     DeckThemeId deckTheme{DeckThemeId::SolEnshade};
     std::string cardBackId{"auto"};
