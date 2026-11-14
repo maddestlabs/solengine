@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <filesystem>
 #include <iostream>
@@ -828,33 +829,6 @@ void render3DCard(
     }
 }
 
-void drawPhysicalDeckRim(
-    eatsbits::ui::BatchRenderer2D& r,
-    float x, float y, float w, float h, float radius,
-    size_t cardCount,
-    const eatsbits::ui::LightSource2D& light
-) {
-    if (cardCount < 2 || w <= 0.0f || h <= 0.0f) return;
-    (void)light;
-    const float thickness = std::clamp(static_cast<float>(cardCount) * 0.28f, 1.2f, 6.0f);
-    // Bevel offset toward bottom-right (matching light direction and slight top-down camera angle)
-    const float rimY = thickness * 0.85f;
-    const float rimX = thickness * 0.30f;
-
-    // 1. Cut paper cardstock rim base (warm ivory / core paper)
-    r.drawRoundedRect(x + rimX, y + rimY, w, h, radius, 0.91f, 0.88f, 0.82f, 1.0f, 4);
-
-    // 2. Bottom creasing shadow line where the deck meets the table
-    r.drawRoundedRectOutline(x + rimX, y + rimY, w, h, radius, 0.28f, 0.25f, 0.20f, 0.45f, 1.0f, 4);
-
-    // 3. Subtle micro-striation representing stacked card layers
-    if (thickness >= 2.5f) {
-        const float midY = y + rimY * 0.5f;
-        const float midX = x + rimX * 0.5f;
-        r.drawRoundedRectOutline(midX, midY, w, h, radius, 0.78f, 0.74f, 0.68f, 0.40f, 0.8f, 4);
-    }
-}
-
 struct CardPhysicalWarp {
     bool hasWarp{false};
     float bowY{0.0f};       // Vertical camber foreshortening (0.0 to 0.052)
@@ -907,6 +881,122 @@ inline CardPhysicalWarp computeCardPhysicalWarp(uint8_t cardId, CardWearLevel we
     return warp;
 }
 
+struct CardScreenRect {
+    float x{0.0f};
+    float y{0.0f};
+    float w{0.0f};
+    float h{0.0f};
+    float radius{0.0f};
+    float scaleX{1.0f};
+    CardPhysicalWarp warp{};
+};
+
+inline CardScreenRect computeCardScreenRect(
+    const Card& c,
+    float baseX,
+    float baseY,
+    float baseW,
+    float baseH,
+    CardWearLevel wearLvl
+) noexcept {
+    CardScreenRect rect{};
+    rect.warp = computeCardPhysicalWarp(c.id, wearLvl);
+
+    // Physical card camber foreshortening:
+    // Curved cards project a slightly shorter chord on screen without altering the game grid
+    const float effBaseW = (rect.warp.bowX > 0.0f) ? (baseW * (1.0f - rect.warp.bowX)) : baseW;
+    const float effBaseH = (rect.warp.bowY > 0.0f) ? (baseH * (1.0f - rect.warp.bowY)) : baseH;
+    const float baseXOffset = (baseW - effBaseW) * 0.5f;
+    const float baseYOffset = (baseH - effBaseH) * 0.5f;
+
+    const float liftScale = 1.0f + c.elevation * 0.0035f;
+    const float flipCos = std::cos(c.flipAngle);
+    rect.scaleX = std::max(0.06f, std::abs(flipCos)) * liftScale;
+    const float scaleY = liftScale;
+
+    rect.w = effBaseW * rect.scaleX;
+    rect.h = effBaseH * scaleY;
+    rect.x = (baseX + baseXOffset) + (effBaseW - rect.w) * 0.5f;
+    rect.y = (baseY + baseYOffset) + (effBaseH - rect.h) * 0.5f;
+
+    const float effRu = CardTextureCache::instance().effectiveRu();
+    rect.radius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * rect.w);
+    return rect;
+}
+
+// Hardwood 3.0 Scoped 2D Rotation for resting micro-tilts & flight banking
+struct ScopedCardRotation {
+    eatsbits::ui::BatchRenderer2D& renderer;
+    bool active;
+    ScopedCardRotation(eatsbits::ui::BatchRenderer2D& rIn, float angleRad, float cx, float cy)
+        : renderer(rIn), active(std::abs(angleRad) > 0.0001f) {
+        if (active) {
+            renderer.setRotation(angleRad * (180.0f / 3.14159265358979323846f), cx, cy);
+        }
+    }
+    ~ScopedCardRotation() {
+        if (active) {
+            renderer.resetRotation();
+        }
+    }
+};
+
+void drawPhysicalDeckRim(
+    eatsbits::ui::BatchRenderer2D& r,
+    const Card& topCard,
+    float baseW, float baseH,
+    size_t cardCount,
+    const eatsbits::ui::LightSource2D& light
+) {
+    if (cardCount < 2 || baseW <= 0.0f || baseH <= 0.0f) return;
+    (void)light;
+
+    const auto& cache = CardTextureCache::instance();
+    const auto wearLvl = cache.cardWearLevel();
+    const auto stock = cache.cardStock();
+    const CardScreenRect rect = computeCardScreenRect(topCard, topCard.x, topCard.y, baseW, baseH, wearLvl);
+    ScopedCardRotation rotGuard(r, topCard.angle, rect.x + rect.w * 0.5f, rect.y + rect.h * 0.5f);
+
+    const float thickness = std::clamp(static_cast<float>(cardCount) * 0.28f, 1.2f, 6.0f);
+    // Bevel offset toward bottom-right (matching light direction and slight top-down camera angle)
+    const float rimY = thickness * 0.85f;
+    const float rimX = thickness * 0.30f;
+
+    // Match cardstock pulp tone to current Wear & Stock settings so the deck edge blends naturally
+    float baseR = 0.86f, baseG = 0.84f, baseB = 0.80f;
+    switch (wearLvl) {
+        case CardWearLevel::Pristine: baseR = 0.86f; baseG = 0.84f; baseB = 0.80f; break;
+        case CardWearLevel::Natural:  baseR = 0.81f; baseG = 0.77f; baseB = 0.70f; break;
+        case CardWearLevel::Played:   baseR = 0.73f; baseG = 0.67f; baseB = 0.57f; break;
+        case CardWearLevel::Vintage:  baseR = 0.61f; baseG = 0.53f; baseB = 0.42f; break;
+        default: break;
+    }
+    if (stock == CardStock::AntiqueLaid || stock == CardStock::CottonRag) {
+        baseR *= 0.95f;
+        baseG *= 0.94f;
+        baseB *= 0.92f;
+    } else if (stock == CardStock::SmoothParchment) {
+        baseR = std::min(1.0f, baseR * 1.02f);
+        baseG *= 0.97f;
+        baseB *= 0.89f;
+    }
+
+    // 1. Cut paper cardstock rim base
+    r.drawRoundedRect(rect.x + rimX, rect.y + rimY, rect.w, rect.h, rect.radius, baseR, baseG, baseB, 1.0f, 4);
+
+    // 2. Bottom creasing shadow line where the deck meets the table
+    r.drawRoundedRectOutline(rect.x + rimX, rect.y + rimY, rect.w, rect.h, rect.radius,
+                             baseR * 0.32f, baseG * 0.30f, baseB * 0.26f, 0.50f, 1.0f, 4);
+
+    // 3. Subtle micro-striation representing stacked card layers
+    if (thickness >= 2.5f) {
+        const float midY = rect.y + rimY * 0.5f;
+        const float midX = rect.x + rimX * 0.5f;
+        r.drawRoundedRectOutline(midX, midY, rect.w, rect.h, rect.radius,
+                                 baseR * 0.84f, baseG * 0.82f, baseB * 0.80f, 0.42f, 0.8f, 4);
+    }
+}
+
 void drawProceduralCard(
     eatsbits::ui::BatchRenderer2D& r,
     const Card& c,
@@ -943,44 +1033,14 @@ void drawProceduralCard(
     }
 
     const auto wearLvl = CardTextureCache::instance().cardWearLevel();
-    const CardPhysicalWarp warp = computeCardPhysicalWarp(c.id, wearLvl);
-
-    // Physical card camber foreshortening:
-    // Curved cards project a slightly shorter chord on screen without altering the game grid
-    const float effBaseW = (warp.bowX > 0.0f) ? (baseW * (1.0f - warp.bowX)) : baseW;
-    const float effBaseH = (warp.bowY > 0.0f) ? (baseH * (1.0f - warp.bowY)) : baseH;
-    const float baseXOffset = (baseW - effBaseW) * 0.5f;
-    const float baseYOffset = (baseH - effBaseH) * 0.5f;
-
-    const float liftScale = 1.0f + c.elevation * 0.0035f;
-    const float flipCos = std::cos(c.flipAngle);
-    const float scaleX = std::max(0.06f, std::abs(flipCos)) * liftScale;
-    const float scaleY = liftScale;
-
-    const float w = effBaseW * scaleX;
-    const float h = effBaseH * scaleY;
-    const float x = (baseX + baseXOffset) + (effBaseW - w) * 0.5f;
-    const float y = (baseY + baseYOffset) + (effBaseH - h) * 0.5f;
-
-    const float effRu = CardTextureCache::instance().effectiveRu();
-    const float radius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * w);
-
-    // Hardwood 3.0 Scoped 2D Rotation for resting micro-tilts & flight banking
-    struct ScopedCardRotation {
-        eatsbits::ui::BatchRenderer2D& renderer;
-        bool active;
-        ScopedCardRotation(eatsbits::ui::BatchRenderer2D& rIn, float angleRad, float cx, float cy)
-            : renderer(rIn), active(std::abs(angleRad) > 0.0001f) {
-            if (active) {
-                renderer.setRotation(angleRad * (180.0f / 3.14159265358979323846f), cx, cy);
-            }
-        }
-        ~ScopedCardRotation() {
-            if (active) {
-                renderer.resetRotation();
-            }
-        }
-    };
+    const CardScreenRect rect = computeCardScreenRect(c, baseX, baseY, baseW, baseH, wearLvl);
+    const float x = rect.x;
+    const float y = rect.y;
+    const float w = rect.w;
+    const float h = rect.h;
+    const float radius = rect.radius;
+    const float scaleX = rect.scaleX;
+    const CardPhysicalWarp& warp = rect.warp;
     ScopedCardRotation rotGuard(r, c.angle, x + w * 0.5f, y + h * 0.5f);
 
     // Dynamic drop shadow driven by physical light source & card camber depth:
@@ -1514,6 +1574,7 @@ void TableRenderer::renderBoard(
         }
 
         std::vector<size_t> restingIndices;
+        size_t totalRestingCount = 0;
         bool pileHasMovingBelow = false;
         for (size_t cIdx = 0; cIdx < p.cards.size(); ++cIdx) {
             if (static_cast<int>(pIdx) == draggedPile &&
@@ -1532,15 +1593,18 @@ void TableRenderer::renderBoard(
             if (isCardMoving(c) || pileHasMovingBelow) {
                 pileHasMovingBelow = true;
                 animatingCards.push_back(AnimatingCardEntry{pIdx, cIdx, &c});
-            } else if (cIdx >= startIdx) {
-                restingIndices.push_back(cIdx);
+            } else {
+                ++totalRestingCount;
+                if (cIdx >= startIdx) {
+                    restingIndices.push_back(cIdx);
+                }
             }
         }
 
         // Render table drop shadows under the entire resting pile first (using non-accumulating
         // transmittance compensation against the preceding card in the pile), then card bodies bottom-to-top
         const bool isTightlyStacked = (p.type == PileType::Stock || p.type == PileType::Foundation || p.type == PileType::FreeCell);
-        const size_t stackCount = restingIndices.size();
+        const size_t stackCount = totalRestingCount;
 
         for (size_t i = 0; i < restingIndices.size(); ++i) {
             if (i > 0 && isTightlyStacked) {
@@ -1567,9 +1631,7 @@ void TableRenderer::renderBoard(
         // Draw physical deck edge rim for multi-card stacks before rendering top card body
         if (isTightlyStacked && stackCount >= 2 && !restingIndices.empty()) {
             const Card& topCard = p.cards[restingIndices.back()];
-            const float effRu = CardTextureCache::instance().effectiveRu();
-            const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
-            drawPhysicalDeckRim(r, topCard.x, topCard.y, cw, ch, cardRadius, stackCount, light);
+            drawPhysicalDeckRim(r, topCard, cw, ch, stackCount, light);
         }
 
         for (size_t i = 0; i < restingIndices.size(); ++i) {

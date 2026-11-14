@@ -145,6 +145,7 @@ public:
     void drawImageFile(const std::string& filePath, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = true);
     void drawTiledDetailFile(const std::string& filePath, float tileSizePx = 320.0f, float strength = 0.65f);
     void applyGradientLut(const std::string& mineralMapPath, const std::string& lutPath, float noiseAmp = 0.02f, bool cover = true, float tileSizePx = 0.0f);
+    void drawMineralB64(const std::string& b64Data, float noiseAmp = 0.02f, bool cover = true, float tileSizePx = 512.0f);
     void drawSvgPath(const std::string& pathD, float cx, float cy, float scale, uint32_t color);
 
     // Typography & Rank Glyphs
@@ -197,6 +198,7 @@ private:
 
     void rasterizeSvgFragment(const std::string& svgXml, float x, float y, float w, float h, bool cover = false);
     void compositeBuffer(const uint8_t* srcRgba, int srcW, int srcH, float dstX, float dstY, float dstW, float dstH);
+    void applyMineralBuffer(const uint8_t* mineral, int imgW, int imgH, const uint8_t* lut, int lutW, float noiseAmp, bool cover, float tileSizePx);
 };
 
 } // namespace solengine

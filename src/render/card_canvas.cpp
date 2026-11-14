@@ -705,29 +705,47 @@ void CardCanvas::drawTiledDetailFile(const std::string& filePath, float tileSize
     stbi_image_free(pixels);
 }
 
-void CardCanvas::applyGradientLut(const std::string& mineralMapPath, const std::string& lutPath, float noiseAmp, bool cover, float tileSizePx) {
-    if (mineralMapPath.empty() || lutPath.empty() || width_ <= 0 || height_ <= 0) return;
-
-    std::filesystem::path minResolved = resolveThemeAssetPath(mineralMapPath);
-    std::filesystem::path lutResolved = resolveThemeAssetPath(lutPath);
-    if (minResolved.empty() || lutResolved.empty()) return;
-
-    int imgW = 0, imgH = 0, comp = 0;
-    std::string minStr = minResolved.string();
-    stbi_uc* mineral = stbi_load(minStr.c_str(), &imgW, &imgH, &comp, 1);
-    if (!mineral || imgW <= 0 || imgH <= 0) {
-        if (mineral) stbi_image_free(mineral);
-        return;
+namespace {
+std::vector<uint8_t> decodeBase64(const std::string& input) {
+    static constexpr int kDecTable[256] = {
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,
+        52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,
+        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
+        15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+        -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
+        41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+    };
+    std::vector<uint8_t> out;
+    out.reserve((input.size() / 4) * 3);
+    int val = 0;
+    int valb = -8;
+    for (unsigned char c : input) {
+        if (c == '=') break;
+        int d = kDecTable[c];
+        if (d == -1) continue;
+        val = (val << 6) + d;
+        valb += 6;
+        if (valb >= 0) {
+            out.push_back(static_cast<uint8_t>((val >> valb) & 0xFF));
+            valb -= 8;
+        }
     }
+    return out;
+}
+} // namespace
 
-    int lutW = 0, lutH = 0, lutComp = 0;
-    std::string lutStr = lutResolved.string();
-    stbi_uc* lut = stbi_load(lutStr.c_str(), &lutW, &lutH, &lutComp, 4);
-    if (!lut || lutW <= 1) {
-        stbi_image_free(mineral);
-        if (lut) stbi_image_free(lut);
-        return;
-    }
+void CardCanvas::applyMineralBuffer(const uint8_t* mineral, int imgW, int imgH, const uint8_t* lut, int lutW, float noiseAmp, bool cover, float tileSizePx) {
+    if (!mineral || imgW <= 0 || imgH <= 0 || width_ <= 0 || height_ <= 0) return;
 
     const size_t totalPixels = static_cast<size_t>(width_ * height_);
     if (rgba_.size() < totalPixels * 4) {
@@ -740,7 +758,8 @@ void CardCanvas::applyGradientLut(const std::string& mineralMapPath, const std::
     const float tx = (static_cast<float>(width_) - static_cast<float>(imgW) * scale) * 0.5f;
     const float ty = (static_cast<float>(height_) - static_cast<float>(imgH) * scale) * 0.5f;
     const float invScale = 1.0f / std::max(scale, 1e-6f);
-    const float lutMax = static_cast<float>(lutW - 1);
+    const bool useLut = (lut != nullptr && lutW > 1);
+    const float lutMax = useLut ? static_cast<float>(lutW - 1) : 1.0f;
 
     const bool tiled = (tileSizePx > 0.0f);
     const float invTile = tiled ? (1.0f / std::max(tileSizePx, 8.0f)) : 0.0f;
@@ -796,31 +815,83 @@ void CardCanvas::applyGradientLut(const std::string& mineralMapPath, const std::
 
             float scalar = (m00 * w00 + m10 * w10 + m01 * w01 + m11 * w11) / 255.0f;
 
-            // Fast integer hash per-pixel micro-perturbation to break upscaling blur at LUT lookup
+            // Fast integer hash per-pixel micro-perturbation to break upscaling blur
             uint32_t h = static_cast<uint32_t>(px) * 374761393u + static_cast<uint32_t>(py) * 668265263u + 0x9E3779B9u;
             h = (h ^ (h >> 13)) * 1274126177u;
             h ^= (h >> 16);
             float n = (static_cast<float>(h & 0xFFFFu) / 65535.0f - 0.5f) * 2.0f * noiseAmp;
 
-            float t = std::clamp(scalar + n, 0.0f, 1.0f) * lutMax;
-            int i0 = std::clamp(static_cast<int>(std::floor(t)), 0, lutW - 1);
-            int i1 = std::clamp(i0 + 1, 0, lutW - 1);
-            float ft = t - static_cast<float>(i0);
-
-            const uint8_t* c0 = lut + static_cast<size_t>(i0) * 4;
-            const uint8_t* c1 = lut + static_cast<size_t>(i1) * 4;
-
+            float val = std::clamp(scalar + n, 0.0f, 1.0f);
             size_t dstIdx = static_cast<size_t>(py * width_ + px) * 4;
-            for (int c = 0; c < 3; ++c) {
-                float col = static_cast<float>(c0[c]) * (1.0f - ft) + static_cast<float>(c1[c]) * ft;
-                rgba_[dstIdx + c] = static_cast<uint8_t>(std::clamp(col, 0.0f, 255.0f));
+            if (useLut) {
+                float t = val * lutMax;
+                int i0 = std::clamp(static_cast<int>(std::floor(t)), 0, lutW - 1);
+                int i1 = std::clamp(i0 + 1, 0, lutW - 1);
+                float ft = t - static_cast<float>(i0);
+
+                const uint8_t* c0 = lut + static_cast<size_t>(i0) * 4;
+                const uint8_t* c1 = lut + static_cast<size_t>(i1) * 4;
+
+                for (int c = 0; c < 3; ++c) {
+                    float col = static_cast<float>(c0[c]) * (1.0f - ft) + static_cast<float>(c1[c]) * ft;
+                    rgba_[dstIdx + c] = static_cast<uint8_t>(std::clamp(col, 0.0f, 255.0f));
+                }
+            } else {
+                uint8_t v8 = static_cast<uint8_t>(std::clamp(val * 255.0f, 0.0f, 255.0f));
+                rgba_[dstIdx + 0] = v8;
+                rgba_[dstIdx + 1] = v8;
+                rgba_[dstIdx + 2] = v8;
             }
             rgba_[dstIdx + 3] = 255;
         }
     }
+}
+
+void CardCanvas::applyGradientLut(const std::string& mineralMapPath, const std::string& lutPath, float noiseAmp, bool cover, float tileSizePx) {
+    if (mineralMapPath.empty() || lutPath.empty() || width_ <= 0 || height_ <= 0) return;
+
+    std::filesystem::path minResolved = resolveThemeAssetPath(mineralMapPath);
+    std::filesystem::path lutResolved = resolveThemeAssetPath(lutPath);
+    if (minResolved.empty() || lutResolved.empty()) return;
+
+    int imgW = 0, imgH = 0, comp = 0;
+    std::string minStr = minResolved.string();
+    stbi_uc* mineral = stbi_load(minStr.c_str(), &imgW, &imgH, &comp, 1);
+    if (!mineral || imgW <= 0 || imgH <= 0) {
+        if (mineral) stbi_image_free(mineral);
+        return;
+    }
+
+    int lutW = 0, lutH = 0, lutComp = 0;
+    std::string lutStr = lutResolved.string();
+    stbi_uc* lut = stbi_load(lutStr.c_str(), &lutW, &lutH, &lutComp, 4);
+    if (!lut || lutW <= 1) {
+        stbi_image_free(mineral);
+        if (lut) stbi_image_free(lut);
+        return;
+    }
+
+    applyMineralBuffer(mineral, imgW, imgH, lut, lutW, noiseAmp, cover, tileSizePx);
 
     stbi_image_free(mineral);
     stbi_image_free(lut);
+}
+
+void CardCanvas::drawMineralB64(const std::string& b64Data, float noiseAmp, bool cover, float tileSizePx) {
+    if (b64Data.empty() || width_ <= 0 || height_ <= 0) return;
+
+    std::vector<uint8_t> raw = decodeBase64(b64Data);
+    if (raw.empty()) return;
+
+    int imgW = 0, imgH = 0, comp = 0;
+    stbi_uc* mineral = stbi_load_from_memory(raw.data(), static_cast<int>(raw.size()), &imgW, &imgH, &comp, 1);
+    if (!mineral || imgW <= 0 || imgH <= 0) {
+        if (mineral) stbi_image_free(mineral);
+        return;
+    }
+
+    applyMineralBuffer(mineral, imgW, imgH, nullptr, 0, noiseAmp, cover, tileSizePx);
+    stbi_image_free(mineral);
 }
 
 void CardCanvas::drawSvgPath(const std::string& pathD, float cx, float cy, float scale, uint32_t color) {
@@ -4950,6 +5021,17 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 3, "cover", eatsbits::eatscript::Value(true)).asInt(1) != 0;
         float tileSize = eatsbits::eatscript::resolveArg(args, kwargs, 4, "tile_size", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
         canvas->applyGradientLut(minVal.asString(), lutVal.asString(), noiseAmp, cover, tileSize);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("ctx", "draw_mineral_b64", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto b64Val = eatsbits::eatscript::resolveArg(args, kwargs, 0, "data", eatsbits::eatscript::Value(""));
+        if (!b64Val.isString()) return eatsbits::eatscript::Value(false);
+        float noiseAmp = eatsbits::eatscript::resolveArg(args, kwargs, 1, "noise_amp", eatsbits::eatscript::Value(0.02)).asFloat(0.02f);
+        bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 2, "cover", eatsbits::eatscript::Value(true)).asInt(1) != 0;
+        float tileSize = eatsbits::eatscript::resolveArg(args, kwargs, 3, "tile_size", eatsbits::eatscript::Value(512.0)).asFloat(512.0f);
+        canvas->drawMineralB64(b64Val.asString(), noiseAmp, cover, tileSize);
         return eatsbits::eatscript::Value(true);
     });
 }

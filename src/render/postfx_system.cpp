@@ -5,6 +5,7 @@
 #include "eatsbits/eatscript/wgsl_transpiler.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
