@@ -2,6 +2,7 @@
 #include "solengine/card_canvas.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <fstream>

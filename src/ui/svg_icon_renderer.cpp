@@ -3,6 +3,7 @@
 #include "nanosvgrast.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 
 namespace solengine {

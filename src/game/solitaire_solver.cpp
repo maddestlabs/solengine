@@ -358,7 +358,7 @@ struct CompactCard {
 };
 
 static constexpr size_t kMaxCardsPerPile = 52;
-static constexpr size_t kMaxPiles = 32;
+static constexpr size_t kMaxPiles = 44;
 
 struct CompactPile {
     PileType type{PileType::Tableau};
@@ -396,12 +396,23 @@ struct GameRules {
     uint32_t targetFoundationCards{52};
     bool isSpider{false};
     bool isGolf{false};
+    bool isTriPeaks{false};
     bool isPyramid{false};
     bool isYukon{false};
     bool isRussian{false};
     bool isFortyThieves{false};
     bool isBakersGame{false};
     bool isFreeCell{false};
+    bool isBakersDozen{false};
+    bool isFan{false};
+    bool isNoEmptyRefill{false};
+    bool isSameSuitTableau{false};
+    bool isAnyEmpty{false};
+    bool isEasthaven{false};
+    bool isScorpion{false};
+    bool isCanfield{false};
+    bool isRainbow{false};
+    uint8_t canfieldBaseRank{1};
 };
 
 CompactBoard fromSolitaireBoard(const SolitaireBoard& board) {
@@ -420,17 +431,40 @@ CompactBoard fromSolitaireBoard(const SolitaireBoard& board) {
 
 GameRules extractGameRules(const SolitaireBoard& board) {
     GameRules rules{};
+    const auto& def = board.activeGameDef();
+    const std::string& id = def.id;
     rules.variant = board.variant();
-    rules.decks = board.activeGameDef().decks > 0 ? board.activeGameDef().decks : (board.isSpider() ? 2 : 1);
+    rules.decks = def.decks > 0 ? def.decks : (board.isSpider() ? 2 : 1);
     rules.targetFoundationCards = static_cast<uint32_t>(rules.decks) * 52u;
-    rules.isSpider = board.isSpider();
-    rules.isGolf = board.isGolf();
+    rules.isSpider = board.isSpider() || id == "spiderette";
+    rules.isTriPeaks = (id == "tri_peaks");
+    rules.isGolf = board.isGolf() || rules.isTriPeaks || id == "golf";
     rules.isPyramid = board.isPyramidGame();
-    rules.isYukon = (board.activeGameDef().family == "Yukon");
-    rules.isRussian = (board.activeGameDef().id == "russian_solitaire" || board.activeGameDef().name.find("Russian") != std::string::npos);
-    rules.isFortyThieves = (board.activeGameDef().family == "FortyThieves");
-    rules.isBakersGame = (board.activeGameDef().id == "bakers_game" || board.activeGameDef().name.find("Baker") != std::string::npos);
-    rules.isFreeCell = (rules.variant == GameVariant::FreeCell || (board.activeGameDef().freecells == 4 && board.activeGameDef().tableaus == 8));
+    rules.isYukon = (def.family == "Yukon");
+    rules.isRussian = (id == "russian_solitaire" || def.name.find("Russian") != std::string::npos);
+    rules.isFortyThieves = (def.family == "FortyThieves");
+    rules.isBakersDozen = (id == "bakers_dozen");
+    rules.isBakersGame = (id == "bakers_game");
+    rules.isFreeCell = (rules.variant == GameVariant::FreeCell || (def.freecells > 0 && def.layout != "canfield"));
+    rules.isFan = (def.layout == "fan_grid" || def.family == "Fan");
+    rules.isNoEmptyRefill = (id == "bakers_dozen" || id == "la_belle_lucie");
+    rules.isSameSuitTableau = (rules.isBakersGame || id == "eight_off" || id == "seahaven_towers" ||
+                               id == "la_belle_lucie" || id == "the_fan" || rules.isRussian ||
+                               rules.isFortyThieves || id == "scorpion" || id == "wasp");
+    rules.isAnyEmpty = (id == "freecell" || id == "bakers_game" || rules.isFortyThieves ||
+                        id == "wasp" || rules.isSpider);
+    rules.isEasthaven = (id == "easthaven");
+    rules.isScorpion = (id == "scorpion" || id == "wasp");
+    rules.isCanfield = (def.layout == "canfield" || def.family == "Canfield");
+    rules.isRainbow = (id == "rainbow");
+    if (rules.isCanfield) {
+        const auto& piles = board.piles();
+        if (piles.size() > 2 && !piles[2].cards.empty()) {
+            rules.canfieldBaseRank = static_cast<uint8_t>(piles[2].cards[0].rank);
+        } else {
+            rules.canfieldBaseRank = static_cast<uint8_t>(std::clamp(board.blackboard().getInt("BASE_RANK", 1), 1, 13));
+        }
+    }
     return rules;
 }
 
@@ -736,12 +770,72 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
             return true;
         }
         const CompactCard& top = dst.back();
+        const int movingRank = static_cast<int>(lead.rank());
+        const int topRank = static_cast<int>(top.rank());
+        if (rules.isTriPeaks) {
+            return (movingRank == topRank + 1) || (movingRank == topRank - 1) ||
+                   (topRank == 13 && movingRank == 1) || (topRank == 1 && movingRank == 13);
+        }
         if (top.rank() == Rank::King) {
             return false;
         }
-        const int movingRank = static_cast<int>(lead.rank());
-        const int topRank = static_cast<int>(top.rank());
         return (movingRank == topRank + 1) || (movingRank == topRank - 1);
+    }
+
+    if (rules.isScorpion) {
+        if (dst.type != PileType::Tableau) return false;
+        if (dst.empty()) {
+            return rules.isAnyEmpty ? true : (lead.rank() == Rank::King);
+        }
+        const CompactCard& top = dst.back();
+        if (!top.faceUp()) return false;
+        return (lead.suit() == top.suit()) && (static_cast<int>(top.rank()) == static_cast<int>(lead.rank()) + 1);
+    }
+
+    if (rules.isCanfield) {
+        if (dst.type == PileType::Foundation) {
+            if (moveCount != 1) return false;
+            if (dst.empty()) {
+                return static_cast<uint8_t>(lead.rank()) == rules.canfieldBaseRank;
+            }
+            const CompactCard& top = dst.back();
+            uint8_t nextR = static_cast<uint8_t>((static_cast<int>(top.rank()) % 13) + 1);
+            return (lead.suit() == top.suit()) && (static_cast<uint8_t>(lead.rank()) == nextR);
+        }
+        if (dst.type == PileType::Tableau) {
+            const bool reserveEmpty = (b.numPiles <= 6 || b.piles[6].empty());
+            if (dst.empty()) {
+                if (fromPileIdx == 6) return true;
+                return reserveEmpty && (src.type == PileType::Waste || src.type == PileType::Tableau);
+            }
+            if (src.type == PileType::Tableau && startCardIdx != 0) return false;
+            const CompactCard& top = dst.back();
+            if (!top.faceUp()) return false;
+            uint8_t nextDown = static_cast<uint8_t>((static_cast<int>(lead.rank()) % 13) + 1);
+            if (static_cast<uint8_t>(top.rank()) != nextDown) return false;
+            return rules.isRainbow ? true : (isRedSuit(lead.suit()) != isRedSuit(top.suit()));
+        }
+        return false;
+    }
+
+    if (rules.isBakersDozen || rules.isFan) {
+        if (moveCount != 1) return false;
+        if (dst.type == PileType::Foundation) {
+            if (dst.empty()) return lead.rank() == Rank::Ace;
+            const CompactCard& top = dst.back();
+            return (lead.suit() == top.suit()) && (static_cast<int>(lead.rank()) == static_cast<int>(top.rank()) + 1);
+        }
+        if (dst.type == PileType::Tableau) {
+            if (dst.empty()) {
+                if (rules.isNoEmptyRefill) return false;
+                return lead.rank() == Rank::King;
+            }
+            const CompactCard& top = dst.back();
+            if (!top.faceUp()) return false;
+            if (rules.isSameSuitTableau && lead.suit() != top.suit()) return false;
+            return static_cast<int>(top.rank()) == static_cast<int>(lead.rank()) + 1;
+        }
+        return false;
     }
 
     if (rules.isYukon) {
@@ -804,7 +898,7 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
         for (size_t i = startCardIdx; i + 1 < src.count; ++i) {
             const CompactCard& upper = src.cards[i];
             const CompactCard& lower = src.cards[i + 1];
-            if (rules.isBakersGame) {
+            if (rules.isSameSuitTableau) {
                 if (upper.suit() != lower.suit() || static_cast<int>(upper.rank()) != static_cast<int>(lower.rank()) + 1) {
                     return false;
                 }
@@ -833,14 +927,14 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
 
     if (dst.type == PileType::Tableau) {
         if (dst.empty()) {
-            if (rules.isFreeCell) {
+            if (rules.isAnyEmpty) {
                 return true;
             }
             return lead.rank() == Rank::King;
         }
         const CompactCard& top = dst.back();
         if (!top.faceUp()) return false;
-        if (rules.isBakersGame) {
+        if (rules.isSameSuitTableau) {
             return (lead.suit() == top.suit()) && (static_cast<int>(top.rank()) == static_cast<int>(lead.rank()) + 1);
         }
         return (isRedSuit(lead.suit()) != isRedSuit(top.suit())) &&
@@ -879,7 +973,21 @@ bool executeMove(CompactBoard& b, uint8_t fromPileIdx, size_t startCardIdx, uint
         src.back().setFaceUp(true);
     }
 
-    if (rules.isSpider) {
+    if (rules.isCanfield && b.numPiles > 10 && !b.piles[6].empty()) {
+        for (size_t t = 7; t <= 10; ++t) {
+            if (b.piles[t].empty() && !b.piles[6].empty()) {
+                CompactCard rc = b.piles[6].back();
+                b.piles[6].pop_back();
+                rc.setFaceUp(true);
+                b.piles[t].push_back(rc);
+            }
+        }
+        if (!b.piles[6].empty() && !b.piles[6].back().faceUp()) {
+            b.piles[6].back().setFaceUp(true);
+        }
+    }
+
+    if (rules.isSpider || rules.isScorpion) {
         collectCompletedSpiderRuns(b);
     }
 
@@ -891,6 +999,35 @@ bool drawFromStock(CompactBoard& b, const GameRules& rules) {
         return false;
     }
     CompactPile& stock = b.piles[0];
+
+    if (rules.isScorpion) {
+        if (stock.empty()) return false;
+        size_t dealt = 0;
+        for (size_t i = 0; i < b.numPiles && dealt < 3 && !stock.empty(); ++i) {
+            if (b.piles[i].type == PileType::Tableau) {
+                CompactCard c = stock.back();
+                stock.pop_back();
+                c.setFaceUp(true);
+                b.piles[i].push_back(c);
+                ++dealt;
+            }
+        }
+        collectCompletedSpiderRuns(b);
+        return dealt > 0;
+    }
+
+    if (rules.isEasthaven) {
+        if (stock.empty()) return false;
+        for (size_t i = 0; i < b.numPiles && !stock.empty(); ++i) {
+            if (b.piles[i].type == PileType::Tableau) {
+                CompactCard c = stock.back();
+                stock.pop_back();
+                c.setFaceUp(true);
+                b.piles[i].push_back(c);
+            }
+        }
+        return true;
+    }
 
     if (rules.isSpider) {
         if (stock.empty()) return false;
@@ -920,6 +1057,12 @@ bool drawFromStock(CompactBoard& b, const GameRules& rules) {
         CompactCard c = stock.back();
         stock.pop_back();
         c.setFaceUp(true);
+        for (size_t i = 0; i < b.numPiles; ++i) {
+            if (b.piles[i].type == PileType::Foundation) {
+                b.piles[i].push_back(c);
+                return true;
+            }
+        }
         if (b.numPiles > 1) {
             b.piles[1].push_back(c);
         }
@@ -932,7 +1075,7 @@ bool drawFromStock(CompactBoard& b, const GameRules& rules) {
     CompactPile& waste = b.piles[1];
 
     if (!stock.empty()) {
-        const uint8_t drawCount = (rules.variant == GameVariant::KlondikeDraw3)
+        const uint8_t drawCount = (rules.variant == GameVariant::KlondikeDraw3 || (rules.isCanfield && !rules.isRainbow))
             ? static_cast<uint8_t>(std::min<size_t>(3, stock.count))
             : 1u;
         for (uint8_t i = 0; i < drawCount; ++i) {
@@ -943,6 +1086,9 @@ bool drawFromStock(CompactBoard& b, const GameRules& rules) {
         }
         return true;
     } else if (!waste.empty()) {
+        if (rules.isFortyThieves || rules.isRainbow) {
+            return false;
+        }
         while (!waste.empty()) {
             CompactCard c = waste.back();
             waste.pop_back();
@@ -1014,7 +1160,10 @@ SolveResult SolitaireSolver::solve(
     SolveResult result{};
     result.solved = false;
 
-    if (initialBoard.hasScriptHooks()) {
+    const bool useScriptSolver = initialBoard.hasScriptHooks() &&
+        (initialBoard.activeGameDef().category == "RPG" ||
+         (initialBoard.hasScriptCardClick() && !initialBoard.isGolf() && !initialBoard.isPyramidGame()));
+    if (useScriptSolver) {
         return solveScriptedBoard(initialBoard, maxStates, timeoutMs, cancelSignal);
     }
 
@@ -1180,8 +1329,8 @@ SolveResult SolitaireSolver::solve(
         } else {
             bool foundDominant = false;
 
-            // 1. Dominant Safe Moves (Ace or 2 to Foundation - not in Spider)
-            if (!rules.isSpider) {
+            // 1. Dominant Safe Moves (Ace or 2 to Foundation - not in Spider/Scorpion/Canfield)
+            if (!rules.isSpider && !rules.isScorpion && !rules.isCanfield) {
                 for (size_t s = 0; s < currentBoard.numPiles; ++s) {
                     const auto& src = currentBoard.piles[s];
                     if (src.type == PileType::Foundation || src.type == PileType::Stock || src.empty()) continue;
@@ -1206,7 +1355,7 @@ SolveResult SolitaireSolver::solve(
 
             if (!foundDominant) {
                 // 2. Foundation Moves
-                if (!rules.isSpider) {
+                if (!rules.isSpider && !rules.isScorpion) {
                     for (size_t s = 0; s < currentBoard.numPiles; ++s) {
                         const auto& src = currentBoard.piles[s];
                         if (src.type == PileType::Foundation || src.type == PileType::Stock || src.empty()) continue;
@@ -1275,7 +1424,7 @@ SolveResult SolitaireSolver::solve(
                                     candidates.push_back(cm);
                                     if (dst.empty()) pushedEmptyTableau = true;
                                 }
-                            } else if (dst.type == PileType::FreeCell) {
+                            } else if (dst.type == PileType::FreeCell && !rules.isCanfield) {
                                 if (cIdx + 1 == src.count && dst.empty() && !pushedFreeCellForThisPile) {
                                     if (canMoveCards(currentBoard, static_cast<uint8_t>(s), cIdx, static_cast<uint8_t>(d), rules)) {
                                         CompactMove cm{SolverMove::Action::MoveCards, static_cast<uint8_t>(s), static_cast<uint8_t>(cIdx), static_cast<uint8_t>(d)};
@@ -1300,7 +1449,9 @@ SolveResult SolitaireSolver::solve(
                             }
                         }
                     }
-                    if (!canDraw && currentBoard.numPiles > 1 && currentBoard.piles[1].type == PileType::Waste && !currentBoard.piles[1].empty() && currentStockRecycles < 3) {
+                    if (!canDraw && !rules.isFortyThieves && !rules.isRainbow && !rules.isEasthaven && !rules.isScorpion &&
+                        currentBoard.numPiles > 1 && currentBoard.piles[1].type == PileType::Waste &&
+                        !currentBoard.piles[1].empty() && currentStockRecycles < 3) {
                         canDraw = true;
                     }
                     if (canDraw) {

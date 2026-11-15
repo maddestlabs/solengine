@@ -1646,6 +1646,10 @@ void SolitaireBoard::clearSelection() noexcept {
 
 bool SolitaireBoard::executePyramidPair(uint8_t pileA, uint8_t pileB, uint8_t foundationPile) {
     if (pileA >= piles_.size() || pileB >= piles_.size() || foundationPile >= piles_.size()) return false;
+    if (scriptEngine_.hasCanTarget() && scriptEngine_.hasOnTarget()) {
+        if (piles_[pileA].cards.empty() || piles_[pileB].cards.empty()) return false;
+        return executeCardTarget(pileA, piles_[pileA].cards.size() - 1, pileB, piles_[pileB].cards.size() - 1, true);
+    }
     Pile& srcA = piles_[pileA];
     Pile& srcB = piles_[pileB];
     Pile& dst = piles_[foundationPile];
