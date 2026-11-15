@@ -515,6 +515,24 @@ bool bakePbrSurface(
     const float span = std::max(1.0f, std::max(w, h) * 0.5f);
     const bool viewportNormalized = (uvScale <= 0.0f);
 
+    std::vector<int> colX0(static_cast<size_t>(bakeW));
+    std::vector<int> colX1(static_cast<size_t>(bakeW));
+    std::vector<float> colWx(static_cast<size_t>(bakeW));
+    for (int px = 0; px < bakeW; ++px) {
+        float worldX = x + static_cast<float>(px);
+        float uNorm = viewportNormalized
+            ? (((static_cast<float>(px) + 0.5f) - w * 0.5f) / span + 0.5f)
+            : ((worldX * uvScale) / static_cast<float>(texW));
+        float uWrap = uNorm - std::floor(uNorm);
+        float fx = uWrap * static_cast<float>(texW) - 0.5f;
+        int x0 = static_cast<int>(std::floor(fx));
+        float wx = fx - static_cast<float>(x0);
+        int x1 = x0 + 1;
+        colX0[static_cast<size_t>(px)] = (x0 % texW + texW) % texW;
+        colX1[static_cast<size_t>(px)] = (x1 % texW + texW) % texW;
+        colWx[static_cast<size_t>(px)] = wx;
+    }
+
 #if defined(_OPENMP)
     #pragma omp parallel for schedule(static)
 #endif
@@ -533,30 +551,23 @@ bool bakePbrSurface(
         y1 = (y1 % texH + texH) % texH;
 
         uint8_t* dstRow = &outRgba[static_cast<size_t>(py * bakeW) * 4];
+        const size_t rowBase0 = static_cast<size_t>(y0 * texW);
+        const size_t rowBase1 = static_cast<size_t>(y1 * texW);
 
         for (int px = 0; px < bakeW; ++px) {
-            float worldX = x + static_cast<float>(px);
-
-            float uNorm = viewportNormalized
-                ? (((static_cast<float>(px) + 0.5f) - w * 0.5f) / span + 0.5f)
-                : ((worldX * uvScale) / static_cast<float>(texW));
-            float uWrap = uNorm - std::floor(uNorm);
-            float fx = uWrap * static_cast<float>(texW) - 0.5f;
-            int x0 = static_cast<int>(std::floor(fx));
-            float wx = fx - static_cast<float>(x0);
-            int x1 = x0 + 1;
-            x0 = (x0 % texW + texW) % texW;
-            x1 = (x1 % texW + texW) % texW;
+            const int x0 = colX0[static_cast<size_t>(px)];
+            const int x1 = colX1[static_cast<size_t>(px)];
+            const float wx = colWx[static_cast<size_t>(px)];
 
             float w00 = (1.0f - wx) * (1.0f - wy);
             float w10 = wx * (1.0f - wy);
             float w01 = (1.0f - wx) * wy;
             float w11 = wx * wy;
 
-            size_t idx00 = static_cast<size_t>(y0 * texW + x0);
-            size_t idx10 = static_cast<size_t>(y0 * texW + x1);
-            size_t idx01 = static_cast<size_t>(y1 * texW + x0);
-            size_t idx11 = static_cast<size_t>(y1 * texW + x1);
+            size_t idx00 = rowBase0 + static_cast<size_t>(x0);
+            size_t idx10 = rowBase0 + static_cast<size_t>(x1);
+            size_t idx01 = rowBase1 + static_cast<size_t>(x0);
+            size_t idx11 = rowBase1 + static_cast<size_t>(x1);
 
             // 1. Bilinear Sample Color (RGB)
             float colR = (tex.color[idx00 * 3 + 0] * w00 +

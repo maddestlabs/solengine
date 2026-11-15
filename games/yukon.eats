@@ -1,44 +1,95 @@
 # =============================================================================
 # SolEngine Game Variant: Yukon Solitaire (.eats)
 # =============================================================================
-# The premier unsequenced-dragging solitaire. All 52 cards dealt to tableaus.
-# Any face-up card and all cards resting on top of it may be moved as a unit!
-
 name = "Yukon"
 family = "Yukon"
 category = "POPULAR"
+layout = "columns"
 description = "Beloved classic. Any face-up card stack can be moved regardless of sequence; Kings to spaces."
 decks = 1
 tableaus = 7
 foundations = 4
 freecells = 0
-
-# Deal configuration: all 52 cards distributed across 7 columns
 tableau_deal_counts = [1, 6, 7, 8, 9, 10, 11]
 tableau_all_face_up = False
 foundation_starter_card = False
-
-# No stock pile; all cards are dealt at startup
 stock_deal_mode = "none"
 stock_deal_count = 0
 max_redeals = 0
+demo_seed = 2026
 
-def can_drop_tableau(dest_card, moving_card):
-    """Tableaux build down in alternating colors. Empty spaces accept Kings only."""
-    if dest_card.is_empty:
-        return moving_card.rank == 13 # King
-    is_moving_red = (moving_card.suit == 1 or moving_card.suit == 2)
-    is_dest_red = (dest_card.suit == 1 or dest_card.suit == 2)
-    return (is_moving_red != is_dest_red) and (dest_card.rank == moving_card.rank + 1)
+# --- Unified Help & Introspection Manifest ---
+doc_meta(3, "Medium", 2, "Low Luck", 4, "Strategic")
+doc_aliases(["Klondike Without Stock"])
+doc_goal("Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain.")
+doc_zone(0, "Foundations (1-4)", "Build up by same suit from Ace to King.", ["AS", "2S", "3S"])
+doc_zone(4, "Tableau Columns (1-7)", "Build down in alternating colors; any face-up card and all cards on top of it move together; Kings only fill empty columns.", ["KH", "QS", "JD"])
 
-def can_lift_sequence(cards):
-    """In Yukon, any stack of face-up cards can be lifted regardless of whether
-    the sub-stack is in rank order or uniform suit!"""
+def eval_heuristic():
+    score = 0
+    z = 0
+    while z <= 3:
+        score = score + zone_size(z) * 500
+        z = z + 1
+    z = 4
+    while z <= 10:
+        sz = zone_size(z)
+        if sz == 0:
+            score = score + 150
+        else:
+            fd = 0
+            i = 0
+            while i < sz:
+                if not card_face_up(z, i):
+                    fd = fd + 1
+                i = i + 1
+            score = score - fd * 200
+            if fd > 0:
+                score = score - (sz - fd) * 15
+        z = z + 1
+    return score
+
+def can_pick(z, i):
+    sz = zone_size(z)
+    if z < 4 or z > 10 or sz == 0 or i < 0 or i >= sz:
+        return False
+    return card_face_up(z, i)
+
+def can_drop(from_z, i, to_z):
+    if from_z == to_z or from_z < 4 or from_z > 10 or zone_size(from_z) == 0:
+        return False
+    sz = zone_size(from_z)
+    r = card_rank(from_z, i)
+    s = card_suit(from_z, i)
+    red = card_is_red(from_z, i)
+
+    if to_z >= 0 and to_z <= 3:
+        if i != sz - 1:
+            return False
+        fsz = zone_size(to_z)
+        if fsz == 0:
+            return r == 1
+        return card_suit(to_z, fsz - 1) == s and r == card_rank(to_z, fsz - 1) + 1
+
+    if to_z >= 4 and to_z <= 10:
+        tsz = zone_size(to_z)
+        if tsz == 0:
+            return r == 13
+        return (card_is_red(to_z, tsz - 1) != red) and (card_rank(to_z, tsz - 1) == r + 1)
+
+    return False
+
+def on_turn_end():
+    z = 4
+    while z <= 10:
+        sz = zone_size(z)
+        if sz > 0 and not card_face_up(z, sz - 1):
+            flip_card(z, sz - 1, True)
+        z = z + 1
     return True
 
-def can_drop_foundation(foundation_card, moving_card):
-    """Foundations build up by same suit from Ace to King."""
-    if foundation_card.is_empty:
-        return moving_card.rank == 1 # Ace
-    return (foundation_card.suit == moving_card.suit) and (moving_card.rank == foundation_card.rank + 1)
-
+def get_status():
+    total = zone_size(0) + zone_size(1) + zone_size(2) + zone_size(3)
+    if total == 52:
+        return "victory"
+    return "playing"

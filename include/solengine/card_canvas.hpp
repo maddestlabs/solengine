@@ -110,6 +110,8 @@ public:
                               uint32_t goldColor = 0xFFC5A869, uint32_t silverColor = 0xFFB8BDC4, uint32_t gemColor = 0xFFB81424);
     void drawSculptedSvg(const std::string& svgXml, float x, float y, float w, float h,
                          float zMin = 0.35f, float zMax = 1.25f, float bulge = 1.15f);
+    void drawSculptedVector(const std::string& evecPayload, float x, float y, float w, float h,
+                            float zMin = 0.35f, float zMax = 1.25f, float bulge = 1.15f);
 
     // Multi-Tier 3D Relief Elevation, Dome Bulge & Material Control
     void setElevation(float zBase, float bulge = 1.0f) noexcept;
@@ -142,6 +144,8 @@ public:
     // SVG & Vector Path Injection
     void drawSvg(const std::string& svgXml, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f);
     void drawSvgFile(const std::string& filePath, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = true);
+    void drawVector(const std::string& evecPayload, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = false);
+    void drawVectorFile(const std::string& filePath, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = true);
     void drawImageFile(const std::string& filePath, float x = 0.0f, float y = 0.0f, float w = -1.0f, float h = -1.0f, bool cover = true);
     void drawTiledDetailFile(const std::string& filePath, float tileSizePx = 320.0f, float strength = 0.65f);
     void applyGradientLut(const std::string& mineralMapPath, const std::string& lutPath, float noiseAmp = 0.02f, bool cover = true, float tileSizePx = 0.0f);
@@ -199,6 +203,8 @@ private:
     void rasterizeSvgFragment(const std::string& svgXml, float x, float y, float w, float h, bool cover = false);
     void compositeBuffer(const uint8_t* srcRgba, int srcW, int srcH, float dstX, float dstY, float dstW, float dstH);
     void applyMineralBuffer(const uint8_t* mineral, int imgW, int imgH, const uint8_t* lut, int lutW, float noiseAmp, bool cover, float tileSizePx);
+
+    friend struct SolidPainter;
 };
 
 } // namespace solengine

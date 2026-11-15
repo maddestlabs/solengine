@@ -1,45 +1,101 @@
 # =============================================================================
 # SolEngine Game Variant: TriPeaks (.eats)
 # =============================================================================
-# Addictive fast-paced elimination game related to Golf.
-# Tableaux are arranged in three overlapping triangular peaks.
-# Foundation builds adjacent (+-1) ranks with optional wrapping.
+# Fast-paced elimination game related to Golf with King/Ace wrapping.
 
 name = "TriPeaks"
 family = "Golf"
 category = "GOLF"
-description = "Fast-paced peak elimination. Stack cards +-1 rank onto foundation waste; streak bonuses."
+layout = "columns"
+description = "Fast-paced peak elimination. Stack cards +-1 rank onto foundation waste; King-Ace wrapping allowed."
 decks = 1
 tableaus = 7
 foundations = 1
 freecells = 0
 
-# Deal configuration: 28 cards across pyramid levels
 tableau_deal_counts = [4, 4, 4, 4, 4, 4, 4]
 tableau_all_face_up = False
 foundation_starter_card = True
 
-# Stock configuration: 23 cards, deals 1 card directly to foundation waste
 stock_deal_mode = "deal_to_foundation"
 stock_deal_count = 1
 max_redeals = 0
+demo_seed = 2026
 
-def can_drop_foundation(foundation_card, moving_card):
-    """Adjacent rank matching (+-1). Optional King/Ace wrapping."""
-    if foundation_card.is_empty:
+# --- Unified Help & Introspection Manifest ---
+doc_meta(1, "Fast", 4, "High Luck", 2, "Casual")
+doc_aliases(["Three Peaks", "Tri Towers"])
+doc_goal("Clear all 7 tableau columns onto the Foundation.", "No playable cards remain and Stock is empty.")
+doc_zone(0, "Stock", "Remaining face-down cards. Click to deal a new card onto the Foundation.")
+doc_zone(2, "Foundation", "Build +-1 in rank regardless of suit, wrapping King <-> Ace.", ["KH", "AS", "2D"])
+doc_zone(3, "Tableau Columns (1-7)", "Click or drag exposed top cards that are +-1 rank from the Foundation.")
+
+def eval_heuristic():
+    rem = 0
+    z = 3
+    while z <= 9:
+        rem = rem + zone_size(z)
+        z = z + 1
+    return (28 - rem) * 100 + zone_size(0) * 10
+
+def on_deal():
+    if zone_size(2) == 0 and zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, 2)
+        flip_card(2, 0, True)
+    return True
+
+def can_pick(z, i):
+    sz = zone_size(z)
+    return z >= 3 and z <= 9 and sz > 0 and i == sz - 1 and card_face_up(z, i)
+
+def can_drop(from_z, i, to_z):
+    if to_z != 2 or from_z < 3 or from_z > 9:
+        return False
+    sz = zone_size(from_z)
+    if sz == 0 or i != sz - 1 or not card_face_up(from_z, i):
+        return False
+    fsz = zone_size(2)
+    if fsz == 0:
         return True
-    f_rank = foundation_card.rank
-    m_rank = moving_card.rank
-    if m_rank == f_rank + 1 or m_rank == f_rank - 1:
+    fr = card_rank(2, fsz - 1)
+    mr = card_rank(from_z, i)
+    if mr == fr + 1 or mr == fr - 1:
         return True
-    # Wrap King to Ace and Ace to King
-    if (f_rank == 13 and m_rank == 1) or (f_rank == 1 and m_rank == 13):
+    if (fr == 13 and mr == 1) or (fr == 1 and mr == 13):
         return True
     return False
 
-def can_move_tableau_to_tableau():
-    return False
+def on_card_click(z, i):
+    if not can_drop(z, i, 2):
+        return False
+    move_cards(z, i, 2)
+    add_score(10)
+    return True
 
-def can_lift_tableau(column_cards, card_index):
-    return card_index == (len(column_cards) - 1)
+def on_stock_click():
+    if zone_size(0) == 0:
+        return False
+    top = zone_size(0) - 1
+    move_cards(0, top, 2)
+    flip_card(2, zone_size(2) - 1, True)
+    return True
 
+def on_turn_end():
+    z = 3
+    while z <= 9:
+        sz = zone_size(z)
+        if sz > 0 and not card_face_up(z, sz - 1):
+            flip_card(z, sz - 1, True)
+        z = z + 1
+    return True
+
+def get_status():
+    rem = 0
+    z = 3
+    while z <= 9:
+        rem = rem + zone_size(z)
+        z = z + 1
+    if rem == 0:
+        return "victory"
+    return "playing"

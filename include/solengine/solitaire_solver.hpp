@@ -14,7 +14,8 @@ struct SolverMove {
     enum class Action : uint8_t {
         MoveCards = 0,
         DrawStock = 1,
-        PairPyramid = 2
+        PairPyramid = 2,
+        ClickCard = 3
     };
     Action action{Action::MoveCards};
     uint8_t fromPile{0};
@@ -26,6 +27,7 @@ struct SolverMove {
 
 struct SolveResult {
     bool solved{false};
+    bool isPartialDemo{false};
     bool timedOut{false};
     bool cancelled{false};
     uint32_t statesExplored{0};

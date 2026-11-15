@@ -2762,6 +2762,8 @@ public:
     };
 
     void beginPass(float width, float height) override {
+        frameDraws_.clear();
+        frameVertices_.clear();
         width_ = static_cast<uint32_t>(std::round(width));
         height_ = static_cast<uint32_t>(std::round(height));
         if (device_ && uniformBuffer_) {
@@ -2816,9 +2818,17 @@ public:
         wgpuQueueWriteTexture(queue_, &dst, data, totalDataSize, &layout, &writeSize);
     }
 
-    void renderBatch(const std::vector<Vertex2D>& vertices) override {
-        if (vertices.empty() || !device_ || !pipeline_) return;
-        if (!customTargetView_ && !surface_) return;
+    void flushPendingDraws(WGPUCommandEncoder existingEncoder = nullptr) {
+        if (frameDraws_.empty() || frameVertices_.empty() || !device_ || !pipeline_) {
+            frameDraws_.clear();
+            frameVertices_.clear();
+            return;
+        }
+        if (!customTargetView_ && !surface_) {
+            frameDraws_.clear();
+            frameVertices_.clear();
+            return;
+        }
 
         const bool renderToPostFxScene = (postFxActive_ && postFxPipeline_ != nullptr &&
                                           !postFxAppliedThisFrame_ && !customTargetView_);
@@ -2834,6 +2844,8 @@ public:
                 wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
                 if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
                     currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+                    frameDraws_.clear();
+                    frameVertices_.clear();
                     return;
                 }
 
@@ -2847,16 +2859,41 @@ public:
                 viewDesc.aspect = WGPUTextureAspect_All;
 
                 currentBackBufferView_ = wgpuTextureCreateView(currentSurfaceTexture_.texture, &viewDesc);
-                if (!currentBackBufferView_) return;
+                if (!currentBackBufferView_) {
+                    frameDraws_.clear();
+                    frameVertices_.clear();
+                    return;
+                }
             }
             targetView = currentBackBufferView_;
         }
 
-        WGPUCommandEncoderDescriptor encDesc{};
-        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+        const uint64_t bufferSize = static_cast<uint64_t>(frameVertices_.size()) * sizeof(Vertex2D);
+        if (bufferSize > vertexBufferSize_ || !vertexBuffer_) {
+            if (vertexBuffer_) {
+                wgpuBufferRelease(vertexBuffer_);
+                vertexBuffer_ = nullptr;
+            }
+            uint64_t newCap = std::max<uint64_t>(bufferSize, 65536ULL);
+            if (newCap < vertexBufferSize_ * 2) {
+                newCap = vertexBufferSize_ * 2;
+            }
+            WGPUBufferDescriptor bufDesc{};
+            bufDesc.size = newCap;
+            bufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+            vertexBuffer_ = wgpuDeviceCreateBuffer(device_, &bufDesc);
+            vertexBufferSize_ = newCap;
+        }
+        wgpuQueueWriteBuffer(queue_, vertexBuffer_, 0, frameVertices_.data(), bufferSize);
+
+        WGPUCommandEncoder encoder = existingEncoder;
+        if (!encoder) {
+            WGPUCommandEncoderDescriptor encDesc{};
+            encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+        }
 
         WGPURenderPassColorAttachment colorAttachment{};
-        bool useMsaa = (sampleCount_ > 1 && msaaTextureView_ != nullptr);
+        const bool useMsaa = (sampleCount_ > 1 && msaaTextureView_ != nullptr);
         if (useMsaa) {
             colorAttachment.view = msaaTextureView_;
             colorAttachment.resolveTarget = targetView;
@@ -2867,7 +2904,7 @@ public:
         colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
         colorAttachment.loadOp = isFirstBatchOfFrame_ ? WGPULoadOp_Clear : WGPULoadOp_Load;
         colorAttachment.storeOp = WGPUStoreOp_Store;
-        colorAttachment.clearValue = WGPUColor{0.08, 0.09, 0.12, 1.0}; // DAW Dark theme clear
+        colorAttachment.clearValue = WGPUColor{0.08, 0.09, 0.12, 1.0};
 
         isFirstBatchOfFrame_ = false;
 
@@ -2880,50 +2917,69 @@ public:
         if (bindGroup_) {
             wgpuRenderPassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
         }
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, bufferSize);
 
-        if (hasScissor_ && scissorW_ > 0 && scissorH_ > 0) {
-            uint32_t sx = std::min(scissorX_, width_ > 0 ? width_ - 1 : 0);
-            uint32_t sy = std::min(scissorY_, height_ > 0 ? height_ - 1 : 0);
-            uint32_t sw = std::min(scissorW_, width_ - sx);
-            uint32_t sh = std::min(scissorH_, height_ - sy);
-            if (sw > 0 && sh > 0) {
-                wgpuRenderPassEncoderSetScissorRect(pass, sx, sy, sw, sh);
+        bool curScissorActive = false;
+        uint32_t curSx = 0, curSy = 0, curSw = width_, curSh = height_;
+        for (const auto& d : frameDraws_) {
+            const uint32_t targetSx = d.hasScissor ? d.scissorX : 0;
+            const uint32_t targetSy = d.hasScissor ? d.scissorY : 0;
+            const uint32_t targetSw = d.hasScissor ? d.scissorW : width_;
+            const uint32_t targetSh = d.hasScissor ? d.scissorH : height_;
+            if (targetSw == 0 || targetSh == 0) {
+                continue;
             }
-        }
-
-        // Dynamic vertex upload
-        uint64_t bufferSize = vertices.size() * sizeof(Vertex2D);
-        if (bufferSize > 0) {
-            if (bufferSize > vertexBufferSize_ || !vertexBuffer_) {
-                if (vertexBuffer_) {
-                    wgpuBufferRelease(vertexBuffer_);
-                    vertexBuffer_ = nullptr;
-                }
-                uint64_t newCap = std::max<uint64_t>(bufferSize, 65536ULL);
-                if (newCap < vertexBufferSize_ * 2) {
-                    newCap = vertexBufferSize_ * 2;
-                }
-                WGPUBufferDescriptor bufDesc{};
-                bufDesc.size = newCap;
-                bufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
-                vertexBuffer_ = wgpuDeviceCreateBuffer(device_, &bufDesc);
-                vertexBufferSize_ = newCap;
+            if (!curScissorActive ||
+                curSx != targetSx || curSy != targetSy ||
+                curSw != targetSw || curSh != targetSh) {
+                wgpuRenderPassEncoderSetScissorRect(pass, targetSx, targetSy, targetSw, targetSh);
+                curScissorActive = true;
+                curSx = targetSx;
+                curSy = targetSy;
+                curSw = targetSw;
+                curSh = targetSh;
             }
-            wgpuQueueWriteBuffer(queue_, vertexBuffer_, 0, vertices.data(), bufferSize);
-
-            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, bufferSize);
-            wgpuRenderPassEncoderDraw(pass, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+            wgpuRenderPassEncoderDraw(pass, d.vertexCount, 1, d.firstVertex, 0);
         }
 
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
 
-        WGPUCommandBufferDescriptor cmdBufDesc{};
-        WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
-        wgpuCommandEncoderRelease(encoder);
+        frameDraws_.clear();
+        frameVertices_.clear();
 
-        wgpuQueueSubmit(queue_, 1, &commands);
-        wgpuCommandBufferRelease(commands);
+        if (!existingEncoder) {
+            WGPUCommandBufferDescriptor cmdBufDesc{};
+            WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
+            wgpuCommandEncoderRelease(encoder);
+            wgpuQueueSubmit(queue_, 1, &commands);
+            wgpuCommandBufferRelease(commands);
+        }
+    }
+
+    void renderBatch(const std::vector<Vertex2D>& vertices) override {
+        if (vertices.empty() || !device_ || !pipeline_) return;
+        if (!customTargetView_ && !surface_) return;
+
+        PendingDraw draw{};
+        draw.firstVertex = static_cast<uint32_t>(frameVertices_.size());
+        draw.vertexCount = static_cast<uint32_t>(vertices.size());
+        draw.hasScissor = (hasScissor_ && scissorW_ > 0 && scissorH_ > 0);
+        if (draw.hasScissor) {
+            uint32_t sx = std::min(scissorX_, width_ > 0 ? width_ - 1 : 0);
+            uint32_t sy = std::min(scissorY_, height_ > 0 ? height_ - 1 : 0);
+            uint32_t sw = std::min(scissorW_, width_ - sx);
+            uint32_t sh = std::min(scissorH_, height_ - sy);
+            if (sw == 0 || sh == 0) {
+                return;
+            }
+            draw.scissorX = sx;
+            draw.scissorY = sy;
+            draw.scissorW = sw;
+            draw.scissorH = sh;
+        }
+        frameVertices_.insert(frameVertices_.end(), vertices.begin(), vertices.end());
+        frameDraws_.push_back(draw);
     }
 
     void renderRgbaRegion(float x, float y, float w, float h, const uint8_t* rgba, int imgW, int imgH,
@@ -2936,6 +2992,9 @@ public:
 
         // Upload to GPU texture only when source bitmap or dimensions change
         if (rgba != lastBgRgba_ || uploadW != lastBgUploadW_ || uploadH != lastBgUploadH_) {
+            if (!frameDraws_.empty()) {
+                flushPendingDraws();
+            }
             lastBgRgba_ = rgba;
             lastBgUploadW_ = uploadW;
             lastBgUploadH_ = uploadH;
@@ -3002,7 +3061,7 @@ public:
     }
 
     void updateRgbaTexture(int x, int y, int w, int h, const uint8_t* data, int atlasW, int atlasH) override {
-        if (!device_ || !rgbaTexture_ || !data || w <= 0 || h <= 0) return;
+        if (!device_ || !rgbaTexture_ || !data || w <= 0 || h <= 0 || atlasW <= 0 || atlasH <= 0) return;
 
         WGPUTexelCopyTextureInfo dst{};
         dst.texture = rgbaTexture_;
@@ -3010,20 +3069,42 @@ public:
         dst.origin = WGPUOrigin3D{ static_cast<uint32_t>(x), static_cast<uint32_t>(y), 0 };
         dst.aspect = WGPUTextureAspect_All;
 
+        const uint32_t srcStride = static_cast<uint32_t>(atlasW) * 4u;
+        const uint32_t copyRowBytes = static_cast<uint32_t>(w) * 4u;
+        const uint32_t alignedBytesPerRow = (copyRowBytes + 255u) & ~255u;
+
         WGPUTexelCopyBufferLayout layout{};
         layout.offset = 0;
-        layout.bytesPerRow = static_cast<uint32_t>(atlasW * 4);
-        layout.rowsPerImage = static_cast<uint32_t>(atlasH);
+        layout.bytesPerRow = (h > 1) ? alignedBytesPerRow : copyRowBytes;
+        layout.rowsPerImage = static_cast<uint32_t>(h);
 
         WGPUExtent3D writeSize{ static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1 };
-        size_t totalDataSize = static_cast<size_t>(atlasW * atlasH * 4);
 
-        wgpuQueueWriteTexture(queue_, &dst, data, totalDataSize, &layout, &writeSize);
+        if (h == 1 || (srcStride == alignedBytesPerRow && w == atlasW)) {
+            const size_t totalDataSize = static_cast<size_t>(layout.bytesPerRow) * static_cast<size_t>(h);
+            wgpuQueueWriteTexture(queue_, &dst, data, totalDataSize, &layout, &writeSize);
+        } else {
+            const size_t totalAlignedSize = static_cast<size_t>(alignedBytesPerRow) * static_cast<size_t>(h);
+            if (bgAlignedUploadBuf_.size() < totalAlignedSize) {
+                bgAlignedUploadBuf_.resize(totalAlignedSize);
+            }
+            for (int row = 0; row < h; ++row) {
+                std::memcpy(
+                    bgAlignedUploadBuf_.data() + static_cast<size_t>(row) * alignedBytesPerRow,
+                    data + static_cast<size_t>(row) * srcStride,
+                    copyRowBytes
+                );
+            }
+            wgpuQueueWriteTexture(queue_, &dst, bgAlignedUploadBuf_.data(), totalAlignedSize, &layout, &writeSize);
+        }
     }
 
     void endPass() override {
         if (postFxActive_ && postFxPipeline_ && !postFxAppliedThisFrame_ && !customTargetView_) {
             applyPostFxPass();
+        }
+        if (!frameDraws_.empty()) {
+            flushPendingDraws();
         }
 #if !defined(__EMSCRIPTEN__)
         if (surface_) {
@@ -3061,7 +3142,9 @@ public:
 
     bool setPostFxShader(const std::string& wgslSource) override {
         if (!device_) return false;
-        if (wgslSource == cachedPostFxWgsl_ && postFxPipeline_) {
+        if (postFxPipeline_ &&
+            ((wgslSource.data() == cachedPostFxPtr_ && wgslSource.size() == cachedPostFxLen_) ||
+             wgslSource == cachedPostFxWgsl_)) {
             return true;
         }
         if (postFxPipeline_) {
@@ -3069,6 +3152,8 @@ public:
             postFxPipeline_ = nullptr;
         }
         cachedPostFxWgsl_.clear();
+        cachedPostFxPtr_ = nullptr;
+        cachedPostFxLen_ = 0;
         if (wgslSource.empty()) return true;
 
         ensurePostFxResources();
@@ -3112,6 +3197,8 @@ public:
 
         if (postFxPipeline_) {
             cachedPostFxWgsl_ = wgslSource;
+            cachedPostFxPtr_ = wgslSource.data();
+            cachedPostFxLen_ = wgslSource.size();
             return true;
         }
         return false;
@@ -3179,6 +3266,10 @@ public:
 
         WGPUCommandEncoderDescriptor encDesc{};
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+
+        if (!frameDraws_.empty()) {
+            flushPendingDraws(encoder);
+        }
 
         WGPURenderPassColorAttachment colorAttachment{};
         colorAttachment.view = currentBackBufferView_;
@@ -3806,6 +3897,17 @@ private:
     WGPUSurfaceTexture currentSurfaceTexture_{};
     WGPUTextureView currentBackBufferView_{nullptr};
     WGPUTextureView customTargetView_{nullptr};
+    struct PendingDraw {
+        uint32_t firstVertex{0};
+        uint32_t vertexCount{0};
+        bool hasScissor{false};
+        uint32_t scissorX{0};
+        uint32_t scissorY{0};
+        uint32_t scissorW{0};
+        uint32_t scissorH{0};
+    };
+    std::vector<Vertex2D> frameVertices_;
+    std::vector<PendingDraw> frameDraws_;
     bool isFirstBatchOfFrame_{true};
     uint32_t width_{1280};
     uint32_t height_{800};
@@ -3946,6 +4048,8 @@ private:
     WGPUBindGroup postFxBindGroup_{nullptr};
     WGPURenderPipeline postFxPipeline_{nullptr};
     std::string cachedPostFxWgsl_;
+    const char* cachedPostFxPtr_{nullptr};
+    size_t cachedPostFxLen_{0};
     bool postFxActive_{false};
     bool postFxAppliedThisFrame_{false};
     float postFxIntensity_{1.0f};
@@ -4127,7 +4231,9 @@ void BatchRenderer2D::endFrame() {
 
 void BatchRenderer2D::setBlendMode(BlendMode mode) {
     if (blendMode_ == mode) return;
-    flush();
+    if (getBackendType() != RenderBackendType::WebGPU) {
+        flush();
+    }
     blendMode_ = mode;
     if (backend_) {
         backend_->setBlendMode(mode);

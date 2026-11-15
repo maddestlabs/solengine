@@ -1,41 +1,97 @@
 # =============================================================================
 # SolEngine Game Variant: Forty Thieves (.eats)
 # =============================================================================
-# Napoleon at St. Helena. Two-deck classic with strict same-suit builds
-# and single-card transfers. High difficulty and deep strategic reward.
-
 name = "Forty Thieves"
 family = "FortyThieves"
 category = "POPULAR"
-description = "Two-deck classic. 10 tableaus of 4 cards; build down in same suit; single card movement only."
+layout = "columns"
+description = "Classic 2-deck skill game. Build down by same suit; single card movement; 8 foundations."
 decks = 2
 tableaus = 10
 foundations = 8
 freecells = 0
-
-# Deal configuration: 10 columns of 4 cards face-up (40 cards total)
 tableau_deal_counts = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
 tableau_all_face_up = True
 foundation_starter_card = False
-
-# Stock configuration: 64 cards, draw 1 to waste, 0 redeals
 stock_deal_mode = "waste_draw_1"
 stock_deal_count = 1
 max_redeals = 0
+demo_seed = 60
 
-def can_drop_tableau(dest_card, moving_card):
-    """Tableaux build down by the SAME SUIT. Empty spaces accept any card."""
-    if dest_card.is_empty:
+# --- Unified Help & Introspection Manifest ---
+doc_meta(4, "Long", 3, "Moderate", 5, "Master")
+doc_aliases(["Napoleon at St. Helena", "Big Forty"])
+doc_goal("Build all 8 Foundations up in suit from Ace to King.", "No legal moves remain.")
+doc_zone(0, "Stock", "Click to turn 1 card into the Waste; 0 redeals.")
+doc_zone(1, "Waste", "Top card may be played to Foundations or Tableau.")
+doc_zone(2, "Foundations (1-8)", "Build up by same suit from Ace to King.", ["AS", "2S", "3S"])
+doc_zone(10, "Tableau Columns (1-10)", "Build down in the SAME SUIT; only the top card may move; any card fills empty columns.", ["KS", "QS", "JS"])
+
+def eval_heuristic():
+    score = 0
+    z = 2
+    while z <= 9:
+        score = score + zone_size(z) * 200
+        z = z + 1
+    z = 10
+    while z <= 19:
+        sz = zone_size(z)
+        if sz == 0:
+            score = score + 50
+        else:
+            i = 0
+            while i < sz - 1:
+                if card_suit(z, i) == card_suit(z, i + 1) and card_rank(z, i) == card_rank(z, i + 1) + 1:
+                    score = score + 35
+                i = i + 1
+        z = z + 1
+    return score - zone_size(1) * 5
+
+def can_pick(z, i):
+    sz = zone_size(z)
+    if sz == 0 or i < 0 or i >= sz:
+        return False
+    if z == 1 or (z >= 10 and z <= 19):
+        return i == sz - 1
+    return False
+
+def can_drop(from_z, i, to_z):
+    if from_z == to_z or zone_size(from_z) == 0:
+        return False
+    sz = zone_size(from_z)
+    if i != sz - 1:
+        return False
+    r = card_rank(from_z, i)
+    s = card_suit(from_z, i)
+
+    if to_z >= 2 and to_z <= 9:
+        fsz = zone_size(to_z)
+        if fsz == 0:
+            return r == 1
+        return card_suit(to_z, fsz - 1) == s and r == card_rank(to_z, fsz - 1) + 1
+
+    if to_z >= 10 and to_z <= 19:
+        tsz = zone_size(to_z)
+        if tsz == 0:
+            return True
+        return card_suit(to_z, tsz - 1) == s and card_rank(to_z, tsz - 1) == r + 1
+
+    return False
+
+def on_stock_click():
+    if zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, 1)
+        flip_card(1, zone_size(1) - 1, True)
         return True
-    return (dest_card.suit == moving_card.suit) and (dest_card.rank == moving_card.rank + 1)
+    return False
 
-def can_lift_sequence(cards):
-    """In Forty Thieves, only one card may be moved at a time."""
-    return len(cards) <= 1
-
-def can_drop_foundation(foundation_card, moving_card):
-    """Foundations build up by same suit from Ace to King."""
-    if foundation_card.is_empty:
-        return moving_card.rank == 1 # Ace
-    return (foundation_card.suit == moving_card.suit) and (moving_card.rank == foundation_card.rank + 1)
-
+def get_status():
+    total = 0
+    z = 2
+    while z <= 9:
+        total = total + zone_size(z)
+        z = z + 1
+    if total == 104:
+        return "victory"
+    return "playing"

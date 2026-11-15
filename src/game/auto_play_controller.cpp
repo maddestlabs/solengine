@@ -10,6 +10,12 @@ AutoPlayController::~AutoPlayController() {
     stop();
 }
 
+void AutoPlayController::startDemo(SolitaireBoard& board) {
+    demoFallbackToSeed_ = true;
+    allowPartialDemo_ = true;
+    start(board);
+}
+
 void AutoPlayController::start(SolitaireBoard& board) {
     stop();
 
@@ -20,9 +26,10 @@ void AutoPlayController::start(SolitaireBoard& board) {
     currentMoveIdx_ = 0;
     moveTimer_ = 0.0f;
     hasResult_ = false;
+    isPartialDemo_ = false;
 
     SolitaireBoard boardCopy = board;
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
     try {
         SolitaireSolver solver;
         // On single-threaded WebAssembly, solve synchronously with a bounded search budget
@@ -64,7 +71,7 @@ void AutoPlayController::start(SolitaireBoard& board) {
 
 void AutoPlayController::stop() {
     cancelSignal_.store(true, std::memory_order_release);
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
     if (solveThread_.joinable()) {
         solveThread_.join();
     }
@@ -109,6 +116,8 @@ bool AutoPlayController::stepForward(SolitaireBoard& board, AudioFoleyEngine* fo
         ok = board.drawFromStock();
     } else if (m.action == SolverMove::Action::PairPyramid) {
         ok = board.executePyramidPair(m.fromPile, m.secondFromPile, m.toPile);
+    } else if (m.action == SolverMove::Action::ClickCard) {
+        ok = board.smartMove(m.fromPile, m.cardIndex);
     } else {
         ok = board.executeMove(m.fromPile, m.cardIndex, m.toPile, true);
     }
@@ -202,20 +211,28 @@ void AutoPlayController::update(float dt, SolitaireBoard& board, AudioFoleyEngin
             }
         }
         if (ready) {
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
             if (solveThread_.joinable()) {
                 solveThread_.join();
             }
 #endif
-            if (res.solved && !res.moves.empty()) {
+            if ((res.solved || (allowPartialDemo_ && res.isPartialDemo)) && !res.moves.empty()) {
                 moves_ = std::move(res.moves);
+                isPartialDemo_ = (!res.solved && res.isPartialDemo);
                 state_ = AutoPlayState::Playing;
                 currentMoveIdx_ = 0;
                 moveTimer_ = 0.0f;
                 if (foley) {
-                    foley->triggerSound(FoleySound::SpectreWhisper, 0.85f);
+                    foley->triggerSound(FoleySound::Deal, 0.75f);
                 }
+            } else if (demoFallbackToSeed_ && board.activeGameDef().demoSeed != 0 &&
+                       board.seed() != board.activeGameDef().demoSeed) {
+                demoFallbackToSeed_ = false;
+                board.newDeal(board.activeGameDef().demoSeed, board.activeGameDef());
+                start(board);
+                return;
             } else {
+                demoFallbackToSeed_ = false;
                 state_ = AutoPlayState::Failed;
             }
         }
@@ -238,7 +255,8 @@ std::string AutoPlayController::getStatusText() const {
         case AutoPlayState::Solving:
             return "Oracle Analyzing Game Tree...";
         case AutoPlayState::Playing:
-            return "Playing (" + std::string(speedLabel()) + ") - Move " +
+            return std::string(isPartialDemo_ ? "Demoing Best Moves (" : "Playing (") +
+                   std::string(speedLabel()) + ") - Move " +
                    std::to_string(currentMoveIdx_) + " / " + std::to_string(moves_.size());
         case AutoPlayState::Paused:
             return "Paused - Move " + std::to_string(currentMoveIdx_) + " / " + std::to_string(moves_.size());

@@ -42,6 +42,7 @@ public:
 
     // Start auto-play demonstration on the current board
     void start(SolitaireBoard& board);
+    void startDemo(SolitaireBoard& board);
 
     // Stop auto-play and let the player immediately take over manual control
     void stop();
@@ -68,6 +69,18 @@ public:
     [[nodiscard]] size_t currentMoveIndex() const noexcept { return currentMoveIdx_; }
     [[nodiscard]] size_t totalMoves() const noexcept { return moves_.size(); }
     [[nodiscard]] float moveInterval() const noexcept;
+    [[nodiscard]] float moveProgress() const noexcept {
+        float iv = moveInterval();
+        return (iv > 0.001f) ? (moveTimer_ / iv) : 0.0f;
+    }
+    [[nodiscard]] const SolverMove* peekNextMove() const noexcept {
+        if (state_ == AutoPlayState::Playing && currentMoveIdx_ < moves_.size()) {
+            return &moves_[currentMoveIdx_];
+        }
+        return nullptr;
+    }
+    [[nodiscard]] bool showMoveTrails() const noexcept { return showMoveTrails_; }
+    void setShowMoveTrails(bool show) noexcept { showMoveTrails_ = show; }
     [[nodiscard]] const char* speedLabel() const noexcept;
 
     // Rich status descriptions for HUD rendering
@@ -81,9 +94,13 @@ private:
     std::vector<SolverMove> moves_;
     size_t currentMoveIdx_{0};
     float moveTimer_{0.0f};
+    bool showMoveTrails_{true};
+    bool allowPartialDemo_{true};
+    bool demoFallbackToSeed_{false};
+    bool isPartialDemo_{false};
 
     // Asynchronous background solve worker thread
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
     std::thread solveThread_;
 #endif
     std::atomic<bool> cancelSignal_{false};

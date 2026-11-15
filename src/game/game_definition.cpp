@@ -441,6 +441,15 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
     const std::string source = buf.str();
 
     eatsbits::eatscript::Evaluator ev;
+    auto noop = [](const std::vector<eatsbits::eatscript::Value>&, const std::map<std::string, eatsbits::eatscript::Value>&) {
+        return eatsbits::eatscript::Value(true);
+    };
+    ev.registerFunction("doc_goal", noop);
+    ev.registerFunction("doc_zone", noop);
+    ev.registerFunction("doc_stat", noop);
+    ev.registerFunction("doc_tag", noop);
+    ev.registerFunction("doc_meta", noop);
+    ev.registerFunction("doc_aliases", noop);
     ev.evaluateSource(source);
 
     if (!ev.hasVariable("name")) {
@@ -488,6 +497,31 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.tableauDealCounts.assign(outDef.tableaus, 5);
         outDef.filePath = filePath;
         outDef.isScripted = true;
+        if (ev.hasVariable("demo_seed")) {
+            outDef.demoSeed = static_cast<uint32_t>(std::max(1, ev.getVariable("demo_seed").asInt(2026)));
+        }
+        if (ev.hasVariable("demo_seeds")) {
+            auto ds = ev.getVariable("demo_seeds");
+            if (ds.isList()) {
+                for (const auto& v : ds.listVal) {
+                    int s = v.asInt(0);
+                    if (s > 0) outDef.demoSeeds.push_back(static_cast<uint32_t>(s));
+                }
+                if (!outDef.demoSeeds.empty() && !ev.hasVariable("demo_seed")) {
+                    outDef.demoSeed = outDef.demoSeeds.front();
+                }
+            }
+        }
+        if (ev.hasVariable("alternate_names")) {
+            auto alts = ev.getVariable("alternate_names");
+            if (alts.isList()) {
+                for (const auto& a : alts.listVal) {
+                    if (a.isString() && !a.asString().empty()) {
+                        outDef.alternateNames.push_back(a.asString());
+                    }
+                }
+            }
+        }
     } else {
         outDef.name = ev.getVariable("name").asString();
         outDef.id = toLowerStr(outDef.name);
@@ -523,6 +557,31 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.maxRedeals = ev.getVariable("max_redeals").asInt(0);
         outDef.filePath = filePath;
         outDef.isScripted = true;
+        if (ev.hasVariable("demo_seed")) {
+            outDef.demoSeed = static_cast<uint32_t>(std::max(1, ev.getVariable("demo_seed").asInt(2026)));
+        }
+        if (ev.hasVariable("demo_seeds")) {
+            auto ds = ev.getVariable("demo_seeds");
+            if (ds.isList()) {
+                for (const auto& v : ds.listVal) {
+                    int s = v.asInt(0);
+                    if (s > 0) outDef.demoSeeds.push_back(static_cast<uint32_t>(s));
+                }
+                if (!outDef.demoSeeds.empty() && !ev.hasVariable("demo_seed")) {
+                    outDef.demoSeed = outDef.demoSeeds.front();
+                }
+            }
+        }
+        if (ev.hasVariable("alternate_names")) {
+            auto alts = ev.getVariable("alternate_names");
+            if (alts.isList()) {
+                for (const auto& a : alts.listVal) {
+                    if (a.isString() && !a.asString().empty()) {
+                        outDef.alternateNames.push_back(a.asString());
+                    }
+                }
+            }
+        }
     }
 
     // Match to native variant if applicable

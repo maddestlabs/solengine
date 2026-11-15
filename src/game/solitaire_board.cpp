@@ -153,6 +153,7 @@ void SolitaireBoard::newDeal(uint32_t seed, GameVariant variant) {
 }
 
 void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
+    statusCacheDirty_ = true;
     activeDef_ = gameDef;
     seed_ = seed;
     rngState_ = seed;
@@ -163,6 +164,13 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
     victorySeconds_ = 0.0f;
     undoStack_.clear();
     redoStack_.clear();
+    txUndoStack_.clear();
+    txRedoStack_.clear();
+    blackboard_ = {};
+    scriptEngine_.reset();
+    if (!gameDef.filePath.empty()) {
+        scriptEngine_.loadScriptFile(gameDef.filePath);
+    }
     activeHint_ = {};
     piles_.clear();
 
@@ -582,31 +590,105 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
             c.faceUp = false;
             piles_[0].cards.push_back(c);
         }
-    } else if (variant_ == GameVariant::FreeCell || (activeDef_.freecells == 4 && activeDef_.tableaus == 8)) {
-        // 4 FreeCells (0..3), 4 Foundations (4..7), 8 Tableau columns (8..15)
-        for (uint8_t i = 0; i < 4; ++i) {
+    } else if (variant_ == GameVariant::FreeCell || (activeDef_.freecells > 0 && activeDef_.layout != "canfield")) {
+        // FreeCells (0..numFC-1), Foundations (numFC..numFC+numF-1), Tableaus (numFC+numF..)
+        const uint8_t numFC = activeDef_.freecells > 0 ? activeDef_.freecells : 4;
+        const uint8_t numF = activeDef_.foundations > 0 ? activeDef_.foundations : 4;
+        const uint8_t numT = activeDef_.tableaus > 0 ? activeDef_.tableaus : 8;
+        for (uint8_t i = 0; i < numFC; ++i) {
             Pile p{};
             p.type = PileType::FreeCell;
             p.index = i;
             piles_.push_back(p);
         }
-        for (uint8_t i = 0; i < 4; ++i) {
+        for (uint8_t i = 0; i < numF; ++i) {
             Pile p{};
             p.type = PileType::Foundation;
             p.index = i;
             piles_.push_back(p);
         }
-        for (uint8_t i = 0; i < 8; ++i) {
+        for (uint8_t i = 0; i < numT; ++i) {
             Pile p{};
             p.type = PileType::Tableau;
             p.index = i;
             piles_.push_back(p);
         }
-        for (size_t i = 0; i < deck.size(); ++i) {
-            Card c = deck[i];
-            c.faceUp = true;
-            c.flipAngle = kPi * 0.65f;
-            piles_[8 + (i % 8)].cards.push_back(c);
+        const size_t tabBase = static_cast<size_t>(numFC) + numF;
+        if (!activeDef_.tableauDealCounts.empty()) {
+            size_t cursor = 0;
+            for (uint8_t col = 0; col < numT; ++col) {
+                uint8_t count = (col < activeDef_.tableauDealCounts.size()) ? activeDef_.tableauDealCounts[col] : 0;
+                for (uint8_t row = 0; row < count && cursor < deck.size(); ++row) {
+                    Card c = deck[cursor++];
+                    c.faceUp = true;
+                    c.flipAngle = kPi * 0.65f;
+                    piles_[tabBase + col].cards.push_back(c);
+                }
+            }
+            for (uint8_t fc = 0; fc < numFC && cursor < deck.size(); ++fc) {
+                Card c = deck[cursor++];
+                c.faceUp = true;
+                c.flipAngle = kPi * 0.65f;
+                piles_[fc].cards.push_back(c);
+            }
+        } else {
+            for (size_t i = 0; i < deck.size(); ++i) {
+                Card c = deck[i];
+                c.faceUp = true;
+                c.flipAngle = kPi * 0.65f;
+                piles_[tabBase + (i % numT)].cards.push_back(c);
+            }
+        }
+    } else if (hasScriptHooks() && activeDef_.layout == "columns") {
+        // Generic data-driven columns layout for Eatscript games:
+        // 0 = Stock, 1 = Waste, 2..(2+F-1) = Foundations, (2+F).. = Tableaus
+        const uint8_t numF = activeDef_.foundations > 0 ? activeDef_.foundations : 1;
+        const uint8_t numT = activeDef_.tableaus > 0 ? activeDef_.tableaus : 4;
+
+        Pile stock{};
+        stock.type = PileType::Stock;
+        stock.index = 0;
+        stock.role = "stock";
+        piles_.push_back(stock);
+
+        Pile waste{};
+        waste.type = PileType::Waste;
+        waste.index = 0;
+        waste.role = "waste";
+        piles_.push_back(waste);
+
+        for (uint8_t i = 0; i < numF; ++i) {
+            Pile f{};
+            f.type = PileType::Foundation;
+            f.index = i;
+            f.role = "foundation";
+            piles_.push_back(f);
+        }
+        for (uint8_t i = 0; i < numT; ++i) {
+            Pile t{};
+            t.type = PileType::Tableau;
+            t.index = i;
+            t.role = "tableau";
+            piles_.push_back(t);
+        }
+
+        size_t cursor = 0;
+        const size_t tabBase = 2 + numF;
+        for (uint8_t col = 0; col < numT; ++col) {
+            uint8_t count = (col < activeDef_.tableauDealCounts.size()) ? activeDef_.tableauDealCounts[col] : 1;
+            for (uint8_t row = 0; row < count && cursor < deck.size(); ++row) {
+                Card c = deck[cursor++];
+                c.faceUp = activeDef_.tableauAllFaceUp || (row == count - 1);
+                if (c.faceUp) {
+                    c.flipAngle = kPi * 0.75f;
+                }
+                piles_[tabBase + col].cards.push_back(c);
+            }
+        }
+        while (cursor < deck.size()) {
+            Card c = deck[cursor++];
+            c.faceUp = false;
+            piles_[0].cards.push_back(c);
         }
     } else {
         // Klondike:
@@ -653,9 +735,15 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
         }
     }
 
+    if (scriptEngine_.hasOnDeal()) {
+        TurnTransaction setupTx;
+        auto ctx = makeScriptContext(&setupTx);
+        scriptEngine_.invokeOnDeal(ctx);
+    }
+
     computeLayout(viewportW_, viewportH_);
-    const float originX = piles_[0].x;
-    const float originY = piles_[0].y;
+    const float originX = piles_.empty() ? 0.0f : piles_[0].x;
+    const float originY = piles_.empty() ? 0.0f : piles_[0].y;
     for (auto& p : piles_) {
         for (auto& c : p.cards) {
             c.x = originX;
@@ -1117,18 +1205,39 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
             piles_[2 + i].x = startX + static_cast<float>(i) * (cardW_ + colGap);
             piles_[2 + i].y = tableauY;
         }
-    } else if (variant_ == GameVariant::FreeCell || (activeDef_.freecells == 4 && activeDef_.tableaus == 8)) {
-        for (uint8_t i = 0; i < 4; ++i) {
+    } else if (variant_ == GameVariant::FreeCell || (activeDef_.freecells > 0 && activeDef_.layout != "canfield")) {
+        const uint8_t numFC = activeDef_.freecells > 0 ? activeDef_.freecells : 4;
+        const uint8_t numF = activeDef_.foundations > 0 ? activeDef_.foundations : 4;
+        const uint8_t numT = activeDef_.tableaus > 0 ? activeDef_.tableaus : 8;
+        const size_t tabBase = static_cast<size_t>(numFC) + numF;
+        for (uint8_t i = 0; i < numFC && i < piles_.size(); ++i) {
             piles_[i].x = startX + static_cast<float>(i) * (cardW_ + colGap);
             piles_[i].y = topRowY;
         }
-        for (uint8_t i = 0; i < 4; ++i) {
-            piles_[4 + i].x = startX + static_cast<float>(4 + i) * (cardW_ + colGap);
-            piles_[4 + i].y = topRowY;
+        for (uint8_t i = 0; i < numF && (numFC + i) < piles_.size(); ++i) {
+            piles_[numFC + i].x = startX + static_cast<float>(numFC + i) * (cardW_ + colGap);
+            piles_[numFC + i].y = topRowY;
         }
-        for (uint8_t i = 0; i < 8; ++i) {
-            piles_[8 + i].x = startX + static_cast<float>(i) * (cardW_ + colGap);
-            piles_[8 + i].y = tableauY;
+        const float tabOffset = (numCols > numT) ? 0.5f * static_cast<float>(numCols - numT) * (cardW_ + colGap) : 0.0f;
+        for (uint8_t i = 0; i < numT && (tabBase + i) < piles_.size(); ++i) {
+            piles_[tabBase + i].x = std::round(startX + tabOffset + static_cast<float>(i) * (cardW_ + colGap));
+            piles_[tabBase + i].y = tableauY;
+        }
+    } else if (hasScriptHooks() && activeDef_.layout == "columns" && piles_.size() >= 3) {
+        const uint8_t numF = activeDef_.foundations > 0 ? activeDef_.foundations : 1;
+        const uint8_t numT = activeDef_.tableaus > 0 ? activeDef_.tableaus : 4;
+        const size_t tabBase = 2 + numF;
+        piles_[0].x = startX;
+        piles_[0].y = topRowY;
+        piles_[1].x = startX + (cardW_ + colGap);
+        piles_[1].y = topRowY;
+        for (uint8_t i = 0; i < numF && (2 + i) < piles_.size(); ++i) {
+            piles_[2 + i].x = startX + static_cast<float>(2 + i) * (cardW_ + colGap);
+            piles_[2 + i].y = topRowY;
+        }
+        for (uint8_t i = 0; i < numT && (tabBase + i) < piles_.size(); ++i) {
+            piles_[tabBase + i].x = startX + static_cast<float>(i) * (cardW_ + colGap);
+            piles_[tabBase + i].y = tableauY;
         }
     } else {
         // Klondike Draw 1 & Draw 3
@@ -1185,6 +1294,7 @@ void SolitaireBoard::setCardDeviation(float dev) noexcept {
 }
 
 void SolitaireBoard::updateCardTargets() {
+    statusCacheDirty_ = true;
     bool bottomStockActive = false;
     float bottomRailStockY = viewportH_ - 56.0f;
     if (variant_ == GameVariant::KlondikeDraw1 || variant_ == GameVariant::KlondikeDraw3) {
@@ -1357,6 +1467,25 @@ void SolitaireBoard::updateAnimations(float dt) {
 }
 
 bool SolitaireBoard::drawFromStock() {
+    if (scriptEngine_.hasOnStockClick()) {
+        clearHint();
+        TurnTransaction tx;
+        auto ctx = makeScriptContext(&tx);
+        if (!scriptEngine_.invokeOnStockClick(ctx)) {
+            return false;
+        }
+        if (scriptEngine_.hasOnTurnEnd()) {
+            scriptEngine_.invokeOnTurnEnd(ctx);
+        }
+        if (!tx.ops.empty()) {
+            txUndoStack_.push_back(std::move(tx));
+            txRedoStack_.clear();
+        }
+        ++moveCount_;
+        updateCardTargets();
+        return true;
+    }
+
     if (piles_.empty() || piles_[0].type != PileType::Stock) {
         return false;
     }
@@ -1561,6 +1690,15 @@ bool SolitaireBoard::canMoveCards(uint8_t fromPileIdx, size_t startCardIdx, uint
     }
 
     const Card& lead = src.cards[startCardIdx];
+    if (scriptEngine_.hasCanPick() || scriptEngine_.hasCanDrop()) {
+        auto ctx = makeConstScriptContext();
+        if (scriptEngine_.hasCanPick() && !scriptEngine_.invokeCanPick(ctx, fromPileIdx, startCardIdx)) {
+            return false;
+        }
+        if (scriptEngine_.hasCanDrop()) {
+            return scriptEngine_.invokeCanDrop(ctx, fromPileIdx, startCardIdx, toPileIdx);
+        }
+    }
     if (!lead.faceUp) {
         return false;
     }
@@ -1713,6 +1851,41 @@ bool SolitaireBoard::canMoveCards(uint8_t fromPileIdx, size_t startCardIdx, uint
 }
 
 bool SolitaireBoard::executeMove(uint8_t fromPileIdx, size_t startCardIdx, uint8_t toPileIdx, bool recordUndo) {
+    if (hasScriptHooks() && (scriptEngine_.hasCanTarget() || scriptEngine_.hasCanDrop() || scriptEngine_.hasCanPick())) {
+        if (fromPileIdx < piles_.size() && toPileIdx < piles_.size() && fromPileIdx != toPileIdx && !piles_[toPileIdx].cards.empty()) {
+            const size_t dstTop = piles_[toPileIdx].cards.size() - 1;
+            auto ctx = makeConstScriptContext();
+            if (scriptEngine_.hasCanTarget() && scriptEngine_.invokeCanTarget(ctx, fromPileIdx, startCardIdx, toPileIdx, dstTop)) {
+                return executeCardTarget(fromPileIdx, startCardIdx, toPileIdx, dstTop, recordUndo);
+            }
+        }
+        if (!canMoveCards(fromPileIdx, startCardIdx, toPileIdx)) {
+            return false;
+        }
+        clearHint();
+        TurnTransaction tx;
+        BoardOp op{};
+        op.type = BoardOpType::MoveCards;
+        op.fromPile = fromPileIdx;
+        op.toPile = toPileIdx;
+        op.cardIdx = static_cast<uint32_t>(startCardIdx);
+        op.count = static_cast<uint32_t>(piles_[fromPileIdx].cards.size() - startCardIdx);
+        auto ctx = makeScriptContext(&tx);
+        if (ScriptRuleEngine::applyOp(ctx, op)) {
+            tx.ops.push_back(std::move(op));
+        }
+        if (scriptEngine_.hasOnTurnEnd()) {
+            scriptEngine_.invokeOnTurnEnd(ctx);
+        }
+        if (recordUndo && !tx.ops.empty()) {
+            txUndoStack_.push_back(std::move(tx));
+            txRedoStack_.clear();
+        }
+        ++moveCount_;
+        updateCardTargets();
+        return true;
+    }
+
     if (!canMoveCards(fromPileIdx, startCardIdx, toPileIdx)) {
         return false;
     }
@@ -1844,10 +2017,62 @@ bool SolitaireBoard::collectCompletedSpiderRuns() {
     return collectedAny;
 }
 
+bool SolitaireBoard::executeCardTarget(uint8_t fromPileIdx, size_t fromCardIdx, uint8_t toPileIdx, size_t toCardIdx, bool recordUndo) {
+    if (!scriptEngine_.hasOnTarget()) return false;
+    auto constCtx = makeConstScriptContext();
+    if (scriptEngine_.hasCanTarget() && !scriptEngine_.invokeCanTarget(constCtx, fromPileIdx, fromCardIdx, toPileIdx, toCardIdx)) {
+        return false;
+    }
+    clearHint();
+    TurnTransaction tx;
+    auto ctx = makeScriptContext(&tx);
+    if (!scriptEngine_.invokeOnTarget(ctx, fromPileIdx, fromCardIdx, toPileIdx, toCardIdx)) {
+        return false;
+    }
+    if (scriptEngine_.hasOnTurnEnd()) {
+        scriptEngine_.invokeOnTurnEnd(ctx);
+    }
+    if (recordUndo && !tx.ops.empty()) {
+        txUndoStack_.push_back(std::move(tx));
+        txRedoStack_.clear();
+    }
+    ++moveCount_;
+    updateCardTargets();
+    return true;
+}
+
 bool SolitaireBoard::smartMove(uint8_t fromPileIdx, size_t startCardIdx) {
     if (fromPileIdx >= piles_.size()) return false;
     const Pile& src = piles_[fromPileIdx];
     if (startCardIdx >= src.cards.size()) return false;
+
+    if (scriptEngine_.hasOnCardClick()) {
+        clearHint();
+        TurnTransaction tx;
+        auto ctx = makeScriptContext(&tx);
+        if (scriptEngine_.invokeOnCardClick(ctx, fromPileIdx, startCardIdx)) {
+            if (scriptEngine_.hasOnTurnEnd()) {
+                scriptEngine_.invokeOnTurnEnd(ctx);
+            }
+            if (!tx.ops.empty()) {
+                txUndoStack_.push_back(std::move(tx));
+                txRedoStack_.clear();
+            }
+            ++moveCount_;
+            updateCardTargets();
+            return true;
+        }
+    }
+
+    if (hasScriptHooks() && (scriptEngine_.hasCanDrop() || scriptEngine_.hasCanTarget())) {
+        for (uint8_t dst = 0; dst < piles_.size(); ++dst) {
+            if (dst == fromPileIdx) continue;
+            if (executeMove(fromPileIdx, startCardIdx, dst)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     if (isPyramidGame()) {
         if (!isCardPlayableInPyramid(fromPileIdx)) return false;
@@ -2145,6 +2370,19 @@ void SolitaireBoard::clearHint() noexcept {
 }
 
 bool SolitaireBoard::undo() {
+    if (!txUndoStack_.empty()) {
+        clearHint();
+        clearSelection();
+        TurnTransaction tx = std::move(txUndoStack_.back());
+        txUndoStack_.pop_back();
+        auto ctx = makeScriptContext(nullptr);
+        ScriptRuleEngine::revertTransaction(ctx, tx);
+        txRedoStack_.push_back(std::move(tx));
+        if (moveCount_ > 0) --moveCount_;
+        updateCardTargets();
+        return true;
+    }
+
     if (undoStack_.empty()) return false;
     clearHint();
     clearSelection();
@@ -2227,6 +2465,19 @@ bool SolitaireBoard::undo() {
 }
 
 bool SolitaireBoard::redo() {
+    if (!txRedoStack_.empty()) {
+        clearHint();
+        clearSelection();
+        TurnTransaction tx = std::move(txRedoStack_.back());
+        txRedoStack_.pop_back();
+        auto ctx = makeScriptContext(nullptr);
+        ScriptRuleEngine::applyTransaction(ctx, tx);
+        txUndoStack_.push_back(std::move(tx));
+        ++moveCount_;
+        updateCardTargets();
+        return true;
+    }
+
     if (redoStack_.empty()) return false;
     MoveCommand cmd = redoStack_.back();
     redoStack_.pop_back();
@@ -2314,7 +2565,82 @@ int SolitaireBoard::findBestDropPile(uint8_t fromPileIdx, size_t startCardIdx, f
     return bestPile;
 }
 
+ScriptBoardContext SolitaireBoard::makeScriptContext(TurnTransaction* tx) noexcept {
+    ScriptBoardContext ctx{};
+    ctx.piles = &piles_;
+    ctx.blackboard = &blackboard_;
+    ctx.score = &score_;
+    ctx.rngState = &rngState_;
+    ctx.activeTx = tx;
+    return ctx;
+}
+
+ScriptBoardContext SolitaireBoard::makeConstScriptContext() const noexcept {
+    ScriptBoardContext ctx{};
+    ctx.piles = const_cast<std::vector<Pile>*>(&piles_);
+    ctx.blackboard = const_cast<BoardBlackboard*>(&blackboard_);
+    ctx.score = const_cast<int32_t*>(&score_);
+    ctx.rngState = const_cast<uint32_t*>(&rngState_);
+    ctx.activeTx = nullptr;
+    return ctx;
+}
+
+GameStatus SolitaireBoard::gameStatus() const {
+    if (scriptEngine_.hasGetStatus()) {
+        if (statusCacheDirty_) {
+            auto ctx = makeConstScriptContext();
+            cachedGameStatus_ = scriptEngine_.invokeGetStatus(ctx);
+            statusCacheDirty_ = false;
+        }
+        return cachedGameStatus_;
+    }
+    return isVictory() ? GameStatus::Victory : GameStatus::Playing;
+}
+
+int32_t SolitaireBoard::evaluateScriptHeuristic() const {
+    if (scriptEngine_.hasEvalHeuristic()) {
+        auto ctx = makeConstScriptContext();
+        return scriptEngine_.invokeEvalHeuristic(ctx);
+    }
+    int32_t h = score_;
+    h += blackboard_.getInt("HP", 0) * 100;
+    for (const auto& p : piles_) {
+        if (p.type == PileType::Foundation) {
+            h += static_cast<int32_t>(p.cards.size()) * 50;
+        }
+    }
+    return h;
+}
+
+bool SolitaireBoard::canPickScriptCard(uint8_t pileIdx, size_t cardIdx) const {
+    if (!scriptEngine_.hasCanPick()) return true;
+    auto ctx = makeConstScriptContext();
+    return const_cast<ScriptRuleEngine&>(scriptEngine_).invokeCanPick(ctx, pileIdx, cardIdx);
+}
+
+SolitaireBoard::ScriptedSnapshot SolitaireBoard::captureSnapshot() const {
+    ScriptedSnapshot snap;
+    snap.piles = piles_;
+    snap.blackboard = blackboard_;
+    snap.score = score_;
+    snap.rngState = rngState_;
+    snap.moveCount = moveCount_;
+    return snap;
+}
+
+void SolitaireBoard::restoreSnapshot(const ScriptedSnapshot& snap) {
+    piles_ = snap.piles;
+    blackboard_ = snap.blackboard;
+    score_ = snap.score;
+    rngState_ = snap.rngState;
+    moveCount_ = snap.moveCount;
+    statusCacheDirty_ = true;
+}
+
 bool SolitaireBoard::isVictory() const noexcept {
+    if (scriptEngine_.hasGetStatus()) {
+        return gameStatus() == GameStatus::Victory;
+    }
     if (isPyramidGame()) {
         const size_t pyrBase = 3;
         for (size_t i = 0; i < 28 && (pyrBase + i) < piles_.size(); ++i) {

@@ -96,13 +96,13 @@ inline AudioFoleyEngine::BiquadCoeffs makeNotch(float f0, float Q, float sr) noe
     };
 }
 
-    // 16th-order Linear Predictive Coding coefficients trained on cardsounds/deal-series.wav
-    // Captures cellulose resonance formants (3.0kHz, 6.1kHz, 11.0kHz, 13.7kHz) with LSD 0.96 dB
+    // 16th-order Linear Predictive Coding coefficients trained on high-passed (>800Hz) cardsounds/deal-series.wav
+    // Captures crisp cellulose friction formants (3.2kHz - 11.6kHz) without sub-bass room rumble
     static constexpr std::array<float, 16> kLpcDeal = {
-        -1.534673f, +1.803655f, -1.885687f, +1.771341f, -1.613252f, +1.467351f, -1.373514f, +1.182798f,
-        -1.019356f, +0.838832f, -0.643898f, +0.485627f, -0.384877f, +0.203584f, -0.091463f, -0.013349f
+        -1.168223f, +1.387953f, -1.097906f, +1.122381f, -0.722576f, +0.756491f, -0.510131f, +0.565147f,
+        -0.340207f, +0.447785f, -0.235281f, +0.312767f, -0.165578f, +0.212225f, -0.070013f, +0.085553f
     };
-    static constexpr float kLpcDealGain = 0.0820f;
+    static constexpr float kLpcDealGain = 0.0811f;
 
 void miniaudioCallback(ma_device* pDevice, void* pOutput, const void* /*pInput*/, ma_uint32 frameCount) {
     auto* engine = static_cast<AudioFoleyEngine*>(pDevice->pUserData);
@@ -279,6 +279,17 @@ void AudioFoleyEngine::populateDefaultBank(FoleySoundBank& bank) {
         sp.gainDev = 0.05f;
         sp.panBase = 0.0f;
         sp.panDev = 0.08f;
+
+        auto& mt = bank.coreSounds[FoleySound::MagicTine];
+        mt.name = "magictine";
+        mt.soundId = FoleySound::MagicTine;
+        mt.isCustom = false;
+        mt.durationBase = 0.14f;
+        mt.durationDev = 0.03f;
+        mt.gainBase = 0.75f;
+        mt.gainDev = 0.10f;
+        mt.panBase = 0.0f;
+        mt.panDev = 0.20f;
     }
 
     // Classic sequence structures preserved for custom script backward compatibility
@@ -480,7 +491,7 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
     };
 
     // Helper to spawn a procedural Slide voice modeled on authentic paper baize friction via LPC-16 formants
-    auto makeSlideVoice = [&](float delay, float amp, float duration = 0.11f, float voicePan = 0.0f, bool isDealSwell = false) noexcept -> Voice {
+    auto makeSlideVoice = [&](float delay, float amp, float duration = 0.11f, float voicePan = 0.0f, bool isDealSwell = false, float freqScale = 1.0f) noexcept -> Voice {
         Voice v{};
         v.reset();
         v.active = true;
@@ -491,19 +502,33 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         v.intensity = amp;
         v.pan = std::clamp(voicePan + nextNoise() * 0.035f * varScale, -1.0f, 1.0f);
         v.velvetIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
-        v.velvetPlaybackRate = 0.94f + std::abs(nextNoise()) * 0.14f * varScale;
+        v.velvetPlaybackRate = isDealSwell
+            ? std::clamp((1.05f + nextNoise() * 0.25f * varScale) * freqScale, 0.70f, 1.65f)
+            : (0.94f + std::abs(nextNoise()) * 0.14f * varScale);
         v.continuousIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
         v.isDealSwell = isDealSwell;
 
         float feltCutoff = pp.feltDampingCutoff * (1.0f + nextNoise() * 0.06f * varScale);
         float airBoost = (pp.airBoostDb * 0.45f) + nextNoise() * 0.4f * varScale;
 
-        // Biquad 1: Felt acoustic damping lowpass
-        v.biquad1.c = makeLowpass(feltCutoff, 0.707f, sr);
-        // Biquad 2: High-frequency air presence shelf
-        v.biquad2.c = makeHighshelf(8500.0f, airBoost, sr);
-        // Biquad 3: Cardboard flexion resonance
-        v.biquad3.c = makeBandpass(pp.cardRigidityFreq * (1.0f + nextNoise() * 0.06f * varScale), 2.2f, sr);
+        if (isDealSwell) {
+            // High-pass out low-end/boxy mud (<1.5kHz) and open up high-frequency cellulose shimmer (3kHz - 14kHz)
+            float dealHpFreq = std::clamp((1550.0f + nextNoise() * 380.0f * varScale) * freqScale, 1100.0f, 2800.0f);
+            float shelfFreq = std::clamp(6800.0f * freqScale, 5200.0f, 9600.0f);
+            float flexFreq = std::clamp((pp.cardRigidityFreq * 1.35f) * freqScale * (1.0f + nextNoise() * 0.14f * varScale), 2800.0f, 7800.0f);
+            float flexQ = 1.8f + std::abs(nextNoise()) * 0.9f * varScale;
+
+            v.biquad1.c = makeHighpass(dealHpFreq, 0.707f, sr);
+            v.biquad2.c = makeHighshelf(shelfFreq, airBoost + 2.5f, sr);
+            v.biquad3.c = makeBandpass(flexFreq, flexQ, sr);
+        } else {
+            // Biquad 1: Felt acoustic damping lowpass
+            v.biquad1.c = makeLowpass(feltCutoff, 0.707f, sr);
+            // Biquad 2: High-frequency air presence shelf
+            v.biquad2.c = makeHighshelf(8500.0f, airBoost, sr);
+            // Biquad 3: Cardboard flexion resonance
+            v.biquad3.c = makeBandpass(pp.cardRigidityFreq * (1.0f + nextNoise() * 0.06f * varScale), 2.2f, sr);
+        }
 
         v.combDelaySamples = 0.0f;
         v.lfoPhase = 0.0f;
@@ -574,14 +599,16 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
 
     // Helper to spawn a procedural Drop / Thud voice modeled from cardsounds/place.wav
     // Physical phenomenon: Two-stage contact (leading corner edge touch at t=0, card face air slap & table thump at t=~9.5ms)
-    auto makeDropVoice = [&](float delay, float amp, float voicePan = 0.0f) noexcept -> Voice {
+    auto makeDropVoice = [&](float delay, float amp, float voicePan = 0.0f, bool lightDealTouch = false, float freqScale = 1.0f) noexcept -> Voice {
         Voice v{};
         v.reset();
         v.active = true;
         v.type = VoiceType::Drop;
         v.soundId = FoleySound::Place;
         v.delaySec = std::max(0.0f, delay);
-        v.durationSec = std::clamp(0.055f * (1.0f + nextNoise() * 0.08f * varScale), 0.040f, 0.075f);
+        v.durationSec = lightDealTouch
+            ? std::clamp(0.038f * (1.0f + nextNoise() * 0.12f * varScale), 0.026f, 0.055f)
+            : std::clamp(0.055f * (1.0f + nextNoise() * 0.08f * varScale), 0.040f, 0.075f);
         v.intensity = amp;
         v.pan = std::clamp(voicePan + nextNoise() * 0.035f * varScale, -1.0f, 1.0f);
         v.continuousIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
@@ -596,21 +623,31 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         float tilt = nextNoise() * 0.5f + 0.5f;
         v.dropEdgeGain = 0.65f + 0.60f * tilt;
         v.dropSlapGain = 1.30f - 0.40f * tilt;
-        v.dropKnockGain = 0.45f * (1.0f + nextNoise() * 0.10f * varScale);
-        v.dropThudGain = 0.16f * (1.0f + nextNoise() * 0.10f * varScale);
+        v.dropKnockGain = lightDealTouch
+            ? (0.14f * (1.0f + nextNoise() * 0.12f * varScale))
+            : (0.45f * (1.0f + nextNoise() * 0.10f * varScale));
+        v.dropThudGain = lightDealTouch
+            ? 0.0f
+            : (0.16f * (1.0f + nextNoise() * 0.10f * varScale));
 
-        // Filter 1: Main card face air slap bandpass (4150 Hz, modeled from deal-series.wav & place.wav)
-        float slapFreq = 4150.0f * (1.0f + nextNoise() * 0.05f * varScale);
+        // Filter 1: Main card face air slap bandpass
+        float slapFreq = lightDealTouch
+            ? std::clamp(5200.0f * freqScale * (1.0f + nextNoise() * 0.12f * varScale), 3800.0f, 7500.0f)
+            : (4150.0f * (1.0f + nextNoise() * 0.05f * varScale));
         float slapQ = 1.45f * (1.0f + nextNoise() * 0.08f * varScale);
         v.biquad1.c = makeBandpass(slapFreq, slapQ, sr);
 
-        // Filter 2: Leading edge touch tick bandpass (6100 Hz)
-        float edgeFreq = 6100.0f * (1.0f + nextNoise() * 0.05f * varScale);
+        // Filter 2: Leading edge touch tick bandpass
+        float edgeFreq = lightDealTouch
+            ? std::clamp(7400.0f * freqScale * (1.0f + nextNoise() * 0.12f * varScale), 5500.0f, 10500.0f)
+            : (6100.0f * (1.0f + nextNoise() * 0.05f * varScale));
         float edgeQ = 1.9f * (1.0f + nextNoise() * 0.08f * varScale);
         v.biquad2.c = makeBandpass(edgeFreq, edgeQ, sr);
 
-        // Filter 3: Card body acoustic knock bandpass (2450 Hz)
-        float knockFreq = 2450.0f * (1.0f + nextNoise() * 0.06f * varScale);
+        // Filter 3: Card body acoustic knock bandpass
+        float knockFreq = lightDealTouch
+            ? std::clamp(3300.0f * freqScale * (1.0f + nextNoise() * 0.10f * varScale), 2400.0f, 4600.0f)
+            : (2450.0f * (1.0f + nextNoise() * 0.06f * varScale));
         float knockQ = 1.8f * (1.0f + nextNoise() * 0.08f * varScale);
         v.biquad3.c = makeBandpass(knockFreq, knockQ, sr);
 
@@ -791,28 +828,28 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
 
         case FoleySound::Deal: {
             // Authentic Deal swipe modeled directly from cardsounds/deal-series.wav
-            // Structure: Pre-lift whisper (t=0) + accelerating baize swell glide (t=2ms) + arrival touchdown tap (t=slideDur)
+            // Structure: Crisp high-freq deck-lift flick (t=0) + accelerating high-freq baize swell (t=2ms) + light touchdown tap (t=slideDur)
             dealAlternator_++;
             float dealPan = std::clamp(pan + ((static_cast<float>(dealAlternator_ % 5) - 2.0f) * 0.035f * varScale), -1.0f, 1.0f);
-            float pitchOffset = 1.0f + ((static_cast<float>(dealAlternator_ % 7) - 3.0f) * 0.018f) + (nextNoise() * 0.035f * varScale);
+            float pitchOffset = std::clamp(1.0f + ((static_cast<float>(dealAlternator_ % 9) - 4.0f) * 0.042f * varScale) + (nextNoise() * 0.075f * varScale), 0.84f, 1.28f);
 
-            // Variable swipe duration matching empirical deals in deal-series.wav (68ms to 102ms)
-            static constexpr std::array<float, 5> kDealDurations = { 0.088f, 0.068f, 0.098f, 0.076f, 0.092f };
+            // Variable swipe duration matching empirical deals in deal-series.wav (~52ms to ~122ms)
+            static constexpr std::array<float, 7> kDealDurations = { 0.056f, 0.074f, 0.092f, 0.064f, 0.108f, 0.082f, 0.118f };
             float baseDur = kDealDurations[dealAlternator_ % kDealDurations.size()];
-            float slideDur = std::clamp(baseDur * (1.0f + nextNoise() * 0.06f * varScale), 0.055f, 0.115f);
-            float slideAmp = 1.08f * intensity * (1.0f + nextNoise() * 0.06f * varScale);
+            float slideDur = std::clamp(baseDur * (1.0f + nextNoise() * 0.14f * varScale), 0.048f, 0.132f);
+            float slideAmp = 1.12f * intensity * (1.0f + nextNoise() * 0.08f * varScale);
 
-            // 1. Soft deck-lift whisper (subtle, 18% volume, 2.4kHz)
-            float liftAmp = 0.20f * intensity * (1.0f + nextNoise() * 0.08f * varScale);
-            allocateVoice(makeSnapVoice(0.0f, liftAmp, pitchOffset * 0.85f, dealPan));
+            // 1. Crisp deck-lift flick (high-frequency edge snap, ~3.4-4.5kHz)
+            float liftAmp = 0.22f * intensity * (1.0f + nextNoise() * 0.10f * varScale);
+            allocateVoice(makeSnapVoice(0.0f, liftAmp, std::clamp(pitchOffset * 1.15f, 0.95f, 1.45f), dealPan));
 
-            // 2. Swell card glide across baize (accelerates from t=0 up to slideDur)
-            allocateVoice(makeSlideVoice(0.002f, slideAmp, slideDur, dealPan, true));
+            // 2. High-frequency swell card glide across baize (accelerates from t=0 up to slideDur)
+            allocateVoice(makeSlideVoice(0.002f, slideAmp, slideDur, dealPan, true, pitchOffset));
 
-            // 3. Arrival touchdown tap right at the end of the slide
-            float hitDelay = slideDur - 0.006f;
-            float hitAmp = 0.92f * intensity * (1.0f + nextNoise() * 0.06f * varScale);
-            allocateVoice(makeDropVoice(hitDelay, hitAmp, dealPan));
+            // 3. Light high-frequency arrival touchdown tap right at the end of the slide (no sub-bass thump)
+            float hitDelay = std::max(0.020f, slideDur - (0.005f + std::abs(nextNoise()) * 0.004f * varScale));
+            float hitAmp = 0.52f * intensity * (1.0f + nextNoise() * 0.10f * varScale);
+            allocateVoice(makeDropVoice(hitDelay, hitAmp, dealPan, true, pitchOffset));
             break;
         }
 
@@ -835,21 +872,21 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
 
         case FoleySound::TexasPitch: {
             // Texas Pitch (4 crisp dealer tosses with trailing friction)
-            static constexpr std::array<float, 4> kTossDurs = { 0.078f, 0.068f, 0.084f, 0.072f };
+            static constexpr std::array<float, 4> kTossDurs = { 0.078f, 0.064f, 0.092f, 0.070f };
             for (int i = 0; i < 4; ++i) {
-                float tossDelay = static_cast<float>(i) * 0.138f + (nextNoise() * 0.006f * varScale);
-                float slideDur = kTossDurs[i % 4] * (1.0f + nextNoise() * 0.06f * varScale);
-                float pitch = 0.97f + static_cast<float>(i) * 0.028f + nextNoise() * 0.025f * varScale;
+                float tossDelay = static_cast<float>(i) * 0.138f + (nextNoise() * 0.008f * varScale);
+                float slideDur = kTossDurs[i % 4] * (1.0f + nextNoise() * 0.12f * varScale);
+                float pitch = std::clamp(0.96f + static_cast<float>(i) * 0.045f + nextNoise() * 0.05f * varScale, 0.85f, 1.25f);
                 float tossPan = std::clamp(pan + (static_cast<float>(i) - 1.5f) * 0.09f * varScale, -1.0f, 1.0f);
-                float tossAmp = intensity * 0.92f * (1.0f + nextNoise() * 0.05f * varScale);
+                float tossAmp = intensity * 0.92f * (1.0f + nextNoise() * 0.06f * varScale);
 
                 // Lift
-                allocateVoice(makeSnapVoice(tossDelay, tossAmp * 0.18f, pitch * 0.90f, tossPan));
+                allocateVoice(makeSnapVoice(tossDelay, tossAmp * 0.20f, std::clamp(pitch * 1.12f, 0.95f, 1.40f), tossPan));
                 // Swell slide
-                allocateVoice(makeSlideVoice(tossDelay + 0.002f, tossAmp * 1.05f, slideDur, tossPan, true));
-                // Arrival tap
+                allocateVoice(makeSlideVoice(tossDelay + 0.002f, tossAmp * 1.08f, slideDur, tossPan, true, pitch));
+                // Light arrival tap
                 float hitDelay = tossDelay + slideDur - 0.006f;
-                allocateVoice(makeDropVoice(hitDelay, tossAmp * 0.88f, tossPan));
+                allocateVoice(makeDropVoice(hitDelay, tossAmp * 0.50f, tossPan, true, pitch));
             }
             break;
         }
@@ -892,6 +929,22 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
             v.durationSec = 0.350f;
             v.phaseBody = 396.0f * jitter;
             v.biquad1.c = makeBandpass(880.0f * jitter, 2.5f, sr);
+            allocateVoice(v);
+            break;
+        }
+        case FoleySound::MagicTine: {
+            float jitter = 1.0f + (nextNoise() * 0.08f * varScale);
+            Voice v{};
+            v.reset();
+            v.active = true;
+            v.type = VoiceType::MagicTine;
+            v.soundId = FoleySound::MagicTine;
+            v.intensity = intensity;
+            v.pitchMod = jitter;
+            v.pan = std::clamp(pan + nextNoise() * 0.14f * varScale, -1.0f, 1.0f);
+            v.durationSec = 0.10f;
+            v.biquad1.c = makeBandpass(2800.0f * jitter, 1.4f, sr);
+            v.biquad2.c = makeHighpass(4800.0f * jitter, 0.707f, sr);
             allocateVoice(v);
             break;
         }
@@ -1346,6 +1399,16 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                         float env = std::sin(normAge * kPi) * std::exp(-2.2f * normAge);
                         float tone = 0.55f * std::sin(v.phaseBody * kTwoPi) + 0.45f * std::sin(v.phaseThud * kTwoPi);
                         sample = (tone * 0.75f + whisper * 0.25f) * env * v.intensity * 0.35f;
+                        break;
+                    }
+                    case VoiceType::MagicTine: {
+                        float raw = nextNoise();
+                        float body = v.biquad1.process(raw);
+                        float edge = v.biquad2.process(raw);
+                        float puff1 = std::exp(-((normAge - 0.08f) * (normAge - 0.08f)) / 0.0045f);
+                        float puff2 = std::exp(-((normAge - 0.56f) * (normAge - 0.56f)) / 0.0035f);
+                        float env = 0.65f * puff1 + 0.90f * puff2;
+                        sample = (body * 0.65f + edge * 0.35f) * env * 0.24f * v.intensity;
                         break;
                     }
                 }

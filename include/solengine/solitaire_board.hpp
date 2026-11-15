@@ -3,6 +3,7 @@
 
 #include "solengine/solitaire_types.hpp"
 #include "solengine/game_definition.hpp"
+#include "solengine/script_rule_engine.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -39,7 +40,28 @@ public:
     [[nodiscard]] float elapsedSeconds() const noexcept { return elapsedSeconds_; }
     [[nodiscard]] float victorySeconds() const noexcept { return victorySeconds_; }
     [[nodiscard]] bool isVictory() const noexcept;
+    [[nodiscard]] GameStatus gameStatus() const;
     [[nodiscard]] bool canAutoFinish() const noexcept;
+    [[nodiscard]] const BoardBlackboard& blackboard() const noexcept { return blackboard_; }
+    [[nodiscard]] bool hasScriptHooks() const noexcept { return scriptEngine_.isLoaded() && scriptEngine_.hasAnyHooks(); }
+    [[nodiscard]] bool hasScriptCardClick() const noexcept { return scriptEngine_.hasOnCardClick(); }
+    [[nodiscard]] bool hasScriptStockClick() const noexcept { return scriptEngine_.hasOnStockClick(); }
+    [[nodiscard]] bool hasScriptCanPick() const noexcept { return scriptEngine_.hasCanPick(); }
+    [[nodiscard]] bool hasScriptCanDrop() const noexcept { return scriptEngine_.hasCanDrop(); }
+    [[nodiscard]] bool hasScriptCanTarget() const noexcept { return scriptEngine_.hasCanTarget(); }
+    [[nodiscard]] bool canPickScriptCard(uint8_t pileIdx, size_t cardIdx) const;
+    [[nodiscard]] const GameDocManifest& docManifest() const noexcept { return scriptEngine_.docManifest(); }
+    [[nodiscard]] int32_t evaluateScriptHeuristic() const;
+
+    struct ScriptedSnapshot {
+        std::vector<Pile> piles;
+        BoardBlackboard blackboard;
+        int32_t score{0};
+        uint32_t rngState{0};
+        uint32_t moveCount{0};
+    };
+    [[nodiscard]] ScriptedSnapshot captureSnapshot() const;
+    void restoreSnapshot(const ScriptedSnapshot& snap);
 
     // Full session state restoration
     bool restoreSessionState(
@@ -64,6 +86,7 @@ public:
     bool drawFromStock();
     bool canMoveCards(uint8_t fromPileIdx, size_t startCardIdx, uint8_t toPileIdx) const;
     bool executeMove(uint8_t fromPileIdx, size_t startCardIdx, uint8_t toPileIdx, bool recordUndo = true);
+    bool executeCardTarget(uint8_t fromPileIdx, size_t fromCardIdx, uint8_t toPileIdx, size_t toCardIdx, bool recordUndo = true);
 
     // Hardwood 3.0 "Smart-Tap" / Right-Click automatic best legal destination
     bool smartMove(uint8_t fromPileIdx, size_t startCardIdx);
@@ -114,6 +137,8 @@ public:
 private:
     uint32_t nextRandom() noexcept;
     void updateCardTargets();
+    ScriptBoardContext makeScriptContext(TurnTransaction* tx = nullptr) noexcept;
+    ScriptBoardContext makeConstScriptContext() const noexcept;
 
     uint32_t seed_{2026u};
     uint32_t rngState_{2026u};
@@ -139,6 +164,12 @@ private:
     std::vector<Pile> piles_;
     std::vector<MoveCommand> undoStack_;
     std::vector<MoveCommand> redoStack_;
+    std::vector<TurnTransaction> txUndoStack_;
+    std::vector<TurnTransaction> txRedoStack_;
+    BoardBlackboard blackboard_;
+    mutable ScriptRuleEngine scriptEngine_;
+    mutable GameStatus cachedGameStatus_{GameStatus::Playing};
+    mutable bool statusCacheDirty_{true};
     HintMove activeHint_{};
 
 public:

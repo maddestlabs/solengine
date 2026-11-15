@@ -50,9 +50,19 @@ inline float hashFloat01(int x, int y, uint32_t seed) noexcept {
 }
 
 inline void hashGrad2D(int x, int y, uint32_t seed, float& gx, float& gy) noexcept {
-    const float angle = hashFloat01(x, y, seed) * kTwoPi;
-    gx = std::cos(angle);
-    gy = std::sin(angle);
+    static constexpr float kGrads[16][2] = {
+        { 1.00000000f,  0.00000000f}, { 0.92387953f,  0.38268343f},
+        { 0.70710678f,  0.70710678f}, { 0.38268343f,  0.92387953f},
+        { 0.00000000f,  1.00000000f}, {-0.38268343f,  0.92387953f},
+        {-0.70710678f,  0.70710678f}, {-0.92387953f,  0.38268343f},
+        {-1.00000000f,  0.00000000f}, {-0.92387953f, -0.38268343f},
+        {-0.70710678f, -0.70710678f}, {-0.38268343f, -0.92387953f},
+        { 0.00000000f, -1.00000000f}, { 0.38268343f, -0.92387953f},
+        { 0.70710678f, -0.70710678f}, { 0.92387953f, -0.38268343f}
+    };
+    const uint32_t idx = (hashU32(x, y, seed) >> 24) & 15u;
+    gx = kGrads[idx][0];
+    gy = kGrads[idx][1];
 }
 
 // Seamless periodic 2D Perlin noise in [-1, 1]

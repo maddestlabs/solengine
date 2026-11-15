@@ -1,6 +1,7 @@
 #include "solengine/card_canvas.hpp"
 #include "solengine/card_texture_cache.hpp"
 #include "solengine/classic_deck_symbols.hpp"
+#include "solengine/vector_binary.hpp"
 #include "eatstextures/field_ops.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/eatscript/vm.hpp"
@@ -16,7 +17,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <list>
+#include <memory>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 
 namespace solengine {
@@ -37,6 +41,85 @@ std::string formatColorHex(uint32_t c) {
         std::snprintf(buf, sizeof(buf), "rgba(%d,%d,%d,%.3f)", r, g, b, static_cast<float>(a) / 255.0f);
     }
     return std::string(buf);
+}
+
+struct NsvgImageDeleter {
+    void operator()(NSVGimage* img) const noexcept {
+        if (img) nsvgDelete(img);
+    }
+};
+using NsvgImagePtr = std::unique_ptr<NSVGimage, NsvgImageDeleter>;
+
+/**
+ * Returns a cached parsed NSVGimage* for the given SVG XML string (per-thread LRU).
+ * Callers must not permanently mutate the returned NSVGimage.
+ */
+NSVGimage* getCachedSvgImage(const std::string& svgXml) {
+    if (svgXml.empty()) return nullptr;
+    constexpr size_t kMaxCachedSvgs = 64;
+    struct CacheState {
+        std::list<std::string> lru;
+        std::unordered_map<std::string, std::pair<NsvgImagePtr, std::list<std::string>::iterator>> map;
+    };
+    thread_local static CacheState sCache;
+
+    auto it = sCache.map.find(svgXml);
+    if (it != sCache.map.end()) {
+        sCache.lru.splice(sCache.lru.begin(), sCache.lru, it->second.second);
+        return it->second.first.get();
+    }
+
+    std::vector<char> xmlCopy(svgXml.begin(), svgXml.end());
+    xmlCopy.push_back('\0');
+    NsvgImagePtr parsed(nsvgParse(xmlCopy.data(), "px", 96.0f));
+    if (!parsed) return nullptr;
+
+    if (sCache.map.size() >= kMaxCachedSvgs && !sCache.lru.empty()) {
+        const std::string& oldest = sCache.lru.back();
+        sCache.map.erase(oldest);
+        sCache.lru.pop_back();
+    }
+
+    sCache.lru.push_front(svgXml);
+    NSVGimage* raw = parsed.get();
+    sCache.map.emplace(sCache.lru.front(), std::make_pair(std::move(parsed), sCache.lru.begin()));
+    return raw;
+}
+
+/**
+ * Resolves and caches SVG file contents per-thread to avoid repeated disk I/O across 52 cards.
+ */
+const std::string* getCachedSvgFileXml(const std::filesystem::path& resolved) {
+    constexpr size_t kMaxCachedFiles = 32;
+    struct FileCacheState {
+        std::list<std::string> lru;
+        std::unordered_map<std::string, std::pair<std::string, std::list<std::string>::iterator>> map;
+    };
+    thread_local static FileCacheState sFileCache;
+
+    std::string key = resolved.string();
+    auto it = sFileCache.map.find(key);
+    if (it != sFileCache.map.end()) {
+        sFileCache.lru.splice(sFileCache.lru.begin(), sFileCache.lru, it->second.second);
+        return &it->second.first;
+    }
+
+    std::ifstream ifs(resolved, std::ios::binary);
+    if (!ifs) return nullptr;
+    std::ostringstream ss;
+    ss << ifs.rdbuf();
+    std::string contents = ss.str();
+    if (contents.empty()) return nullptr;
+
+    if (sFileCache.map.size() >= kMaxCachedFiles && !sFileCache.lru.empty()) {
+        const std::string& oldest = sFileCache.lru.back();
+        sFileCache.map.erase(oldest);
+        sFileCache.lru.pop_back();
+    }
+
+    sFileCache.lru.push_front(key);
+    auto [insertedIt, _] = sFileCache.map.emplace(sFileCache.lru.front(), std::make_pair(std::move(contents), sFileCache.lru.begin()));
+    return &insertedIt->second.first;
 }
 
 } // namespace
@@ -348,10 +431,7 @@ void CardCanvas::compositeBuffer(const uint8_t* srcRgba, int srcW, int srcH, flo
 void CardCanvas::rasterizeSvgFragment(const std::string& svgXml, float x, float y, float w, float h, bool cover) {
     if (svgXml.empty()) return;
 
-    std::vector<char> xmlCopy(svgXml.begin(), svgXml.end());
-    xmlCopy.push_back('\0');
-
-    NSVGimage* img = nsvgParse(xmlCopy.data(), "px", 96.0f);
+    NSVGimage* img = getCachedSvgImage(svgXml);
     if (!img) return;
 
     int renderW = (w > 0.0f) ? static_cast<int>(std::ceil(w)) : static_cast<int>(img->width);
@@ -364,7 +444,6 @@ void CardCanvas::rasterizeSvgFragment(const std::string& svgXml, float x, float 
         sRast = nsvgCreateRasterizer();
     }
     if (!sRast) {
-        nsvgDelete(img);
         return;
     }
 
@@ -382,27 +461,199 @@ void CardCanvas::rasterizeSvgFragment(const std::string& svgXml, float x, float 
     std::fill(sTmpBuffer.begin(), sTmpBuffer.begin() + needed, 0);
 
     nsvgRasterize(sRast, img, tx, ty, scale, sTmpBuffer.data(), renderW, renderH, renderW * 4);
-    nsvgDelete(img);
 
     compositeBuffer(sTmpBuffer.data(), renderW, renderH, x, y, static_cast<float>(renderW), static_cast<float>(renderH));
 }
+
+struct SolidPainter {
+    static void ensureReliefBuffers(CardCanvas& c) {
+        const size_t total = static_cast<size_t>(c.width_ * c.height_);
+        if (c.reliefMask_.size() < total) {
+            c.reliefMask_.assign(total, 0.0f);
+            c.reliefLobeMask_.assign(total, 0.0f);
+            c.reliefDetail_.assign(total, 0.0f);
+            c.reliefElevation_.assign(total, 0.0f);
+            c.reliefBulge_.assign(total, 0.0f);
+            c.reliefMaterial_.assign(total, 0);
+        }
+    }
+
+    static void transformLocalBounds(const CanvasTransformState& s,
+                                     float lx0, float ly0, float lx1, float ly1,
+                                     int canvasW, int canvasH,
+                                     int& outMinX, int& outMinY, int& outMaxX, int& outMaxY) {
+        const float xs[4] = {
+            s.tx + s.a * lx0 + s.c * ly0,
+            s.tx + s.a * lx1 + s.c * ly0,
+            s.tx + s.a * lx0 + s.c * ly1,
+            s.tx + s.a * lx1 + s.c * ly1
+        };
+        const float ys[4] = {
+            s.ty + s.b * lx0 + s.d * ly0,
+            s.ty + s.b * lx1 + s.d * ly0,
+            s.ty + s.b * lx0 + s.d * ly1,
+            s.ty + s.b * lx1 + s.d * ly1
+        };
+        float minXf = std::min({xs[0], xs[1], xs[2], xs[3]});
+        float maxXf = std::max({xs[0], xs[1], xs[2], xs[3]});
+        float minYf = std::min({ys[0], ys[1], ys[2], ys[3]});
+        float maxYf = std::max({ys[0], ys[1], ys[2], ys[3]});
+        outMinX = std::max(0, static_cast<int>(std::floor(minXf)) - 1);
+        outMinY = std::max(0, static_cast<int>(std::floor(minYf)) - 1);
+        outMaxX = std::min(canvasW, static_cast<int>(std::ceil(maxXf)) + 1);
+        outMaxY = std::min(canvasH, static_cast<int>(std::ceil(maxYf)) + 1);
+    }
+
+    static bool makeInverse(const CanvasTransformState& s,
+                            float& ia, float& ib, float& ic, float& id, float& itx, float& ity,
+                            float& pixScale) {
+        float det = s.a * s.d - s.b * s.c;
+        if (std::abs(det) < 1e-8f) return false;
+        float invDet = 1.0f / det;
+        ia = s.d * invDet;
+        ib = -s.b * invDet;
+        ic = -s.c * invDet;
+        id = s.a * invDet;
+        itx = -(ia * s.tx + ic * s.ty);
+        ity = -(ib * s.tx + id * s.ty);
+        float sx = std::hypot(s.a, s.b);
+        float sy = std::hypot(s.c, s.d);
+        pixScale = 0.5f * (sx + sy);
+        return pixScale > 1e-6f;
+    }
+
+    template <typename CoverageFn>
+    static void paintBounds(CardCanvas& c, int minX, int minY, int maxX, int maxY,
+                            uint32_t color, CoverageFn&& covFn) {
+        if (minX >= maxX || minY >= maxY) return;
+        const uint8_t ca = static_cast<uint8_t>((color >> 24) & 0xFF);
+        const float baseAlpha = (static_cast<float>(ca) / 255.0f) * c.state_.opacity;
+        if (baseAlpha <= 0.001f) return;
+
+        float sr = static_cast<float>((color >> 16) & 0xFF);
+        float sg = static_cast<float>((color >> 8) & 0xFF);
+        float sb = static_cast<float>(color & 0xFF);
+        if (((c.state_.tint >> 24) & 0xFF) > 0) {
+            float tintA = static_cast<float>((c.state_.tint >> 24) & 0xFF) / 255.0f;
+            float tintR = static_cast<float>((c.state_.tint >> 16) & 0xFF);
+            float tintG = static_cast<float>((c.state_.tint >> 8) & 0xFF);
+            float tintB = static_cast<float>(c.state_.tint & 0xFF);
+            sr = sr * (1.0f - tintA) + tintR * tintA;
+            sg = sg * (1.0f - tintA) + tintG * tintA;
+            sb = sb * (1.0f - tintA) + tintB * tintA;
+        }
+
+        ensureReliefBuffers(c);
+        const int role = c.reliefRole_;
+        const float zTier = c.currentElevation_;
+        const float bulgeTier = c.currentBulge_;
+        const uint8_t mat = c.currentMaterial_;
+        const float detailScale = 0.15f * (0.65f + 0.35f * bulgeTier);
+
+        for (int y = minY; y < maxY; ++y) {
+            const float py = static_cast<float>(y) + 0.5f;
+            const size_t rowBase = static_cast<size_t>(y * c.width_);
+            uint8_t* dstRow = &c.rgba_[(rowBase + static_cast<size_t>(minX)) * 4];
+            for (int x = minX; x < maxX; ++x, dstRow += 4) {
+                const float cov = covFn(static_cast<float>(x) + 0.5f, py);
+                if (cov <= 0.001f) continue;
+                const float sa = baseAlpha * cov;
+                if (sa <= 0.001f) continue;
+
+                const size_t dstIdx = rowBase + static_cast<size_t>(x);
+                if (role == 2) {
+                    c.reliefMask_[dstIdx] = c.reliefMask_[dstIdx] * (1.0f - sa * 0.88f) + 0.16f * sa;
+                    c.reliefLobeMask_[dstIdx] *= (1.0f - sa * 0.94f);
+                    c.reliefDetail_[dstIdx] = c.reliefDetail_[dstIdx] * (1.0f - sa) - 0.24f * sa;
+                    c.reliefElevation_[dstIdx] = c.reliefElevation_[dstIdx] * (1.0f - sa) + 0.16f * sa;
+                    c.reliefBulge_[dstIdx] = c.reliefBulge_[dstIdx] * (1.0f - sa) + 0.18f * sa;
+                } else if (role == 1) {
+                    const float prevMask = c.reliefMask_[dstIdx];
+                    const float prevElev = c.reliefElevation_[dstIdx];
+                    c.reliefMask_[dstIdx] = std::max(prevMask, sa);
+                    const bool isOverlapStep = (prevMask > 0.25f) && (std::abs(zTier - prevElev) > 0.14f);
+                    const float stackBoost = (prevMask > 0.20f) ? (prevMask * 0.14f) : 0.0f;
+                    const float lobeVal = (isOverlapStep && sa < 0.82f) ? 0.0f : sa;
+                    c.reliefLobeMask_[dstIdx] = c.reliefLobeMask_[dstIdx] * (1.0f - sa * 0.88f) + lobeVal * 0.88f;
+                    c.reliefDetail_[dstIdx] = c.reliefDetail_[dstIdx] * (1.0f - sa * 0.80f) +
+                                              (stackBoost * (0.65f + 0.35f * bulgeTier) + detailScale) * sa;
+                    c.reliefElevation_[dstIdx] = c.reliefElevation_[dstIdx] * (1.0f - sa) + zTier * sa;
+                    c.reliefBulge_[dstIdx] = c.reliefBulge_[dstIdx] * (1.0f - sa) + bulgeTier * sa;
+                    if (sa > 0.35f) {
+                        c.reliefMaterial_[dstIdx] = mat;
+                    }
+                }
+
+                if (sa >= 0.999f) {
+                    dstRow[0] = static_cast<uint8_t>(std::clamp(sr, 0.0f, 255.0f));
+                    dstRow[1] = static_cast<uint8_t>(std::clamp(sg, 0.0f, 255.0f));
+                    dstRow[2] = static_cast<uint8_t>(std::clamp(sb, 0.0f, 255.0f));
+                    dstRow[3] = 255;
+                } else {
+                    const float da = static_cast<float>(dstRow[3]) / 255.0f;
+                    const float outA = sa + da * (1.0f - sa);
+                    if (outA > 0.0001f) {
+                        const float invOutA = 1.0f / outA;
+                        const float daInvSa = da * (1.0f - sa);
+                        dstRow[0] = static_cast<uint8_t>(std::clamp((sr * sa + static_cast<float>(dstRow[0]) * daInvSa) * invOutA, 0.0f, 255.0f));
+                        dstRow[1] = static_cast<uint8_t>(std::clamp((sg * sa + static_cast<float>(dstRow[1]) * daInvSa) * invOutA, 0.0f, 255.0f));
+                        dstRow[2] = static_cast<uint8_t>(std::clamp((sb * sa + static_cast<float>(dstRow[2]) * daInvSa) * invOutA, 0.0f, 255.0f));
+                        dstRow[3] = static_cast<uint8_t>(std::clamp(outA * 255.0f, 0.0f, 255.0f));
+                    }
+                }
+            }
+        }
+    }
+};
 
 void CardCanvas::fillRect(float x, float y, float w, float h, uint32_t color) {
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, x, y, w, h, color]() { fillRect(x, y, w, h, color); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << w << "' height='" << h << "' viewBox='0 0 " << w << " " << h << "'>"
-       << "<rect x='0' y='0' width='" << w << "' height='" << h << "' fill='" << hex << "'/>"
-       << "</svg>";
+    if (w <= 0.0f || h <= 0.0f) return;
+
     float dstW = w * std::abs(state_.a);
     float dstH = h * std::abs(state_.d);
     int prevRole = reliefRole_;
     if (dstW >= static_cast<float>(width_) * 0.88f && dstH >= static_cast<float>(height_) * 0.88f) {
         reliefRole_ = 0;
     }
-    rasterizeSvgFragment(ss.str(), state_.tx + state_.a * x, state_.ty + state_.d * y, dstW, dstH);
+
+    if (state_.b == 0.0f && state_.c == 0.0f) {
+        float x0 = state_.tx + state_.a * x;
+        float x1 = state_.tx + state_.a * (x + w);
+        float y0 = state_.ty + state_.d * y;
+        float y1 = state_.ty + state_.d * (y + h);
+        if (x0 > x1) std::swap(x0, x1);
+        if (y0 > y1) std::swap(y0, y1);
+        int minX = std::max(0, static_cast<int>(std::floor(x0)));
+        int minY = std::max(0, static_cast<int>(std::floor(y0)));
+        int maxX = std::min(width_, static_cast<int>(std::ceil(x1)));
+        int maxY = std::min(height_, static_cast<int>(std::ceil(y1)));
+        SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+            [x0, y0, x1, y1](float px, float py) noexcept {
+                float cx = std::clamp(std::min(px + 0.5f, x1) - std::max(px - 0.5f, x0), 0.0f, 1.0f);
+                float cy = std::clamp(std::min(py + 0.5f, y1) - std::max(py - 0.5f, y0), 0.0f, 1.0f);
+                return cx * cy;
+            });
+    } else {
+        float ia, ib, ic, id, itx, ity, pixScale;
+        if (SolidPainter::makeInverse(state_, ia, ib, ic, id, itx, ity, pixScale)) {
+            int minX, minY, maxX, maxY;
+            SolidPainter::transformLocalBounds(state_, x, y, x + w, y + h, width_, height_, minX, minY, maxX, maxY);
+            const float hx = w * 0.5f;
+            const float hy = h * 0.5f;
+            const float cx = x + hx;
+            const float cy = y + hy;
+            SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+                [ia, ib, ic, id, itx, ity, pixScale, cx, cy, hx, hy](float px, float py) noexcept {
+                    float lx = ia * px + ic * py + itx - cx;
+                    float ly = ib * px + id * py + ity - cy;
+                    float sdf = std::max(std::abs(lx) - hx, std::abs(ly) - hy);
+                    return std::clamp(0.5f - sdf * pixScale, 0.0f, 1.0f);
+                });
+        }
+    }
     reliefRole_ = prevRole;
 }
 
@@ -410,31 +661,62 @@ void CardCanvas::strokeRect(float x, float y, float w, float h, uint32_t color, 
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, x, y, w, h, color, lineWidth]() { strokeRect(x, y, w, h, color, lineWidth); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << w << "' height='" << h << "' viewBox='0 0 " << w << " " << h << "'>"
-       << "<rect x='" << (lineWidth * 0.5f) << "' y='" << (lineWidth * 0.5f) << "' width='" << (w - lineWidth) << "' height='" << (h - lineWidth)
-       << "' fill='none' stroke='" << hex << "' stroke-width='" << lineWidth << "'/>"
-       << "</svg>";
-    rasterizeSvgFragment(ss.str(), state_.tx + state_.a * x, state_.ty + state_.d * y, w * std::abs(state_.a), h * std::abs(state_.d));
+    if (w <= 0.0f || h <= 0.0f || lineWidth <= 0.0f) return;
+    float ia, ib, ic, id, itx, ity, pixScale;
+    if (!SolidPainter::makeInverse(state_, ia, ib, ic, id, itx, ity, pixScale)) return;
+
+    const float halfLw = lineWidth * 0.5f;
+    int minX, minY, maxX, maxY;
+    SolidPainter::transformLocalBounds(state_, x - halfLw, y - halfLw, x + w + halfLw, y + h + halfLw,
+                                       width_, height_, minX, minY, maxX, maxY);
+    const float hx = std::max(0.0f, (w - lineWidth) * 0.5f);
+    const float hy = std::max(0.0f, (h - lineWidth) * 0.5f);
+    const float cx = x + w * 0.5f;
+    const float cy = y + h * 0.5f;
+    SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+        [ia, ib, ic, id, itx, ity, pixScale, cx, cy, hx, hy, halfLw](float px, float py) noexcept {
+            float lx = ia * px + ic * py + itx - cx;
+            float ly = ib * px + id * py + ity - cy;
+            float dx = std::abs(lx) - hx;
+            float dy = std::abs(ly) - hy;
+            float boxSdf = std::hypot(std::max(dx, 0.0f), std::max(dy, 0.0f)) + std::min(std::max(dx, dy), 0.0f);
+            float ringSdf = std::abs(boxSdf) - halfLw;
+            return std::clamp(0.5f - ringSdf * pixScale, 0.0f, 1.0f);
+        });
 }
 
 void CardCanvas::fillRoundedRect(float x, float y, float w, float h, float radius, uint32_t color) {
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, x, y, w, h, radius, color]() { fillRoundedRect(x, y, w, h, radius, color); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << w << "' height='" << h << "' viewBox='0 0 " << w << " " << h << "'>"
-       << "<rect x='0' y='0' width='" << w << "' height='" << h << "' rx='" << radius << "' ry='" << radius << "' fill='" << hex << "'/>"
-       << "</svg>";
+    if (w <= 0.0f || h <= 0.0f) return;
+
     float dstW = w * std::abs(state_.a);
     float dstH = h * std::abs(state_.d);
     int prevRole = reliefRole_;
     if (dstW >= static_cast<float>(width_) * 0.88f && dstH >= static_cast<float>(height_) * 0.88f) {
         reliefRole_ = 0;
     }
-    rasterizeSvgFragment(ss.str(), state_.tx + state_.a * x, state_.ty + state_.d * y, dstW, dstH);
+
+    float ia, ib, ic, id, itx, ity, pixScale;
+    if (SolidPainter::makeInverse(state_, ia, ib, ic, id, itx, ity, pixScale)) {
+        int minX, minY, maxX, maxY;
+        SolidPainter::transformLocalBounds(state_, x, y, x + w, y + h, width_, height_, minX, minY, maxX, maxY);
+        const float r = std::clamp(radius, 0.0f, std::min(w, h) * 0.5f);
+        const float hx = w * 0.5f - r;
+        const float hy = h * 0.5f - r;
+        const float cx = x + w * 0.5f;
+        const float cy = y + h * 0.5f;
+        SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+            [ia, ib, ic, id, itx, ity, pixScale, cx, cy, hx, hy, r](float px, float py) noexcept {
+                float lx = ia * px + ic * py + itx - cx;
+                float ly = ib * px + id * py + ity - cy;
+                float dx = std::abs(lx) - hx;
+                float dy = std::abs(ly) - hy;
+                float sdf = std::hypot(std::max(dx, 0.0f), std::max(dy, 0.0f)) + std::min(std::max(dx, dy), 0.0f) - r;
+                return std::clamp(0.5f - sdf * pixScale, 0.0f, 1.0f);
+            });
+    }
     reliefRole_ = prevRole;
 }
 
@@ -442,58 +724,107 @@ void CardCanvas::strokeRoundedRect(float x, float y, float w, float h, float rad
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, x, y, w, h, radius, color, lineWidth]() { strokeRoundedRect(x, y, w, h, radius, color, lineWidth); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << w << "' height='" << h << "' viewBox='0 0 " << w << " " << h << "'>"
-       << "<rect x='" << (lineWidth * 0.5f) << "' y='" << (lineWidth * 0.5f) << "' width='" << (w - lineWidth) << "' height='" << (h - lineWidth)
-       << "' rx='" << radius << "' ry='" << radius << "' fill='none' stroke='" << hex << "' stroke-width='" << lineWidth << "'/>"
-       << "</svg>";
-    rasterizeSvgFragment(ss.str(), state_.tx + state_.a * x, state_.ty + state_.d * y, w * std::abs(state_.a), h * std::abs(state_.d));
+    if (w <= 0.0f || h <= 0.0f || lineWidth <= 0.0f) return;
+    float ia, ib, ic, id, itx, ity, pixScale;
+    if (!SolidPainter::makeInverse(state_, ia, ib, ic, id, itx, ity, pixScale)) return;
+
+    const float halfLw = lineWidth * 0.5f;
+    int minX, minY, maxX, maxY;
+    SolidPainter::transformLocalBounds(state_, x - halfLw, y - halfLw, x + w + halfLw, y + h + halfLw,
+                                       width_, height_, minX, minY, maxX, maxY);
+    const float innerW = std::max(0.0f, w - lineWidth);
+    const float innerH = std::max(0.0f, h - lineWidth);
+    const float r = std::clamp(radius, 0.0f, std::min(innerW, innerH) * 0.5f);
+    const float hx = innerW * 0.5f - r;
+    const float hy = innerH * 0.5f - r;
+    const float cx = x + w * 0.5f;
+    const float cy = y + h * 0.5f;
+    SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+        [ia, ib, ic, id, itx, ity, pixScale, cx, cy, hx, hy, r, halfLw](float px, float py) noexcept {
+            float lx = ia * px + ic * py + itx - cx;
+            float ly = ib * px + id * py + ity - cy;
+            float dx = std::abs(lx) - hx;
+            float dy = std::abs(ly) - hy;
+            float sdf = std::hypot(std::max(dx, 0.0f), std::max(dy, 0.0f)) + std::min(std::max(dx, dy), 0.0f) - r;
+            float ringSdf = std::abs(sdf) - halfLw;
+            return std::clamp(0.5f - ringSdf * pixScale, 0.0f, 1.0f);
+        });
 }
 
 void CardCanvas::fillCircle(float cx, float cy, float radius, uint32_t color) {
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, cx, cy, radius, color]() { fillCircle(cx, cy, radius, color); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    float d = radius * 2.0f;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << d << "' height='" << d << "' viewBox='0 0 " << d << " " << d << "'>"
-       << "<circle cx='" << radius << "' cy='" << radius << "' r='" << radius << "' fill='" << hex << "'/>"
-       << "</svg>";
-    rasterizeSvgFragment(ss.str(), state_.tx + state_.a * (cx - radius), state_.ty + state_.d * (cy - radius), d * std::abs(state_.a), d * std::abs(state_.d));
+    if (radius <= 0.0f) return;
+    float ia, ib, ic, id, itx, ity, pixScale;
+    if (!SolidPainter::makeInverse(state_, ia, ib, ic, id, itx, ity, pixScale)) return;
+
+    int minX, minY, maxX, maxY;
+    SolidPainter::transformLocalBounds(state_, cx - radius, cy - radius, cx + radius, cy + radius,
+                                       width_, height_, minX, minY, maxX, maxY);
+    SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+        [ia, ib, ic, id, itx, ity, pixScale, cx, cy, radius](float px, float py) noexcept {
+            float lx = ia * px + ic * py + itx - cx;
+            float ly = ib * px + id * py + ity - cy;
+            float sdf = std::hypot(lx, ly) - radius;
+            return std::clamp(0.5f - sdf * pixScale, 0.0f, 1.0f);
+        });
 }
 
 void CardCanvas::strokeCircle(float cx, float cy, float radius, uint32_t color, float lineWidth) {
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, cx, cy, radius, color, lineWidth]() { strokeCircle(cx, cy, radius, color, lineWidth); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    float d = radius * 2.0f;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << d << "' height='" << d << "' viewBox='0 0 " << d << " " << d << "'>"
-       << "<circle cx='" << radius << "' cy='" << radius << "' r='" << (radius - lineWidth * 0.5f) << "' fill='none' stroke='" << hex << "' stroke-width='" << lineWidth << "'/>"
-       << "</svg>";
-    rasterizeSvgFragment(ss.str(), state_.tx + state_.a * (cx - radius), state_.ty + state_.d * (cy - radius), d * std::abs(state_.a), d * std::abs(state_.d));
+    if (radius <= 0.0f || lineWidth <= 0.0f) return;
+    float ia, ib, ic, id, itx, ity, pixScale;
+    if (!SolidPainter::makeInverse(state_, ia, ib, ic, id, itx, ity, pixScale)) return;
+
+    const float halfLw = lineWidth * 0.5f;
+    const float midR = std::max(0.0f, radius - halfLw);
+    int minX, minY, maxX, maxY;
+    SolidPainter::transformLocalBounds(state_, cx - radius - halfLw, cy - radius - halfLw,
+                                       cx + radius + halfLw, cy + radius + halfLw,
+                                       width_, height_, minX, minY, maxX, maxY);
+    SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+        [ia, ib, ic, id, itx, ity, pixScale, cx, cy, midR, halfLw](float px, float py) noexcept {
+            float lx = ia * px + ic * py + itx - cx;
+            float ly = ib * px + id * py + ity - cy;
+            float ringSdf = std::abs(std::hypot(lx, ly) - midR) - halfLw;
+            return std::clamp(0.5f - ringSdf * pixScale, 0.0f, 1.0f);
+        });
 }
 
 void CardCanvas::fillOval(float cx, float cy, float rx, float ry, uint32_t color) {
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, cx, cy, rx, ry, color]() { fillOval(cx, cy, rx, ry, color); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << width_ << "' height='" << height_
-       << "' viewBox='0 0 " << width_ << " " << height_ << "'>";
-    ss << "<g transform='matrix(" << state_.a << " " << state_.b << " " << state_.c << " " << state_.d
-       << " " << state_.tx << " " << state_.ty << ")'>";
-    ss << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry << "' fill='" << hex << "'/>";
-    ss << "</g></svg>";
+    if (rx <= 0.0f || ry <= 0.0f) return;
+
     int prevRole = reliefRole_;
     if (rx >= static_cast<float>(width_) * 0.14f && ry >= static_cast<float>(height_) * 0.12f) {
         reliefRole_ = 2;
     }
-    rasterizeSvgFragment(ss.str(), 0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_));
+
+    float ia, ib, ic, id, itx, ity, pixScale;
+    if (SolidPainter::makeInverse(state_, ia, ib, ic, id, itx, ity, pixScale)) {
+        int minX, minY, maxX, maxY;
+        SolidPainter::transformLocalBounds(state_, cx - rx, cy - ry, cx + rx, cy + ry,
+                                           width_, height_, minX, minY, maxX, maxY);
+        const float invRx = 1.0f / rx;
+        const float invRy = 1.0f / ry;
+        SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+            [ia, ib, ic, id, itx, ity, pixScale, cx, cy, invRx, invRy](float px, float py) noexcept {
+                float lx = ia * px + ic * py + itx - cx;
+                float ly = ib * px + id * py + ity - cy;
+                float u = lx * invRx;
+                float v = ly * invRy;
+                float d = std::hypot(u, v);
+                if (d < 1e-6f) return 1.0f;
+                float grad = std::hypot(u * invRx, v * invRy);
+                float sdf = (d - 1.0f) * d / std::max(grad, 1e-6f);
+                return std::clamp(0.5f - sdf * pixScale, 0.0f, 1.0f);
+            });
+    }
     reliefRole_ = prevRole;
 }
 
@@ -501,30 +832,56 @@ void CardCanvas::strokeOval(float cx, float cy, float rx, float ry, uint32_t col
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, cx, cy, rx, ry, color, lineWidth]() { strokeOval(cx, cy, rx, ry, color, lineWidth); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << width_ << "' height='" << height_
-       << "' viewBox='0 0 " << width_ << " " << height_ << "'>";
-    ss << "<g transform='matrix(" << state_.a << " " << state_.b << " " << state_.c << " " << state_.d
-       << " " << state_.tx << " " << state_.ty << ")'>";
-    ss << "<ellipse cx='" << cx << "' cy='" << cy << "' rx='" << rx << "' ry='" << ry
-       << "' fill='none' stroke='" << hex << "' stroke-width='" << lineWidth << "'/>";
-    ss << "</g></svg>";
-    rasterizeSvgFragment(ss.str(), 0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_));
+    if (rx <= 0.0f || ry <= 0.0f || lineWidth <= 0.0f) return;
+    float ia, ib, ic, id, itx, ity, pixScale;
+    if (!SolidPainter::makeInverse(state_, ia, ib, ic, id, itx, ity, pixScale)) return;
+
+    const float halfLw = lineWidth * 0.5f;
+    int minX, minY, maxX, maxY;
+    SolidPainter::transformLocalBounds(state_, cx - rx - halfLw, cy - ry - halfLw,
+                                       cx + rx + halfLw, cy + ry + halfLw,
+                                       width_, height_, minX, minY, maxX, maxY);
+    const float invRx = 1.0f / rx;
+    const float invRy = 1.0f / ry;
+    SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+        [ia, ib, ic, id, itx, ity, pixScale, cx, cy, invRx, invRy, halfLw](float px, float py) noexcept {
+            float lx = ia * px + ic * py + itx - cx;
+            float ly = ib * px + id * py + ity - cy;
+            float u = lx * invRx;
+            float v = ly * invRy;
+            float d = std::hypot(u, v);
+            float sdf = (d < 1e-6f) ? -std::min(1.0f / invRx, 1.0f / invRy)
+                                    : (d - 1.0f) * d / std::max(std::hypot(u * invRx, v * invRy), 1e-6f);
+            float ringSdf = std::abs(sdf) - halfLw;
+            return std::clamp(0.5f - ringSdf * pixScale, 0.0f, 1.0f);
+        });
 }
 
 void CardCanvas::drawLine(float x0, float y0, float x1, float y1, uint32_t color, float width) {
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, x0, y0, x1, y1, color, width]() { drawLine(x0, y0, x1, y1, color, width); });
     }
-    std::string hex = formatColorHex(color);
-    std::ostringstream ss;
-    ss << "<svg xmlns='http://www.w3.org/2000/svg' width='" << width_ << "' height='" << height_ << "' viewBox='0 0 " << width_ << " " << height_ << "'>"
-       << "<line x1='" << (state_.tx + state_.a * x0) << "' y1='" << (state_.ty + state_.d * y0)
-       << "' x2='" << (state_.tx + state_.a * x1) << "' y2='" << (state_.ty + state_.d * y1)
-       << "' stroke='" << hex << "' stroke-width='" << (width * std::abs(state_.a)) << "' stroke-linecap='round'/>"
-       << "</svg>";
-    rasterizeSvgFragment(ss.str(), 0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_));
+    if (width <= 0.0f) return;
+    const float sx0 = state_.tx + state_.a * x0 + state_.c * y0;
+    const float sy0 = state_.ty + state_.b * x0 + state_.d * y0;
+    const float sx1 = state_.tx + state_.a * x1 + state_.c * y1;
+    const float sy1 = state_.ty + state_.b * x1 + state_.d * y1;
+    const float r = width * 0.5f * (0.5f * (std::hypot(state_.a, state_.b) + std::hypot(state_.c, state_.d)));
+
+    const int minX = std::max(0, static_cast<int>(std::floor(std::min(sx0, sx1) - r)) - 1);
+    const int minY = std::max(0, static_cast<int>(std::floor(std::min(sy0, sy1) - r)) - 1);
+    const int maxX = std::min(width_, static_cast<int>(std::ceil(std::max(sx0, sx1) + r)) + 1);
+    const int maxY = std::min(height_, static_cast<int>(std::ceil(std::max(sy0, sy1) + r)) + 1);
+
+    const float abx = sx1 - sx0;
+    const float aby = sy1 - sy0;
+    const float lenSq = abx * abx + aby * aby;
+    SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+        [sx0, sy0, abx, aby, lenSq, r](float px, float py) noexcept {
+            float t = (lenSq > 1e-6f) ? std::clamp(((px - sx0) * abx + (py - sy0) * aby) / lenSq, 0.0f, 1.0f) : 0.0f;
+            float dist = std::hypot(px - (sx0 + t * abx), py - (sy0 + t * aby)) - r;
+            return std::clamp(0.5f - dist, 0.0f, 1.0f);
+        });
 }
 
 void CardCanvas::drawSvg(const std::string& svgXml, float x, float y, float w, float h) {
@@ -559,21 +916,71 @@ void CardCanvas::drawSvgFile(const std::string& filePath, float x, float y, floa
     std::filesystem::path resolved = resolveThemeAssetPath(filePath);
     if (resolved.empty()) return;
 
-    std::ifstream ifs(resolved, std::ios::binary);
-    if (!ifs) return;
-    std::ostringstream ss;
-    ss << ifs.rdbuf();
-    std::string svgXml = ss.str();
-    if (svgXml.empty()) return;
+    const std::string* svgXml = getCachedSvgFileXml(resolved);
+    if (!svgXml || svgXml->empty()) return;
 
     rasterizeSvgFragment(
-        svgXml,
+        *svgXml,
         state_.tx + state_.a * x,
         state_.ty + state_.d * y,
         (w > 0.0f) ? w * std::abs(state_.a) : w,
         (h > 0.0f) ? h * std::abs(state_.d) : h,
         cover
     );
+}
+
+void CardCanvas::drawVector(const std::string& evecPayload, float x, float y, float w, float h, bool cover) {
+    if (evecPayload.empty()) return;
+    if (symmetryActive_) {
+        symmetryQueue_.push_back([this, evecPayload, x, y, w, h, cover]() {
+            drawVector(evecPayload, x, y, w, h, cover);
+        });
+    }
+
+    const VectorImage* img = VectorImage::parseCached(evecPayload);
+    if (!img || img->empty()) return;
+
+    const float dstX = state_.tx + state_.a * x;
+    const float dstY = state_.ty + state_.d * y;
+    const float dstW = (w > 0.0f) ? w * std::abs(state_.a) : img->width * std::abs(state_.a);
+    const float dstH = (h > 0.0f) ? h * std::abs(state_.d) : img->height * std::abs(state_.d);
+
+    VectorRasterizer::rasterizeShapesTight(
+        *img, dstX, dstY, dstW, dstH, cover, width_, height_,
+        [this](int /*idx*/, int /*count*/, int boxX, int boxY, int boxW, int boxH, const uint8_t* rgba) {
+            compositeBuffer(rgba, boxW, boxH, static_cast<float>(boxX), static_cast<float>(boxY),
+                            static_cast<float>(boxW), static_cast<float>(boxH));
+        });
+}
+
+void CardCanvas::drawVectorFile(const std::string& filePath, float x, float y, float w, float h, bool cover) {
+    if (filePath.empty()) return;
+    if (symmetryActive_) {
+        symmetryQueue_.push_back([this, filePath, x, y, w, h, cover]() {
+            drawVectorFile(filePath, x, y, w, h, cover);
+        });
+    }
+
+    std::filesystem::path resolved = resolveThemeAssetPath(filePath);
+    if (resolved.empty()) return;
+
+    const std::string* rawBytes = getCachedSvgFileXml(resolved);
+    if (!rawBytes || rawBytes->empty()) return;
+
+    const VectorImage* img = VectorImage::parseCached(*rawBytes);
+    if (!img || img->empty()) return;
+
+    const float dstX = state_.tx + state_.a * x;
+    const float dstY = state_.ty + state_.d * y;
+    const float dstW = (w > 0.0f) ? w * std::abs(state_.a) : img->width * std::abs(state_.a);
+    const float dstH = (h > 0.0f) ? h * std::abs(state_.d) : img->height * std::abs(state_.d);
+
+    VectorRasterizer::rasterizeShapesTight(
+        *img, dstX, dstY, dstW, dstH, cover, width_, height_,
+        [this](int /*idx*/, int /*count*/, int boxX, int boxY, int boxW, int boxH, const uint8_t* rgba) {
+            compositeBuffer(rgba, boxW, boxH, static_cast<float>(boxX), static_cast<float>(boxY),
+                            static_cast<float>(boxW), static_cast<float>(boxH));
+        });
 }
 
 void CardCanvas::drawImageFile(const std::string& filePath, float x, float y, float w, float h, bool cover) {
@@ -2881,10 +3288,7 @@ void CardCanvas::drawSculptedSvg(const std::string& svgXml, float x, float y, fl
     }
     if (svgXml.empty()) return;
 
-    std::vector<char> xmlCopy(svgXml.begin(), svgXml.end());
-    xmlCopy.push_back('\0');
-
-    NSVGimage* img = nsvgParse(xmlCopy.data(), "px", 96.0f);
+    NSVGimage* img = getCachedSvgImage(svgXml);
     if (!img) return;
 
     int renderW = (w > 0.0f) ? static_cast<int>(std::ceil(w)) : static_cast<int>(img->width);
@@ -2897,7 +3301,6 @@ void CardCanvas::drawSculptedSvg(const std::string& svgXml, float x, float y, fl
         sRast = nsvgCreateRasterizer();
     }
     if (!sRast) {
-        nsvgDelete(img);
         return;
     }
 
@@ -2906,7 +3309,6 @@ void CardCanvas::drawSculptedSvg(const std::string& svgXml, float x, float y, fl
         ++shapeCount;
     }
     if (shapeCount == 0) {
-        nsvgDelete(img);
         return;
     }
 
@@ -2944,7 +3346,40 @@ void CardCanvas::drawSculptedSvg(const std::string& svgXml, float x, float y, fl
         ++idx;
     }
     img->shapes = allShapes;
-    nsvgDelete(img);
+
+    currentElevation_ = prevElev;
+    currentBulge_ = prevBulge;
+}
+
+void CardCanvas::drawSculptedVector(const std::string& evecPayload, float x, float y, float w, float h,
+                                    float zMin, float zMax, float bulge) {
+    if (symmetryActive_) {
+        symmetryQueue_.push_back([this, evecPayload, x, y, w, h, zMin, zMax, bulge]() {
+            drawSculptedVector(evecPayload, x, y, w, h, zMin, zMax, bulge);
+        });
+    }
+    if (evecPayload.empty()) return;
+
+    const VectorImage* img = VectorImage::parseCached(evecPayload);
+    if (!img || img->empty()) return;
+
+    const float dstX = state_.tx + state_.a * x;
+    const float dstY = state_.ty + state_.d * y;
+    const float dstW = (w > 0.0f) ? w * std::abs(state_.a) : img->width * std::abs(state_.a);
+    const float dstH = (h > 0.0f) ? h * std::abs(state_.d) : img->height * std::abs(state_.d);
+
+    const float prevElev = currentElevation_;
+    const float prevBulge = currentBulge_;
+    currentBulge_ = bulge;
+
+    VectorRasterizer::rasterizeShapesTight(
+        *img, dstX, dstY, dstW, dstH, false, width_, height_,
+        [this, zMin, zMax](int idx, int shapeCount, int boxX, int boxY, int boxW, int boxH, const uint8_t* rgba) {
+            float t = (shapeCount > 1) ? (static_cast<float>(idx) / static_cast<float>(shapeCount - 1)) : 0.5f;
+            currentElevation_ = zMin + t * (zMax - zMin);
+            compositeBuffer(rgba, boxW, boxH, static_cast<float>(boxX), static_cast<float>(boxY),
+                            static_cast<float>(boxW), static_cast<float>(boxH));
+        });
 
     currentElevation_ = prevElev;
     currentBulge_ = prevBulge;
@@ -4986,6 +5421,47 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         float h = eatsbits::eatscript::resolveArg(args, kwargs, 4, "h", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
         bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 5, "cover", eatsbits::eatscript::Value(true)).asInt(1) != 0;
         canvas->drawSvgFile(pathVal.asString(), x, y, w, h, cover);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("ctx", "draw_vector", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto vecVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "data", eatsbits::eatscript::Value(""));
+        if (!vecVal.isString()) return eatsbits::eatscript::Value(false);
+        float x = eatsbits::eatscript::resolveArg(args, kwargs, 1, "x", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float y = eatsbits::eatscript::resolveArg(args, kwargs, 2, "y", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float w = eatsbits::eatscript::resolveArg(args, kwargs, 3, "w", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        float h = eatsbits::eatscript::resolveArg(args, kwargs, 4, "h", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 5, "cover", eatsbits::eatscript::Value(false)).asInt(0) != 0;
+        canvas->drawVector(vecVal.asString(), x, y, w, h, cover);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("ctx", "draw_vector_file", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto pathVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "path", eatsbits::eatscript::Value(""));
+        if (!pathVal.isString()) return eatsbits::eatscript::Value(false);
+        float x = eatsbits::eatscript::resolveArg(args, kwargs, 1, "x", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float y = eatsbits::eatscript::resolveArg(args, kwargs, 2, "y", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float w = eatsbits::eatscript::resolveArg(args, kwargs, 3, "w", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        float h = eatsbits::eatscript::resolveArg(args, kwargs, 4, "h", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        bool cover = eatsbits::eatscript::resolveArg(args, kwargs, 5, "cover", eatsbits::eatscript::Value(true)).asInt(1) != 0;
+        canvas->drawVectorFile(pathVal.asString(), x, y, w, h, cover);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    eval.registerMemberFunction("ctx", "draw_sculpted_vector", [canvas](const auto& args, const auto& kwargs) {
+        if (!canvas) return eatsbits::eatscript::Value(false);
+        auto vecVal = eatsbits::eatscript::resolveArg(args, kwargs, 0, "data", eatsbits::eatscript::Value(""));
+        if (!vecVal.isString()) return eatsbits::eatscript::Value(false);
+        float x = eatsbits::eatscript::resolveArg(args, kwargs, 1, "x", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float y = eatsbits::eatscript::resolveArg(args, kwargs, 2, "y", eatsbits::eatscript::Value(0.0)).asFloat(0.0f);
+        float w = eatsbits::eatscript::resolveArg(args, kwargs, 3, "w", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        float h = eatsbits::eatscript::resolveArg(args, kwargs, 4, "h", eatsbits::eatscript::Value(-1.0)).asFloat(-1.0f);
+        float zMin = eatsbits::eatscript::resolveArg(args, kwargs, 5, "z_min", eatsbits::eatscript::Value(0.35)).asFloat(0.35f);
+        float zMax = eatsbits::eatscript::resolveArg(args, kwargs, 6, "z_max", eatsbits::eatscript::Value(1.25)).asFloat(1.25f);
+        float bulge = eatsbits::eatscript::resolveArg(args, kwargs, 7, "bulge", eatsbits::eatscript::Value(1.15)).asFloat(1.15f);
+        canvas->drawSculptedVector(vecVal.asString(), x, y, w, h, zMin, zMax, bulge);
         return eatsbits::eatscript::Value(true);
     });
 

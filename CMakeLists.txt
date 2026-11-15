@@ -10,7 +10,7 @@ if(MSVC)
     add_compile_options(/W4 /O2 /permissive- /wd4244 /wd4267 /wd4324 /openmp)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 elseif(EMSCRIPTEN)
-    add_compile_options(-Wall -Wextra -O3 -fexceptions)
+    add_compile_options(-Wall -Wextra -O3 -msimd128 -fwasm-exceptions -flto -pthread)
     add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
 else()
     add_compile_options(-Wall -Wextra -O3)
@@ -48,6 +48,7 @@ add_library(solengine_core STATIC
     src/game/solitaire_board.cpp
     src/game/solitaire_solver.cpp
     src/game/auto_play_controller.cpp
+    src/game/script_rule_engine.cpp
     src/audio/audio_foley.cpp
     src/ui/batch_renderer_2d.cpp
     src/ui/svg_path.cpp
@@ -106,6 +107,7 @@ add_library(solengine_render STATIC
     src/render/dynamic_light.cpp
     src/render/card_texture_cache.cpp
     src/render/card_canvas.cpp
+    src/render/vector_binary.cpp
     src/render/card_back.cpp
     src/render/procedural_background.cpp
     src/render/postfx_system.cpp
@@ -139,13 +141,13 @@ if(EMSCRIPTEN)
 
     # 5. Main SolEngine WebAssembly & WebGPU Application
     add_executable(solengine_web src/main.cpp)
-    target_compile_options(solengine_web PRIVATE -O3 -msimd128 -fexceptions --use-port=emdawnwebgpu)
+    target_compile_options(solengine_web PRIVATE -O3 -msimd128 -fwasm-exceptions -flto -pthread --use-port=emdawnwebgpu)
     target_compile_definitions(solengine_web PRIVATE NDEBUG EATS_ENABLE_WEBGPU)
     target_link_libraries(solengine_web PRIVATE solengine_render)
     set_target_properties(solengine_web PROPERTIES
         OUTPUT_NAME "solengine"
         SUFFIX ".html"
-        LINK_FLAGS "-O3 -msimd128 -sNO_EXIT_RUNTIME=1 -fexceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=67108864 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_set_search_query'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/classic.eats@/decks/classic.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/minimal.eats@/decks/minimal.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/engraved_intaglio.eats@/decks/engraved_intaglio.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/imperial_baroque.eats@/decks/imperial_baroque.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/baroque_arches.eats@/decks/baroque_arches.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/themes@/themes --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/postfx@/postfx --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/games@/games --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/sounds@/sounds --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/ambience@/ambience --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=4 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/classic.eats@/decks/classic.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/minimal.eats@/decks/minimal.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/engraved_intaglio.eats@/decks/engraved_intaglio.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/imperial_baroque.eats@/decks/imperial_baroque.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/baroque_arches.eats@/decks/baroque_arches.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/another_world.eats@/decks/another_world.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/themes@/themes --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/postfx@/postfx --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/games@/games --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/sounds@/sounds --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/ambience@/ambience --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
     )
     add_custom_command(TARGET solengine_web POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

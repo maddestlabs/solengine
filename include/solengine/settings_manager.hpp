@@ -27,6 +27,7 @@ struct AppSettings {
     bool postFxAffectUi{false};
     TableTintPreset tableTint{TableTintPreset::Auto};
     DeckThemeId deckTheme{DeckThemeId::SolEnshade};
+    std::string deckSlug;
     std::string cardBackId{"auto"};
     GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
     CardWearLevel cardWear{CardWearLevel::Pristine};

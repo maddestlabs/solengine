@@ -1,25 +1,130 @@
 # =============================================================================
 # SolEngine Game Variant: Scorpion (.eats)
 # =============================================================================
-# Acclaimed cross between Spider and Yukon. 49 cards dealt to 7 columns
-# (first 4 have 3 cards face down). 3 cards in stock.
-# Tableaux build down in suit; any face-up stack can move; Kings on empty spaces.
-# Assemble full 13-card suit runs from King to Ace to clear to foundations.
-
 name = "Scorpion"
 family = "Spider"
 category = "SPIDER"
-description = "Acclaimed Spider & Yukon hybrid. Build down in suit; any face-up stack can move; Kings to spaces."
+layout = "columns"
+description = "Yukon-meets-Spider. Build down in suit; any face-up stack moves; Kings only to empty spaces."
 decks = 1
 tableaus = 7
 foundations = 4
 freecells = 0
-
 tableau_deal_counts = [7, 7, 7, 7, 7, 7, 7]
 tableau_all_face_up = False
 foundation_starter_card = False
-
 stock_deal_mode = "deal_to_all_columns"
 stock_deal_count = 3
 max_redeals = 0
+demo_seed = 2
 
+# --- Unified Help & Introspection Manifest ---
+doc_meta(3, "Medium", 3, "Moderate", 4, "Strategic")
+doc_aliases(["Scorpion Patience"])
+doc_goal("Assemble 4 complete King-to-Ace same-suit runs to clear the board.", "No legal moves remain.")
+doc_zone(0, "Stock (3 Reserve Cards)", "Click to deal the 3 remaining cards onto the first 3 Tableau columns.")
+doc_zone(2, "Foundations (1-4)", "Completed King-to-Ace same-suit runs automatically move here.")
+doc_zone(6, "Tableau Columns (1-7)", "Build down in the SAME SUIT; any face-up card and stack on top may move; Kings only fill empty columns.")
+
+def eval_heuristic():
+    score = 0
+    z = 2
+    while z <= 5:
+        if zone_size(z) > 0:
+            score = score + 1000
+        z = z + 1
+    z = 6
+    while z <= 12:
+        sz = zone_size(z)
+        i = 0
+        while i < sz:
+            if not card_face_up(z, i):
+                score = score - 20
+            elif i < sz - 1 and card_face_up(z, i + 1) and card_suit(z, i) == card_suit(z, i + 1) and card_rank(z, i) == card_rank(z, i + 1) + 1:
+                score = score + 30
+            i = i + 1
+        z = z + 1
+    return score
+
+def on_deal():
+    z = 6
+    while z <= 12:
+        sz = zone_size(z)
+        i = 0
+        while i < sz:
+            if z >= 10 or i >= 3:
+                if not card_face_up(z, i):
+                    flip_card(z, i, True)
+            i = i + 1
+        z = z + 1
+    return True
+
+def can_pick(z, i):
+    sz = zone_size(z)
+    if z < 6 or z > 12 or sz == 0 or i < 0 or i >= sz:
+        return False
+    return card_face_up(z, i)
+
+def can_drop(from_z, i, to_z):
+    if from_z == to_z or from_z < 6 or from_z > 12 or to_z < 6 or to_z > 12:
+        return False
+    if zone_size(from_z) == 0:
+        return False
+    tsz = zone_size(to_z)
+    if tsz == 0:
+        return card_rank(from_z, i) == 13
+    return card_suit(to_z, tsz - 1) == card_suit(from_z, i) and card_rank(to_z, tsz - 1) == card_rank(from_z, i) + 1
+
+def on_stock_click():
+    if zone_size(0) == 0:
+        return False
+    z = 6
+    while z <= 8 and zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, z)
+        flip_card(z, zone_size(z) - 1, True)
+        z = z + 1
+    return True
+
+def collect_completed_runs():
+    z = 6
+    while z <= 12:
+        sz = zone_size(z)
+        if sz == 13:
+            ok = True
+            s0 = card_suit(z, 0)
+            k = 0
+            while k < 13:
+                if not card_face_up(z, k) or card_suit(z, k) != s0 or card_rank(z, k) != 13 - k:
+                    ok = False
+                k = k + 1
+            if ok:
+                f = 2
+                while f <= 5:
+                    if zone_size(f) == 0:
+                        move_cards(z, 0, f)
+                        add_score(100)
+                        f = 99
+                    f = f + 1
+        z = z + 1
+
+def on_turn_end():
+    collect_completed_runs()
+    z = 6
+    while z <= 12:
+        sz = zone_size(z)
+        if sz > 0 and not card_face_up(z, sz - 1):
+            flip_card(z, sz - 1, True)
+        z = z + 1
+    return True
+
+def get_status():
+    f = 2
+    done = 0
+    while f <= 5:
+        if zone_size(f) >= 13:
+            done = done + 1
+        f = f + 1
+    if done == 4:
+        return "victory"
+    return "playing"

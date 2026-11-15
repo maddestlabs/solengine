@@ -32,6 +32,9 @@ struct SolitaireGameDef {
     std::string filePath;        // Path to source .eats file (if loaded from file)
     bool isScripted{false};
     GameVariant nativeVariant{GameVariant::KlondikeDraw1};
+    std::vector<std::string> alternateNames;
+    uint32_t demoSeed{2026u};
+    std::vector<uint32_t> demoSeeds;
 };
 
 /**

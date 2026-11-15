@@ -9,6 +9,8 @@ sol.set_theme({
     author: "SolEngine / Eatscript",
     description: "Deep obsidian velvet table with procedural nap sheen and cinematic vignette post-processing",
     version: 1,
+    lacquer: 1.0,
+    relief_bump: 2.0,
     procedural: true
 })
 

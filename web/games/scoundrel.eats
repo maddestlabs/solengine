@@ -1,0 +1,176 @@
+# =============================================================================
+# SolEngine RPG Solitaire: Scoundrel (.eats)
+# =============================================================================
+# Classic single-deck dungeon-crawl solitaire using Eatscript rule hooks,
+# card stat badges, global HP/Weapon blackboard, and Victory/Defeat states.
+
+name = "Scoundrel (Dungeon)"
+family = "Scoundrel"
+category = "RPG"
+layout = "columns"
+description = "Dungeon-crawl solitaire. Spades/Clubs are monsters, Diamonds are weapons, Hearts are potions. Survive the deck!"
+decks = 1
+tableaus = 4
+foundations = 1
+freecells = 0
+tableau_deal_counts = [1, 1, 1, 1]
+tableau_all_face_up = True
+foundation_starter_card = False
+stock_deal_mode = "none"
+stock_deal_count = 1
+max_redeals = 0
+demo_seed = 2026
+
+# --- Unified Help & Introspection Manifest ---
+doc_meta(2, "Quick", 3, "25%-55%", 3, "Tactical")
+doc_aliases(["Dungeon Solitaire", "Scoundrel Card Game"])
+doc_goal("Clear the entire Dungeon deck and Room without falling to 0 HP.", "Your HP drops to 0 during combat.")
+doc_zone(0, "Dungeon Deck", "Remaining face-down cards in the dungeon. Click to refill empty Room slots.", ["AS", "KC"], ["Click to deal into empty [[Room]] slots."])
+doc_zone(1, "Graveyard", "Slain monsters, consumed potions, and discarded weapons.", [], ["Cards resolved from the [[Room]] move here."])
+doc_zone(2, "Equipped Weapon", "Active Diamond weapon.", ["7D", "4D"], ["Equip [[Weapon]] cards here to reduce damage.", "Each kill lowers your [[CAP]] to that monster's power."])
+doc_zone(3, "Room Slot 1", "Active dungeon encounter card.", ["10S", "5H", "7D"], ["Click [[Monster]], [[Weapon]], or [[Potion]] to resolve."])
+doc_zone(4, "Room Slot 2", "Active dungeon encounter card.", [], ["When 1 card remains, 3 new cards deal automatically."])
+doc_zone(5, "Room Slot 3", "Active dungeon encounter card.")
+doc_zone(6, "Room Slot 4", "Active dungeon encounter card.")
+doc_stat("HP", "Hit Points", "Starts at 20 (max 20). Reaching 0 ends the run in defeat.")
+doc_stat("WEAPON", "Weapon Power", "Attack value of your currently equipped Diamond weapon.")
+doc_stat("CAP", "Weapon Durability Cap", "Maximum monster power your current weapon can still block.")
+doc_tag("monster", "Monsters (Spades & Clubs)", "Deal damage equal to rank (Ace = 14), reduced by an eligible equipped weapon.")
+doc_tag("weapon", "Weapons (Diamonds)", "Equip to block monster damage; each kill lowers your weapon's CAP to that monster's power.")
+doc_tag("potion", "Potions (Hearts)", "Click to restore HP up to a maximum of 20.")
+
+def eval_heuristic():
+    hp = get_stat("HP", 20)
+    wpn = get_stat("WEAPON", 0)
+    remaining = zone_size(0) + room_card_count()
+    return hp * 120 + wpn * 25 - remaining * 80
+
+def card_power(z, i):
+    r = card_rank(z, i)
+    if r == 1:
+        return 14
+    return r
+
+def tag_card_rpg(z, i):
+    s = card_suit(z, i)
+    p = card_power(z, i)
+    if s == 0 or s == 3:
+        set_card_stat(z, i, "attack", p)
+        add_card_tag(z, i, "monster")
+    elif s == 2:
+        set_card_stat(z, i, "attack", p)
+        add_card_tag(z, i, "weapon")
+    else:
+        set_card_stat(z, i, "hp", p)
+        add_card_tag(z, i, "potion")
+
+def room_card_count():
+    cnt = 0
+    z = 3
+    while z <= 6:
+        if zone_size(z) > 0:
+            cnt = cnt + 1
+        z = z + 1
+    return cnt
+
+def refill_room():
+    z = 3
+    while z <= 6:
+        if zone_size(z) == 0 and zone_size(0) > 0:
+            top = zone_size(0) - 1
+            move_cards(0, top, z)
+            flip_card(z, 0, True)
+            tag_card_rpg(z, 0)
+        z = z + 1
+
+def on_deal():
+    set_stat("HP", 20)
+    set_stat("WEAPON", 0)
+    set_stat("CAP", 99)
+    # Remove red face cards & red aces from initial room/stock if desired, or tag all room cards
+    z = 3
+    while z <= 6:
+        if zone_size(z) > 0:
+            tag_card_rpg(z, 0)
+        z = z + 1
+    return True
+
+def can_pick(z, i):
+    return z >= 3 and z <= 6 and card_face_up(z, i)
+
+def can_drop(from_z, i, to_z):
+    # Allow dragging a room card onto the Waste/Graveyard (zone 1) or Equipped Weapon (zone 2)
+    if from_z < 3 or from_z > 6:
+        return False
+    if to_z == 1 or to_z == 2:
+        return True
+    return False
+
+def on_card_click(z, i):
+    if z < 3 or z > 6:
+        return False
+    if zone_size(z) == 0:
+        return False
+
+    s = card_suit(z, i)
+    p = card_power(z, i)
+    hp = get_stat("HP", 20)
+
+    if s == 1:
+        # Heart = Healing Potion
+        new_hp = hp + p
+        if new_hp > 20:
+            new_hp = 20
+        set_stat("HP", new_hp)
+        move_cards(z, i, 1)
+        add_score(p * 10)
+        return True
+
+    if s == 2:
+        # Diamond = Equip Weapon (discard old weapon to Graveyard)
+        if zone_size(2) > 0:
+            move_cards(2, 0, 1)
+        move_cards(z, i, 2)
+        set_stat("WEAPON", p)
+        set_stat("CAP", 99)
+        set_card_stat(2, 0, "durability", 99)
+        add_score(p * 5)
+        return True
+
+    # Spade or Club = Monster combat
+    wpn = get_stat("WEAPON", 0)
+    cap = get_stat("CAP", 99)
+    dmg = p
+    if wpn > 0 and p < cap:
+        dmg = p - wpn
+        if dmg < 0:
+            dmg = 0
+        set_stat("CAP", p)
+        if zone_size(2) > 0:
+            set_card_stat(2, 0, "durability", p)
+
+    new_hp = hp - dmg
+    if new_hp < 0:
+        new_hp = 0
+    set_stat("HP", new_hp)
+    move_cards(z, i, 1)
+    add_score(p * 15)
+    return True
+
+def on_stock_click():
+    if zone_size(0) == 0:
+        return False
+    refill_room()
+    return True
+
+def on_turn_end():
+    if room_card_count() <= 1 and zone_size(0) > 0:
+        refill_room()
+    return True
+
+def get_status():
+    if get_stat("HP", 20) <= 0:
+        return "defeat"
+    if zone_size(0) == 0 and room_card_count() == 0:
+        return "victory"
+    return "playing"

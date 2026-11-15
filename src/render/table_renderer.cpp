@@ -89,7 +89,8 @@ enum HudButtonId : int {
     BtnTakeOver   = 25,
     BtnSolvableDeal=26,
     BtnSeedDialog = 28,
-    BtnToolbarResize = 29
+    BtnToolbarResize = 29,
+    BtnHelp       = 30
 };
 
 struct HudButtonRect {
@@ -164,9 +165,6 @@ ClockworkBarLayout computeClockworkBarLayout(
     if (flags & ToolbarItem_AutoPlay) {
         sDefs.push_back({ BtnAutoPlay,     "[A]uto-Play",             ">>" });
     }
-    if (flags & ToolbarItem_Hint) {
-        sDefs.push_back({ BtnHint,         "[H]int",                  "?" });
-    }
     if (flags & ToolbarItem_Restart) {
         sDefs.push_back({ BtnRestart,      "[R]estart",               "↺" });
     }
@@ -179,6 +177,8 @@ ClockworkBarLayout computeClockworkBarLayout(
     if (flags & ToolbarItem_GameSelect) {
         sDefs.push_back({ BtnVariant,      "[G] Select Game",         "G" });
     }
+    // Always place Help (?) last before Scale/Configure
+    sDefs.push_back({ BtnHelp,             "[F1] Help & Rules",       "?" });
     if (flags & ToolbarItem_Resize) {
         sDefs.push_back({ BtnToolbarResize,"[Scale] Tap: Size / Hold: Config", "⤢" });
     }
@@ -1080,7 +1080,32 @@ void drawProceduralCard(
             : CardTextureCache::instance().getAtlasSlot(c.suit, c.rank);
         r.drawTexturedRoundedRectGpu(x, y, w, h, radius, slot.u0, slot.v0, slot.u1, slot.v1, 1.0f, 1.0f, 1.0f, 1.0f, scratchDistort, condParam);
 
-        if (c.enshadedGlow) {
+        // Optional RPG / modern solitaire card stat badges (HP, ATK, Shield, Durability)
+    if (!showBack && !c.stats.empty()) {
+        auto drawBadge = [&](float bx, float by, float bw, float bh,
+                             float bgR, float bgG, float bgB, const char* txt) {
+            r.drawRoundedRect(bx, by, bw, bh, 3.0f, bgR, bgG, bgB, 0.92f, 2);
+            r.drawRoundedRectOutline(bx, by, bw, bh, 3.0f, 0.95f, 0.90f, 0.78f, 0.55f, 1.0f, 2);
+            eatsbits::ui::glyph::drawVectorText(r, txt, bx + 4.0f, by + 3.0f, 9.5f,
+                                                0.98f, 0.96f, 0.90f, 1.0f);
+        };
+        if (auto it = c.stats.find("hp"); it != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "HP %d", it->second);
+            drawBadge(x + 4.0f, y + h - 18.0f, 38.0f, 14.0f, 0.62f, 0.14f, 0.16f, buf);
+        }
+        if (auto it = c.stats.find("attack"); it != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "ATK %d", it->second);
+            drawBadge(x + w - 44.0f, y + h - 18.0f, 40.0f, 14.0f, 0.58f, 0.36f, 0.10f, buf);
+        } else if (auto itD = c.stats.find("durability"); itD != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "DUR %d", itD->second);
+            drawBadge(x + w - 44.0f, y + h - 18.0f, 40.0f, 14.0f, 0.16f, 0.38f, 0.56f, buf);
+        }
+    }
+
+    if (c.enshadedGlow) {
             r.drawRoundedRectOutline(x - 1.5f, y - 1.5f, w + 3.0f, h + 3.0f, radius + 1.5f,
                                      pal.accentR, pal.accentG, pal.accentB, 0.98f, 2.6f, 4);
         } else if (wearLvl == CardWearLevel::Pristine) {
@@ -1101,7 +1126,32 @@ void drawProceduralCard(
             r.drawTexturedRoundedRect(x, y, w, h, radius, mipData, mipW, mipH, 1.0f);
         }
 
-        if (c.enshadedGlow) {
+        // Optional RPG / modern solitaire card stat badges (HP, ATK, Shield, Durability)
+    if (!showBack && !c.stats.empty()) {
+        auto drawBadge = [&](float bx, float by, float bw, float bh,
+                             float bgR, float bgG, float bgB, const char* txt) {
+            r.drawRoundedRect(bx, by, bw, bh, 3.0f, bgR, bgG, bgB, 0.92f, 2);
+            r.drawRoundedRectOutline(bx, by, bw, bh, 3.0f, 0.95f, 0.90f, 0.78f, 0.55f, 1.0f, 2);
+            eatsbits::ui::glyph::drawVectorText(r, txt, bx + 4.0f, by + 3.0f, 9.5f,
+                                                0.98f, 0.96f, 0.90f, 1.0f);
+        };
+        if (auto it = c.stats.find("hp"); it != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "HP %d", it->second);
+            drawBadge(x + 4.0f, y + h - 18.0f, 38.0f, 14.0f, 0.62f, 0.14f, 0.16f, buf);
+        }
+        if (auto it = c.stats.find("attack"); it != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "ATK %d", it->second);
+            drawBadge(x + w - 44.0f, y + h - 18.0f, 40.0f, 14.0f, 0.58f, 0.36f, 0.10f, buf);
+        } else if (auto itD = c.stats.find("durability"); itD != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "DUR %d", itD->second);
+            drawBadge(x + w - 44.0f, y + h - 18.0f, 40.0f, 14.0f, 0.16f, 0.38f, 0.56f, buf);
+        }
+    }
+
+    if (c.enshadedGlow) {
             r.drawRoundedRectOutline(x - 1.5f, y - 1.5f, w + 3.0f, h + 3.0f, radius + 1.5f,
                                      pal.accentR, pal.accentG, pal.accentB, 0.98f, 2.6f, 4);
         } else if (wearLvl == CardWearLevel::Pristine) {
@@ -1193,6 +1243,31 @@ void drawProceduralCard(
                     drawSuitPip(r, c.suit, x + w * 0.5f, y + h * 0.64f, prX * 0.9f, prY * 0.9f, sr, sg, sb, 0.90f);
                 }
             }
+        }
+    }
+
+    // Optional RPG / modern solitaire card stat badges (HP, ATK, Shield, Durability)
+    if (!showBack && !c.stats.empty()) {
+        auto drawBadge = [&](float bx, float by, float bw, float bh,
+                             float bgR, float bgG, float bgB, const char* txt) {
+            r.drawRoundedRect(bx, by, bw, bh, 3.0f, bgR, bgG, bgB, 0.92f, 2);
+            r.drawRoundedRectOutline(bx, by, bw, bh, 3.0f, 0.95f, 0.90f, 0.78f, 0.55f, 1.0f, 2);
+            eatsbits::ui::glyph::drawVectorText(r, txt, bx + 4.0f, by + 3.0f, 9.5f,
+                                                0.98f, 0.96f, 0.90f, 1.0f);
+        };
+        if (auto it = c.stats.find("hp"); it != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "HP %d", it->second);
+            drawBadge(x + 4.0f, y + h - 18.0f, 38.0f, 14.0f, 0.62f, 0.14f, 0.16f, buf);
+        }
+        if (auto it = c.stats.find("attack"); it != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "ATK %d", it->second);
+            drawBadge(x + w - 44.0f, y + h - 18.0f, 40.0f, 14.0f, 0.58f, 0.36f, 0.10f, buf);
+        } else if (auto itD = c.stats.find("durability"); itD != c.stats.end()) {
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "DUR %d", itD->second);
+            drawBadge(x + w - 44.0f, y + h - 18.0f, 40.0f, 14.0f, 0.16f, 0.38f, 0.56f, buf);
         }
     }
 
@@ -1451,6 +1526,613 @@ void drawTransportBar(
 
 } // namespace
 
+struct HelpSidebarRect {
+    float x{0.0f}, y{0.0f}, w{0.0f}, h{0.0f};
+    float closeX{0.0f}, closeY{0.0f}, closeW{24.0f}, closeH{24.0f};
+    float showMeX{0.0f}, showMeY{0.0f}, showMeW{64.0f}, showMeH{22.0f};
+    bool isBottomSheet{false};
+};
+
+HelpSidebarRect computeHelpSidebarRect(float width, float height) noexcept {
+    HelpSidebarRect r{};
+    // Desktop: right-hand sidebar. Mobile (both portrait & landscape) / narrow web: bottom sheet.
+    r.isBottomSheet = (width < 780.0f || height < 500.0f);
+    if (r.isBottomSheet) {
+        r.h = std::clamp(height * 0.44f, 160.0f, 260.0f);
+        r.w = std::max(220.0f, width - 24.0f);
+        r.x = 12.0f;
+        r.y = height - r.h - 12.0f;
+    } else {
+        r.w = std::min(320.0f, width * 0.31f);
+        r.h = std::max(220.0f, height - 96.0f);
+        r.x = width - r.w - 12.0f;
+        r.y = 48.0f;
+    }
+    r.closeX = r.x + r.w - 30.0f;
+    r.closeY = r.y + 8.0f;
+    r.showMeX = r.closeX - 70.0f;
+    r.showMeY = r.y + 9.0f;
+    return r;
+}
+
+std::string lookupGlossaryTerm(const std::string& term, const SolitaireBoard& board) {
+    std::string lower = term;
+    for (char& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    if (lower == "build up") return "Building up in rank: A -> 2 -> 3 -> 4 -> 5 ...";
+    if (lower == "build down") return "Building down in rank: K -> Q -> J -> 10 -> 9 ...";
+    if (lower == "alternating color") return "Red on Black, or Black on Red (e.g. 7H on 8S).";
+    if (lower == "suit") return "Cards must share the same suit (Spades, Hearts, Diamonds, or Clubs).";
+    if (lower == "room") return "The 4 active encounter cards currently in front of you.";
+    if (lower == "cap") return "Max monster power your equipped weapon can still block.";
+    for (const auto& sd : board.docManifest().stats) {
+        std::string sk = sd.key;
+        for (char& ch : sk) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        if (sk == lower) return sd.title + ": " + sd.description;
+    }
+    for (const auto& td : board.docManifest().tags) {
+        std::string tk = td.tag;
+        for (char& ch : tk) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        if (tk == lower) return td.title + ": " + td.description;
+    }
+    return term + ": Rule element on the table.";
+}
+
+void drawMiniCardStack(eatsbits::ui::BatchRenderer2D& r, const std::vector<std::string>& cards, float x, float y) {
+    const size_t count = std::min<size_t>(cards.size(), 3);
+    for (size_t i = 0; i < count; ++i) {
+        const std::string& code = cards[i];
+        if (code.size() < 2) continue;
+        char suitCh = static_cast<char>(std::toupper(static_cast<unsigned char>(code.back())));
+        std::string rankStr = code.substr(0, code.size() - 1);
+        const bool isRed = (suitCh == 'H' || suitCh == 'D');
+        const char* suitSym = (suitCh == 'H') ? "H" : (suitCh == 'D') ? "D" : (suitCh == 'C') ? "C" : "S";
+        const float cy = y + static_cast<float>(i) * 14.0f;
+        r.drawRoundedRect(x, cy, 34.0f, 16.0f, 3.0f, 0.96f, 0.94f, 0.88f, 1.0f, 2);
+        r.drawRoundedRectOutline(x, cy, 34.0f, 16.0f, 3.0f, 0.30f, 0.25f, 0.20f, 0.90f, 1.0f, 2);
+        std::string label = rankStr + suitSym;
+        eatsbits::ui::glyph::drawVectorText(r, label.c_str(), x + 4.0f, cy + 3.0f, 9.5f,
+                                            isRed ? 0.78f : 0.14f, isRed ? 0.12f : 0.14f, isRed ? 0.14f : 0.16f, 1.0f);
+    }
+}
+
+void drawPipMeter(eatsbits::ui::BatchRenderer2D& r, float x, float y, uint8_t rating, const ThemePalette& pal) {
+    for (uint8_t i = 0; i < 5; ++i) {
+        const bool filled = (i < rating);
+        const float px = x + static_cast<float>(i) * 11.0f;
+        r.drawRoundedRect(px, y, 9.0f, 9.0f, 2.0f,
+                          filled ? pal.accentR : 0.25f,
+                          filled ? pal.accentG : 0.23f,
+                          filled ? pal.accentB : 0.21f,
+                          filled ? 0.95f : 0.60f, 1);
+        r.drawRoundedRectOutline(px, y, 9.0f, 9.0f, 2.0f, 0.10f, 0.08f, 0.06f, 0.85f, 1.0f, 1);
+    }
+}
+
+std::vector<ZoneDoc> resolveHelpZones(const SolitaireBoard& board) {
+    const auto& manifest = board.docManifest();
+    if (!manifest.zones.empty()) {
+        return manifest.zones;
+    }
+    // Auto-discover classic pile roles if no doc_zone() was declared
+    std::vector<ZoneDoc> autoZones;
+    bool seenStock = false, seenWaste = false, seenFound = false, seenTab = false, seenCell = false;
+    for (size_t i = 0; i < board.piles().size(); ++i) {
+        const auto& p = board.piles()[i];
+        if (p.type == PileType::Stock && !seenStock) {
+            seenStock = true;
+            autoZones.push_back({static_cast<uint8_t>(i), "Stock", "Click to draw new cards.", {}, {"Click to draw cards from the Stock."}});
+        } else if (p.type == PileType::Waste && !seenWaste) {
+            seenWaste = true;
+            autoZones.push_back({static_cast<uint8_t>(i), "Waste", "Drawn cards ready to play.", {}, {"Top face-up card is available to play."}});
+        } else if (p.type == PileType::Foundation && !seenFound) {
+            seenFound = true;
+            autoZones.push_back({static_cast<uint8_t>(i), "Foundations", "Build suit sequences here to win.", {"AH", "2H", "3H"}, {"[[Build up]] in the same [[Suit]] from Ace to King."}});
+        } else if (p.type == PileType::FreeCell && !seenCell) {
+            seenCell = true;
+            autoZones.push_back({static_cast<uint8_t>(i), "FreeCells", "Temporary single-card reserve slots.", {}, {"Store any single exposed card temporarily."}});
+        } else if (p.type == PileType::Tableau && !seenTab) {
+            seenTab = true;
+            autoZones.push_back({static_cast<uint8_t>(i), "Tableau", "Main playfield columns.", {"8C", "7H", "6S"}, {"[[Build down]] in [[Alternating color]]."}});
+        }
+    }
+    return autoZones;
+}
+
+void drawTargetOutlineIcon(eatsbits::ui::BatchRenderer2D& r, float cx, float cy, float radius,
+                           float cr, float cg, float cb, float alpha = 0.95f) {
+    r.drawCircleOutline(cx, cy, radius, cr, cg, cb, alpha, 1.4f, 16);
+    r.drawCircle(cx, cy, radius * 0.40f, cr, cg, cb, alpha, 12);
+}
+
+std::vector<std::string> wrapHelpText(const std::string& text, float maxWidthPx, float fontSize) {
+    std::vector<std::string> lines;
+    if (text.empty()) return lines;
+    std::istringstream iss(text);
+    std::string word;
+    std::string current;
+    while (iss >> word) {
+        std::string candidate = current.empty() ? word : (current + " " + word);
+        if (!current.empty() && eatsbits::ui::glyph::getVectorTextWidth(fontSize, candidate.c_str()) > maxWidthPx) {
+            lines.push_back(current);
+            current = word;
+        } else {
+            current = candidate;
+        }
+    }
+    if (!current.empty()) lines.push_back(current);
+    return lines;
+}
+
+struct HelpZoneHit {
+    uint8_t zoneIndex{0};
+    float x{0.0f}, y{0.0f}, w{0.0f}, h{0.0f};
+};
+
+struct HelpSidebarLayout {
+    HelpSidebarRect sb{};
+    float viewY{0.0f};
+    float viewH{0.0f};
+    float contentH{0.0f};
+    float analyzeX{0.0f}, analyzeY{0.0f}, analyzeW{0.0f}, analyzeH{20.0f};
+    float hintX{0.0f}, hintY{0.0f}, hintW{0.0f}, hintH{22.0f};
+    std::vector<HelpZoneHit> zoneHits;
+};
+
+HelpSidebarLayout buildHelpSidebarLayout(
+    const SolitaireBoard& board,
+    float width,
+    float height,
+    float helpScrollY,
+    const HelpOddsInfo* odds
+) {
+    HelpSidebarLayout out{};
+    out.sb = computeHelpSidebarRect(width, height);
+    out.viewY = out.sb.y + 40.0f;
+    out.viewH = std::max(40.0f, out.sb.h - 46.0f);
+
+    const auto& def = board.activeGameDef();
+    const auto& manifest = board.docManifest();
+    const float lx = out.sb.x + 12.0f;
+    const float maxTextW = std::max(100.0f, out.sb.w - 28.0f);
+    float cy = out.viewY + 4.0f - std::max(0.0f, helpScrollY);
+    const float startCy = cy;
+
+    // 1. Optional Odds/Skill/Time section
+    if (odds && odds->hasResults && !odds->running) {
+        cy += 45.0f; // 3 rows (Time, Odds, Skill)
+    }
+    out.analyzeX = lx;
+    out.analyzeY = cy;
+    out.analyzeW = std::min(190.0f, maxTextW);
+    out.analyzeH = 20.0f;
+    cy += 26.0f;
+
+    // 2. Decks & Wrapped Object
+    cy += 15.0f; // DECKS
+    const std::string& goalText = !manifest.winGoal.empty() ? manifest.winGoal : def.description;
+    if (!goalText.empty()) {
+        auto objLines = wrapHelpText("OBJECT: " + goalText, maxTextW, 9.5f);
+        cy += static_cast<float>(objLines.size()) * 13.5f + 6.0f;
+    }
+
+    // 3. Zones
+    const auto zones = resolveHelpZones(board);
+    for (const auto& zd : zones) {
+        out.zoneHits.push_back({zd.zoneIndex, lx - 4.0f, cy - 2.0f, out.sb.w - 20.0f, 18.0f});
+        cy += 18.0f;
+
+        float miniBottom = cy;
+        float textW = maxTextW - 10.0f;
+        if (!zd.previewCards.empty()) {
+            textW = std::max(80.0f, maxTextW - 48.0f);
+            miniBottom = cy + static_cast<float>(std::min<size_t>(zd.previewCards.size(), 3)) * 14.0f + 4.0f;
+        }
+        const auto& bullets = !zd.bullets.empty() ? zd.bullets : std::vector<std::string>{zd.description};
+        for (const auto& bText : bullets) {
+            auto bLines = wrapHelpText(bText, textW, 9.2f);
+            cy += static_cast<float>(std::max<size_t>(1, bLines.size())) * 14.0f;
+        }
+        cy = std::max(cy, miniBottom) + 6.0f;
+    }
+
+    // 4. Stats & Card Tags
+    for (const auto& sd : manifest.stats) {
+        auto lines = wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, 9.0f);
+        cy += static_cast<float>(std::max<size_t>(1, lines.size())) * 13.5f;
+    }
+    for (const auto& td : manifest.tags) {
+        auto lines = wrapHelpText(td.title + ": " + td.description, maxTextW, 9.0f);
+        cy += static_cast<float>(std::max<size_t>(1, lines.size())) * 13.5f;
+    }
+
+    // 5. Alternate Names
+    const auto& alts = !manifest.alternateNames.empty() ? manifest.alternateNames : def.alternateNames;
+    if (!alts.empty()) {
+        cy += 19.0f;
+        std::string joined;
+        for (size_t i = 0; i < alts.size(); ++i) {
+            if (i > 0) joined += ", ";
+            joined += alts[i];
+        }
+        auto aLines = wrapHelpText(joined, maxTextW, 9.0f);
+        cy += static_cast<float>(std::max<size_t>(1, aLines.size())) * 13.0f + 6.0f;
+    }
+
+    // 6. Contextual Hint Button at bottom of Help Sidebar
+    cy += 4.0f;
+    out.hintX = lx;
+    out.hintY = cy;
+    out.hintW = std::min(150.0f, maxTextW);
+    out.hintH = 22.0f;
+    cy += 30.0f;
+
+    out.contentH = cy - startCy;
+    return out;
+}
+
+void drawHelpSidebar(
+    eatsbits::ui::BatchRenderer2D& r,
+    const SolitaireBoard& board,
+    float width,
+    float height,
+    const ThemePalette& pal,
+    int highlightedHelpZone,
+    float helpScrollY,
+    float mouseX,
+    float mouseY,
+    const HelpOddsInfo* odds
+) {
+    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, width, height, helpScrollY, odds);
+    const HelpSidebarRect& sb = hl.sb;
+    r.drawRoundedRectGradient(sb.x, sb.y, sb.w, sb.h, 8.0f,
+                              pal.woodR0 * 0.92f, pal.woodG0 * 0.92f, pal.woodB0 * 0.92f,
+                              pal.woodR1 * 0.88f, pal.woodG1 * 0.88f, pal.woodB1 * 0.88f, 0.96f, 4);
+    r.drawRoundedRectOutline(sb.x, sb.y, sb.w, sb.h, 8.0f, pal.trimR, pal.trimG, pal.trimB, 0.85f, 1.8f, 4);
+
+    const auto& def = board.activeGameDef();
+    const auto& manifest = board.docManifest();
+    const float lx = sb.x + 12.0f;
+    const float maxTextW = std::max(100.0f, sb.w - 28.0f);
+
+    // Header (fixed)
+    eatsbits::ui::glyph::drawVectorText(r, def.name.c_str(), lx, sb.y + 12.0f, 13.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+    r.drawRoundedRect(sb.showMeX, sb.showMeY, sb.showMeW, sb.showMeH, 4.0f, 0.16f, 0.34f, 0.24f, 0.92f, 2);
+    r.drawRoundedRectOutline(sb.showMeX, sb.showMeY, sb.showMeW, sb.showMeH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.0f, 2);
+    eatsbits::ui::glyph::drawVectorText(r, "SHOW ME", sb.showMeX + 7.0f, sb.showMeY + 5.5f, 9.5f, 0.94f, 0.96f, 0.88f, 1.0f);
+    r.drawRoundedRect(sb.closeX, sb.closeY, sb.closeW, sb.closeH, 4.0f, 0.28f, 0.14f, 0.14f, 0.90f, 2);
+    eatsbits::ui::glyph::drawVectorText(r, "X", sb.closeX + 7.5f, sb.closeY + 5.5f, 11.0f, 0.96f, 0.88f, 0.84f, 1.0f);
+    r.drawLine(sb.x + 8.0f, sb.y + 36.0f, sb.x + sb.w - 8.0f, sb.y + 36.0f, pal.trimR, pal.trimG, pal.trimB, 0.35f, 1.0f);
+
+    std::string hoveredGlossaryTerm;
+
+    {
+        auto scissor = r.makeScissorScope(sb.x + 2.0f, hl.viewY, sb.w - 4.0f, hl.viewH);
+        float cy = hl.viewY + 4.0f - std::max(0.0f, helpScrollY);
+
+        // 1. On-Demand Solver Odds / Skill / Time
+        if (odds && odds->hasResults && !odds->running) {
+            auto drawStatRow = [&](const char* lbl, uint8_t rating, const std::string& valTxt) {
+                eatsbits::ui::glyph::drawVectorText(r, lbl, lx, cy + 1.0f, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+                drawPipMeter(r, lx + 56.0f, cy, rating, pal);
+                eatsbits::ui::glyph::drawVectorText(r, valTxt.c_str(), lx + 118.0f, cy + 1.0f, 9.5f, 0.92f, 0.90f, 0.84f, 0.95f);
+                cy += 15.0f;
+            };
+            drawStatRow("TIME:", odds->timeRating, odds->timeLabel);
+            drawStatRow("ODDS:", odds->oddsRating, odds->oddsLabel);
+            drawStatRow("SKILL:", odds->skillRating, odds->skillLabel);
+        }
+        if (odds && odds->running) {
+            r.drawRoundedRect(hl.analyzeX, cy, hl.analyzeW, hl.analyzeH, 4.0f, 0.45f, 0.16f, 0.14f, 0.92f, 2);
+            r.drawRoundedRectOutline(hl.analyzeX, cy, hl.analyzeW, hl.analyzeH, 4.0f, pal.accentR, pal.accentG, pal.accentB, 0.80f, 1.0f, 2);
+            char prog[64];
+            std::snprintf(prog, sizeof(prog), "CANCEL (%u/%u)", odds->completedSeeds, odds->totalSeeds);
+            eatsbits::ui::glyph::drawVectorText(r, prog, hl.analyzeX + 8.0f, cy + 5.0f, 9.2f, 0.98f, 0.90f, 0.84f, 1.0f);
+        } else {
+            r.drawRoundedRect(hl.analyzeX, cy, hl.analyzeW, hl.analyzeH, 4.0f, 0.18f, 0.24f, 0.30f, 0.92f, 2);
+            r.drawRoundedRectOutline(hl.analyzeX, cy, hl.analyzeW, hl.analyzeH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.65f, 1.0f, 2);
+            const char* lbl = (odds && odds->hasResults) ? "RE-ANALYZE ODDS" : "ANALYZE ODDS";
+            eatsbits::ui::glyph::drawVectorText(r, lbl, hl.analyzeX + 8.0f, cy + 5.0f, 9.2f, 0.92f, 0.94f, 0.96f, 1.0f);
+        }
+        cy += 26.0f;
+
+        // 2. Decks & Word-Wrapped Object
+        char deckBuf[32];
+        std::snprintf(deckBuf, sizeof(deckBuf), "DECKS: %u", static_cast<unsigned>(std::max<uint8_t>(1, def.decks)));
+        eatsbits::ui::glyph::drawVectorText(r, deckBuf, lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+        cy += 15.0f;
+
+        const std::string& goalText = !manifest.winGoal.empty() ? manifest.winGoal : def.description;
+        if (!goalText.empty()) {
+            for (const auto& line : wrapHelpText("OBJECT: " + goalText, maxTextW, 9.5f)) {
+                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.5f, 0.94f, 0.91f, 0.84f, 0.95f);
+                cy += 13.5f;
+            }
+            cy += 6.0f;
+        }
+
+        // 3. Zones with ◎ outline icon, mini-card previews, and word-wrapped [[term]] bullets
+        const auto zones = resolveHelpZones(board);
+        for (size_t i = 0; i < zones.size(); ++i) {
+            const auto& zd = zones[i];
+            const bool isHi = (highlightedHelpZone == static_cast<int>(zd.zoneIndex));
+            if (isHi) {
+                r.drawRoundedRect(lx - 4.0f, cy - 2.0f, sb.w - 20.0f, 18.0f, 3.0f, pal.accentR, pal.accentG, pal.accentB, 0.24f, 2);
+            }
+            drawTargetOutlineIcon(r, lx + 5.0f, cy + 6.5f, 4.8f,
+                                  isHi ? 1.0f : pal.accentR, isHi ? 0.96f : pal.accentG, isHi ? 0.72f : pal.accentB);
+            eatsbits::ui::glyph::drawVectorText(r, zd.title.c_str(), lx + 15.0f, cy + 1.5f, 10.0f,
+                                                isHi ? 1.0f : pal.accentR, isHi ? 0.96f : pal.accentG, isHi ? 0.72f : pal.accentB, 1.0f);
+            cy += 18.0f;
+
+            float textX = lx + 10.0f;
+            float textW = maxTextW - 10.0f;
+            float miniBottom = cy;
+            if (!zd.previewCards.empty()) {
+                drawMiniCardStack(r, zd.previewCards, lx + 4.0f, cy);
+                textX = lx + 44.0f;
+                textW = std::max(80.0f, maxTextW - 48.0f);
+                miniBottom = cy + static_cast<float>(std::min<size_t>(zd.previewCards.size(), 3)) * 14.0f + 4.0f;
+            }
+
+            const auto& bullets = !zd.bullets.empty() ? zd.bullets : std::vector<std::string>{zd.description};
+            for (const auto& bText : bullets) {
+                auto bLines = wrapHelpText(bText, textW, 9.2f);
+                for (size_t li = 0; li < bLines.size(); ++li) {
+                    const std::string& lineStr = bLines[li];
+                    if (li == 0) {
+                        eatsbits::ui::glyph::drawVectorText(r, "-", textX - 7.0f, cy, 9.2f, 0.85f, 0.82f, 0.74f, 0.9f);
+                    }
+                    float cx = textX;
+                    size_t pos = 0;
+                    while (pos < lineStr.size()) {
+                        size_t open = lineStr.find("[[", pos);
+                        if (open == std::string::npos) {
+                            std::string tail = lineStr.substr(pos);
+                            eatsbits::ui::glyph::drawVectorText(r, tail.c_str(), cx, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f);
+                            break;
+                        }
+                        if (open > pos) {
+                            std::string pre = lineStr.substr(pos, open - pos);
+                            eatsbits::ui::glyph::drawVectorText(r, pre.c_str(), cx, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f);
+                            cx += eatsbits::ui::glyph::getVectorTextWidth(9.2f, pre.c_str());
+                        }
+                        size_t close = lineStr.find("]]", open + 2);
+                        if (close == std::string::npos) {
+                            std::string tail = lineStr.substr(open);
+                            eatsbits::ui::glyph::drawVectorText(r, tail.c_str(), cx, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f);
+                            break;
+                        }
+                        std::string term = lineStr.substr(open + 2, close - (open + 2));
+                        float tw = eatsbits::ui::glyph::getVectorTextWidth(9.2f, term.c_str());
+                        eatsbits::ui::glyph::drawVectorText(r, term.c_str(), cx, cy, 9.2f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+                        r.drawLine(cx, cy + 10.5f, cx + tw, cy + 10.5f, pal.accentR, pal.accentG, pal.accentB, 0.85f, 1.0f);
+                        if (mouseX >= cx && mouseX <= cx + tw && mouseY >= cy - 2.0f && mouseY <= cy + 12.0f &&
+                            mouseY >= hl.viewY && mouseY <= hl.viewY + hl.viewH) {
+                            hoveredGlossaryTerm = term;
+                        }
+                        cx += tw;
+                        pos = close + 2;
+                    }
+                    cy += 14.0f;
+                }
+            }
+            cy = std::max(cy, miniBottom) + 6.0f;
+        }
+
+        // 4. Stats & Card Tags
+        for (const auto& sd : manifest.stats) {
+            for (const auto& line : wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, 9.0f)) {
+                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.0f, 0.65f, 0.88f, 0.95f, 0.92f);
+                cy += 13.5f;
+            }
+        }
+        for (const auto& td : manifest.tags) {
+            for (const auto& line : wrapHelpText(td.title + ": " + td.description, maxTextW, 9.0f)) {
+                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.0f, 0.95f, 0.78f, 0.62f, 0.92f);
+                cy += 13.5f;
+            }
+        }
+
+        // 5. Alternate Names
+        const auto& alts = !manifest.alternateNames.empty() ? manifest.alternateNames : def.alternateNames;
+        if (!alts.empty()) {
+            cy += 6.0f;
+            eatsbits::ui::glyph::drawVectorText(r, "ALTERNATE NAMES:", lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+            cy += 13.0f;
+            std::string joined;
+            for (size_t i = 0; i < alts.size(); ++i) {
+                if (i > 0) joined += ", ";
+                joined += alts[i];
+            }
+            for (const auto& line : wrapHelpText(joined, maxTextW, 9.0f)) {
+                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.0f, 0.88f, 0.85f, 0.78f, 0.90f);
+                cy += 13.0f;
+            }
+            cy += 6.0f;
+        }
+
+        // 6. Contextual Hint Button at bottom of Help Sidebar
+        cy += 4.0f;
+        r.drawRoundedRect(hl.hintX, cy, hl.hintW, hl.hintH, 4.0f, 0.24f, 0.20f, 0.14f, 0.94f, 2);
+        r.drawRoundedRectOutline(hl.hintX, cy, hl.hintW, hl.hintH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.75f, 1.1f, 2);
+        eatsbits::ui::glyph::drawVectorText(r, "HINT [H]", hl.hintX + 12.0f, cy + 6.0f, 10.0f, pal.trimR, pal.trimG, pal.trimB, 1.0f);
+    }
+
+    // Floating Glossary Tooltip (outside scissor!)
+    if (!hoveredGlossaryTerm.empty()) {
+        std::string tip = lookupGlossaryTerm(hoveredGlossaryTerm, board);
+        const float tw = std::min(280.0f, eatsbits::ui::glyph::getVectorTextWidth(9.5f, tip.c_str()) + 18.0f);
+        const float th = 32.0f;
+        const float tx = std::clamp(mouseX - tw * 0.5f, 8.0f, width - tw - 8.0f);
+        const float ty = std::max(8.0f, mouseY - th - 10.0f);
+        r.drawRoundedRectGradient(tx, ty, tw, th, 5.0f, 0.16f, 0.12f, 0.08f, 0.10f, 0.08f, 0.05f, 0.98f, 3);
+        r.drawRoundedRectOutline(tx, ty, tw, th, 5.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f, 1.5f, 3);
+        eatsbits::ui::glyph::drawVectorText(r, tip.c_str(), tx + 8.0f, ty + 10.0f, 9.5f, 0.98f, 0.94f, 0.84f, 1.0f);
+    }
+}
+
+void computeZoneHighlightBounds(const SolitaireBoard& board, int zoneIdx,
+                                float& outX, float& outY, float& outW, float& outH) noexcept {
+    const auto& piles = board.piles();
+    const float cw = board.cardWidth();
+    const float ch = board.cardHeight();
+    if (zoneIdx < 0 || static_cast<size_t>(zoneIdx) >= piles.size()) {
+        outX = outY = outW = outH = 0.0f;
+        return;
+    }
+    const Pile& target = piles[static_cast<size_t>(zoneIdx)];
+    const bool groupByType = board.docManifest().zones.empty() &&
+        (target.type == PileType::Foundation || target.type == PileType::Tableau || target.type == PileType::FreeCell);
+
+    float minX = target.x;
+    float minY = target.y;
+    float maxX = target.x + cw;
+    float maxY = target.y + ch;
+
+    auto expandWithPile = [&](const Pile& p) {
+        minX = std::min(minX, p.x);
+        minY = std::min(minY, p.y);
+        maxX = std::max(maxX, p.x + cw);
+        maxY = std::max(maxY, p.y + ch);
+        for (const auto& c : p.cards) {
+            minX = std::min(minX, c.x);
+            minY = std::min(minY, c.y);
+            maxX = std::max(maxX, c.x + cw);
+            maxY = std::max(maxY, c.y + ch);
+        }
+    };
+
+    if (groupByType) {
+        for (const auto& p : piles) {
+            if (p.type == target.type) {
+                expandWithPile(p);
+            }
+        }
+    } else {
+        expandWithPile(target);
+    }
+
+    outX = minX - 4.0f;
+    outY = minY - 4.0f;
+    outW = (maxX - minX) + 8.0f;
+    outH = (maxY - minY) + 8.0f;
+}
+
+int MagicParticleSystem::update(float dt) noexcept {
+    if (dt <= 0.0f) return 0;
+    int newlyActivated = 0;
+    for (size_t i = 0; i < particles_.size();) {
+        MagicParticle& p = particles_[i];
+        if (p.delay > 0.0f) {
+            p.delay -= dt;
+            if (p.delay <= 0.0f) {
+                p.delay = 0.0f;
+                ++newlyActivated;
+            }
+            ++i;
+            continue;
+        }
+        p.life += dt;
+        if (p.life >= p.maxLife) {
+            particles_[i] = particles_.back();
+            particles_.pop_back();
+            continue;
+        }
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= 0.96f;
+        p.vy *= 0.96f;
+        ++i;
+    }
+    return newlyActivated;
+}
+
+void MagicParticleSystem::render(eatsbits::ui::BatchRenderer2D& r) const {
+    for (const auto& p : particles_) {
+        if (p.delay > 0.0f || p.maxLife <= 0.0f) continue;
+        float t = std::clamp(p.life / p.maxLife, 0.0f, 1.0f);
+        float alpha = (t < 0.2f) ? (t / 0.2f) : (1.0f - (t - 0.2f) / 0.8f);
+        alpha = std::clamp(alpha, 0.0f, 1.0f);
+        float rad = p.size * (1.15f - 0.55f * t);
+        r.drawCircle(p.x, p.y, rad * 2.1f, p.r, p.g, p.b, alpha * 0.28f, 12);
+        r.drawCircle(p.x, p.y, rad, 1.0f, 0.98f, 0.86f, alpha * 0.92f, 10);
+    }
+}
+
+void MagicParticleSystem::spawnZoneBurst(float x, float y, float w, float h, float r, float g, float b) {
+    auto nextF = [&]() noexcept -> float {
+        rng_ ^= rng_ << 13;
+        rng_ ^= rng_ >> 17;
+        rng_ ^= rng_ << 5;
+        return static_cast<float>(rng_ & 0xFFFFu) / 65535.0f;
+    };
+    constexpr size_t kMaxParticles = 180;
+    const int count = std::clamp(static_cast<int>((w + h) * 0.16f), 56, 144);
+    for (int i = 0; i < count; ++i) {
+        float u = static_cast<float>(i) / static_cast<float>(count);
+        float px = x, py = y, nx = 0.0f, ny = 0.0f;
+        if (u < 0.25f) {
+            float k = u / 0.25f;
+            px = x + k * w; py = y; ny = -1.0f;
+        } else if (u < 0.50f) {
+            float k = (u - 0.25f) / 0.25f;
+            px = x + w; py = y + k * h; nx = 1.0f;
+        } else if (u < 0.75f) {
+            float k = (u - 0.50f) / 0.25f;
+            px = x + (1.0f - k) * w; py = y + h; ny = 1.0f;
+        } else {
+            float k = (u - 0.75f) / 0.25f;
+            px = x; py = y + (1.0f - k) * h; nx = -1.0f;
+        }
+        MagicParticle p{};
+        p.x = px + (nextF() - 0.5f) * 4.0f;
+        p.y = py + (nextF() - 0.5f) * 4.0f;
+        p.vx = nx * (14.0f + nextF() * 20.0f) + (nextF() - 0.5f) * 10.0f;
+        p.vy = ny * (14.0f + nextF() * 20.0f) + (nextF() - 0.5f) * 10.0f;
+        p.delay = 0.001f + nextF() * 0.16f;
+        p.maxLife = 0.45f + nextF() * 0.30f;
+        p.size = 1.2f + nextF() * 1.1f;
+        p.r = r; p.g = g; p.b = b;
+        if (particles_.size() >= kMaxParticles) {
+            particles_.erase(particles_.begin());
+        }
+        particles_.push_back(p);
+    }
+}
+
+void MagicParticleSystem::spawnArcTrail(float x0, float y0, float x1, float y1, float r, float g, float b) {
+    auto nextF = [&]() noexcept -> float {
+        rng_ ^= rng_ << 13;
+        rng_ ^= rng_ >> 17;
+        rng_ ^= rng_ << 5;
+        return static_cast<float>(rng_ & 0xFFFFu) / 65535.0f;
+    };
+    const float dist = std::hypot(x1 - x0, y1 - y0);
+    const float midX = (x0 + x1) * 0.5f;
+    const float midY = std::min(y0, y1) - std::clamp(dist * 0.26f, 24.0f, 110.0f);
+    constexpr size_t kMaxParticles = 180;
+    constexpr int kSteps = 48;
+    for (int i = 0; i <= kSteps; ++i) {
+        float t = static_cast<float>(i) / static_cast<float>(kSteps);
+        float it = 1.0f - t;
+        float bx = it * it * x0 + 2.0f * it * t * midX + t * t * x1;
+        float by = it * it * y0 + 2.0f * it * t * midY + t * t * y1;
+        MagicParticle p{};
+        p.x = bx + (nextF() - 0.5f) * 4.0f;
+        p.y = by + (nextF() - 0.5f) * 4.0f;
+        p.vx = (nextF() - 0.5f) * 18.0f;
+        p.vy = -8.0f - nextF() * 16.0f;
+        p.delay = 0.001f + t * 0.28f;
+        p.maxLife = 0.48f + nextF() * 0.22f;
+        p.size = 1.3f + (1.0f - std::abs(t - 0.5f)) * 1.1f;
+        p.r = r; p.g = g; p.b = b;
+        if (particles_.size() >= kMaxParticles) {
+            particles_.erase(particles_.begin());
+        }
+        particles_.push_back(p);
+    }
+}
+
 void TableRenderer::renderBoard(
     eatsbits::ui::BatchRenderer2D& r,
     const SolitaireBoard& board,
@@ -1473,7 +2155,14 @@ void TableRenderer::renderBoard(
     float gestureCurX,
     float gestureCurY,
     const eatsbits::ui::LightSource2D* dynamicLight,
-    const class AutoPlayController* autoPlay
+    const class AutoPlayController* autoPlay,
+    bool helpOpen,
+    int highlightedHelpZone,
+    float helpScrollY,
+    float helpMouseX,
+    float helpMouseY,
+    const HelpOddsInfo* helpOdds,
+    const MagicParticleSystem* magicParticles
 ) {
     const ThemePalette pal = getPalette(board.tableTheme());
     // Overhead table illumination: dynamic swaying light or centered static default
@@ -1495,13 +2184,17 @@ void TableRenderer::renderBoard(
 
     const bool showMarkings = SettingsManager::instance().settings().showTableMarkings;
 
-    if (s_cachedTheme != board.tableTheme() ||
+    const bool themeOrSizeChanged =
+        (s_cachedTheme != board.tableTheme() ||
+         std::abs(s_cachedW - width) > 0.5f ||
+         std::abs(s_cachedH - height) > 0.5f);
+    if (themeOrSizeChanged ||
         s_cachedVariant != board.variant() ||
-        s_cachedMarkings != showMarkings ||
-        std::abs(s_cachedW - width) > 0.5f ||
-        std::abs(s_cachedH - height) > 0.5f) {
+        s_cachedMarkings != showMarkings) {
         r.invalidateChromeCache();
-        ProceduralBackgroundSystem::instance().invalidateCache();
+        if (themeOrSizeChanged) {
+            ProceduralBackgroundSystem::instance().invalidateCache();
+        }
         s_cachedTheme = board.tableTheme();
         s_cachedVariant = board.variant();
         s_cachedMarkings = showMarkings;
@@ -1522,13 +2215,24 @@ void TableRenderer::renderBoard(
     if (showMarkings) {
         int mins = static_cast<int>(board.elapsedSeconds()) / 60;
         int secs = static_cast<int>(board.elapsedSeconds()) % 60;
-        char botTelemetry[128];
+        char botTelemetry[256];
         if (width >= 720.0f) {
             std::snprintf(botTelemetry, sizeof(botTelemetry), "SEED #%u    SCORE: %d    MOVES: %u    %02d:%02d",
                           board.seed(), board.score(), board.moveCount(), mins, secs);
         } else {
             std::snprintf(botTelemetry, sizeof(botTelemetry), "SCORE: %d    MOVES: %u    %02d:%02d",
                           board.score(), board.moveCount(), mins, secs);
+        }
+        const auto& bb = board.blackboard();
+        if (!bb.intStats.empty()) {
+            size_t len = std::strlen(botTelemetry);
+            int shown = 0;
+            for (const auto& [k, v] : bb.intStats) {
+                if (shown >= 4 || len + 32 >= sizeof(botTelemetry)) break;
+                int wrote = std::snprintf(botTelemetry + len, sizeof(botTelemetry) - len, "    %s: %d", k.c_str(), v);
+                if (wrote > 0) len += static_cast<size_t>(wrote);
+                ++shown;
+            }
         }
         const float teleLen = static_cast<float>(std::strlen(botTelemetry)) * 6.2f;
         const float teleX = std::max(12.0f, (width - teleLen) * 0.5f);
@@ -1553,7 +2257,9 @@ void TableRenderer::renderBoard(
         size_t cardIdx;
         const Card* card;
     };
-    std::vector<AnimatingCardEntry> animatingCards;
+    thread_local std::vector<AnimatingCardEntry> animatingCards;
+    animatingCards.clear();
+    thread_local std::vector<size_t> restingIndices;
 
     for (size_t pIdx = 0; pIdx < piles.size(); ++pIdx) {
         const Pile& p = piles[pIdx];
@@ -1573,7 +2279,7 @@ void TableRenderer::renderBoard(
             startIdx = (p.cards.size() > 4) ? (p.cards.size() - 4) : 0;
         }
 
-        std::vector<size_t> restingIndices;
+        restingIndices.clear();
         size_t totalRestingCount = 0;
         bool pileHasMovingBelow = false;
         for (size_t cIdx = 0; cIdx < p.cards.size(); ++cIdx) {
@@ -1798,6 +2504,20 @@ void TableRenderer::renderBoard(
                                             pal.accentR, pal.accentG, pal.accentB, 1.0f);
         eatsbits::ui::glyph::drawVectorText(r, "PRESS [N] OR CLICK NEW DEAL FOR HANDS ANEW", bx + 64.0f, by + 58.0f, 12.5f,
                                             0.94f, 0.90f, 0.82f, 0.95f);
+    } else if (board.gameStatus() == GameStatus::Defeat) {
+        const float bw = 460.0f;
+        const float bh = 96.0f;
+        const float bx = (width - bw) * 0.5f;
+        const float by = (height - bh) * 0.5f;
+        r.drawRectDropShadow(bx, by, bw, bh, 10.0f, 16.0f, light, 0.60f);
+        r.drawRoundedRectGradient(bx, by, bw, bh, 10.0f,
+                                  0.20f, 0.08f, 0.09f,
+                                  0.11f, 0.04f, 0.05f, 0.98f, 4);
+        r.drawRoundedRectOutline(bx, by, bw, bh, 10.0f, 0.86f, 0.24f, 0.26f, 0.95f, 2.2f, 4);
+        eatsbits::ui::glyph::drawVectorText(r, "THE VEIL CLAIMS YOU  -  DEFEAT", bx + 62.0f, by + 24.0f, 18.0f,
+                                            0.95f, 0.34f, 0.34f, 1.0f);
+        eatsbits::ui::glyph::drawVectorText(r, "PRESS [N] OR CLICK NEW DEAL TO TRY AGAIN", bx + 68.0f, by + 58.0f, 12.5f,
+                                            0.94f, 0.90f, 0.82f, 0.95f);
     }
 
     // 7. Dynamic Felt Gesture Laser Trail & Visual Hint Overlay
@@ -1889,6 +2609,14 @@ void TableRenderer::renderBoard(
     if (autoPlay && autoPlay->isActive()) {
         auto tBtns = buildTransportButtons(width, height, *autoPlay);
         drawTransportBar(r, width, height, *autoPlay, tBtns, hoveredButtonId, pal, light);
+    }
+
+    // 10. Responsive Help Sidebar + Magic Particles
+    if (magicParticles) {
+        magicParticles->render(r);
+    }
+    if (helpOpen) {
+        drawHelpSidebar(r, board, width, height, pal, highlightedHelpZone, helpScrollY, helpMouseX, helpMouseY, helpOdds);
     }
 }
 
@@ -2332,6 +3060,13 @@ void drawToolbarConfigMenu(
 
 } // namespace
 
+#if defined(__EMSCRIPTEN__)
+static bool s_webResizePending = false;
+static uint32_t s_webPendingCssW = 0;
+static uint32_t s_webPendingCssH = 0;
+static float s_webPendingDpr = 1.0f;
+#endif
+
 struct InteractiveContext {
     SolitaireBoard& board;
     AudioFoleyEngine& foley;
@@ -2372,6 +3107,82 @@ struct InteractiveContext {
     bool prevKeyV = false;
     bool prevKeyM = false;
     bool prevKeyEsc = false;
+    bool prevKeyF1 = false;
+    bool helpOpen = false;
+    int highlightedHelpZone = -1;
+    float helpScrollY = 0.0f;
+    float prevHelpMouseX = -1.0f;
+    float prevHelpMouseY = -1.0f;
+    std::string lastOddsGameId;
+    size_t lastTrailedMoveIdx = SIZE_MAX;
+    int magicSoundAccum = 0;
+    MagicParticleSystem magicParticles;
+    HelpOddsInfo helpOdds{};
+    std::atomic<bool> oddsCancel{false};
+    std::mutex oddsMutex;
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
+    std::thread oddsThread;
+#endif
+
+    void cancelOddsAnalysis() {
+        oddsCancel.store(true);
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
+        if (oddsThread.joinable()) {
+            oddsThread.join();
+        }
+#endif
+        std::lock_guard<std::mutex> lk(oddsMutex);
+        helpOdds.running = false;
+    }
+
+    void startOddsAnalysis() {
+        cancelOddsAnalysis();
+        oddsCancel.store(false);
+        {
+            std::lock_guard<std::mutex> lk(oddsMutex);
+            helpOdds = {};
+            helpOdds.running = true;
+            helpOdds.totalSeeds = 12;
+        }
+        const uint32_t baseSeed = board.seed();
+        const SolitaireGameDef defCopy = board.activeGameDef();
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
+        oddsThread = std::thread([this, baseSeed, defCopy]() {
+            uint32_t solved = 0;
+            uint64_t statesSum = 0;
+            SolitaireSolver solver;
+            for (uint32_t i = 0; i < 12; ++i) {
+                if (oddsCancel.load(std::memory_order_relaxed)) break;
+                SolitaireBoard probe;
+                probe.newDeal(baseSeed + 1 + i, defCopy);
+                SolveResult res = solver.solve(probe, 20000, 220.0f, &oddsCancel);
+                if (res.solved) ++solved;
+                statesSum += res.statesExplored;
+                std::lock_guard<std::mutex> lk(oddsMutex);
+                helpOdds.completedSeeds = i + 1;
+            }
+            std::lock_guard<std::mutex> lk(oddsMutex);
+            const uint32_t done = std::max<uint32_t>(1, helpOdds.completedSeeds);
+            const uint32_t pct = (solved * 100u) / done;
+            helpOdds.oddsRating = static_cast<uint8_t>(std::clamp<uint32_t>(1 + pct / 20u, 1u, 5u));
+            char oBuf[32];
+            std::snprintf(oBuf, sizeof(oBuf), "%u%% (%u/%u)", pct, solved, done);
+            helpOdds.oddsLabel = oBuf;
+
+            const uint64_t avgStates = statesSum / done;
+            if (avgStates < 300) { helpOdds.skillRating = 1; helpOdds.skillLabel = "Easy"; }
+            else if (avgStates < 1500) { helpOdds.skillRating = 2; helpOdds.skillLabel = "Casual"; }
+            else if (avgStates < 5000) { helpOdds.skillRating = 3; helpOdds.skillLabel = "Moderate"; }
+            else if (avgStates < 12000) { helpOdds.skillRating = 4; helpOdds.skillLabel = "Hard"; }
+            else { helpOdds.skillRating = 5; helpOdds.skillLabel = "Expert"; }
+
+            helpOdds.timeRating = (defCopy.decks > 1) ? 4 : 3;
+            helpOdds.timeLabel = (defCopy.decks > 1) ? "Long" : "Average";
+            helpOdds.hasResults = !oddsCancel.load(std::memory_order_relaxed);
+            helpOdds.running = false;
+        });
+#endif
+    }
     bool prevKeyF11 = false;
     bool prevKeyEnter = false;
     bool prevKey1 = false;
@@ -2477,12 +3288,12 @@ struct InteractiveContext {
         bool dialogCancellable{true};
         double startTime{0.0};
         double debounceSeconds{0.12}; // 120ms debounce threshold to prevent micro-flashes on fast cache hits
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
         std::thread workerThread;
 #endif
 
         void joinWorker() {
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
             if (workerThread.joinable()) {
                 workerThread.join();
             }
@@ -2551,7 +3362,7 @@ struct InteractiveContext {
 
         float curW = static_cast<float>(width);
         float curH = static_cast<float>(height);
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
         bool ok = ProceduralBackgroundSystem::instance().prebakeThemeDef(
             def, curW, curH,
             eatsbits::ui::LightSource2D{curW * 0.5f, -200.0f, 1.0f},
@@ -2624,7 +3435,7 @@ struct InteractiveContext {
             asyncManager.statusText = "Initializing card paper simulation...";
         }
 
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
         bool ok = CardTextureCache::instance().bakeStagedConditioning(
             asyncManager.stagingDeck, wear, stock,
             [this](float p, const std::string& msg) -> bool {
@@ -2679,7 +3490,7 @@ struct InteractiveContext {
             asyncManager.statusText = "Loading card artwork master...";
         }
 
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
         bool ok = CardTextureCache::instance().loadStagedDeckTheme(
             asyncManager.stagingDeck, theme, wear, stock,
             CardTextureCache::kDefaultCardW, CardTextureCache::kDefaultCardH,
@@ -2700,6 +3511,74 @@ struct InteractiveContext {
         asyncManager.workerThread = std::thread([this, theme, wear, stock]() {
             bool ok = CardTextureCache::instance().loadStagedDeckTheme(
                 asyncManager.stagingDeck, theme, wear, stock,
+                CardTextureCache::kDefaultCardW, CardTextureCache::kDefaultCardH,
+                [this](float p, const std::string& msg) -> bool {
+                    asyncManager.progress.store(p);
+                    {
+                        std::lock_guard<std::mutex> lock(asyncManager.mutex);
+                        asyncManager.statusText = msg;
+                    }
+                    return !asyncManager.cancelRequested.load();
+                }
+            );
+            if (ok && !asyncManager.cancelRequested.load()) {
+                asyncManager.stagingDeckReady = true;
+            }
+            asyncManager.isBusy.store(false);
+        });
+#endif
+    }
+
+    void startAsyncDeckDef(const CardTextureCache::DeckDef& def, CardWearLevel wear, CardStock stock) {
+#if defined(__EMSCRIPTEN__)
+        if (def.filePath.empty() && def.legacyId != DeckThemeId::SolEnshade) {
+            std::string jsName = def.id;
+            EM_ASM({
+                if (window.loadDeckByName) {
+                    window.loadDeckByName(UTF8ToString($0));
+                }
+            }, jsName.c_str());
+            return;
+        }
+#endif
+        asyncManager.stopWorker();
+
+        asyncManager.cancelRequested.store(false);
+        asyncManager.progress.store(0.0f);
+        asyncManager.stagingDeckReady = false;
+        asyncManager.opType = AsyncOp::DeckLoad;
+        asyncManager.dialogTitle = "LOADING DECK THEME";
+        asyncManager.dialogInitialStatus = "Loading " + def.name + "...";
+        asyncManager.dialogCancellable = true;
+        asyncManager.startTime = glfwGetTime();
+        asyncManager.debounceSeconds = 0.12;
+        asyncManager.isBusy.store(true);
+        {
+            std::lock_guard<std::mutex> lock(asyncManager.mutex);
+            asyncManager.statusText = "Loading card artwork master...";
+        }
+
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+        bool ok = CardTextureCache::instance().loadStagedDeckByDef(
+            asyncManager.stagingDeck, def, wear, stock,
+            CardTextureCache::kDefaultCardW, CardTextureCache::kDefaultCardH,
+            [this](float p, const std::string& msg) -> bool {
+                asyncManager.progress.store(p);
+                {
+                    std::lock_guard<std::mutex> lock(asyncManager.mutex);
+                    asyncManager.statusText = msg;
+                }
+                return !asyncManager.cancelRequested.load();
+            }
+        );
+        if (ok && !asyncManager.cancelRequested.load()) {
+            asyncManager.stagingDeckReady = true;
+        }
+        asyncManager.isBusy.store(false);
+#else
+        asyncManager.workerThread = std::thread([this, def, wear, stock]() {
+            bool ok = CardTextureCache::instance().loadStagedDeckByDef(
+                asyncManager.stagingDeck, def, wear, stock,
                 CardTextureCache::kDefaultCardW, CardTextureCache::kDefaultCardH,
                 [this](float p, const std::string& msg) -> bool {
                     asyncManager.progress.store(p);
@@ -3087,7 +3966,7 @@ struct InteractiveContext {
             asyncManager.statusText = "Inspecting dropped file package...";
         }
 
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
         runStagedFileDrop(
             filePath, wear, stock,
             [this](float p, const std::string& msg) -> bool {
@@ -3146,7 +4025,7 @@ struct InteractiveContext {
             asyncManager.statusText = "Analyzing deal #" + std::to_string(startSeed) + " (1/80)...";
         }
 
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
         asyncManager.workerThread = std::thread([this, def, startSeed]() {
             SolitaireSolver solver;
             uint32_t currentSeed = startSeed;
@@ -3301,7 +4180,9 @@ struct InteractiveContext {
                 ProceduralBackgroundSystem::instance().setTableTint(s.tableTint);
                 ProceduralBackgroundSystem::instance().invalidateCache();
             }
-            bool deckChanged = (s.deckTheme != cache.currentDeckTheme());
+            bool deckChanged = (!s.deckSlug.empty())
+                ? (s.deckSlug != cache.currentDeckId())
+                : (s.deckTheme != cache.currentDeckTheme());
             bool wearChanged = (s.cardWear != cache.cardWearLevel());
             bool stockChanged = (s.cardStock != cache.cardStock());
             bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
@@ -3314,7 +4195,13 @@ struct InteractiveContext {
                     lightController.applyThemeDefault(s.tableTheme);
                     ProceduralBackgroundSystem::instance().invalidateCache();
                 }
-                startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
+                const auto& decks = cache.availableDecks();
+                size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
+                if (dIdx < decks.size()) {
+                    startAsyncDeckDef(decks[dIdx], s.cardWear, s.cardStock);
+                } else {
+                    startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
+                }
             } else if (wearChanged || stockChanged) {
                 if (themeChanged) {
                     ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
@@ -3345,13 +4232,21 @@ struct InteractiveContext {
         const auto& s = SettingsManager::instance().settings();
         auto& cache = CardTextureCache::instance();
 
-        bool deckChanged = (s.deckTheme != cache.currentDeckTheme());
+        bool deckChanged = (!s.deckSlug.empty())
+            ? (s.deckSlug != cache.currentDeckId())
+            : (s.deckTheme != cache.currentDeckTheme());
         bool wearChanged = (s.cardWear != cache.cardWearLevel());
         bool stockChanged = (s.cardStock != cache.cardStock());
         bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
 
         if (deckChanged) {
-            startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
+            const auto& decks = cache.availableDecks();
+            size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
+            if (dIdx < decks.size()) {
+                startAsyncDeckDef(decks[dIdx], s.cardWear, s.cardStock);
+            } else {
+                startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
+            }
         } else if (wearChanged || stockChanged) {
             startAsyncConditioning(s.cardWear, s.cardStock);
         } else if (cardBackChanged) {
@@ -3592,123 +4487,13 @@ struct InteractiveContext {
                 break;
             }
             case BtnDeck: {
-                uint8_t nextDeck = (static_cast<uint8_t>(CardTextureCache::instance().currentDeckTheme()) + 1u) %
-                                   static_cast<uint8_t>(DeckThemeId::Count);
-                if (static_cast<DeckThemeId>(nextDeck) == DeckThemeId::Custom) {
-                    std::error_code ec;
-                    if (!std::filesystem::exists("decks/custom.eats", ec) &&
-                        !std::filesystem::exists("decks/custom.png", ec)) {
-                        nextDeck = static_cast<uint8_t>(DeckThemeId::SolEnshade);
-                    }
+                auto& cache = CardTextureCache::instance();
+                const auto& decks = cache.availableDecks();
+                if (!decks.empty()) {
+                    size_t curIdx = cache.findDeckIndex(cache.currentDeckId(), cache.currentDeckTheme());
+                    size_t nextIdx = (curIdx + 1u) % decks.size();
+                    startAsyncDeckDef(decks[nextIdx], cache.cardWearLevel(), cache.cardStock());
                 }
-#if defined(__EMSCRIPTEN__)
-                if (static_cast<DeckThemeId>(nextDeck) == DeckThemeId::BaroqueNoir) {
-                    std::error_code ec;
-                    bool exists = std::filesystem::exists("decks/baroque_arches.eats", ec) ||
-                                  std::filesystem::exists("/decks/baroque_arches.eats", ec) ||
-                                  std::filesystem::exists("decks/baroque_noir.eats", ec) ||
-                                  std::filesystem::exists("/decks/baroque_noir.eats", ec) ||
-                                  std::filesystem::exists("/user/baroque_arches.eats", ec);
-                    if (!exists) {
-                        EM_ASM({
-                            if (window.loadBaroqueDeck) {
-                                window.loadBaroqueDeck();
-                            } else if (window.loadDeckByName) {
-                                window.loadDeckByName('baroque_arches');
-                            }
-                        });
-                        break;
-                    }
-                } else if (static_cast<DeckThemeId>(nextDeck) == DeckThemeId::BaroqueLight) {
-                    std::error_code ec;
-                    bool exists = std::filesystem::exists("decks/baroque_light.eats", ec) ||
-                                  std::filesystem::exists("/decks/baroque_light.eats", ec) ||
-                                  std::filesystem::exists("decks/baroque_alabaster.eats", ec) ||
-                                  std::filesystem::exists("/decks/baroque_alabaster.eats", ec);
-                    if (!exists) {
-                        EM_ASM({
-                            if (window.loadDeckByName) {
-                                window.loadDeckByName('baroque_light');
-                            }
-                        });
-                        break;
-                    }
-                } else if (static_cast<DeckThemeId>(nextDeck) == DeckThemeId::BaroqueDark) {
-                    std::error_code ec;
-                    bool exists = std::filesystem::exists("decks/baroque_dark.eats", ec) ||
-                                  std::filesystem::exists("/decks/baroque_dark.eats", ec);
-                    if (!exists) {
-                        EM_ASM({
-                            if (window.loadDeckByName) {
-                                window.loadDeckByName('baroque_dark');
-                            }
-                        });
-                        break;
-                    }
-                } else if (static_cast<DeckThemeId>(nextDeck) == DeckThemeId::BaroqueCellShaded) {
-                    std::error_code ec;
-                    bool exists = std::filesystem::exists("decks/baroque_cell_shaded.eats", ec) ||
-                                  std::filesystem::exists("/decks/baroque_cell_shaded.eats", ec) ||
-                                  std::filesystem::exists("decks/imperial_baroque.eats", ec) ||
-                                  std::filesystem::exists("/decks/imperial_baroque.eats", ec);
-                    if (!exists) {
-                        EM_ASM({
-                            if (window.loadDeckByName) {
-                                window.loadDeckByName('baroque_cell_shaded');
-                            }
-                        });
-                        break;
-                    }
-                } else if (static_cast<DeckThemeId>(nextDeck) == DeckThemeId::SteampunkAi) {
-                    std::error_code ec;
-                    bool exists = std::filesystem::exists("decks/steampunk.eats", ec) ||
-                                  std::filesystem::exists("/decks/steampunk.eats", ec) ||
-                                  std::filesystem::exists("/user/steampunk.eats", ec);
-                    if (!exists) {
-                        EM_ASM({
-                            if (window.loadSteampunkDeck) {
-                                window.loadSteampunkDeck();
-                            } else if (window.loadDeckByName) {
-                                window.loadDeckByName('steampunk');
-                            }
-                        });
-                        break;
-                    }
-                } else if (static_cast<DeckThemeId>(nextDeck) == DeckThemeId::Anime) {
-                    std::error_code ec;
-                    bool exists = std::filesystem::exists("decks/anime.eats", ec) ||
-                                  std::filesystem::exists("/decks/anime.eats", ec) ||
-                                  std::filesystem::exists("/user/anime.eats", ec);
-                    if (!exists) {
-                        EM_ASM({
-                            if (window.loadAnimeDeck) {
-                                window.loadAnimeDeck();
-                            } else if (window.loadDeckByName) {
-                                window.loadDeckByName('anime');
-                            }
-                        });
-                        break;
-                    }
-                } else if (static_cast<DeckThemeId>(nextDeck) == DeckThemeId::Cyberpunk) {
-                    std::error_code ec;
-                    bool exists = std::filesystem::exists("decks/cyberpunk.eats", ec) ||
-                                  std::filesystem::exists("/decks/cyberpunk.eats", ec) ||
-                                  std::filesystem::exists("/user/cyberpunk.eats", ec);
-                    if (!exists) {
-                        EM_ASM({
-                            if (window.loadCyberpunkDeck) {
-                                window.loadCyberpunkDeck();
-                            } else if (window.loadDeckByName) {
-                                window.loadDeckByName('cyberpunk');
-                            }
-                        });
-                        break;
-                    }
-                }
-#endif
-                startAsyncDeckTheme(static_cast<DeckThemeId>(nextDeck),
-                                    CardTextureCache::instance().cardWearLevel(),
-                                    CardTextureCache::instance().cardStock());
                 foley.triggerSound(FoleySound::Flip, 0.7f);
                 break;
             }
@@ -3724,13 +4509,33 @@ struct InteractiveContext {
                     foley.triggerSound(FoleySound::Deal, 0.75f);
                 }
                 break;
-            case BtnHint:
-                if (board.findBestHint().valid) {
-                    foley.triggerSound(FoleySound::SpectreWhisper, 0.85f);
+            case BtnHint: {
+                HintMove hm = board.findBestHint();
+                if (hm.valid) {
+                    const auto& piles = board.piles();
+                    if (hm.fromPile < piles.size() && hm.toPile < piles.size()) {
+                        const auto& sp = piles[hm.fromPile];
+                        const auto& dp = piles[hm.toPile];
+                        float sx = sp.x + board.cardWidth() * 0.5f;
+                        float sy = sp.y + board.cardHeight() * 0.5f;
+                        if (hm.cardIndex < sp.cards.size()) {
+                            sx = sp.cards[hm.cardIndex].x + board.cardWidth() * 0.5f;
+                            sy = sp.cards[hm.cardIndex].y + board.cardHeight() * 0.5f;
+                        }
+                        float dx = dp.x + board.cardWidth() * 0.5f;
+                        float dy = dp.y + board.cardHeight() * 0.5f;
+                        if (!dp.cards.empty()) {
+                            dx = dp.cards.back().x + board.cardWidth() * 0.5f;
+                            dy = dp.cards.back().y + board.cardHeight() * 0.5f;
+                        }
+                        ThemePalette hpal = getPalette(board.tableTheme());
+                        magicParticles.spawnArcTrail(sx, sy, dx, dy, hpal.accentR, hpal.accentG, hpal.accentB);
+                    }
                 } else {
                     foley.triggerSound(FoleySound::Flip, 0.5f);
                 }
                 break;
+            }
             case BtnAutoPlay:
                 if (autoPlayController.isActive()) {
                     autoPlayController.stop();
@@ -3812,6 +4617,14 @@ struct InteractiveContext {
                 settingsDialog.open();
                 foley.triggerSound(FoleySound::Flip, 0.8f);
                 break;
+            case BtnHelp:
+                helpOpen = !helpOpen;
+                if (!helpOpen) {
+                    highlightedHelpZone = -1;
+                    helpScrollY = 0.0f;
+                }
+                foley.triggerSound(FoleySound::Flip, 0.75f);
+                break;
             default:
                 break;
         }
@@ -3861,6 +4674,7 @@ struct InteractiveContext {
                     if (asyncManager.opType != AsyncOp::SolvableDeal) {
                         // Cancelled! Revert settings to active baseline so user isn't stuck on next boot
                         SettingsManager::instance().settings().deckTheme = CardTextureCache::instance().currentDeckTheme();
+                        SettingsManager::instance().settings().deckSlug = CardTextureCache::instance().currentDeckId();
                         SettingsManager::instance().settings().cardWear = CardTextureCache::instance().cardWearLevel();
                         SettingsManager::instance().settings().cardStock = CardTextureCache::instance().cardStock();
                         SettingsManager::instance().save();
@@ -3901,6 +4715,7 @@ struct InteractiveContext {
                             CardTextureCache::instance().buildGpuAtlas(renderer);
                         }
                         SettingsManager::instance().settings().deckTheme = CardTextureCache::instance().currentDeckTheme();
+                        SettingsManager::instance().settings().deckSlug = CardTextureCache::instance().currentDeckId();
                         SettingsManager::instance().settings().cardWear = CardTextureCache::instance().cardWearLevel();
                         SettingsManager::instance().settings().cardStock = CardTextureCache::instance().cardStock();
                         SettingsManager::instance().save();
@@ -3928,58 +4743,47 @@ struct InteractiveContext {
         }
 
 #if defined(__EMSCRIPTEN__)
-        double cssW = EM_ASM_DOUBLE({
-            var container = document.getElementById('canvas-container');
-            return (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 1280);
-        });
-        double cssH = EM_ASM_DOUBLE({
-            var container = document.getElementById('canvas-container');
-            return (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 720);
-        });
-        double dpr = EM_ASM_DOUBLE({
-            return window.devicePixelRatio || 1.0;
-        });
-        if (dpr <= 0.0) dpr = 1.0;
+        if (s_webResizePending) {
+            s_webResizePending = false;
+            int targetW = std::max(320, static_cast<int>(s_webPendingCssW));
+            int targetH = std::max(240, static_cast<int>(s_webPendingCssH));
+            float dpr = std::clamp(s_webPendingDpr, 1.0f, 2.0f);
 
-        int targetW = static_cast<int>(std::round(cssW));
-        int targetH = static_cast<int>(std::round(cssH));
-        if (targetW < 320) targetW = 320;
-        if (targetH < 240) targetH = 240;
+            int targetFbW = static_cast<int>(std::round(static_cast<float>(targetW) * dpr));
+            int targetFbH = static_cast<int>(std::round(static_cast<float>(targetH) * dpr));
 
-        int targetFbW = static_cast<int>(std::round(static_cast<float>(targetW) * static_cast<float>(dpr)));
-        int targetFbH = static_cast<int>(std::round(static_cast<float>(targetH) * static_cast<float>(dpr)));
+            if (static_cast<uint32_t>(targetW) != width ||
+                static_cast<uint32_t>(targetH) != height ||
+                static_cast<uint32_t>(targetFbW) != fbWidth ||
+                static_cast<uint32_t>(targetFbH) != fbHeight ||
+                std::abs(currentDpr - dpr) > 0.001f) {
 
-        if (static_cast<uint32_t>(targetW) != width ||
-            static_cast<uint32_t>(targetH) != height ||
-            static_cast<uint32_t>(targetFbW) != fbWidth ||
-            static_cast<uint32_t>(targetFbH) != fbHeight ||
-            std::abs(currentDpr - static_cast<float>(dpr)) > 0.001f) {
+                width = static_cast<uint32_t>(targetW);
+                height = static_cast<uint32_t>(targetH);
+                fbWidth = static_cast<uint32_t>(targetFbW);
+                fbHeight = static_cast<uint32_t>(targetFbH);
+                currentDpr = dpr;
 
-            width = static_cast<uint32_t>(targetW);
-            height = static_cast<uint32_t>(targetH);
-            fbWidth = static_cast<uint32_t>(targetFbW);
-            fbHeight = static_cast<uint32_t>(targetFbH);
-            currentDpr = static_cast<float>(dpr);
+                EM_ASM({
+                    var canvas = document.getElementById('canvas');
+                    if (canvas) {
+                        canvas.width = $0;
+                        canvas.height = $1;
+                        canvas.style.width = $2 + 'px';
+                        canvas.style.height = $3 + 'px';
+                    }
+                    if (typeof GLFW !== 'undefined' && GLFW.active) {
+                        GLFW.active.width = $2;
+                        GLFW.active.height = $3;
+                        GLFW.active.framebufferWidth = $0;
+                        GLFW.active.framebufferHeight = $1;
+                    }
+                }, fbWidth, fbHeight, width, height);
 
-            EM_ASM({
-                var canvas = document.getElementById('canvas');
-                if (canvas) {
-                    canvas.width = $0;
-                    canvas.height = $1;
-                    canvas.style.width = $2 + 'px';
-                    canvas.style.height = $3 + 'px';
-                }
-                if (typeof GLFW !== 'undefined' && GLFW.active) {
-                    GLFW.active.width = $2;
-                    GLFW.active.height = $3;
-                    GLFW.active.framebufferWidth = $0;
-                    GLFW.active.framebufferHeight = $1;
-                }
-            }, fbWidth, fbHeight, width, height);
-
-            renderer.setRenderScale(currentDpr, currentDpr);
-            renderer.resize(fbWidth, fbHeight);
-            board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                renderer.setRenderScale(currentDpr, currentDpr);
+                renderer.resize(fbWidth, fbHeight);
+                board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+            }
         }
 #else
         int winW = 0, winH = 0;
@@ -4145,8 +4949,82 @@ struct InteractiveContext {
                     toolbarConfigOpen = false;
                 }
             }
-        } else if (leftDown && !prevLeftDown) {
-            if (hoveredBtn == BtnMenuToggle) {
+        } else if (helpOpen && !leftDown) {
+            if (std::hypot(fmx - prevHelpMouseX, fmy - prevHelpMouseY) > 0.5f) {
+                prevHelpMouseX = fmx;
+                prevHelpMouseY = fmy;
+                HelpOddsInfo oddsSnap;
+                { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
+                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap);
+                int hoveredZ = -1;
+                if (fmx >= hl.sb.x && fmx <= hl.sb.x + hl.sb.w && fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
+                    for (const auto& zh : hl.zoneHits) {
+                        if (fmx >= zh.x && fmx <= zh.x + zh.w && fmy >= zh.y && fmy <= zh.y + zh.h) {
+                            hoveredZ = static_cast<int>(zh.zoneIndex);
+                            break;
+                        }
+                    }
+                }
+                if (hoveredZ != highlightedHelpZone) {
+                    highlightedHelpZone = hoveredZ;
+                    if (hoveredZ >= 0 && static_cast<size_t>(hoveredZ) < board.piles().size()) {
+                        float zx = 0.0f, zy = 0.0f, zw = 0.0f, zh = 0.0f;
+                        computeZoneHighlightBounds(board, hoveredZ, zx, zy, zw, zh);
+                        ThemePalette hpal = getPalette(board.tableTheme());
+                        magicParticles.spawnZoneBurst(zx, zy, zw, zh, hpal.accentR, hpal.accentG, hpal.accentB);
+                    }
+                }
+            }
+        }
+        if (leftDown && !prevLeftDown && !playMenuOpen && !toolbarConfigOpen) {
+            if (helpOpen && [&]() {
+                HelpOddsInfo oddsSnap;
+                { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
+                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap);
+                const HelpSidebarRect& sb = hl.sb;
+                if (fmx < sb.x || fmx > sb.x + sb.w || fmy < sb.y || fmy > sb.y + sb.h) return false;
+                if (fmx >= sb.closeX && fmx <= sb.closeX + sb.closeW && fmy >= sb.closeY && fmy <= sb.closeY + sb.closeH) {
+                    helpOpen = false;
+                    highlightedHelpZone = -1;
+                    helpScrollY = 0.0f;
+                    foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                    return true;
+                }
+                if (fmx >= sb.showMeX && fmx <= sb.showMeX + sb.showMeW && fmy >= sb.showMeY && fmy <= sb.showMeY + sb.showMeH) {
+                    autoPlayController.startDemo(board);
+                    foley.triggerSound(FoleySound::Flip, 0.85f);
+                    return true;
+                }
+                if (fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
+                    if (fmx >= hl.analyzeX && fmx <= hl.analyzeX + hl.analyzeW && fmy >= hl.analyzeY && fmy <= hl.analyzeY + hl.analyzeH) {
+                        if (oddsSnap.running) cancelOddsAnalysis();
+                        else startOddsAnalysis();
+                        foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                        return true;
+                    }
+                    if (fmx >= hl.hintX && fmx <= hl.hintX + hl.hintW && fmy >= hl.hintY && fmy <= hl.hintY + hl.hintH) {
+                        triggerAction(BtnHint);
+                        return true;
+                    }
+                    for (const auto& zh : hl.zoneHits) {
+                        if (fmx >= zh.x && fmx <= zh.x + zh.w && fmy >= zh.y && fmy <= zh.y + zh.h) {
+                            int zIdx = static_cast<int>(zh.zoneIndex);
+                            highlightedHelpZone = zIdx;
+                            if (zIdx >= 0 && static_cast<size_t>(zIdx) < board.piles().size()) {
+                                float zx = 0.0f, zy = 0.0f, zw = 0.0f, zh = 0.0f;
+                                computeZoneHighlightBounds(board, zIdx, zx, zy, zw, zh);
+                                ThemePalette hpal = getPalette(board.tableTheme());
+                                magicParticles.spawnZoneBurst(zx, zy, zw, zh, hpal.accentR, hpal.accentG, hpal.accentB);
+                            }
+                            foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                            return true;
+                        }
+                    }
+                }
+                return true;
+            }()) {
+                // Click handled by Help Sidebar
+            } else if (hoveredBtn == BtnMenuToggle) {
                 isClickingSolEngineOrb = true;
                 isDraggingMenu = false;
                 menuDragStartMouseX = fmx;
@@ -4453,8 +5331,16 @@ struct InteractiveContext {
                 foley.triggerSound(FoleySound::WoodClick, 0.65f);
                 std::cout << "[SolEngine] Dynamic lighting switched to: " << lightController.getPresetName() << std::endl;
             }
+            if (edgeKey(GLFW_KEY_F1, prevKeyF1)) {
+                helpOpen = !helpOpen;
+                if (!helpOpen) highlightedHelpZone = -1;
+                foley.triggerSound(FoleySound::Flip, 0.75f);
+            }
             if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) {
-                if (playMenuOpen) {
+                if (helpOpen) {
+                    helpOpen = false;
+                    highlightedHelpZone = -1;
+                } else if (playMenuOpen) {
                     playMenuOpen = false;
                 } else if (toolbarConfigOpen) {
                     toolbarConfigOpen = false;
@@ -4560,11 +5446,62 @@ struct InteractiveContext {
             renderer.setGlobalLight(dynamicLight, lCol[0], lCol[1], lCol[2], aCol[0], aCol[1], aCol[2],
                                     activeCfg.sceneDarkness, activeCfg.lightStrength);
             renderer.setShaderTime(static_cast<float>(now));
+            if (board.activeGameDef().id != lastOddsGameId) {
+                cancelOddsAnalysis();
+                { std::lock_guard<std::mutex> lk(oddsMutex); helpOdds = {}; }
+                highlightedHelpZone = -1;
+                helpScrollY = 0.0f;
+                lastOddsGameId = board.activeGameDef().id;
+            }
+
+            int newlyActivated = magicParticles.update(dt);
+            if (newlyActivated > 0) {
+                if (magicSoundAccum == 0) {
+                    foley.triggerSound(FoleySound::MagicTine, 0.38f);
+                }
+                magicSoundAccum += newlyActivated;
+                while (magicSoundAccum >= 20) {
+                    magicSoundAccum -= 20;
+                    foley.triggerSound(FoleySound::MagicTine, 0.38f);
+                }
+            }
+            if (!autoPlayController.isPlaying()) {
+                lastTrailedMoveIdx = SIZE_MAX;
+            } else if (autoPlayController.showMoveTrails() &&
+                       autoPlayController.moveProgress() >= 0.30f &&
+                       lastTrailedMoveIdx != autoPlayController.currentMoveIndex()) {
+                if (const SolverMove* nextMv = autoPlayController.peekNextMove()) {
+                    lastTrailedMoveIdx = autoPlayController.currentMoveIndex();
+                    const auto& piles = board.piles();
+                    if (nextMv->fromPile < piles.size() && nextMv->toPile < piles.size()) {
+                        const auto& sp = piles[nextMv->fromPile];
+                        const auto& dp = piles[nextMv->toPile];
+                        float sx = sp.x + board.cardWidth() * 0.5f;
+                        float sy = sp.y + board.cardHeight() * 0.5f;
+                        if (nextMv->cardIndex < sp.cards.size()) {
+                            sx = sp.cards[nextMv->cardIndex].x + board.cardWidth() * 0.5f;
+                            sy = sp.cards[nextMv->cardIndex].y + board.cardHeight() * 0.5f;
+                        }
+                        float dx = dp.x + board.cardWidth() * 0.5f;
+                        float dy = dp.y + board.cardHeight() * 0.5f;
+                        if (!dp.cards.empty()) {
+                            dx = dp.cards.back().x + board.cardWidth() * 0.5f;
+                            dy = dp.cards.back().y + board.cardHeight() * 0.5f;
+                        }
+                        ThemePalette apal = getPalette(board.tableTheme());
+                        magicParticles.spawnArcTrail(sx, sy, dx, dy, apal.accentR, apal.accentG, apal.accentB);
+                    }
+                }
+            }
+
+            HelpOddsInfo oddsSnap;
+            { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
             TableRenderer::renderBoard(renderer, board, static_cast<float>(width), static_cast<float>(height),
                                        draggedPile, draggedCardIdx, dragOffsetX, dragOffsetY, hoveredBtn,
                                        menuOpen, menuAnchor, menuFlowVertical, isDraggingMenu, dragPreviewAnchor, dragPreviewFlowVertical,
                                        isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
-                                       &dynamicLight, &autoPlayController);
+                                       &dynamicLight, &autoPlayController,
+                                       helpOpen, highlightedHelpZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles);
             if (postFxEnabled && !activeCfg.postFxAffectUi) {
                 renderer.applyPostFxPass();
             }
@@ -4640,7 +5577,7 @@ int TableRenderer::runInteractiveWindow(
     double initDpr = EM_ASM_DOUBLE({
         return window.devicePixelRatio || 1.0;
     });
-    if (initDpr <= 0.0) initDpr = 1.0;
+    initDpr = std::clamp(initDpr, 1.0, 2.0);
     if (initCssW > 0.0 && initCssH > 0.0) {
         width = static_cast<uint32_t>(std::round(initCssW));
         height = static_cast<uint32_t>(std::round(initCssH));
@@ -4717,6 +5654,8 @@ int TableRenderer::runInteractiveWindow(
             s_activeContext->gameBrowserDialog.handleScroll(static_cast<float>(yoffset));
         } else if (s_activeContext->settingsDialog.isOpen()) {
             s_activeContext->settingsDialog.handleScroll(static_cast<float>(yoffset));
+        } else if (s_activeContext->helpOpen) {
+            s_activeContext->helpScrollY = std::clamp(s_activeContext->helpScrollY - static_cast<float>(yoffset) * 28.0f, 0.0f, 1200.0f);
         }
     });
 
@@ -4770,13 +5709,35 @@ int TableRenderer::runInteractiveWindow(
     }
 
 #if defined(__EMSCRIPTEN__)
-    std::cout << "[SolEngine Web] Registering Emscripten requestAnimationFrame main loop..." << std::endl;
+    std::cout << "[SolEngine Web] Registering ResizeObserver and Emscripten requestAnimationFrame main loop..." << std::endl;
+    EM_ASM({
+        if (!window._solResizeHooked) {
+            window._solResizeHooked = true;
+            var notifyResize = function() {
+                var container = document.getElementById('canvas-container');
+                var w = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 1280);
+                var h = (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 720);
+                var dpr = window.devicePixelRatio || 1.0;
+                if (typeof Module !== 'undefined' && Module._solengine_on_web_resize) {
+                    Module._solengine_on_web_resize(Math.round(w), Math.round(h), dpr);
+                }
+            };
+            if (typeof ResizeObserver !== 'undefined') {
+                var c = document.getElementById('canvas-container');
+                if (c) {
+                    new ResizeObserver(notifyResize).observe(c);
+                }
+            }
+            window.addEventListener('resize', notifyResize);
+            notifyResize();
+        }
+    });
     emscripten_set_main_loop_arg([](void* arg) {
         auto* c = static_cast<InteractiveContext*>(arg);
         if (c) {
             c->updateAndRender();
         }
-    }, &ctx, 0, 1);
+    }, &ctx, 0, 0);
     return 0;
 #else
     while (!glfwWindowShouldClose(window)) {
@@ -4791,6 +5752,7 @@ int TableRenderer::runInteractiveWindow(
     SettingsManager::instance().syncFromGame(ctx.board, ctx.foley);
     SettingsManager::instance().save();
 
+    ctx.cancelOddsAnalysis();
     ctx.renderer.shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();
@@ -4819,10 +5781,25 @@ bool solengine_load_file_from_web(const char* virtualPath) {
 
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
-#endif
 void solengine_set_search_query(const char* text) {
     if (!text || !solengine::s_activeContext) return;
     solengine::s_activeContext->gameBrowserDialog.setSearchQuery(text);
 }
+
+EMSCRIPTEN_KEEPALIVE
+void solengine_on_web_resize(int cssW, int cssH, double dpr) {
+    if (cssW > 0 && cssH > 0) {
+        solengine::s_webPendingCssW = static_cast<uint32_t>(cssW);
+        solengine::s_webPendingCssH = static_cast<uint32_t>(cssH);
+        solengine::s_webPendingDpr = (dpr > 0.0) ? static_cast<float>(dpr) : 1.0f;
+        solengine::s_webResizePending = true;
+    }
+}
+#else
+void solengine_set_search_query(const char* text) {
+    if (!text || !solengine::s_activeContext) return;
+    solengine::s_activeContext->gameBrowserDialog.setSearchQuery(text);
+}
+#endif
 
 } // extern "C"

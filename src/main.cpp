@@ -157,8 +157,14 @@ int main(int argc, char** argv) {
         std::cout << "[SolEngine] Rendering procedural table snapshot (" << width << "x" << height
                   << ") -> " << outputPngPath << " ...\n";
         auto& cache = solengine::CardTextureCache::instance();
+        cache.scanDecksFolder("decks");
         cache.setCornerStyle(loadedSettings.cardCorners);
-        cache.loadDeckTheme(loadedSettings.deckTheme);
+        size_t dIdx = cache.findDeckIndex(loadedSettings.deckSlug, loadedSettings.deckTheme);
+        if (const auto* def = cache.getDeckDef(dIdx)) {
+            cache.loadDeckByDef(*def);
+        } else {
+            cache.loadDeckTheme(loadedSettings.deckTheme);
+        }
         cache.applyConditioningAndSync(loadedSettings.cardWear, loadedSettings.cardStock);
 
         if (solengine::TableRenderer::renderToPng(*board, width, height, outputPngPath, effectiveAa)) {
@@ -171,5 +177,12 @@ int main(int argc, char** argv) {
 
     auto foley = std::make_unique<solengine::AudioFoleyEngine>();
     foley->init(true);
+#if defined(__EMSCRIPTEN__)
+    // Keep board and foley alive after main() returns to the browser event loop
+    auto* rawBoard = board.release();
+    auto* rawFoley = foley.release();
+    return solengine::TableRenderer::runInteractiveWindow(*rawBoard, *rawFoley, width, height, effectiveAa);
+#else
     return solengine::TableRenderer::runInteractiveWindow(*board, *foley, width, height, effectiveAa);
+#endif
 }

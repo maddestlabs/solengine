@@ -43,7 +43,16 @@ void SettingsDialog::open() {
     tempSettings_ = SettingsManager::instance().settings();
     seedText_ = std::to_string(tempSettings_.lastSeed);
     editingSeed_ = false;
-    CardTextureCache::instance().updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+    auto& cache = CardTextureCache::instance();
+    const auto& decks = cache.availableDecks();
+    size_t dIdx = cache.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+    if (const auto* def = cache.getDeckDef(dIdx)) {
+        cache.updatePreviewCardByDef(*def, tempSettings_.cardWear, tempSettings_.cardStock);
+    } else if (!decks.empty()) {
+        cache.updatePreviewCardByDef(decks[0], tempSettings_.cardWear, tempSettings_.cardStock);
+    } else {
+        cache.updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+    }
 }
 
 void SettingsDialog::close() {
@@ -74,8 +83,14 @@ void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& fo
     if (tempSettings_.cardBackId != s.cardBackId) {
         CardTextureCache::instance().setActiveCardBack(s.cardBackId);
     }
-    if (tempSettings_.deckTheme != s.deckTheme || tempSettings_.cardWear != s.cardWear || tempSettings_.cardStock != s.cardStock) {
-        CardTextureCache::instance().updatePreviewCard(s.deckTheme, s.cardWear, s.cardStock);
+    if (tempSettings_.deckSlug != s.deckSlug || tempSettings_.deckTheme != s.deckTheme || tempSettings_.cardWear != s.cardWear || tempSettings_.cardStock != s.cardStock) {
+        auto& cache = CardTextureCache::instance();
+        size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
+        if (const auto* def = cache.getDeckDef(dIdx)) {
+            cache.updatePreviewCardByDef(*def, s.cardWear, s.cardStock);
+        } else {
+            cache.updatePreviewCard(s.deckTheme, s.cardWear, s.cardStock);
+        }
     }
 
     bool themeChanged = (board.tableThemeSlug() != s.tableThemeSlug || board.tableTheme() != s.tableTheme);
@@ -582,7 +597,11 @@ void SettingsDialog::render(
         }
 
         // 2. Deck Theme
-        std::string deckStr = "Deck: " + std::string(CardTextureCache::deckThemeName(tempSettings_.deckTheme));
+        auto& cache = CardTextureCache::instance();
+        const auto& decks = cache.availableDecks();
+        size_t dIdx = cache.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+        std::string deckName = (dIdx < decks.size()) ? decks[dIdx].name : std::string(CardTextureCache::deckThemeName(tempSettings_.deckTheme));
+        std::string deckStr = "Deck: " + deckName;
         drawStepper(deckStr);
         curY += rowH + rowGap;
 
@@ -1502,13 +1521,20 @@ bool SettingsDialog::handleMouseButton(
 
         // 2. Deck Theme
         if (testStepper(stepDelta)) {
-            constexpr uint8_t count = static_cast<uint8_t>(DeckThemeId::Count);
-            if (stepDelta < 0) {
-                tempSettings_.deckTheme = static_cast<DeckThemeId>((static_cast<uint8_t>(tempSettings_.deckTheme) + count - 1u) % count);
-            } else {
-                tempSettings_.deckTheme = static_cast<DeckThemeId>((static_cast<uint8_t>(tempSettings_.deckTheme) + 1u) % count);
+            auto& cache = CardTextureCache::instance();
+            const auto& decks = cache.availableDecks();
+            if (!decks.empty()) {
+                size_t dIdx = cache.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+                size_t count = decks.size();
+                if (stepDelta < 0) {
+                    dIdx = (dIdx + count - 1u) % count;
+                } else {
+                    dIdx = (dIdx + 1u) % count;
+                }
+                tempSettings_.deckSlug = decks[dIdx].id;
+                tempSettings_.deckTheme = decks[dIdx].legacyId;
+                cache.updatePreviewCardByDef(decks[dIdx], tempSettings_.cardWear, tempSettings_.cardStock);
             }
-            CardTextureCache::instance().updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
             if (tempSettings_.cardBackId == "auto") {
                 CardTextureCache::instance().setActiveCardBack("auto");
             }
@@ -1544,7 +1570,13 @@ bool SettingsDialog::handleMouseButton(
             } else {
                 tempSettings_.cardStock = static_cast<CardStock>((static_cast<uint8_t>(tempSettings_.cardStock) + 1u) % count);
             }
-            CardTextureCache::instance().updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+            auto& cache = CardTextureCache::instance();
+            size_t dIdx = cache.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+            if (const auto* def = cache.getDeckDef(dIdx)) {
+                cache.updatePreviewCardByDef(*def, tempSettings_.cardWear, tempSettings_.cardStock);
+            } else {
+                cache.updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+            }
             foley.triggerSound(FoleySound::WoodClick, 0.7f);
             return true;
         }
@@ -1558,7 +1590,13 @@ bool SettingsDialog::handleMouseButton(
             } else {
                 tempSettings_.cardWear = static_cast<CardWearLevel>((static_cast<uint8_t>(tempSettings_.cardWear) + 1u) % count);
             }
-            CardTextureCache::instance().updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+            auto& cache = CardTextureCache::instance();
+            size_t dIdx = cache.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+            if (const auto* def = cache.getDeckDef(dIdx)) {
+                cache.updatePreviewCardByDef(*def, tempSettings_.cardWear, tempSettings_.cardStock);
+            } else {
+                cache.updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+            }
             foley.triggerSound(FoleySound::WoodClick, 0.7f);
             return true;
         }

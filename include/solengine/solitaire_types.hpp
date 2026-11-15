@@ -1,7 +1,9 @@
 #ifndef SOLENGINE_SOLITAIRE_TYPES_HPP
 #define SOLENGINE_SOLITAIRE_TYPES_HPP
 
+#include <algorithm>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -203,12 +205,39 @@ inline TableTintPreset parseTableTint(const std::string& str) noexcept {
     return TableTintPreset::Auto;
 }
 
+enum class GameStatus : uint8_t {
+    Playing = 0,
+    Victory = 1,
+    Defeat  = 2
+};
+
 struct Card {
     uint8_t id{0};
     Suit suit{Suit::Spades};
     Rank rank{Rank::Ace};
     bool faceUp{false};
     bool enshadedGlow{false};
+
+    // Optional RPG / modern solitaire attributes & tags (empty for classic games)
+    std::map<std::string, int32_t> stats;
+    std::vector<std::string> tags;
+
+    [[nodiscard]] int32_t stat(const std::string& key, int32_t fallback = 0) const noexcept {
+        auto it = stats.find(key);
+        return (it != stats.end()) ? it->second : fallback;
+    }
+    void setStat(const std::string& key, int32_t value) {
+        stats[key] = value;
+    }
+    [[nodiscard]] bool hasTag(const std::string& tag) const noexcept {
+        return std::find(tags.begin(), tags.end(), tag) != tags.end();
+    }
+    void addTag(const std::string& tag) {
+        if (!hasTag(tag)) tags.push_back(tag);
+    }
+    void removeTag(const std::string& tag) {
+        tags.erase(std::remove(tags.begin(), tags.end(), tag), tags.end());
+    }
 
     // Spring-damper visual state (Hardwood 3.0 smooth card flight & 2.5D flip)
     float x{0.0f};
@@ -241,11 +270,128 @@ struct Card {
 struct Pile {
     PileType type{PileType::Tableau};
     uint8_t index{0};
+    std::string id;
+    std::string role;
+    bool allowPick{true};
+    bool allowDrop{true};
     float x{0.0f};
     float y{0.0f};
     float fanOffsetDown{18.0f};
     float fanOffsetUp{28.0f};
     std::vector<Card> cards;
+};
+
+/**
+ * Global board state ("blackboard") for modern/RPG solitaires (HP, armor, turn, room, etc.).
+ */
+struct BoardBlackboard {
+    std::map<std::string, int32_t> intStats;
+    std::map<std::string, std::string> strStats;
+    std::vector<std::string> hudStats; // Ordered stat keys to display in HUD
+
+    [[nodiscard]] int32_t getInt(const std::string& key, int32_t fallback = 0) const noexcept {
+        auto it = intStats.find(key);
+        return (it != intStats.end()) ? it->second : fallback;
+    }
+    void setInt(const std::string& key, int32_t value) { intStats[key] = value; }
+
+    [[nodiscard]] std::string getStr(const std::string& key, const std::string& fallback = "") const {
+        auto it = strStats.find(key);
+        return (it != strStats.end()) ? it->second : fallback;
+    }
+    void setStr(const std::string& key, const std::string& value) { strStats[key] = value; }
+};
+
+enum class BoardOpType : uint8_t {
+    MoveCards = 0,
+    FlipCard,
+    RemoveCard,
+    SpawnCard,
+    SetCardStat,
+    AddCardTag,
+    RemoveCardTag,
+    SetGlobalStat,
+    SetGlobalStr,
+    AddScore
+};
+
+/**
+ * Atomic, reversible board mutation for unlimited Undo/Redo across classic and RPG rules.
+ */
+struct BoardOp {
+    BoardOpType type{BoardOpType::MoveCards};
+    uint8_t fromPile{0};
+    uint8_t toPile{0};
+    uint32_t cardIdx{0};
+    uint32_t count{1};
+    bool prevBool{false};
+    bool nextBool{false};
+    int32_t prevInt{0};
+    int32_t nextInt{0};
+    std::string key;
+    std::string prevStr;
+    std::string nextStr;
+    Card snapshotCard{}; // Used for RemoveCard / SpawnCard undo
+};
+
+struct TurnTransaction {
+    std::vector<BoardOp> ops;
+};
+
+struct ZoneDoc {
+    uint8_t zoneIndex{0};
+    std::string title;
+    std::string description;
+    std::vector<std::string> previewCards; // Optional mini-stack, e.g. {"AH","2H","3H"}
+    std::vector<std::string> bullets;      // Optional multi-bullet rules with [[term]] links
+};
+
+struct StatDoc {
+    std::string key;
+    std::string title;
+    std::string description;
+};
+
+struct TagDoc {
+    std::string tag;
+    std::string title;
+    std::string description;
+};
+
+/**
+ * Unified game documentation manifest populated via Eatscript doc_* calls
+ * and auto-discovered board metadata. Powers the Help Sidebar & table callouts.
+ */
+struct GameDocManifest {
+    std::string winGoal;
+    std::string loseGoal;
+    uint8_t timeRating{3};
+    std::string timeLabel{"Average"};
+    uint8_t chanceRating{3};
+    std::string chanceLabel{"20%-50%"};
+    uint8_t skillRating{3};
+    std::string skillLabel{"Moderate"};
+    bool hasExplicitRatings{false};
+    std::vector<std::string> alternateNames;
+    std::vector<ZoneDoc> zones;
+    std::vector<StatDoc> stats;
+    std::vector<TagDoc> tags;
+
+    void clear() noexcept {
+        winGoal.clear();
+        loseGoal.clear();
+        timeRating = 3;
+        timeLabel = "Average";
+        chanceRating = 3;
+        chanceLabel = "20%-50%";
+        skillRating = 3;
+        skillLabel = "Moderate";
+        hasExplicitRatings = false;
+        alternateNames.clear();
+        zones.clear();
+        stats.clear();
+        tags.clear();
+    }
 };
 
 struct MoveCommand {

@@ -42,6 +42,43 @@ ThemePalette getPalette(TableThemeId theme = TableThemeId::EmeraldLawn) noexcept
  * Synthesizes carved hardwood frames, baize/obsidian surfaces, directional drop shadows,
  * parchment cards, 2.5D card flips, vector suit pips, geometric card backs, and interactive HUD chrome.
  */
+struct HelpOddsInfo {
+    bool running{false};
+    bool hasResults{false};
+    uint32_t completedSeeds{0};
+    uint32_t totalSeeds{12};
+    uint8_t timeRating{3};
+    std::string timeLabel{"Average"};
+    uint8_t oddsRating{3};
+    std::string oddsLabel{"50%"};
+    uint8_t skillRating{3};
+    std::string skillLabel{"Moderate"};
+};
+
+struct MagicParticle {
+    float x{0.0f}, y{0.0f};
+    float vx{0.0f}, vy{0.0f};
+    float delay{0.0f};
+    float life{0.0f};
+    float maxLife{0.6f};
+    float size{3.0f};
+    float r{1.0f}, g{0.85f}, b{0.40f};
+};
+
+class MagicParticleSystem {
+public:
+    void clear() noexcept { particles_.clear(); }
+    int update(float dt) noexcept;
+    void render(eatsbits::ui::BatchRenderer2D& r) const;
+
+    void spawnZoneBurst(float x, float y, float w, float h, float r, float g, float b);
+    void spawnArcTrail(float x0, float y0, float x1, float y1, float r, float g, float b);
+
+private:
+    std::vector<MagicParticle> particles_;
+    uint32_t rng_{0x9E3779B9u};
+};
+
 class TableRenderer {
 public:
     TableRenderer() = default;
@@ -69,7 +106,14 @@ public:
         float gestureCurX = 0.0f,
         float gestureCurY = 0.0f,
         const eatsbits::ui::LightSource2D* dynamicLight = nullptr,
-        const class AutoPlayController* autoPlay = nullptr
+        const class AutoPlayController* autoPlay = nullptr,
+        bool helpOpen = false,
+        int highlightedHelpZone = -1,
+        float helpScrollY = 0.0f,
+        float helpMouseX = -1.0f,
+        float helpMouseY = -1.0f,
+        const HelpOddsInfo* helpOdds = nullptr,
+        const MagicParticleSystem* magicParticles = nullptr
     );
 
     static bool renderToPng(

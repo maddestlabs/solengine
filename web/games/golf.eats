@@ -1,53 +1,90 @@
 # =============================================================================
 # SolEngine Game Variant: Golf Solitaire (.eats)
 # =============================================================================
-# Golf Solitaire implemented using Eatscript control-plane specifications.
 # Fast-paced waste-elimination solitaire with adjacent-rank stacking rules.
 
 name = "Golf"
 family = "Golf"
 category = "GOLF"
+layout = "columns"
 description = "Fast-paced elimination solitaire. Stack cards +-1 rank onto foundation waste; Kings are dead ends."
 decks = 1
 tableaus = 7
 foundations = 1
 freecells = 0
 
-# Deal configuration: 35 cards dealt face-up to 7 tableau columns (5 cards each)
-# 1 card dealt face-up to Foundation / Waste starter pile
-# Remaining 16 cards dealt to Stock
 tableau_deal_counts = [5, 5, 5, 5, 5, 5, 5]
 tableau_all_face_up = True
 foundation_starter_card = True
-stock_initial_count = 16
 
-# Stock deal rules: Draw 1 card to Foundation. 0 redeals.
 stock_deal_mode = "deal_to_foundation"
 stock_deal_count = 1
 max_redeals = 0
+demo_seed = 40
 
-def can_drop_foundation(foundation_card, moving_card):
-    """In classic Golf, cards can be moved to Foundation if their rank is
-    either 1 higher or 1 lower (+-1) than the top foundation card, regardless of suit.
-    Kings are dead ends: no card can be played onto a King."""
-    if foundation_card.is_empty:
-        return True
-    if foundation_card.rank == 13: # King is a dead end
-        return False
-    return (moving_card.rank == foundation_card.rank + 1) or (moving_card.rank == foundation_card.rank - 1)
+# --- Unified Help & Introspection Manifest ---
+doc_meta(1, "Fast", 4, "High Luck", 2, "Casual")
+doc_aliases(["Golf Patience"])
+doc_goal("Clear all 7 tableau columns onto the Foundation.", "No playable cards remain and Stock is empty.")
+doc_zone(0, "Stock", "Remaining face-down cards. Click to deal a new card onto the Foundation.", [], ["Deals 1 card directly to the [[Foundation]]."])
+doc_zone(2, "Foundation", "Build +-1 in rank regardless of suit. Kings are dead ends.", ["5H", "6S", "5D"])
+doc_zone(3, "Tableau Columns (1-7)", "Click or drag exposed top cards that are +-1 rank from the Foundation.", ["7C", "4D"])
 
-def can_move_tableau_to_tableau():
-    """In Golf Solitaire, cards can never be moved between tableau columns."""
-    return False
+def eval_heuristic():
+    rem = 0
+    z = 3
+    while z <= 9:
+        rem = rem + zone_size(z)
+        z = z + 1
+    return (35 - rem) * 100 + zone_size(0) * 10
 
-def can_lift_tableau(column_cards, card_index):
-    """Only the top exposed card of any tableau column can be moved."""
-    return card_index == (len(column_cards) - 1)
-
-def check_victory(tableaus):
-    """Victory is achieved when all 7 tableau columns are completely cleared."""
-    for col in tableaus:
-        if len(col) > 0:
-            return False
+def on_deal():
+    if zone_size(2) == 0 and zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, 2)
+        flip_card(2, 0, True)
     return True
 
+def can_pick(z, i):
+    sz = zone_size(z)
+    return z >= 3 and z <= 9 and sz > 0 and i == sz - 1
+
+def can_drop(from_z, i, to_z):
+    if to_z != 2 or from_z < 3 or from_z > 9:
+        return False
+    sz = zone_size(from_z)
+    if sz == 0 or i != sz - 1:
+        return False
+    fsz = zone_size(2)
+    if fsz == 0:
+        return True
+    fr = card_rank(2, fsz - 1)
+    if fr == 13:
+        return False
+    mr = card_rank(from_z, i)
+    return mr == fr + 1 or mr == fr - 1
+
+def on_card_click(z, i):
+    if not can_drop(z, i, 2):
+        return False
+    move_cards(z, i, 2)
+    add_score(10)
+    return True
+
+def on_stock_click():
+    if zone_size(0) == 0:
+        return False
+    top = zone_size(0) - 1
+    move_cards(0, top, 2)
+    flip_card(2, zone_size(2) - 1, True)
+    return True
+
+def get_status():
+    rem = 0
+    z = 3
+    while z <= 9:
+        rem = rem + zone_size(z)
+        z = z + 1
+    if rem == 0:
+        return "victory"
+    return "playing"

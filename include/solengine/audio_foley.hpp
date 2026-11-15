@@ -20,7 +20,8 @@ namespace FoleySound {
     constexpr uint16_t Flip           = 5;  // Turnover flip: edge peel friction into crisp snap & drop
     constexpr uint16_t Slide          = 6;  // Velvet baize slide across felt
     constexpr uint16_t SpectreWhisper = 7;  // Ethereal ZAngband Spectre Nether-Sight shimmer
-    constexpr uint16_t MaxCoreSounds  = 8;
+    constexpr uint16_t MagicTine      = 8;  // High-frequency crystalline magic particle tine
+    constexpr uint16_t MaxCoreSounds  = 9;
 
     // Semantic aliases for compatibility across call sites:
     constexpr uint16_t Tap             = Snap;
@@ -317,7 +318,8 @@ public:
         CustomDSP,
         ModalCard,
         PeelFriction,
-        ShuffleRiffle
+        ShuffleRiffle,
+        MagicTine
     };
 
 private:

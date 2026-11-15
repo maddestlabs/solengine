@@ -138,6 +138,7 @@ bool SettingsManager::load() {
                 }
             }
             settings_.deckTheme = static_cast<DeckThemeId>(std::clamp(a["deckTheme"].asInt(0), 0, static_cast<int>(DeckThemeId::Count) - 1));
+            settings_.deckSlug = (a.contains("deckSlug") && a["deckSlug"].isString()) ? a["deckSlug"].asString() : "";
             settings_.cardBackId = (a.contains("cardBackId") && a["cardBackId"].isString()) ? a["cardBackId"].asString() : "auto";
             settings_.guiTheme = static_cast<GuiThemeStyle>(std::clamp(a["guiTheme"].asInt(static_cast<int>(GuiThemeStyle::ClockworkEngine)), 0, 1));
             settings_.cardWear = static_cast<CardWearLevel>(std::clamp(a["cardWear"].asInt(static_cast<int>(CardWearLevel::Pristine)), 0, static_cast<int>(CardWearLevel::Count) - 1));
@@ -235,6 +236,9 @@ bool SettingsManager::save() {
         a["tableTint"] = tintInfo->id;
     }
     a["deckTheme"] = static_cast<int>(settings_.deckTheme);
+    if (!settings_.deckSlug.empty()) {
+        a["deckSlug"] = settings_.deckSlug;
+    }
     a["cardBackId"] = settings_.cardBackId;
     a["guiTheme"] = static_cast<int>(settings_.guiTheme);
     a["cardWear"] = static_cast<int>(settings_.cardWear);

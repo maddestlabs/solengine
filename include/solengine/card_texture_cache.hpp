@@ -99,7 +99,9 @@ public:
 
     static constexpr int kDefaultCardW = 360;
     static constexpr int kDefaultCardH = 504;
-    static constexpr size_t kCardBackIndex = 52;
+    static constexpr size_t kJokerBlackIndex = 52;
+    static constexpr size_t kJokerRedIndex   = 53;
+    static constexpr size_t kCardBackIndex   = 54;
     static constexpr size_t kCardBackVariants = 6;
     static constexpr size_t kTotalTextures = kCardBackIndex + kCardBackVariants;
 
@@ -154,10 +156,18 @@ public:
 
     static const char* cornerStyleName(CardCornerStyle style) noexcept;
 
+    struct DeckDef {
+        std::string id;
+        std::string name;
+        std::string filePath;
+        DeckThemeId legacyId{DeckThemeId::Custom};
+    };
+
     struct StagingDeck {
         std::array<CardTexture, kTotalTextures> baseTextures;
         std::array<CardTexture, kTotalTextures> textures;
         DeckThemeId theme{DeckThemeId::SolEnshade};
+        std::string deckId;
         CardWearLevel wearLevel{CardWearLevel::Pristine};
         CardStock cardStock{CardStock::None};
         int cardW{kDefaultCardW};
@@ -224,11 +234,13 @@ public:
     void applyConditioningAndSync(CardWearLevel wear);
 
     [[nodiscard]] const CardTexture* getCardTexture(Suit s, Rank r) const noexcept;
+    [[nodiscard]] const CardTexture* getJokerTexture(bool red = false) const noexcept;
     [[nodiscard]] const CardTexture* getCardBackTexture(uint8_t cardId = 0) const noexcept;
     [[nodiscard]] const CardTexture* getTextureByIndex(size_t index) const noexcept;
 
     bool buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer);
     [[nodiscard]] const CardAtlasSlot& getAtlasSlot(Suit s, Rank r) const noexcept;
+    [[nodiscard]] const CardAtlasSlot& getJokerAtlasSlot(bool red = false) const noexcept;
     [[nodiscard]] const CardAtlasSlot& getBackAtlasSlot(uint8_t cardId = 0) const noexcept;
     [[nodiscard]] const CardAtlasSlot& getAtlasSlotByIndex(size_t index) const noexcept;
     [[nodiscard]] const CardAtlasSlot& getPreviewFaceAtlasSlot() const noexcept;
@@ -243,6 +255,23 @@ public:
     [[nodiscard]] bool isLoaded() const noexcept { return isLoaded_; }
     [[nodiscard]] int cardWidth() const noexcept { return cardW_; }
     [[nodiscard]] int cardHeight() const noexcept { return cardH_; }
+    void scanDecksFolder(const std::string& decksDir = "decks");
+    [[nodiscard]] const std::vector<DeckDef>& availableDecks();
+    [[nodiscard]] size_t findDeckIndex(const std::string& slug, DeckThemeId legacyFallback) const;
+    [[nodiscard]] const DeckDef* getDeckDef(size_t index) const;
+    [[nodiscard]] const std::string& currentDeckId() const noexcept { return currentDeckId_; }
+    bool loadDeckByDef(const DeckDef& def, int cardW = kDefaultCardW, int cardH = kDefaultCardH);
+    bool loadStagedDeckByDef(
+        StagingDeck& staging,
+        const DeckDef& def,
+        CardWearLevel wear,
+        CardStock stock,
+        int cardW = kDefaultCardW,
+        int cardH = kDefaultCardH,
+        const ProgressCallback& onProgress = nullptr
+    );
+    void updatePreviewCardByDef(const DeckDef& def, CardWearLevel wear, CardStock stock);
+
     [[nodiscard]] DeckThemeId currentDeckTheme() const noexcept { return currentTheme_; }
     static const char* deckThemeName(DeckThemeId theme) noexcept;
     [[nodiscard]] std::string currentDeckSlug() const;
@@ -267,15 +296,20 @@ private:
     bool hasGpuAtlas_{false};
     bool atlasDirty_{false};
     DeckThemeId currentTheme_{DeckThemeId::SolEnshade};
+    std::string currentDeckId_{"solenshade"};
     CardWearLevel wearLevel_{CardWearLevel::Pristine};
     CardStock cardStock_{CardStock::None};
     float deckCornerRadius_{24.0f};
     CardCornerStyle cornerStyle_{CardCornerStyle::Auto};
     std::string activeCardBackId_{"auto"};
     DeckThemeId previewDeckTheme_{DeckThemeId::Count};
+    std::string previewDeckId_;
     CardTexture previewFaceTexture_{};
     CardAtlasSlot previewFaceAtlasSlot_{};
     std::unordered_map<DeckThemeId, CardTexture> sampleCardCache_{};
+    std::unordered_map<std::string, CardTexture> sampleDeckCardCache_{};
+    std::vector<DeckDef> scannedDecks_{};
+    bool decksScanned_{false};
     std::array<CardTexture, kTotalTextures> baseTextures_{};
     std::array<CardTexture, kTotalTextures> textures_{};
     std::array<CardAtlasSlot, kTotalTextures> atlasSlots_{};

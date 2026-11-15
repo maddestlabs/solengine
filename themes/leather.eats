@@ -9,7 +9,7 @@ sol.set_theme({
     version: 3,
     procedural: true,
     option_label: "Leather",
-    lacquer: 0.95,
+    lacquer: 1.5,
     relief_bump: 4.0,
     options: [
         { id: "cognac",  name: "Cognac",  u: [0.36, 0.18, 0.08, 1.0] },

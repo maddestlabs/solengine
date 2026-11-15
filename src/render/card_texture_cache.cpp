@@ -1,6 +1,7 @@
 #include "solengine/card_texture_cache.hpp"
 #include "solengine/card_canvas.hpp"
 #include "solengine/card_back.hpp"
+#include "solengine/vector_binary.hpp"
 #include "solengine/ui/clockwork_theme.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include "eatsbits/eatscript/lexer.hpp"
@@ -55,6 +56,10 @@ static inline size_t svgCellIndexForCard(Suit s, Rank r) noexcept {
 }
 
 static void syncArgb32AndMipsSingle(CardTexture& tex) {
+#if defined(__EMSCRIPTEN__)
+    (void)tex;
+    return;
+#else
     if (tex.width <= 0 || tex.height <= 0 || tex.rgba.size() < static_cast<size_t>(tex.width * tex.height * 4)) return;
     const int w = tex.width;
     const int h = tex.height;
@@ -118,6 +123,7 @@ static void syncArgb32AndMipsSingle(CardTexture& tex) {
             }
         }
     }
+#endif
 }
 
 static void syncArgb32AndMips(std::array<CardTexture, CardTextureCache::kTotalTextures>& textures) {
@@ -805,17 +811,21 @@ static bool applyCardConditioning(
         if (onProgress) {
             float frac = static_cast<float>(i) / static_cast<float>(CardTextureCache::kTotalTextures);
             char desc[128];
-            if (i == CardTextureCache::kCardBackIndex) {
-                std::snprintf(desc, sizeof(desc), "Conditioning Card Back (53/53)...");
+            if (i >= CardTextureCache::kCardBackIndex) {
+                std::snprintf(desc, sizeof(desc), "Conditioning Card Back...");
+            } else if (i == CardTextureCache::kJokerBlackIndex) {
+                std::snprintf(desc, sizeof(desc), "Card 53/54: Black Joker");
+            } else if (i == CardTextureCache::kJokerRedIndex) {
+                std::snprintf(desc, sizeof(desc), "Card 54/54: Red Joker");
             } else {
                 Suit s = static_cast<Suit>(i / 13);
                 uint8_t r = static_cast<uint8_t>((i % 13) + 1);
                 const char* rStr = (r == 1) ? "Ace" : (r == 11) ? "Jack" : (r == 12) ? "Queen" : (r == 13) ? "King" : "";
                 const char* sStr = (s == Suit::Spades) ? "Spades" : (s == Suit::Hearts) ? "Hearts" : (s == Suit::Diamonds) ? "Diamonds" : "Clubs";
                 if (rStr[0] != '\0') {
-                    std::snprintf(desc, sizeof(desc), "Card %zu/53: %s of %s", i + 1, rStr, sStr);
+                    std::snprintf(desc, sizeof(desc), "Card %zu/54: %s of %s", i + 1, rStr, sStr);
                 } else {
-                    std::snprintf(desc, sizeof(desc), "Card %zu/53: %u of %s", i + 1, r, sStr);
+                    std::snprintf(desc, sizeof(desc), "Card %zu/54: %u of %s", i + 1, r, sStr);
                 }
             }
             if (!onProgress(frac, desc)) {
@@ -1465,39 +1475,35 @@ static void saveBinaryCache(const std::string& binPath, int cardW, int cardH,
 #endif
 }
 
-static bool rasterizeSvgToTextures(NSVGimage* image, int cardW, int cardH,
-                                   std::array<CardTexture, CardTextureCache::kTotalTextures>& textures,
-                                   DeckThemeId currentTheme,
-                                   const std::string& binPath) {
-    NSVGrasterizer* rast = nsvgCreateRasterizer();
-    if (!rast) {
-        nsvgDelete(image);
-        return false;
-    }
+struct SheetCellMapping {
+    size_t cell;
+    size_t destIdx;
+};
 
-    constexpr float kCellW = 750.0f;
-    const float scale = static_cast<float>(cardW) / kCellW;
-
-    const int cols = 9;
-    const int rows = 6;
-    const int totalW = cols * cardW;
-    const int totalH = rows * cardH;
-
-    std::cout << "[SolEngine] Rasterizing full SVG deck sheet (" << totalW << "x" << totalH << ") ...\n";
-
-    std::vector<uint8_t> sheetRgba(static_cast<size_t>(totalW * totalH * 4), 0);
-    nsvgRasterize(rast, image, 0.0f, 0.0f, scale, sheetRgba.data(), totalW, totalH, totalW * 4);
-
-    nsvgDeleteRasterizer(rast);
-    nsvgDelete(image);
-
-    // Extract and composite each card face onto background color
+static std::array<SheetCellMapping, 54> buildSheetCellMappings() noexcept {
+    std::array<SheetCellMapping, 54> mappings{};
+    size_t idx = 0;
     const Suit suits[4] = { Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs };
     for (Suit s : suits) {
         for (uint8_t r = 1; r <= 13; ++r) {
             Rank rank = static_cast<Rank>(r);
-            size_t cell = svgCellIndexForCard(s, rank);
-            size_t destIdx = CardTextureCache::cardIndex(s, rank);
+            mappings[idx++] = { svgCellIndexForCard(s, rank), CardTextureCache::cardIndex(s, rank) };
+        }
+    }
+    mappings[idx++] = { 52, CardTextureCache::kJokerBlackIndex };
+    mappings[idx++] = { 53, CardTextureCache::kJokerRedIndex };
+    return mappings;
+}
+
+static bool sliceSheetRgbaToTextures(const std::vector<uint8_t>& sheetRgba, int cardW, int cardH, int totalW,
+                                       std::array<CardTexture, CardTextureCache::kTotalTextures>& textures,
+                                       DeckThemeId currentTheme,
+                                       const std::string& binPath) {
+    const int totalH = 6 * cardH;
+    // Extract and composite each card face (52 standard + 2 Jokers) onto background color
+    for (const auto& m : buildSheetCellMappings()) {
+        size_t cell = m.cell;
+        size_t destIdx = m.destIdx;
 
             int col = static_cast<int>(cell % 9);
             int row = static_cast<int>(cell / 9);
@@ -1542,7 +1548,6 @@ static bool rasterizeSvgToTextures(NSVGimage* image, int cardW, int cardH,
                     dst += 4;
                 }
             }
-        }
     }
 
     bakeThemeCardBack(textures[CardTextureCache::kCardBackIndex], currentTheme, cardW, cardH);
@@ -1564,12 +1569,9 @@ static bool processDecodedSheet(const uint8_t* sheetData, int sheetW, int sheetH
     const int cellSrcW = sheetW / cols;
     const int cellSrcH = sheetH / rows;
 
-    const Suit suits[4] = { Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs };
-    for (Suit s : suits) {
-        for (uint8_t r = 1; r <= 13; ++r) {
-            Rank rank = static_cast<Rank>(r);
-            size_t cell = svgCellIndexForCard(s, rank);
-            size_t destIdx = CardTextureCache::cardIndex(s, rank);
+    for (const auto& m : buildSheetCellMappings()) {
+        size_t cell = m.cell;
+        size_t destIdx = m.destIdx;
 
             int col = static_cast<int>(cell % cols);
             int row = static_cast<int>(cell / cols);
@@ -1614,7 +1616,6 @@ static bool processDecodedSheet(const uint8_t* sheetData, int sheetW, int sheetH
                     }
                 }
             }
-        }
     }
 
     bakeThemeCardBack(textures[CardTextureCache::kCardBackIndex], currentTheme, cardW, cardH);
@@ -1624,6 +1625,53 @@ static bool processDecodedSheet(const uint8_t* sheetData, int sheetW, int sheetH
         saveBinaryCache(binPath, cardW, cardH, textures);
     }
     return true;
+}
+
+static bool rasterizeSvgToTextures(NSVGimage* image, int cardW, int cardH,
+                                   std::array<CardTexture, CardTextureCache::kTotalTextures>& textures,
+                                   DeckThemeId currentTheme,
+                                   const std::string& binPath) {
+    NSVGrasterizer* rast = nsvgCreateRasterizer();
+    if (!rast) {
+        nsvgDelete(image);
+        return false;
+    }
+
+    constexpr float kCellW = 750.0f;
+    const float scale = static_cast<float>(cardW) / kCellW;
+
+    const int cols = 9;
+    const int rows = 6;
+    const int totalW = cols * cardW;
+    const int totalH = rows * cardH;
+
+    std::cout << "[SolEngine] Rasterizing full SVG deck sheet (" << totalW << "x" << totalH << ") ...\n";
+
+    std::vector<uint8_t> sheetRgba(static_cast<size_t>(totalW * totalH * 4), 0);
+    nsvgRasterize(rast, image, 0.0f, 0.0f, scale, sheetRgba.data(), totalW, totalH, totalW * 4);
+
+    nsvgDeleteRasterizer(rast);
+    nsvgDelete(image);
+
+    return sliceSheetRgbaToTextures(sheetRgba, cardW, cardH, totalW, textures, currentTheme, binPath);
+}
+
+static bool rasterizeVectorToTextures(const VectorImage& image, int cardW, int cardH,
+                                      std::array<CardTexture, CardTextureCache::kTotalTextures>& textures,
+                                      DeckThemeId currentTheme,
+                                      const std::string& binPath) {
+    const int cols = 9;
+    const int rows = 6;
+    const int totalW = cols * cardW;
+    const int totalH = rows * cardH;
+
+    std::cout << "[SolEngine] Rasterizing EVEC binary vector deck sheet (" << totalW << "x" << totalH << ") ...\n";
+
+    std::vector<uint8_t> sheetRgba(static_cast<size_t>(totalW * totalH * 4), 0);
+    VectorRasterizer::rasterizeToRgba(image, sheetRgba.data(), totalW, totalH,
+                                      0.0f, 0.0f, static_cast<float>(totalW), static_cast<float>(totalH), false);
+
+    return sliceSheetRgbaToTextures(sheetRgba, cardW, cardH, totalW, textures, currentTheme, binPath);
 }
 
 static void bakeBaseProceduralDeck(
@@ -1691,6 +1739,19 @@ static bool loadBaseFromMemory(
             if (onProgress && !onProgress(1.0f, "Loaded cached deck artwork.")) return false;
             return true;
         }
+    }
+
+    if (format == "evec" || format == "evecz" || format == "evec_zlib" || format == "evec_deflate") {
+        if (onProgress && !onProgress(0.20f, "Decoding binary vector deck payload...")) return false;
+        VectorImage vecImg;
+        if (!VectorImage::parseAuto(reinterpret_cast<const uint8_t*>(data), size, vecImg)) {
+            std::cerr << "[SolEngine] Failed to parse EVEC binary vector deck\n";
+            return false;
+        }
+        if (onProgress && !onProgress(0.60f, "Rasterizing high-DPI binary vector card sheet...")) return false;
+        bool ok = rasterizeVectorToTextures(vecImg, cardW, cardH, outBase, theme, binPath);
+        if (ok && onProgress && !onProgress(1.0f, "Binary vector card sheet rasterized.")) return false;
+        return ok;
     }
 
     if (format == "svgz" || format == "svg_zlib" || format == "svg_deflate") {
@@ -2868,6 +2929,12 @@ void CardTextureCache::commitStagedDeck(StagingDeck&& staging) {
     }
     textures_ = std::move(staging.textures);
     currentTheme_ = staging.theme;
+    if (!staging.deckId.empty()) {
+        currentDeckId_ = staging.deckId;
+    } else if (currentTheme_ != DeckThemeId::Custom) {
+        currentDeckId_ = deckThemeName(currentTheme_);
+        for (char& c : currentDeckId_) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
     wearLevel_ = staging.wearLevel;
     cardStock_ = staging.cardStock;
     cardW_ = staging.cardW;
@@ -2877,6 +2944,7 @@ void CardTextureCache::commitStagedDeck(StagingDeck&& staging) {
     }
     previewFaceTexture_ = textures_[cardIndex(Suit::Spades, Rank::Queen)];
     previewDeckTheme_ = currentTheme_;
+    previewDeckId_ = currentDeckId_;
     setActiveCardBack(activeCardBackId_);
     isLoaded_ = true;
     atlasDirty_ = true;
@@ -2911,6 +2979,10 @@ bool CardTextureCache::loadEatsDeck(const std::string& eatsFilePath, int cardW, 
         return false;
     }
     currentTheme_ = theme;
+    if (theme != DeckThemeId::Custom) {
+        currentDeckId_ = deckThemeName(theme);
+        for (char& c : currentDeckId_) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
     cardW_ = targetW;
     cardH_ = targetH;
     if (cornerRadius >= 0.0f) {
@@ -2958,6 +3030,12 @@ const CardTexture* CardTextureCache::getCardTexture(Suit s, Rank r) const noexce
     return (idx < textures_.size() && isLoaded_) ? &textures_[idx] : nullptr;
 }
 
+const CardTexture* CardTextureCache::getJokerTexture(bool red) const noexcept {
+    if (!isLoaded_) return nullptr;
+    size_t idx = red ? kJokerRedIndex : kJokerBlackIndex;
+    return (idx < textures_.size() && textures_[idx].width > 0) ? &textures_[idx] : nullptr;
+}
+
 const CardTexture* CardTextureCache::getCardBackTexture(uint8_t cardId) const noexcept {
     if (!isLoaded_) return nullptr;
     const size_t v = static_cast<size_t>(cardId) % kCardBackVariants;
@@ -2971,9 +3049,78 @@ const CardTexture* CardTextureCache::getTextureByIndex(size_t index) const noexc
 bool CardTextureCache::buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer) {
     if (!isLoaded_) return false;
 
-    // 4096 x 4096 texture atlas for the GPU, holding uncompressed native full-resolution cards
+    // 4096 x 4096 texture atlas for the GPU, holding uncompressed native full-resolution cards.
+    // Stream each card slot directly to the GPU texture to avoid allocating a 64 MB CPU staging buffer.
     constexpr int kAtlasDim = 4096;
-    std::vector<uint32_t> atlasRgba(static_cast<size_t>(kAtlasDim * kAtlasDim), 0);
+    std::vector<uint8_t> swizzleScratch;
+
+    auto uploadSlot = [&](const CardTexture& tex, int slotIdx, CardAtlasSlot& outSlot, bool useMip1Fallback) -> bool {
+        int srcW = 0;
+        int srcH = 0;
+        const uint8_t* rgbaPtr = nullptr;
+
+        if (!useMip1Fallback && tex.rgba.size() >= static_cast<size_t>(tex.width) * tex.height * 4) {
+            srcW = tex.width;
+            srcH = tex.height;
+            rgbaPtr = tex.rgba.data();
+        } else if (useMip1Fallback && tex.mip1.size() >= static_cast<size_t>((tex.width / 2) * (tex.height / 2))) {
+            srcW = tex.width / 2;
+            srcH = tex.height / 2;
+            const size_t pxCount = static_cast<size_t>(srcW) * srcH;
+            swizzleScratch.resize(pxCount * 4);
+            for (size_t p = 0; p < pxCount; ++p) {
+                uint32_t c = tex.mip1[p];
+                swizzleScratch[p * 4 + 0] = static_cast<uint8_t>((c >> 16) & 0xFF);
+                swizzleScratch[p * 4 + 1] = static_cast<uint8_t>((c >> 8) & 0xFF);
+                swizzleScratch[p * 4 + 2] = static_cast<uint8_t>(c & 0xFF);
+                swizzleScratch[p * 4 + 3] = static_cast<uint8_t>((c >> 24) & 0xFF);
+            }
+            rgbaPtr = swizzleScratch.data();
+        } else if (tex.rgba.size() >= static_cast<size_t>(tex.width) * tex.height * 4) {
+            srcW = tex.width;
+            srcH = tex.height;
+            rgbaPtr = tex.rgba.data();
+        } else if (tex.argb32.size() >= static_cast<size_t>(tex.width) * tex.height) {
+            srcW = tex.width;
+            srcH = tex.height;
+            const size_t pxCount = static_cast<size_t>(srcW) * srcH;
+            swizzleScratch.resize(pxCount * 4);
+            for (size_t p = 0; p < pxCount; ++p) {
+                uint32_t c = tex.argb32[p];
+                swizzleScratch[p * 4 + 0] = static_cast<uint8_t>((c >> 16) & 0xFF);
+                swizzleScratch[p * 4 + 1] = static_cast<uint8_t>((c >> 8) & 0xFF);
+                swizzleScratch[p * 4 + 2] = static_cast<uint8_t>(c & 0xFF);
+                swizzleScratch[p * 4 + 3] = static_cast<uint8_t>((c >> 24) & 0xFF);
+            }
+            rgbaPtr = swizzleScratch.data();
+        } else {
+            return false;
+        }
+
+        const int slotPitchX = srcW + 4;
+        const int slotPitchY = srcH + 4;
+        const int cols = std::max(1, (kAtlasDim - 4) / slotPitchX);
+        const int col = slotIdx % cols;
+        const int row = slotIdx / cols;
+
+        const int slotX = 2 + col * slotPitchX;
+        const int slotY = 2 + row * slotPitchY;
+
+        if (slotX + srcW > kAtlasDim || slotY + srcH > kAtlasDim) {
+            std::cerr << "[SolEngine] Card texture atlas overflow at slot " << slotIdx << "!\n";
+            return false;
+        }
+
+        renderer.updateRgbaTexture(slotX, slotY, srcW, srcH, rgbaPtr, srcW, srcH);
+
+        outSlot.u0 = (static_cast<float>(slotX) + 0.5f) / static_cast<float>(kAtlasDim);
+        outSlot.v0 = (static_cast<float>(slotY) + 0.5f) / static_cast<float>(kAtlasDim);
+        outSlot.u1 = (static_cast<float>(slotX + srcW) - 0.5f) / static_cast<float>(kAtlasDim);
+        outSlot.v1 = (static_cast<float>(slotY + srcH) - 0.5f) / static_cast<float>(kAtlasDim);
+        outSlot.width = srcW;
+        outSlot.height = srcH;
+        return true;
+    };
 
     // Check if full-resolution fits in the 4096 atlas; otherwise fall back to mip1
     bool preferNative = true;
@@ -2991,108 +3138,20 @@ bool CardTextureCache::buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer) {
     int reportedH = 0;
 
     for (size_t i = 0; i < kTotalTextures; ++i) {
-        const CardTexture& tex = textures_[i];
-        int srcW = 0;
-        int srcH = 0;
-        const uint32_t* srcData = nullptr;
-
-        // Prefer native full-resolution ARGB32 (e.g. 360x504) for razor-sharp cards
-        if (preferNative && tex.argb32.size() >= static_cast<size_t>(tex.width * tex.height)) {
-            srcW = tex.width;
-            srcH = tex.height;
-            srcData = tex.argb32.data();
-        } else if (tex.mip1.size() >= static_cast<size_t>((tex.width / 2) * (tex.height / 2))) {
-            srcW = tex.width / 2;
-            srcH = tex.height / 2;
-            srcData = tex.mip1.data();
-        } else if (tex.argb32.size() >= static_cast<size_t>(tex.width * tex.height)) {
-            srcW = tex.width;
-            srcH = tex.height;
-            srcData = tex.argb32.data();
-        } else {
-            continue;
+        if (uploadSlot(textures_[i], static_cast<int>(i), atlasSlots_[i], !preferNative)) {
+            reportedW = atlasSlots_[i].width;
+            reportedH = atlasSlots_[i].height;
         }
-
-        reportedW = srcW;
-        reportedH = srcH;
-
-        int slotPitchX = srcW + 4;
-        int slotPitchY = srcH + 4;
-        int cols = std::max(1, (kAtlasDim - 4) / slotPitchX);
-        int col = static_cast<int>(i) % cols;
-        int row = static_cast<int>(i) / cols;
-
-        int slotX = 2 + col * slotPitchX;
-        int slotY = 2 + row * slotPitchY;
-
-        if (slotX + srcW > kAtlasDim || slotY + srcH > kAtlasDim) {
-            std::cerr << "[SolEngine] Card texture atlas overflow at card " << i << "!\n";
-            break;
-        }
-
-        // Copy source ARGB32 into atlas RGBA8
-        for (int y = 0; y < srcH; ++y) {
-            uint32_t* dstRow = &atlasRgba[static_cast<size_t>(slotY + y) * kAtlasDim + slotX];
-            const uint32_t* srcRow = &srcData[static_cast<size_t>(y) * srcW];
-            for (int x = 0; x < srcW; ++x) {
-                uint32_t c = srcRow[x];
-                uint32_t r = (c >> 16) & 0xFF;
-                uint32_t g = (c >> 8) & 0xFF;
-                uint32_t b = c & 0xFF;
-                uint32_t a = (c >> 24) & 0xFF;
-                dstRow[x] = (a << 24) | (b << 16) | (g << 8) | r;
-            }
-        }
-
-        atlasSlots_[i].u0 = (static_cast<float>(slotX) + 0.5f) / static_cast<float>(kAtlasDim);
-        atlasSlots_[i].v0 = (static_cast<float>(slotY) + 0.5f) / static_cast<float>(kAtlasDim);
-        atlasSlots_[i].u1 = (static_cast<float>(slotX + srcW) - 0.5f) / static_cast<float>(kAtlasDim);
-        atlasSlots_[i].v1 = (static_cast<float>(slotY + srcH) - 0.5f) / static_cast<float>(kAtlasDim);
-        atlasSlots_[i].width = srcW;
-        atlasSlots_[i].height = srcH;
     }
 
     // Dedicated Slot 53: Preview Sample Card Face (e.g. Queen of Spades for previewing uncommitted deck theme)
-    const CardTexture* previewSrc = (previewFaceTexture_.width > 0 && !previewFaceTexture_.argb32.empty())
+    const CardTexture* previewSrc = (previewFaceTexture_.width > 0 && (!previewFaceTexture_.rgba.empty() || !previewFaceTexture_.argb32.empty()))
         ? &previewFaceTexture_
         : &textures_[cardIndex(Suit::Spades, Rank::Queen)];
-    if (previewSrc && previewSrc->width > 0 && previewSrc->argb32.size() >= static_cast<size_t>(previewSrc->width * previewSrc->height)) {
-        int srcW = previewSrc->width;
-        int srcH = previewSrc->height;
-        int slotPitchX = srcW + 4;
-        int slotPitchY = srcH + 4;
-        int cols = std::max(1, (kAtlasDim - 4) / slotPitchX);
-        int slotIdx = static_cast<int>(kTotalTextures);
-        int col = slotIdx % cols;
-        int row = slotIdx / cols;
-        int slotX = 2 + col * slotPitchX;
-        int slotY = 2 + row * slotPitchY;
-
-        if (slotX + srcW <= kAtlasDim && slotY + srcH <= kAtlasDim) {
-            for (int y = 0; y < srcH; ++y) {
-                uint32_t* dstRow = &atlasRgba[static_cast<size_t>(slotY + y) * kAtlasDim + slotX];
-                const uint32_t* srcRow = &previewSrc->argb32[static_cast<size_t>(y) * srcW];
-                for (int x = 0; x < srcW; ++x) {
-                    uint32_t c = srcRow[x];
-                    uint32_t r = (c >> 16) & 0xFF;
-                    uint32_t g = (c >> 8) & 0xFF;
-                    uint32_t b = c & 0xFF;
-                    uint32_t a = (c >> 24) & 0xFF;
-                    dstRow[x] = (a << 24) | (b << 16) | (g << 8) | r;
-                }
-            }
-            previewFaceAtlasSlot_.u0 = (static_cast<float>(slotX) + 0.5f) / static_cast<float>(kAtlasDim);
-            previewFaceAtlasSlot_.v0 = (static_cast<float>(slotY) + 0.5f) / static_cast<float>(kAtlasDim);
-            previewFaceAtlasSlot_.u1 = (static_cast<float>(slotX + srcW) - 0.5f) / static_cast<float>(kAtlasDim);
-            previewFaceAtlasSlot_.v1 = (static_cast<float>(slotY + srcH) - 0.5f) / static_cast<float>(kAtlasDim);
-            previewFaceAtlasSlot_.width = srcW;
-            previewFaceAtlasSlot_.height = srcH;
-        }
+    if (previewSrc && previewSrc->width > 0) {
+        uploadSlot(*previewSrc, static_cast<int>(kTotalTextures), previewFaceAtlasSlot_, !preferNative);
     }
 
-    renderer.updateRgbaTexture(0, 0, kAtlasDim, kAtlasDim,
-                               reinterpret_cast<const uint8_t*>(atlasRgba.data()),
-                               kAtlasDim, kAtlasDim);
     hasGpuAtlas_ = true;
     atlasDirty_ = false;
     std::cout << "[SolEngine] Card texture GPU atlas built successfully (4096x4096 RGBA8, 53 cards, slot size "
@@ -3103,6 +3162,10 @@ bool CardTextureCache::buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer) {
 const CardAtlasSlot& CardTextureCache::getAtlasSlot(Suit s, Rank r) const noexcept {
     size_t idx = cardIndex(s, r);
     return atlasSlots_[idx];
+}
+
+const CardAtlasSlot& CardTextureCache::getJokerAtlasSlot(bool red) const noexcept {
+    return atlasSlots_[red ? kJokerRedIndex : kJokerBlackIndex];
 }
 
 const CardAtlasSlot& CardTextureCache::getBackAtlasSlot(uint8_t cardId) const noexcept {
@@ -3163,10 +3226,243 @@ const CardAtlasSlot& CardTextureCache::getPreviewFaceAtlasSlot() const noexcept 
 }
 
 const CardTexture* CardTextureCache::getPreviewFaceTexture() const noexcept {
-    if (previewFaceTexture_.width > 0 && !previewFaceTexture_.argb32.empty()) {
+    if (previewFaceTexture_.width > 0 && (!previewFaceTexture_.rgba.empty() || !previewFaceTexture_.argb32.empty())) {
         return &previewFaceTexture_;
     }
     return getCardTexture(Suit::Spades, Rank::Queen);
+}
+
+static std::string toLowerCopy(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+static std::string extractEatsMetaField(const std::string& header, const char* key) {
+    // Match `key: "..."` or `key = "..."` in the first ~4KB of an .eats deck file
+    const std::string k1 = std::string(key) + ":";
+    const std::string k2 = std::string(key) + " =";
+    size_t pos = header.find(k1);
+    if (pos == std::string::npos) pos = header.find(k2);
+    if (pos == std::string::npos) return "";
+    size_t q1 = header.find('"', pos);
+    if (q1 == std::string::npos) return "";
+    size_t q2 = header.find('"', q1 + 1);
+    if (q2 == std::string::npos) return "";
+    return header.substr(q1 + 1, q2 - q1 - 1);
+}
+
+static DeckThemeId mapDeckSlugToLegacyId(const std::string& id) {
+    std::string low = toLowerCopy(id);
+    if (low == "solenshade") return DeckThemeId::SolEnshade;
+    if (low == "classic") return DeckThemeId::ClassicSvg;
+    if (low == "steampunk") return DeckThemeId::SteampunkAi;
+    if (low == "anime") return DeckThemeId::Anime;
+    if (low == "cyberpunk") return DeckThemeId::Cyberpunk;
+    if (low == "baroque_arches" || low == "baroque_noir" || low == "baroque") return DeckThemeId::BaroqueNoir;
+    if (low == "baroque_light" || low == "baroque_alabaster") return DeckThemeId::BaroqueLight;
+    if (low == "baroque_dark") return DeckThemeId::BaroqueDark;
+    if (low == "baroque_cell_shaded" || low == "imperial_baroque") return DeckThemeId::BaroqueCellShaded;
+    if (low == "shader_stained_glass") return DeckThemeId::StainedGlass;
+    if (low == "shader_holo_synthwave") return DeckThemeId::PolychromeCrt;
+    if (low == "shader_watercolor_sketch") return DeckThemeId::WatercolorSketch;
+    return DeckThemeId::Custom;
+}
+
+void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
+    scannedDecks_.clear();
+    scannedDecks_.push_back(DeckDef{ "solenshade", "SOLENSHADE", "", DeckThemeId::SolEnshade });
+
+    std::error_code ec;
+    const std::string searchPaths[] = {
+        decksDir,
+        "/" + decksDir,
+        "../" + decksDir,
+        "../../" + decksDir,
+        "../../../" + decksDir,
+        "assets/" + decksDir,
+        "../assets/" + decksDir,
+        "./" + decksDir
+    };
+
+    std::string targetDir;
+    for (const auto& sp : searchPaths) {
+        if (std::filesystem::exists(sp, ec) && std::filesystem::is_directory(sp, ec)) {
+            targetDir = sp;
+            break;
+        }
+    }
+
+    std::unordered_map<std::string, size_t> idToIndex;
+    idToIndex["solenshade"] = 0;
+
+    if (!targetDir.empty()) {
+        std::vector<DeckDef> discovered;
+        for (const auto& entry : std::filesystem::directory_iterator(targetDir, ec)) {
+            if (!entry.is_regular_file(ec)) continue;
+            std::string ext = toLowerCopy(entry.path().extension().string());
+            if (ext != ".eats") continue;
+
+            std::string filePath = entry.path().string();
+            std::string stem = entry.path().stem().string();
+            if (toLowerCopy(stem) == "custom") continue;
+
+            std::string header;
+            std::ifstream f(filePath, std::ios::binary);
+            if (f.is_open()) {
+                header.resize(4096, '\0');
+                f.read(&header[0], 4096);
+                header.resize(static_cast<size_t>(f.gcount()));
+            }
+
+            std::string id = extractEatsMetaField(header, "id");
+            if (id.empty()) id = toLowerCopy(stem);
+            std::string name = extractEatsMetaField(header, "name");
+            if (name.empty()) name = stem;
+
+            DeckDef def;
+            def.id = toLowerCopy(id);
+            def.name = name;
+            def.filePath = filePath;
+            def.legacyId = mapDeckSlugToLegacyId(def.id);
+            discovered.push_back(std::move(def));
+        }
+
+        std::sort(discovered.begin(), discovered.end(), [](const DeckDef& a, const DeckDef& b) {
+            return toLowerCopy(a.name) < toLowerCopy(b.name);
+        });
+
+        for (auto& d : discovered) {
+            if (idToIndex.find(d.id) == idToIndex.end()) {
+                idToIndex[d.id] = scannedDecks_.size();
+                scannedDecks_.push_back(std::move(d));
+            }
+        }
+    }
+
+#if defined(__EMSCRIPTEN__)
+    // Include web-streamable decks hosted on GitHub Pages even if not preloaded into MEMFS /decks/
+    const DeckDef webStreamDecks[] = {
+        { "steampunk", "STEAMPUNK", "", DeckThemeId::SteampunkAi },
+        { "anime", "ANIME", "", DeckThemeId::Anime },
+        { "cyberpunk", "CYBERPUNK", "", DeckThemeId::Cyberpunk },
+        { "baroque_light", "BAROQUE LIGHT", "", DeckThemeId::BaroqueLight },
+        { "baroque_dark", "BAROQUE DARK", "", DeckThemeId::BaroqueDark },
+    };
+    for (const auto& wd : webStreamDecks) {
+        if (idToIndex.find(wd.id) == idToIndex.end()) {
+            idToIndex[wd.id] = scannedDecks_.size();
+            scannedDecks_.push_back(wd);
+        }
+    }
+#endif
+
+    decksScanned_ = true;
+}
+
+const std::vector<CardTextureCache::DeckDef>& CardTextureCache::availableDecks() {
+    if (!decksScanned_) {
+        scanDecksFolder("decks");
+    }
+    return scannedDecks_;
+}
+
+size_t CardTextureCache::findDeckIndex(const std::string& slug, DeckThemeId legacyFallback) const {
+    const auto& decks = scannedDecks_;
+    std::string low = toLowerCopy(slug);
+    if (!low.empty()) {
+        for (size_t i = 0; i < decks.size(); ++i) {
+            if (decks[i].id == low) return i;
+        }
+    }
+    for (size_t i = 0; i < decks.size(); ++i) {
+        if (decks[i].legacyId == legacyFallback) return i;
+    }
+    return 0;
+}
+
+const CardTextureCache::DeckDef* CardTextureCache::getDeckDef(size_t index) const {
+    if (index < scannedDecks_.size()) return &scannedDecks_[index];
+    return nullptr;
+}
+
+bool CardTextureCache::loadDeckByDef(const DeckDef& def, int cardW, int cardH) {
+    bool ok = false;
+    if (!def.filePath.empty()) {
+        ok = loadEatsDeck(def.filePath, cardW, cardH);
+    } else {
+        ok = loadDeckTheme(def.legacyId, cardW, cardH);
+    }
+    if (ok) {
+        currentDeckId_ = def.id;
+        if (def.legacyId != DeckThemeId::Custom) {
+            currentTheme_ = def.legacyId;
+        }
+    }
+    return ok;
+}
+
+bool CardTextureCache::loadStagedDeckByDef(
+    StagingDeck& staging,
+    const DeckDef& def,
+    CardWearLevel wear,
+    CardStock stock,
+    int cardW,
+    int cardH,
+    const ProgressCallback& onProgress
+) {
+    staging.deckId = def.id;
+    if (!def.filePath.empty()) {
+        bool ok = loadStagedFileDeck(staging, def.filePath, wear, stock, cardW, cardH, onProgress);
+        if (ok && def.legacyId != DeckThemeId::Custom) {
+            staging.theme = def.legacyId;
+        }
+        return ok;
+    }
+    return loadStagedDeckTheme(staging, def.legacyId, wear, stock, cardW, cardH, onProgress);
+}
+
+void CardTextureCache::updatePreviewCardByDef(const DeckDef& def, CardWearLevel wear, CardStock stock) {
+    previewDeckTheme_ = def.legacyId;
+    previewDeckId_ = def.id;
+    size_t qIdx = cardIndex(Suit::Spades, Rank::Queen);
+
+    const CardTexture* pristineSrc = nullptr;
+    if (def.id == currentDeckId_) {
+        if (!baseTextures_[qIdx].rgba.empty()) {
+            pristineSrc = &baseTextures_[qIdx];
+        } else if (!textures_[qIdx].rgba.empty()) {
+            pristineSrc = &textures_[qIdx];
+        }
+    } else if (!def.filePath.empty()) {
+        auto it = sampleDeckCardCache_.find(def.id);
+        if (it != sampleDeckCardCache_.end()) {
+            pristineSrc = &it->second;
+        } else {
+            std::array<CardTexture, kTotalTextures> tempBase;
+            DeckThemeId dummyTheme = def.legacyId;
+            float dummyRadius = -1.0f;
+            int w = cardW_, h = cardH_;
+            if (loadBaseFromEats(def.filePath, w, h, dummyTheme, dummyRadius, tempBase, nullptr)) {
+                sampleDeckCardCache_[def.id] = std::move(tempBase[qIdx]);
+                pristineSrc = &sampleDeckCardCache_[def.id];
+            }
+        }
+    } else {
+        updatePreviewCard(def.legacyId, wear, stock);
+        return;
+    }
+
+    if (!pristineSrc || pristineSrc->rgba.empty()) {
+        return;
+    }
+
+    WearParams wp = getWearParams(wear, stock);
+    conditionSingleCard(*pristineSrc, previewFaceTexture_, qIdx, wear, stock, wp);
+    syncArgb32AndMipsSingle(previewFaceTexture_);
+
+    if (hasGpuAtlas_) {
+        atlasDirty_ = true;
+    }
 }
 
 } // namespace solengine
