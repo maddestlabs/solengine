@@ -158,61 +158,64 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "`n[+] Build successful!" -ForegroundColor Green
 
-# Stage on-demand decks and themes (served statically alongside WASM without payload bloat)
-$webDecksDir = Join-Path $buildDir "decks"
-if (-not (Test-Path $webDecksDir)) {
-    New-Item -ItemType Directory -Path $webDecksDir -Force | Out-Null
-}
-Get-ChildItem -Path (Join-Path $rootDir "decks") | ForEach-Object {
-    Copy-Item -Path $_.FullName -Destination (Join-Path $webDecksDir $_.Name) -Force
-}
-
-$webThemesDir = Join-Path $buildDir "themes"
-if (-not (Test-Path $webThemesDir)) {
-    New-Item -ItemType Directory -Path $webThemesDir -Force | Out-Null
-}
-Get-ChildItem -Path (Join-Path $rootDir "themes") | ForEach-Object {
-    Copy-Item -Path $_.FullName -Destination (Join-Path $webThemesDir $_.Name) -Force
-}
-
-$webGamesDir = Join-Path $buildDir "games"
-if (-not (Test-Path $webGamesDir)) {
-    New-Item -ItemType Directory -Path $webGamesDir -Force | Out-Null
-}
-Get-ChildItem -Path (Join-Path $rootDir "games") | ForEach-Object {
-    Copy-Item -Path $_.FullName -Destination (Join-Path $webGamesDir $_.Name) -Force
-}
-
-$webSoundsDir = Join-Path $buildDir "sounds"
-if (-not (Test-Path $webSoundsDir)) {
-    New-Item -ItemType Directory -Path $webSoundsDir -Force | Out-Null
-}
-Get-ChildItem -Path (Join-Path $rootDir "sounds") | ForEach-Object {
-    Copy-Item -Path $_.FullName -Destination (Join-Path $webSoundsDir $_.Name) -Force
+# Pre-compress heavy web payloads (.wasm, .data) for GitHub Pages / static hosts;
+# web/index.html streams these via native DecompressionStream('gzip') with automatic fallback.
+function Compress-WebArtifact {
+    param([string]$FilePath)
+    if (-not (Test-Path $FilePath)) { return }
+    $gzPath = "$FilePath.gz"
+    $inStream = [System.IO.File]::OpenRead($FilePath)
+    try {
+        $outStream = [System.IO.File]::Create($gzPath)
+        try {
+            $gzip = New-Object System.IO.Compression.GZipStream($outStream, [System.IO.Compression.CompressionLevel]::Optimal)
+            try {
+                $inStream.CopyTo($gzip)
+            } finally {
+                $gzip.Dispose()
+            }
+        } finally {
+            $outStream.Dispose()
+        }
+    } finally {
+        $inStream.Dispose()
+    }
+    $rawLen = (Get-Item $FilePath).Length
+    $gzLen = (Get-Item $gzPath).Length
+    $pct = if ($rawLen -gt 0) { [Math]::Round(($gzLen / $rawLen) * 100, 1) } else { 0 }
+    Write-Host ("    [Gzip] {0}.gz ({1:N0} -> {2:N0} bytes, {3}%)" -f (Split-Path $FilePath -Leaf), $rawLen, $gzLen, $pct) -ForegroundColor Cyan
 }
 
-# Also stage directly to /web/ so static hosts / dev servers pointing to /web/ have immediate access
+Compress-WebArtifact -FilePath (Join-Path $buildDir "solengine.wasm")
+Compress-WebArtifact -FilePath (Join-Path $buildDir "solengine.data")
+
+# Sync *.eats assets to build-web/ and web/ (removing stale files so deleted assets don't linger)
+function Sync-WebAssetDir {
+    param(
+        [string]$SourceDir,
+        [string]$DestDir
+    )
+    if (-not (Test-Path $SourceDir)) { return }
+    if (-not (Test-Path $DestDir)) {
+        New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
+    }
+    $sourceFiles = Get-ChildItem -Path $SourceDir -Filter "*.eats" -File
+    $sourceNames = @($sourceFiles | ForEach-Object { $_.Name })
+    Get-ChildItem -Path $DestDir -File | Where-Object { $sourceNames -notcontains $_.Name } | ForEach-Object {
+        Remove-Item -Path $_.FullName -Force
+    }
+    foreach ($file in $sourceFiles) {
+        Copy-Item -Path $file.FullName -Destination (Join-Path $DestDir $file.Name) -Force
+    }
+}
+
+$assetDirs = @("decks", "themes", "postfx", "games", "sounds", "ambience")
 $staticWebDir = Join-Path $rootDir "web"
-if (Test-Path $staticWebDir) {
-    $staticDecks = Join-Path $staticWebDir "decks"
-    if (-not (Test-Path $staticDecks)) { New-Item -ItemType Directory -Path $staticDecks -Force | Out-Null }
-    Get-ChildItem -Path (Join-Path $rootDir "decks") | ForEach-Object {
-        Copy-Item -Path $_.FullName -Destination (Join-Path $staticDecks $_.Name) -Force
-    }
-    $staticThemes = Join-Path $staticWebDir "themes"
-    if (-not (Test-Path $staticThemes)) { New-Item -ItemType Directory -Path $staticThemes -Force | Out-Null }
-    Get-ChildItem -Path (Join-Path $rootDir "themes") | ForEach-Object {
-        Copy-Item -Path $_.FullName -Destination (Join-Path $staticThemes $_.Name) -Force
-    }
-    $staticGames = Join-Path $staticWebDir "games"
-    if (-not (Test-Path $staticGames)) { New-Item -ItemType Directory -Path $staticGames -Force | Out-Null }
-    Get-ChildItem -Path (Join-Path $rootDir "games") | ForEach-Object {
-        Copy-Item -Path $_.FullName -Destination (Join-Path $staticGames $_.Name) -Force
-    }
-    $staticSounds = Join-Path $staticWebDir "sounds"
-    if (-not (Test-Path $staticSounds)) { New-Item -ItemType Directory -Path $staticSounds -Force | Out-Null }
-    Get-ChildItem -Path (Join-Path $rootDir "sounds") | ForEach-Object {
-        Copy-Item -Path $_.FullName -Destination (Join-Path $staticSounds $_.Name) -Force
+foreach ($dirName in $assetDirs) {
+    $srcPath = Join-Path $rootDir $dirName
+    Sync-WebAssetDir -SourceDir $srcPath -DestDir (Join-Path $buildDir $dirName)
+    if (Test-Path $staticWebDir) {
+        Sync-WebAssetDir -SourceDir $srcPath -DestDir (Join-Path $staticWebDir $dirName)
     }
 }
 
@@ -225,7 +228,7 @@ Write-Host "====================================================================
 
 $webArtifacts = @(
     @{ Name = "solengine.wasm"; Desc = "WebAssembly Core Binary" },
-    @{ Name = "solengine.data"; Desc = "Preloaded Core Assets (Classic Deck + Rosewood Theme)" },
+    @{ Name = "solengine.data"; Desc = "Preloaded Core Assets (*.eats across asset folders)" },
     @{ Name = "solengine.js";   Desc = "Emscripten JS Runtime Bridge" },
     @{ Name = "index.html";        Desc = "WebGPU Entry & PWA Host" },
     @{ Name = "sw.js";             Desc = "Offline PWA Service Worker (COOP/COEP)" },

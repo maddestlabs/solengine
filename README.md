@@ -9,15 +9,13 @@
 [![Graphics: WebGPU](https://img.shields.io/badge/Graphics-WebGPU%20%2F%20WGSL-red?style=flat-square)](file:///c:/git/solengine/src/gfx)
 [![Audio: miniaudio](https://img.shields.io/badge/Audio-miniaudio-orange?style=flat-square)](file:///c:/git/solengine/src/audio)
 
----
+![SolEngine - Klondike with default settings](docs/screenshots/klondike-lighting.jpg)
 
-## The Crucible
+---
 
 **SolEngine** is an ode to solitaire classics like *Hardwood Solitaire III* and the boundless monolith of *PySolFC*, remixed through modern **WebGPU** compute and fragment sorcery and a hybrid of procedural, vector and bitmap assets.
 
-To minimize runtime, SolEngine leans heavily into procedural generation.
-
-Every shuffle is deterministic, powered by an editable seed. Easily replay games via seeds. Built-in solver can ensure solvable games (depending on variant) and allows walkthrough of gameplay to facilitate learning new dynamics.
+To minimize runtime, SolEngine leans heavily into procedural generation and desperately wants to draw everything in code, never relying on external assets. Alas, it doth protest.
 
 Play instantly in your browser:  
 👉 **[Launch SolEngine](https://solengine.org/)**
@@ -27,20 +25,23 @@ Play instantly in your browser:
 ## The Core
 
 ### Scripting
-SolEngine is built around **Eatscript**: a declarative, Pythonic scripting dialect where game logic, layout topology, and card movement are define:
-- **Classic Solitaries:** *Klondike (Draw 1 & 3)*, *FreeCell*, *Spider (1, 2, & 4 Suits)*, *Yukon*.
+SolEngine is built around **Eatscript**: a Pythonic scripting dialect where game logic, layout topology, and card movement are defined:
+- **Classic Solitaries baked in:** *Klondike (Draw 1 & 3)*, *FreeCell*, *Spider (1, 2, & 4 Suits)*, *Yukon*.
+- **Modernized Solitaires baked twice:** *Scoundrel*, *Scoundrel Rookie*.
 - **Custom Variations:** Craft your own game rules via `.eats` scripts. Define tableaux, cell constraints, foundation ranks, reserve cascades, and victory conditions.
 
 ### Procedural API
 Table backgrounds in SolEngine are forged in WebGPU fragment shaders while card faces and card backs can be designed with bitmaps, vector API, rendered via shader code or any combination of these.
 
-### Classic Hardwood Ergonomics
-- **One-Tap / Right-Click Smart Moves:** Hover or select any card or substack and single-click to immediately route it along its mathematically optimal trajectory to Foundations or Tableau columns.
-- **Unreal World Physics:** Dragged and airborne cards fly with physical weight, damping, and spring restitution.
-- **Elevation Shadow Casters:** Cards in flight elevate dynamically above the board, casting soft, spring-damped drop shadows that react to card velocity and height.
+### Features
+- **One-Tap Smart Moves:** Hover or select any card or substack and single-click to immediately route it to Foundations or Tableau columns.
+- **Auto-solver / Auto-play:** Toggle 'Solvable' mode on and wait just a moment for a guaranteed game. Use Auto-play to learn new games, move through history and easily finish games.
+- **Soothing environments:** Realistic shadows and configurable environmental lighting coupled with synthesized audio depicting real world settings provide a relaxing backdrop for gameplay.
+- **Extensible:** Create your own Eatscript code to extend the game to infinity minus realistic engine constraints.
 
-### Hybrid Procedural Foley Audio
-Embued with the power of `miniaudio`, sound is synthesized dynamically and can likewise be designed via Eatscript.
+| Custom Eatscript & Auto-Play (`Scoundrel Rookie`) | Interactive Help & Zone Highlighting (`Spider 1 Suit`) |
+| :---: | :---: |
+| ![Scoundrel Rookie with Auto-Play Transport](docs/screenshots/scoundrel-autoplay.jpg) | ![Spider with Interactive Help & Odds Sidebar](docs/screenshots/spider-help-sidebar.jpg) |
 
 ---
 
@@ -80,16 +81,45 @@ Compile into WebAssembly using Emscripten and host locally:
 
 ## Table Controls & Keybindings
 
+### Mouse, Touch & Gestures
 | Action | Control |
 | :--- | :--- |
-| **Pick & Drag** | **Left Click + Drag** card or face-up substack |
-| **Smart Move** | **Right Click**, **Single Tap**, or **`Space`** to auto-route card |
-| **Deal Stock** | **Left Click** on the stock deck |
-| **Undo Move** | **`Z`** or **`Ctrl + Z`** (unlimited zero-allocation history) |
-| **Redo Move** | **`Y`** or **`Ctrl + Y`** |
+| **Pick & Drag** | **Left Click + Drag** a card or face-up substack |
+| **Smart Move** | **Single Tap / Click** (≤ 6 px drag) or **Right Click** on a card to auto-route it |
+| **Deal Stock** | **Left Click** on the stock pile (or recycle waste) |
+| **Open Settings** | **Right Click** on empty felt |
+| **Felt Swipe Gestures** | **Swipe Left** = Undo, **Swipe Right** = Redo, **Swipe Up** = Auto-Play, **Swipe Down** = Hint |
+| **Move Clockwork Toolbar** | **Drag** the Settings orb (`S`) to snap the toolbar to any corner or switch horizontal/vertical flow |
+| **Play Options Menu** | **Right Click** or **Hold** the New Game (`▶`) button |
+| **Toolbar Scale & Config** | **Tap** Resize (`⤢`) to cycle size (`Compact` / `Regular` / `Large`); **Right Click** or **Hold** to toggle toolbar buttons |
+| **Scroll Lists & Help** | **Mouse Wheel** or **Drag** inside Game Browser, Settings, and Help & Rules |
+| **Load Custom Script** | **Drag & Drop** a `.eats` file onto the window |
+
+### Gameplay & Auto-Play Keys
+| Action | Key |
+| :--- | :--- |
+| **New Deal** | **`N`** |
+| **Guaranteed Solvable Deal** | **`Shift + N`** |
+| **Restart Current Deal** | **`R`** |
+| **Undo / Redo** | **`Z`** / **`Y`** (also **`Ctrl + Z`** / **`Ctrl + Y`**) |
 | **Nether Sight (Hint)** | **`H`** (illuminates optimal move) |
-| **Auto-Foundation** | **`A`** (send all safe candidates home) |
-| **New Seeded Deal** | **`N`** (shuffles a fresh deterministic layout) |
+| **Toggle Auto-Play** | **`A`**, **`Space`**, or **`P`** (starts or pauses/resumes Auto-Play) |
+| **Auto-Play Step Back / Forward** | **`[`** / **`]`** |
+| **Cycle Auto-Play Speed** | **`F`** |
+| **Help & Rules Sidebar** | **`F1`** |
+| **Close Overlay / Stop Auto-Play** | **`Esc`** |
+
+### Menus, Quick Variants & Scene Hotkeys
+| Action | Key |
+| :--- | :--- |
+| **Game Browser** | **`G`** (`Up`/`Down` to select, `Enter` to launch, `Backspace` to edit search, `Esc` to close) |
+| **Settings Dialog** | **`O`** or **`M`** (`Tab` to switch tabs, `Enter` to apply, `Esc` to cancel) |
+| **Deal Seed Dialog** | **`Shift + 3`** (`#`) (`Ctrl+C` / `Ctrl+V` to copy/paste seed, `Enter` to deal) |
+| **Quick-Switch Variants** | **`1`** Klondike (Draw 1), **`2`** Klondike (Draw 3), **`3`** FreeCell, **`4`**–**`6`** Spider (1/2/4 Suits), **`7`** Golf |
+| **Cycle Table Theme / Deck** | **`T`** (Table Theme) / **`D`** (Card Deck) |
+| **Cycle Card Conditioning** | **`W`** (Wear), **`S`** (Card Stock), **`C`** (Corners), **`J`** (Organic Placement Jitter) |
+| **Cycle Lighting Preset** | **`L`** |
+| **Toggle Fullscreen** | **`F11`** or **`Alt + Enter`** |
 
 ---
 

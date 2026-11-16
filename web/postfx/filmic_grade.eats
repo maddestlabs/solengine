@@ -1,0 +1,48 @@
+# SolEngine Post-FX — Realistic Filmic Color Grade
+# Achieves grounded, real-world tonal response via soft highlight roll-off,
+# subtle shadow lift, and split-tone warmth/coolness.
+
+sol.set_postfx({
+    id: "filmic_grade",
+    name: "Filmic Color Grade",
+    author: "Maddest Labs",
+    description: "Real-world tonal curve with highlight roll-off and film stock split-toning",
+    option_label: "Stock",
+    gpu_cost: "Low",
+    options: [
+        { id: "kodak_2383",   name: "Kodak 2383",    u: [0.06, 1.05, 0.96, 1.12] },
+        { id: "golden_hour",  name: "Golden Hour",   u: [0.14, 1.08, 0.90, 1.06] },
+        { id: "cool_daylight",name: "Cool Daylight", u: [-0.08, 1.02, 1.04, 1.08] }
+    ]
+})
+
+def filmic_grade_shader(u, v, nx, ny, in_r, in_g, in_b):
+    # u0: warm/cool balance, u1: shadow lift/gain, u2: blue-channel bias, u3: contrast
+    r = in_r
+    g = in_g
+    b = in_b
+
+    # Soft filmic highlight roll-off (Reinhard-inspired knee)
+    kr = r / (1.0 + r * 0.22) * 1.18
+    kg = g / (1.0 + g * 0.22) * 1.18
+    kb = b / (1.0 + b * 0.22) * 1.18
+
+    # Gentle S-curve contrast around mid-grey (0.45)
+    c = u3
+    kr = clamp((kr - 0.45) * c + 0.45, 0.0, 1.0)
+    kg = clamp((kg - 0.45) * c + 0.45, 0.0, 1.0)
+    kb = clamp((kb - 0.45) * c + 0.45, 0.0, 1.0)
+
+    # Split-tone: subtle warm highlights, cool/neutral shadows
+    lum = 0.299 * kr + 0.587 * kg + 0.114 * kb
+    hi = smoothstep(0.45, 0.95, lum)
+    lo = 1.0 - smoothstep(0.05, 0.45, lum)
+
+    kr = clamp(kr * u1 + hi * u0 * 0.08 - lo * u0 * 0.04, 0.0, 1.0)
+    kg = clamp(kg + hi * u0 * 0.03, 0.0, 1.0)
+    kb = clamp(kb * u2 - hi * u0 * 0.06 + lo * 0.03, 0.0, 1.0)
+
+    # Subtle optical vignette for grounded tabletop depth
+    d = hypot((u - 0.5) * 1.25, (v - 0.5) * 1.25)
+    vig = 1.0 - smoothstep(0.55, 1.20, d) * 0.18
+    return [kr * vig, kg * vig, kb * vig]

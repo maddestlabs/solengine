@@ -1,0 +1,54 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Rain (.eats)
+# Steady rainfall sheet with distant warmth and stochastic droplet patters.
+# ==============================================================================
+
+ambience.define_environment({
+    id: "rain",
+    name: "Rain",
+    master_gain: 1.0,
+    layers: [
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "lowpass",
+            cutoff: 2400.0,
+            q: 0.707,
+            gain: 0.34,
+            lfo_rate: 0.08,
+            lfo_depth: 450.0,
+            amp_mod: 0.14
+        },
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 220.0,
+            q: 0.707,
+            gain: 0.22,
+            lfo_rate: 0.05,
+            lfo_depth: 50.0,
+            amp_mod: 0.10
+        },
+        {
+            type: "stochastic_grains",
+            rate: 38.0,
+            freq_min: 1400.0,
+            freq_max: 5200.0,
+            decay: 0.012,
+            q: 3.2,
+            gain: 0.28,
+            stereo_spread: 0.85
+        },
+        {
+            type: "stochastic_grains",
+            rate: 7.0,
+            freq_min: 450.0,
+            freq_max: 1100.0,
+            decay: 0.025,
+            q: 2.2,
+            gain: 0.22,
+            stereo_spread: 0.75
+        }
+    ]
+})

@@ -12,6 +12,7 @@
 - environmental shadows: subtractive blend mode
 - Commit to solengine.org. Ensure the game doesn't get stuck with browser cache issues. Ensure PWA works.
 - Icons. We really do not proper icons.
+- logo needs to be vector for pwa.
 
 ## Language and Accessibility
 

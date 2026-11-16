@@ -144,10 +144,41 @@ if(EMSCRIPTEN)
     target_compile_options(solengine_web PRIVATE -O3 -msimd128 -fwasm-exceptions -flto -pthread --use-port=emdawnwebgpu)
     target_compile_definitions(solengine_web PRIVATE NDEBUG EATS_ENABLE_WEBGPU)
     target_link_libraries(solengine_web PRIVATE solengine_render)
+    # Auto-discover all *.eats assets across content directories for Emscripten preloading.
+    # CONFIGURE_DEPENDS re-runs CMake when .eats files are added/removed/renamed;
+    # LINK_DEPENDS re-links solengine_web (regenerating solengine.data) when any .eats file is edited.
+    set(SOLENGINE_ASSET_DIRS decks themes postfx games sounds ambience)
+    set(SOLENGINE_PRELOAD_DEPS "")
+    set(SOLENGINE_PRELOAD_FLAGS "")
+    set(SOLENGINE_TOTAL_ASSET_BYTES 0)
+
+    foreach(_asset_dir IN LISTS SOLENGINE_ASSET_DIRS)
+        file(GLOB _dir_eats CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${_asset_dir}/*.eats")
+        list(SORT _dir_eats)
+        list(LENGTH _dir_eats _dir_count)
+        set(_dir_bytes 0)
+        foreach(_eats_file IN LISTS _dir_eats)
+            file(SIZE "${_eats_file}" _file_bytes)
+            math(EXPR _dir_bytes "${_dir_bytes} + ${_file_bytes}")
+            get_filename_component(_eats_name "${_eats_file}" NAME)
+            list(APPEND SOLENGINE_PRELOAD_DEPS "${_eats_file}")
+            list(APPEND SOLENGINE_PRELOAD_FLAGS "--preload-file \"${_eats_file}@/${_asset_dir}/${_eats_name}\"")
+        endforeach()
+        math(EXPR SOLENGINE_TOTAL_ASSET_BYTES "${SOLENGINE_TOTAL_ASSET_BYTES} + ${_dir_bytes}")
+        math(EXPR _dir_kib "${_dir_bytes} / 1024")
+        message(STATUS "[SolEngine Web Assets] /${_asset_dir}: ${_dir_count} .eats file(s), ${_dir_kib} KiB (${_dir_bytes} bytes)")
+    endforeach()
+
+    math(EXPR _total_kib "${SOLENGINE_TOTAL_ASSET_BYTES} / 1024")
+    list(LENGTH SOLENGINE_PRELOAD_DEPS _total_count)
+    message(STATUS "[SolEngine Web Assets] Total preloaded into solengine.data: ${_total_count} .eats file(s), ${_total_kib} KiB (${SOLENGINE_TOTAL_ASSET_BYTES} bytes)")
+    string(JOIN " " SOLENGINE_PRELOAD_FLAGS_STR ${SOLENGINE_PRELOAD_FLAGS})
+
     set_target_properties(solengine_web PROPERTIES
         OUTPUT_NAME "solengine"
         SUFFIX ".html"
-        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=4 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/classic.eats@/decks/classic.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/minimal.eats@/decks/minimal.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/baroque_arches.eats@/decks/baroque_arches.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/another_world.eats@/decks/another_world.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/themes@/themes --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/postfx@/postfx --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/games@/games --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/sounds@/sounds --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/ambience@/ambience --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=4 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] ${SOLENGINE_PRELOAD_FLAGS_STR} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+        LINK_DEPENDS "${SOLENGINE_PRELOAD_DEPS};${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
     )
     add_custom_command(TARGET solengine_web POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

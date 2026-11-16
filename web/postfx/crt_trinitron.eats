@@ -1,0 +1,14 @@
+# SolEngine Post-FX — Trinitron CRT
+sol.set_postfx({
+    id: "crt_trinitron",
+    name: "Trinitron CRT",
+    author: "Maddest Labs",
+    description: "CRT scanlines, subtle barrel curvature, and RGB phosphor mask",
+    filter: "crt",
+    option_label: "Tube",
+    gpu_cost: "Low",
+    options: [
+        { id: "curved", name: "Curved Glass",  param1: 0.95 },
+        { id: "flat",   name: "Flat Aperture", param1: 0.35 }
+    ]
+})

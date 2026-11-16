@@ -1,0 +1,54 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Campfire (.eats)
+# Open-air night breeze, wide stereo ember crackles, and resonant log snaps.
+# ==============================================================================
+
+ambience.define_environment({
+    id: "campfire",
+    name: "Campfire",
+    master_gain: 1.0,
+    layers: [
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 280.0,
+            q: 0.707,
+            gain: 0.36,
+            lfo_rate: 0.16,
+            lfo_depth: 75.0,
+            amp_mod: 0.14
+        },
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 650.0,
+            q: 0.70,
+            gain: 0.16,
+            lfo_rate: 0.09,
+            lfo_depth: 260.0,
+            amp_mod: 0.25
+        },
+        {
+            type: "stochastic_grains",
+            rate: 18.0,
+            freq_min: 1800.0,
+            freq_max: 7200.0,
+            decay: 0.008,
+            q: 2.2,
+            gain: 0.48,
+            stereo_spread: 0.85
+        },
+        {
+            type: "stochastic_grains",
+            rate: 2.4,
+            freq_min: 260.0,
+            freq_max: 620.0,
+            decay: 0.028,
+            q: 2.8,
+            gain: 0.34,
+            stereo_spread: 0.70
+        }
+    ]
+})

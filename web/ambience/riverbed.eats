@@ -1,0 +1,55 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Riverbed (.eats)
+# Rushing current, surface riffle, upward-sweeping bubbles, and pebble splashes.
+# ==============================================================================
+
+ambience.define_environment({
+    id: "riverbed",
+    name: "Riverbed",
+    master_gain: 1.0,
+    layers: [
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 360.0,
+            q: 0.707,
+            gain: 0.38,
+            lfo_rate: 0.18,
+            lfo_depth: 90.0,
+            amp_mod: 0.14
+        },
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 1100.0,
+            q: 0.85,
+            gain: 0.26,
+            lfo_rate: 0.27,
+            lfo_depth: 320.0,
+            amp_mod: 0.16
+        },
+        {
+            type: "stochastic_grains",
+            tonal: true,
+            rate: 16.0,
+            freq_min: 420.0,
+            freq_max: 1250.0,
+            freq_sweep: 1.65,
+            decay: 0.032,
+            gain: 0.22,
+            stereo_spread: 0.80
+        },
+        {
+            type: "stochastic_grains",
+            rate: 12.0,
+            freq_min: 1600.0,
+            freq_max: 4200.0,
+            decay: 0.015,
+            q: 2.0,
+            gain: 0.20,
+            stereo_spread: 0.85
+        }
+    ]
+})

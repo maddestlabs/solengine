@@ -1,0 +1,45 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Wind (.eats)
+# Dual LFO-swept resonant wind gusts with low atmospheric pressure bed.
+# ==============================================================================
+
+ambience.define_environment({
+    id: "wind",
+    name: "Wind",
+    master_gain: 1.0,
+    layers: [
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 340.0,
+            q: 2.4,
+            gain: 0.42,
+            lfo_rate: 0.07,
+            lfo_depth: 220.0,
+            amp_mod: 0.45
+        },
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 920.0,
+            q: 3.2,
+            gain: 0.22,
+            lfo_rate: 0.13,
+            lfo_depth: 480.0,
+            amp_mod: 0.35
+        },
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 180.0,
+            q: 0.707,
+            gain: 0.24,
+            lfo_rate: 0.05,
+            lfo_depth: 40.0,
+            amp_mod: 0.20
+        }
+    ]
+})

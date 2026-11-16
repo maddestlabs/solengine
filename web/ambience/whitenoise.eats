@@ -1,0 +1,20 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: White Noise (.eats)
+# Smooth, gently low-passed white noise bed for calm focus and masking.
+# ==============================================================================
+
+ambience.define_environment({
+    id: "whitenoise",
+    name: "White Noise",
+    master_gain: 1.0,
+    layers: [
+        {
+            type: "noise_bed",
+            color: "white",
+            filter: "lowpass",
+            cutoff: 11000.0,
+            q: 0.707,
+            gain: 0.22
+        }
+    ]
+})

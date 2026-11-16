@@ -1,13 +1,13 @@
 // SolEngine - Offline PWA Service Worker with COOP/COEP Cross-Origin Isolation
-const CACHE_NAME = 'solengine-pwa-v1';
+const CACHE_NAME = 'solengine-pwa-v2';
 
 const PRECACHE_ASSETS = [
     './',
     './index.html',
     './solengine.html',
     './solengine.js',
-    './solengine.wasm',
-    './solengine.data',
+    './solengine.wasm.gz',
+    './solengine.data.gz',
     './manifest.json',
     './favicon.ico',
     './app_icon.png',
@@ -68,23 +68,24 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
 
+    // Network-first so rebuilt WASM/JS/data/HTML are always picked up immediately,
+    // falling back to Cache Storage when offline.
     event.respondWith(
-        caches.match(event.request).then((cachedResponse) => {
-            if (cachedResponse) {
-                return ensureCoopCoepHeaders(cachedResponse);
-            }
-            return fetch(event.request).then((networkResponse) => {
-                if (!networkResponse || networkResponse.status !== 200) {
-                    return networkResponse;
-                }
+        fetch(event.request).then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
                 const responseToCache = networkResponse.clone();
                 caches.open(CACHE_NAME).then((cache) => {
                     cache.put(event.request, responseToCache);
                 });
-                return ensureCoopCoepHeaders(networkResponse);
-            }).catch(() => {
+            }
+            return ensureCoopCoepHeaders(networkResponse);
+        }).catch(() => {
+            return caches.match(event.request).then((cachedResponse) => {
+                if (cachedResponse) {
+                    return ensureCoopCoepHeaders(cachedResponse);
+                }
                 if (event.request.headers.get('accept')?.includes('text/html')) {
-                    return caches.match('./index.html');
+                    return caches.match('./index.html').then((fallback) => ensureCoopCoepHeaders(fallback));
                 }
             });
         })

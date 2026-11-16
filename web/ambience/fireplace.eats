@@ -1,0 +1,54 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Fireplace Crackle (.eats)
+# Warm hearth rumble, soft flame hiss, sharp ember crackles, and wood pops.
+# ==============================================================================
+
+ambience.define_environment({
+    id: "fireplace",
+    name: "Fireplace Crackle",
+    master_gain: 1.0,
+    layers: [
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 240.0,
+            q: 0.707,
+            gain: 0.42,
+            lfo_rate: 0.14,
+            lfo_depth: 60.0,
+            amp_mod: 0.12
+        },
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 1200.0,
+            q: 0.85,
+            gain: 0.11,
+            lfo_rate: 0.22,
+            lfo_depth: 320.0,
+            amp_mod: 0.18
+        },
+        {
+            type: "stochastic_grains",
+            rate: 15.0,
+            freq_min: 2000.0,
+            freq_max: 6800.0,
+            decay: 0.007,
+            q: 2.4,
+            gain: 0.50,
+            stereo_spread: 0.55
+        },
+        {
+            type: "stochastic_grains",
+            rate: 1.8,
+            freq_min: 220.0,
+            freq_max: 560.0,
+            decay: 0.032,
+            q: 3.0,
+            gain: 0.36,
+            stereo_spread: 0.40
+        }
+    ]
+})
