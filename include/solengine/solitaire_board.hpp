@@ -73,7 +73,8 @@ public:
         float elapsedSeconds,
         const std::vector<Pile>& piles,
         const std::vector<MoveCommand>& undoStack,
-        const std::vector<MoveCommand>& redoStack
+        const std::vector<MoveCommand>& redoStack,
+        const std::string& gameId = ""
     );
 
     // Layout calculation for responsive desktop & mobile aspect ratios

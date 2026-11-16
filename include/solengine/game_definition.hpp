@@ -20,6 +20,8 @@ struct SolitaireGameDef {
     std::string layout{"columns"}; // Layout archetype: "columns", "pyramid", "canfield", "fan_grid", "radial_clock", "tripeaks"
     std::string description;     // Rules summary / how to play
     uint8_t decks{1};            // Deck count (1, 2, etc.)
+    uint16_t deckCards{0};       // Optional explicit card count (0 = default decks * 52)
+    bool excludeRedRoyals{false}; // Exclude red Aces & red J/Q/K (44-card Scoundrel deck)
     uint8_t tableaus{7};         // Tableau column count
     uint8_t foundations{4};      // Foundation pile count
     uint8_t freecells{0};        // FreeCell / reserve count

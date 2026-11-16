@@ -87,7 +87,7 @@ bool SettingsManager::load() {
 
         if (root.contains("game") && root["game"].isObject()) {
             const auto& g = root["game"];
-            settings_.variant = static_cast<GameVariant>(std::clamp(g["variant"].asInt(0), 0, 7));
+            settings_.variant = static_cast<GameVariant>(std::clamp(g["variant"].asInt(0), 0, static_cast<int>(GameVariant::CustomScript)));
             settings_.randomizeOnNewDeal = g["randomizeOnNewDeal"].asBool(true);
             settings_.guaranteeSolvable = g["guaranteeSolvable"].asBool(false);
             settings_.lastSeed = g["lastSeed"].asUInt(2026u);
@@ -148,7 +148,14 @@ bool SettingsManager::load() {
             settings_.layoutMode = static_cast<ResponsiveLayoutMode>(std::clamp(a["layoutMode"].asInt(0), 0, 2));
             settings_.stockPosition = static_cast<StockPosition>(std::clamp(a["stockPosition"].asInt(0), 0, 3));
             settings_.aaMode = 4; // Enforce 4x MSAA permanently
-            settings_.lightingPreset = static_cast<LightingPreset>(std::clamp(a["lightingPreset"].asInt(static_cast<int>(LightingPreset::StudioSteady)), 0, 4));
+            settings_.lightingPreset = static_cast<LightingPreset>(std::clamp(a["lightingPreset"].asInt(static_cast<int>(LightingPreset::StudioSteady)), 0, 8));
+            settings_.lightAngle = static_cast<LightAngle>(std::clamp(a["lightAngle"].asInt(0), 0, 3));
+            settings_.shadowGobo = static_cast<ShadowGobo>(std::clamp(a["shadowGobo"].asInt(0), 0, 3));
+            settings_.lightWaver = std::clamp(a["lightWaver"].asFloat(0.0f), 0.0f, 1.0f);
+            settings_.lightFlicker = std::clamp(a["lightFlicker"].asFloat(0.0f), 0.0f, 1.0f);
+            settings_.goboSoftness = std::clamp(a["goboSoftness"].asFloat(0.45f), 0.05f, 1.0f);
+            settings_.godRaysIntensity = std::clamp(a["godRaysIntensity"].asFloat(0.0f), 0.0f, 1.0f);
+            settings_.dustMotesIntensity = std::clamp(a["dustMotesIntensity"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.sceneDarkness = std::clamp(a["sceneDarkness"].asFloat(0.22f), 0.0f, 0.85f);
             settings_.lightStrength = std::clamp(a["lightStrength"].asFloat(1.20f), 0.0f, 2.0f);
             settings_.menuAnchor = static_cast<MenuAnchor>(std::clamp(a["menuAnchor"].asInt(0), 0, 3));
@@ -249,6 +256,13 @@ bool SettingsManager::save() {
     a["stockPosition"] = static_cast<int>(settings_.stockPosition);
     a["aaMode"] = settings_.aaMode;
     a["lightingPreset"] = static_cast<int>(settings_.lightingPreset);
+    a["lightAngle"] = static_cast<int>(settings_.lightAngle);
+    a["shadowGobo"] = static_cast<int>(settings_.shadowGobo);
+    a["lightWaver"] = settings_.lightWaver;
+    a["lightFlicker"] = settings_.lightFlicker;
+    a["goboSoftness"] = settings_.goboSoftness;
+    a["godRaysIntensity"] = settings_.godRaysIntensity;
+    a["dustMotesIntensity"] = settings_.dustMotesIntensity;
     a["sceneDarkness"] = settings_.sceneDarkness;
     a["lightStrength"] = settings_.lightStrength;
     a["menuAnchor"] = static_cast<int>(settings_.menuAnchor);
@@ -315,6 +329,7 @@ void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley
     board.setStockPosition(settings_.stockPosition);
     auto& cache = CardTextureCache::instance();
     cache.setCornerStyle(settings_.cardCorners);
+    cache.setActiveCardBack(settings_.cardBackId);
     if (applyTextures) {
         cache.loadDeckTheme(settings_.deckTheme);
         cache.setActiveCardBack(settings_.cardBackId);

@@ -75,7 +75,7 @@ private:
     void revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley);
 
     bool isOpen_{false};
-    int currentTab_{0}; // 0: Game & Seed, 1: Aesthetics, 2: Audio & Display
+    int currentTab_{0}; // 0: Game, 1: Deck, 2: Scene, 3: Display, 4: Audio
     AppSettings tempSettings_{};
     std::string seedText_{"2026"};
     bool editingSeed_{false};
@@ -94,6 +94,16 @@ private:
     bool peekingPostFx_{false};
     bool draggingDarkness_{false};
     bool draggingLightStrength_{false};
+    bool draggingGoboSoftness_{false};
+    bool draggingGodRays_{false};
+    bool draggingDustMotes_{false};
+    bool draggingLightWaver_{false};
+    bool draggingLightFlicker_{false};
+    float goboSoftTrackX_{0.0f}, goboSoftTrackY_{0.0f}, goboSoftTrackW_{280.0f}, goboSoftTrackH_{24.0f};
+    float godRaysTrackX_{0.0f}, godRaysTrackY_{0.0f}, godRaysTrackW_{280.0f}, godRaysTrackH_{24.0f};
+    float dustMotesTrackX_{0.0f}, dustMotesTrackY_{0.0f}, dustMotesTrackW_{280.0f}, dustMotesTrackH_{24.0f};
+    float lightWaverTrackX_{0.0f}, lightWaverTrackY_{0.0f}, lightWaverTrackW_{280.0f}, lightWaverTrackH_{24.0f};
+    float lightFlickerTrackX_{0.0f}, lightFlickerTrackY_{0.0f}, lightFlickerTrackW_{280.0f}, lightFlickerTrackH_{24.0f};
     float postFxTrackX_{0.0f};
     float postFxTrackY_{0.0f};
     float postFxTrackW_{280.0f};

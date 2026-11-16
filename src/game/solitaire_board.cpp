@@ -73,7 +73,7 @@ bool SolitaireBoard::isMobileLayout() const noexcept {
 
 const char* SolitaireBoard::themeName(TableThemeId t) noexcept {
     switch (t) {
-        case TableThemeId::PastelTan:       return "PASTEL TAN";
+        case TableThemeId::PastelTan:       return "PASTEL";
         case TableThemeId::EmeraldLawn:     return "EMERALD LAWN";
         case TableThemeId::HopsackTweed:    return "HOPSACK TWEED";
         case TableThemeId::DenimChambray:   return "DENIM CHAMBRAY";
@@ -106,13 +106,29 @@ bool SolitaireBoard::restoreSessionState(
     float elapsedSeconds,
     const std::vector<Pile>& piles,
     const std::vector<MoveCommand>& undoStack,
-    const std::vector<MoveCommand>& redoStack
+    const std::vector<MoveCommand>& redoStack,
+    const std::string& gameId
 ) {
     if (piles.empty()) return false;
     constexpr float kLocalPi = 3.14159265358979323846f;
+
+    GameRegistry::instance().initialize();
+    const SolitaireGameDef* def = !gameId.empty() ? GameRegistry::instance().findById(gameId) : nullptr;
+    if (!def) {
+        def = GameRegistry::instance().findByVariant(variant);
+    }
+    if (def) {
+        activeDef_ = *def;
+        variant_ = def->nativeVariant;
+    } else {
+        activeDef_ = SolitaireGameDef{};
+        activeDef_.nativeVariant = variant;
+        variant_ = variant;
+    }
+
+    statusCacheDirty_ = true;
     seed_ = seed;
     rngState_ = rngState;
-    variant_ = variant;
     score_ = score;
     moveCount_ = moveCount;
     elapsedSeconds_ = elapsedSeconds;
@@ -121,6 +137,13 @@ bool SolitaireBoard::restoreSessionState(
     piles_ = piles;
     undoStack_ = undoStack;
     redoStack_ = redoStack;
+    txUndoStack_.clear();
+    txRedoStack_.clear();
+    blackboard_ = {};
+    scriptEngine_.reset();
+    if (!activeDef_.filePath.empty()) {
+        scriptEngine_.loadScriptFile(activeDef_.filePath);
+    }
     computeLayout(viewportW_, viewportH_);
     updateCardTargets();
     for (auto& p : piles_) {
@@ -268,6 +291,15 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
                 deck.push_back(c);
             }
         }
+    }
+
+    if (activeDef_.excludeRedRoyals) {
+        deck.erase(
+            std::remove_if(deck.begin(), deck.end(), [](const Card& c) {
+                return isRedSuit(c.suit) && (c.rank == Rank::Ace || c.rank >= Rank::Jack);
+            }),
+            deck.end()
+        );
     }
 
     // Fisher-Yates shuffle with deterministic Mulberry32 seed
@@ -1871,15 +1903,22 @@ bool SolitaireBoard::executeMove(uint8_t fromPileIdx, size_t startCardIdx, uint8
         }
         clearHint();
         TurnTransaction tx;
-        BoardOp op{};
-        op.type = BoardOpType::MoveCards;
-        op.fromPile = fromPileIdx;
-        op.toPile = toPileIdx;
-        op.cardIdx = static_cast<uint32_t>(startCardIdx);
-        op.count = static_cast<uint32_t>(piles_[fromPileIdx].cards.size() - startCardIdx);
         auto ctx = makeScriptContext(&tx);
-        if (ScriptRuleEngine::applyOp(ctx, op)) {
-            tx.ops.push_back(std::move(op));
+        if (scriptEngine_.hasOnDrop()) {
+            if (!scriptEngine_.invokeOnDrop(ctx, fromPileIdx, startCardIdx, toPileIdx)) {
+                ScriptRuleEngine::revertTransaction(ctx, tx);
+                return false;
+            }
+        } else {
+            BoardOp op{};
+            op.type = BoardOpType::MoveCards;
+            op.fromPile = fromPileIdx;
+            op.toPile = toPileIdx;
+            op.cardIdx = static_cast<uint32_t>(startCardIdx);
+            op.count = static_cast<uint32_t>(piles_[fromPileIdx].cards.size() - startCardIdx);
+            if (ScriptRuleEngine::applyOp(ctx, op)) {
+                tx.ops.push_back(std::move(op));
+            }
         }
         if (scriptEngine_.hasOnTurnEnd()) {
             scriptEngine_.invokeOnTurnEnd(ctx);

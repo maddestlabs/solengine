@@ -44,6 +44,7 @@ public:
     [[nodiscard]] bool hasOnDeal() const noexcept { return hasOnDeal_; }
     [[nodiscard]] bool hasCanPick() const noexcept { return hasCanPick_; }
     [[nodiscard]] bool hasCanDrop() const noexcept { return hasCanDrop_; }
+    [[nodiscard]] bool hasOnDrop() const noexcept { return hasOnDrop_; }
     [[nodiscard]] bool hasCanTarget() const noexcept { return hasCanTarget_; }
     [[nodiscard]] bool hasOnTarget() const noexcept { return hasOnTarget_; }
     [[nodiscard]] bool hasOnCardClick() const noexcept { return hasOnCardClick_; }
@@ -57,6 +58,7 @@ public:
     bool invokeOnDeal(ScriptBoardContext& ctx);
     [[nodiscard]] bool invokeCanPick(ScriptBoardContext& ctx, uint8_t zoneIdx, size_t cardIdx);
     [[nodiscard]] bool invokeCanDrop(ScriptBoardContext& ctx, uint8_t fromZone, size_t cardIdx, uint8_t toZone);
+    bool invokeOnDrop(ScriptBoardContext& ctx, uint8_t fromZone, size_t cardIdx, uint8_t toZone);
     [[nodiscard]] bool invokeCanTarget(ScriptBoardContext& ctx, uint8_t fromZone, size_t fromIdx, uint8_t toZone, size_t toIdx);
     bool invokeOnTarget(ScriptBoardContext& ctx, uint8_t fromZone, size_t fromIdx, uint8_t toZone, size_t toIdx);
     bool invokeOnCardClick(ScriptBoardContext& ctx, uint8_t zoneIdx, size_t cardIdx);
@@ -83,6 +85,7 @@ private:
     bool hasOnDeal_{false};
     bool hasCanPick_{false};
     bool hasCanDrop_{false};
+    bool hasOnDrop_{false};
     bool hasCanTarget_{false};
     bool hasOnTarget_{false};
     bool hasOnCardClick_{false};

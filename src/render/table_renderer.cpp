@@ -91,7 +91,8 @@ enum HudButtonId : int {
     BtnSolvableDeal=26,
     BtnSeedDialog = 28,
     BtnToolbarResize = 29,
-    BtnHelp       = 30
+    BtnHelp       = 30,
+    BtnGameTitlePill = 31
 };
 
 struct HudButtonRect {
@@ -261,6 +262,58 @@ ClockworkBarLayout computeClockworkBarLayout(
             orbSize,
             sDefs[i].label,
             sDefs[i].glyph,
+            SvgIconId::None
+        });
+    }
+
+    // 1-tap Game Title Pill anchored directly above (or below, for top anchors) the toolbar
+    {
+        float pillH = 26.0f;
+        float fontSz = 11.0f;
+        float pillPadX = 10.0f;
+        float gapY = 5.0f;
+        if (s.toolbarScale == ToolbarScale::Compact) {
+            pillH = 22.0f;
+            fontSz = 9.5f;
+            pillPadX = 8.0f;
+            gapY = 4.0f;
+        } else if (s.toolbarScale == ToolbarScale::Large) {
+            pillH = 30.0f;
+            fontSz = 12.5f;
+            pillPadX = 12.0f;
+            gapY = 6.0f;
+        }
+
+        std::string gameTitle = board.activeGameDef().name;
+        if (gameTitle.empty()) {
+            if (const auto* def = GameRegistry::instance().findByVariant(board.variant())) {
+                gameTitle = def->name;
+            }
+        }
+        if (gameTitle.empty()) gameTitle = "Solitaire";
+
+        const float textW = eatsbits::ui::glyph::getVectorTextWidth(fontSz, gameTitle.c_str());
+        const float chevronSpace = 14.0f;
+        const float maxPillW = std::min(std::max(layout.barW, 180.0f), std::max(80.0f, width - 28.0f));
+        const float pillW = std::clamp(textW + pillPadX * 2.0f + chevronSpace, 72.0f, maxPillW);
+
+        const bool isRight = (anchor == MenuAnchor::BottomRight || anchor == MenuAnchor::TopRight);
+        const bool isTop = (anchor == MenuAnchor::TopLeft || anchor == MenuAnchor::TopRight);
+
+        float pillX = isRight ? (layout.barX + layout.barW - padX - pillW) : (layout.barX + padX);
+        float pillY = isTop ? (layout.barY + layout.barH - padY + gapY) : (layout.barY + padY - gapY - pillH);
+
+        pillX = std::clamp(pillX, 4.0f, std::max(4.0f, width - pillW - 4.0f));
+        pillY = std::clamp(pillY, 4.0f, std::max(4.0f, height - pillH - 4.0f));
+
+        layout.buttons.push_back(HudButtonRect{
+            BtnGameTitlePill,
+            pillX,
+            pillY,
+            pillW,
+            pillH,
+            "[G] Game Library",
+            "",
             SvgIconId::None
         });
     }
@@ -1840,8 +1893,14 @@ void drawHelpSidebar(
         cy += 26.0f;
 
         // 2. Decks & Word-Wrapped Object
-        char deckBuf[32];
-        std::snprintf(deckBuf, sizeof(deckBuf), "DECKS: %u", static_cast<unsigned>(std::max<uint8_t>(1, def.decks)));
+        char deckBuf[48];
+        if (def.deckCards > 0) {
+            std::snprintf(deckBuf, sizeof(deckBuf), "DECKS: %u (%u CARDS)",
+                          static_cast<unsigned>(std::max<uint8_t>(1, def.decks)),
+                          static_cast<unsigned>(def.deckCards));
+        } else {
+            std::snprintf(deckBuf, sizeof(deckBuf), "DECKS: %u", static_cast<unsigned>(std::max<uint8_t>(1, def.decks)));
+        }
         eatsbits::ui::glyph::drawVectorText(r, deckBuf, lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
         cy += 15.0f;
 
@@ -2752,6 +2811,107 @@ void TableRenderer::renderBoard(
 
     // 8. Always-on-Top Floating Clockwork Medallion Bar
     const auto layout = computeClockworkBarLayout(width, height, board, menuAnchor, menuFlowVertical);
+
+    // 8a. Dedicated RPG Stat Panel (anchored in empty top-right board slot above Room 4)
+    {
+        const auto& bb = board.blackboard();
+        auto itHp = bb.intStats.find("HP");
+        if (itHp != bb.intStats.end() && piles.size() >= 7) {
+            const int hp = std::clamp(itHp->second, 0, 99);
+            const int maxHp = std::max(20, bb.getInt("MAX_HP", 20));
+            const int wpn = bb.getInt("WEAPON", 0);
+            const int cap = bb.getInt("CAP", 99);
+            const bool hasPotionUsed = bb.intStats.count("POTION_USED") > 0;
+            const bool potionUsed = bb.getInt("POTION_USED", 0) != 0;
+            const bool hasFleeUsed = bb.intStats.count("FLEE_USED") > 0;
+            const bool fleeUsed = bb.getInt("FLEE_USED", 0) != 0;
+
+            const float effRu = CardTextureCache::instance().effectiveRu();
+            const float cardRad = (effRu <= 0.001f) ? 2.0f : std::max(2.0f, effRu * cw);
+            const float hudW = cw;
+            const float hudH = ch;
+            const float hudX = piles.back().x;
+            const float hudY = piles[0].y;
+
+            r.drawRectDropShadow(hudX, hudY, hudW, hudH, cardRad, 3.5f, light, 0.40f);
+            r.drawRoundedRect(hudX, hudY, hudW, hudH, cardRad,
+                              pal.woodR0 * 0.72f, pal.woodG0 * 0.72f, pal.woodB0 * 0.72f, 0.92f, 3);
+            r.drawRoundedRectOutline(hudX, hudY, hudW, hudH, cardRad,
+                                     pal.trimR, pal.trimG, pal.trimB, 0.75f, 1.2f, 3);
+
+            const float padX = std::max(6.0f, hudW * 0.08f);
+            const float padY = std::max(6.0f, hudH * 0.07f);
+            const float innerW = hudW - padX * 2.0f;
+            const float rowCount = 3.0f + (hasPotionUsed ? 1.0f : 0.0f) + (hasFleeUsed ? 1.0f : 0.0f);
+            const float rowStep = (hudH - padY * 2.0f) / std::max(3.0f, rowCount);
+            float ry = hudY + padY;
+            const float fontSz = std::clamp(hudW * 0.095f, 7.0f, 11.0f);
+
+            // Row 1: HP Bar
+            const float hpBarH = std::clamp(rowStep * 0.76f, 14.0f, 20.0f);
+            const float hpFrac = std::clamp(static_cast<float>(hp) / static_cast<float>(maxHp), 0.0f, 1.0f);
+            r.drawRoundedRect(hudX + padX, ry, innerW, hpBarH, 4.0f, 0.08f, 0.04f, 0.04f, 0.92f, 3);
+            if (hpFrac > 0.001f) {
+                const float fillR = (hpFrac > 0.5f) ? 0.22f : (hpFrac > 0.25f ? 0.85f : 0.86f);
+                const float fillG = (hpFrac > 0.5f) ? 0.74f : (hpFrac > 0.25f ? 0.58f : 0.18f);
+                const float fillB = (hpFrac > 0.5f) ? 0.34f : (hpFrac > 0.25f ? 0.14f : 0.18f);
+                r.drawRoundedRect(hudX + padX + 1.5f, ry + 1.5f,
+                                  std::max(4.0f, (innerW - 3.0f) * hpFrac), hpBarH - 3.0f,
+                                  3.0f, fillR, fillG, fillB, 0.95f, 3);
+            }
+            char hpBuf[32];
+            std::snprintf(hpBuf, sizeof(hpBuf), "HP %d/%d", hp, maxHp);
+            eatsbits::ui::glyph::drawVectorText(r, hpBuf, hudX + padX + 6.0f, ry + (hpBarH - fontSz) * 0.5f, fontSz,
+                                                0.98f, 0.97f, 0.94f, 1.0f);
+            ry += rowStep;
+
+            // Row 2: Weapon Power
+            char wpnBuf[32];
+            if (wpn > 0) {
+                std::snprintf(wpnBuf, sizeof(wpnBuf), "WPN: %d", wpn);
+                eatsbits::ui::glyph::drawVectorText(r, wpnBuf, hudX + padX, ry + 2.0f, fontSz,
+                                                    0.96f, 0.84f, 0.42f, 1.0f);
+            } else {
+                eatsbits::ui::glyph::drawVectorText(r, "WPN: NONE", hudX + padX, ry + 2.0f, fontSz,
+                                                    0.78f, 0.76f, 0.72f, 0.88f);
+            }
+            ry += rowStep;
+
+            // Row 3: Weapon Durability Cap
+            char capBuf[32];
+            if (wpn <= 0) {
+                std::snprintf(capBuf, sizeof(capBuf), "CAP: --");
+            } else if (cap >= 99) {
+                std::snprintf(capBuf, sizeof(capBuf), "CAP: ANY");
+            } else {
+                std::snprintf(capBuf, sizeof(capBuf), "CAP: <=%d", cap);
+            }
+            eatsbits::ui::glyph::drawVectorText(r, capBuf, hudX + padX, ry + 2.0f, fontSz,
+                                                (wpn > 0) ? 0.92f : 0.65f,
+                                                (wpn > 0) ? 0.88f : 0.63f,
+                                                (wpn > 0) ? 0.76f : 0.60f, 0.95f);
+            ry += rowStep;
+
+            // Row 4: Potion Limit
+            if (hasPotionUsed) {
+                const char* potTxt = potionUsed ? "POTION: USED" : "POTION: OK";
+                eatsbits::ui::glyph::drawVectorText(r, potTxt, hudX + padX, ry + 2.0f, fontSz * 0.94f,
+                                                    potionUsed ? 0.65f : 0.95f,
+                                                    potionUsed ? 0.62f : 0.44f,
+                                                    potionUsed ? 0.62f : 0.48f, 0.95f);
+                ry += rowStep;
+            }
+
+            // Row 5: Flee Availability
+            if (hasFleeUsed) {
+                const char* fleeTxt = fleeUsed ? "FLEE: LOCKED" : "FLEE: OK";
+                eatsbits::ui::glyph::drawVectorText(r, fleeTxt, hudX + padX, ry + 2.0f, fontSz * 0.94f,
+                                                    fleeUsed ? 0.65f : 0.52f,
+                                                    fleeUsed ? 0.62f : 0.86f,
+                                                    fleeUsed ? 0.62f : 0.96f, 0.95f);
+            }
+        }
+    }
     static float sAnimTime = 0.0f;
     sAnimTime += 0.016f;
 
@@ -2769,6 +2929,78 @@ void TableRenderer::renderBoard(
         if (b.id == BtnMenuToggle) {
             // Master SolEngine Orb
             clockwork_ui::drawClockworkMenuOrb(r, cx, cy, radius, hovered, isDraggingMenu, sAnimTime);
+        } else if (b.id == BtnGameTitlePill) {
+            // Game Title Pill: displays active game name & opens Game Library on 1 tap
+            const auto& cpal = clockwork_ui::palette();
+            const auto& ts = SettingsManager::instance().settings();
+            float fontSz = 11.0f;
+            float pillPadX = 10.0f;
+            if (ts.toolbarScale == ToolbarScale::Compact) {
+                fontSz = 9.5f;
+                pillPadX = 8.0f;
+            } else if (ts.toolbarScale == ToolbarScale::Large) {
+                fontSz = 12.5f;
+                pillPadX = 12.0f;
+            }
+
+            const float pillRad = b.h * 0.5f;
+            const float pillAlpha = hovered ? 1.0f : 0.88f;
+            r.drawRectDropShadow(
+                b.x, b.y, b.w, b.h, pillRad, 3.0f,
+                eatsbits::ui::LightSource2D{cx - 120.0f, cy - 240.0f, 400.0f, 0.85f},
+                pillAlpha * 0.45f
+            );
+            r.drawRoundedRectGradient(
+                b.x, b.y, b.w, b.h, pillRad,
+                cpal.chassisLightR + (hovered ? 0.08f : 0.02f),
+                cpal.chassisLightG + (hovered ? 0.07f : 0.02f),
+                cpal.chassisLightB + (hovered ? 0.06f : 0.01f),
+                cpal.chassisDarkR, cpal.chassisDarkG, cpal.chassisDarkB,
+                0.92f, 6
+            );
+            r.drawRoundedRectOutline(
+                b.x, b.y, b.w, b.h, pillRad,
+                hovered ? cpal.furnaceAmberR : cpal.brassMidR,
+                hovered ? cpal.furnaceAmberG : cpal.brassMidG,
+                hovered ? cpal.furnaceAmberB : cpal.brassMidB,
+                hovered ? 0.98f : 0.80f, hovered ? 1.6f : 1.2f, 6
+            );
+
+            std::string gameTitle = board.activeGameDef().name;
+            if (gameTitle.empty()) {
+                if (const auto* def = GameRegistry::instance().findByVariant(board.variant())) {
+                    gameTitle = def->name;
+                }
+            }
+            if (gameTitle.empty()) gameTitle = "Solitaire";
+
+            const float chevronSpace = 14.0f;
+            const float maxTextW = std::max(16.0f, b.w - pillPadX * 2.0f - chevronSpace);
+            if (eatsbits::ui::glyph::getVectorTextWidth(fontSz, gameTitle.c_str()) > maxTextW) {
+                while (gameTitle.size() > 1 &&
+                       eatsbits::ui::glyph::getVectorTextWidth(fontSz, (gameTitle + "...").c_str()) > maxTextW) {
+                    gameTitle.pop_back();
+                }
+                gameTitle += "...";
+            }
+
+            const float textY = b.y + (b.h - fontSz) * 0.5f - 0.5f;
+            eatsbits::ui::glyph::drawVectorText(
+                r, gameTitle.c_str(), b.x + pillPadX, textY, fontSz,
+                hovered ? 1.0f : 0.94f,
+                hovered ? 0.96f : 0.90f,
+                hovered ? 0.86f : 0.80f,
+                1.0f
+            );
+
+            // Crisp brass chevron 'v' on the right side
+            const float chevX = b.x + b.w - pillPadX - 4.0f;
+            const float chevY = b.y + b.h * 0.5f;
+            const float chR = hovered ? cpal.furnaceAmberR : cpal.brassHighlightR;
+            const float chG = hovered ? cpal.furnaceAmberG : cpal.brassHighlightG;
+            const float chB = hovered ? cpal.furnaceAmberB : cpal.brassHighlightB;
+            r.drawLine(chevX - 3.5f, chevY - 1.5f, chevX, chevY + 2.0f, chR, chG, chB, 0.95f, 1.5f);
+            r.drawLine(chevX, chevY + 2.0f, chevX + 3.5f, chevY - 1.5f, chR, chG, chB, 0.95f, 1.5f);
         } else {
             // Circled Medallion Button with embossed glyph
             clockwork_ui::drawClockworkMedallion(
@@ -2795,10 +3027,16 @@ void TableRenderer::renderBoard(
         const auto ghostLayout = computeClockworkBarLayout(width, height, board, dragPreviewAnchor, dragPreviewFlowVertical);
 
         for (const auto& gb : ghostLayout.buttons) {
-            const float gcx = gb.x + gb.w * 0.5f;
-            const float gcy = gb.y + gb.h * 0.5f;
-            r.drawCircle(gcx, gcy, gb.w * 0.5f, 0.94f, 0.80f, 0.36f, 0.18f, 20);
-            r.drawCircleOutline(gcx, gcy, gb.w * 0.5f, 0.95f, 0.52f, 0.12f, 0.85f, 1.8f, 20);
+            if (gb.id == BtnGameTitlePill) {
+                const float gRad = gb.h * 0.5f;
+                r.drawRoundedRect(gb.x, gb.y, gb.w, gb.h, gRad, 0.94f, 0.80f, 0.36f, 0.18f, 6);
+                r.drawRoundedRectOutline(gb.x, gb.y, gb.w, gb.h, gRad, 0.95f, 0.52f, 0.12f, 0.85f, 1.8f, 6);
+            } else {
+                const float gcx = gb.x + gb.w * 0.5f;
+                const float gcy = gb.y + gb.h * 0.5f;
+                r.drawCircle(gcx, gcy, gb.w * 0.5f, 0.94f, 0.80f, 0.36f, 0.18f, 20);
+                r.drawCircleOutline(gcx, gcy, gb.w * 0.5f, 0.95f, 0.52f, 0.12f, 0.85f, 1.8f, 20);
+            }
         }
     }
 
@@ -3547,13 +3785,24 @@ struct InteractiveContext {
     void startAsyncTableTheme(const TableThemeDef& def) {
         asyncManager.stopWorker();
 
+        auto& settings = SettingsManager::instance().settings();
+        if (!def.options.empty()) {
+            auto it = settings.tableThemeOptions.find(def.id);
+            settings.tableThemeOption = (it != settings.tableThemeOptions.end()) ? it->second : def.options[0].id;
+            settings.tableThemeOptions[def.id] = settings.tableThemeOption;
+        } else {
+            settings.tableThemeOption.clear();
+        }
+        board.setTableThemeOption(settings.tableThemeOption);
+        ProceduralBackgroundSystem::instance().setThemeOption(settings.tableThemeOption);
+
         if (def.filePath.empty()) {
             ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
             board.setTableTheme(TableThemeId::PastelTan);
             board.setTableThemeSlug(def.id);
             lightController.applyThemeDefault(TableThemeId::PastelTan);
-            SettingsManager::instance().settings().tableTheme = TableThemeId::PastelTan;
-            SettingsManager::instance().settings().tableThemeSlug = def.id;
+            settings.tableTheme = TableThemeId::PastelTan;
+            settings.tableThemeSlug = def.id;
             SettingsManager::instance().save();
             ProceduralBackgroundSystem::instance().invalidateCache();
             asyncManager.resetState();
@@ -4039,7 +4288,7 @@ struct InteractiveContext {
                 deckTheme = DeckThemeId::BaroqueLight;
             } else if (themeId == "baroque_dark" || filePath.find("baroque_dark") != std::string::npos) {
                 deckTheme = DeckThemeId::BaroqueDark;
-            } else if (themeId == "solenshade") {
+            } else if (themeId == "solengine" || themeId == "solenshade") {
                 deckTheme = DeckThemeId::SolEnshade;
             } else if (themeId == "classic") {
                 deckTheme = DeckThemeId::ClassicSvg;
@@ -4697,6 +4946,7 @@ struct InteractiveContext {
                 }
                 break;
             }
+            case BtnGameTitlePill:
             case BtnVariant: {
                 std::string curId = board.activeGameDef().id;
                 if (curId.empty()) {
@@ -5237,7 +5487,13 @@ struct InteractiveContext {
                 }
             }
         }
-        if (leftDown && !prevLeftDown && !playMenuOpen && !toolbarConfigOpen) {
+        const bool modalOpen = loadingDialog.isOpen() || asyncManager.isBusy.load() ||
+                               seedDialog.isOpen() || gameBrowserDialog.isOpen() ||
+                               settingsDialog.isOpen();
+        if (modalOpen) {
+            hoveredBtn = -1;
+        }
+        if (!modalOpen && leftDown && !prevLeftDown && !playMenuOpen && !toolbarConfigOpen) {
             if (helpOpen && [&]() {
                 HelpOddsInfo oddsSnap;
                 { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
@@ -5418,7 +5674,7 @@ struct InteractiveContext {
         } else if (leftDown && isGesturing) {
             gestureCurX = fmx;
             gestureCurY = fmy;
-        } else if (!leftDown && prevLeftDown) {
+        } else if (!modalOpen && !leftDown && prevLeftDown) {
             if (helpPointerDown || helpDraggingScrollbar) {
                 if (helpOpen && !helpDraggingScroll && !helpDraggingScrollbar) {
                     HelpOddsInfo oddsSnap;
@@ -5549,20 +5805,7 @@ struct InteractiveContext {
             }
         }
 
-        if (!loadingDialog.isOpen() && !asyncManager.isBusy.load() && rightDown && !prevRightDown) {
-            int hitPile = -1;
-            int hitCard = -1;
-            if (board.hitTestCard(fmx, fmy, hitPile, hitCard) && hitPile >= 0 && hitCard >= 0) {
-                if (board.smartMove(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
-                    foley.triggerSound(FoleySound::Place, 0.85f, screenPan(fmx));
-                }
-            }
-        }
-
-        prevLeftDown = leftDown;
-        prevRightDown = rightDown;
-
-        if (rightDown && !prevRightDown) {
+        if (!modalOpen && rightDown && !prevRightDown) {
             if (hoveredBtn == BtnNewDeal) {
                 playMenuOpen = true;
                 toolbarConfigOpen = false;
@@ -5575,8 +5818,24 @@ struct InteractiveContext {
                 toolbarConfigAnchorX = fmx;
                 toolbarConfigAnchorY = fmy;
                 foley.triggerSound(FoleySound::WoodClick, 0.85f);
+            } else if (hoveredBtn < 0) {
+                int hitPile = -1;
+                int hitCard = -1;
+                if (board.hitTestCard(fmx, fmy, hitPile, hitCard) && hitPile >= 0 && hitCard >= 0) {
+                    if (board.smartMove(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
+                        foley.triggerSound(FoleySound::Place, 0.85f, screenPan(fmx));
+                    }
+                } else {
+                    playMenuOpen = false;
+                    toolbarConfigOpen = false;
+                    settingsDialog.open();
+                    foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                }
             }
         }
+
+        prevLeftDown = leftDown;
+        prevRightDown = rightDown;
 
         auto edgeKey = [&](int key, bool& prev) -> bool {
             bool down = glfwGetKey(window, key) == GLFW_PRESS;
@@ -5732,6 +5991,15 @@ struct InteractiveContext {
         if (lightController.getPreset() != activeCfg.lightingPreset) {
             lightController.setPreset(activeCfg.lightingPreset);
         }
+        if (lightController.getAngle() != activeCfg.lightAngle) {
+            lightController.setAngle(activeCfg.lightAngle);
+        }
+        if (std::abs(lightController.getWaver() - activeCfg.lightWaver) > 0.001f) {
+            lightController.setWaver(activeCfg.lightWaver);
+        }
+        if (std::abs(lightController.getFlickerLevel() - activeCfg.lightFlicker) > 0.001f) {
+            lightController.setFlickerLevel(activeCfg.lightFlicker);
+        }
         lightController.update(dt);
         const eatsbits::ui::LightSource2D dynamicLight = lightController.getEffectiveLight(static_cast<float>(width), static_cast<float>(height));
         const auto lCol = lightController.getLightColor();
@@ -5757,8 +6025,15 @@ struct InteractiveContext {
             renderer.setPostFxActive(postFxEnabled);
 
             renderer.beginFrame(static_cast<float>(width), static_cast<float>(height));
+            const eatsbits::ui::LightSource2D steadyLight = lightController.getSteadyLight(static_cast<float>(width), static_cast<float>(height));
             renderer.setGlobalLight(dynamicLight, lCol[0], lCol[1], lCol[2], aCol[0], aCol[1], aCol[2],
                                     activeCfg.sceneDarkness, activeCfg.lightStrength);
+            renderer.setSceneAtmosphere(static_cast<uint8_t>(activeCfg.shadowGobo),
+                                        activeCfg.goboSoftness,
+                                        activeCfg.godRaysIntensity,
+                                        activeCfg.dustMotesIntensity,
+                                        steadyLight.x, steadyLight.y, steadyLight.z,
+                                        static_cast<uint8_t>(activeCfg.lightAngle));
             renderer.setShaderTime(static_cast<float>(now));
             if (board.activeGameDef().id != lastOddsGameId) {
                 cancelOddsAnalysis();
@@ -5827,6 +6102,9 @@ struct InteractiveContext {
                                        isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
                                        &dynamicLight, &autoPlayController,
                                        helpOpen, highlightedHelpZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles, &hintHighlight);
+            if (activeCfg.godRaysIntensity > 0.005f || activeCfg.dustMotesIntensity > 0.005f) {
+                renderer.drawSceneAtmospherePass(static_cast<float>(width), static_cast<float>(height));
+            }
             if (postFxEnabled && !activeCfg.postFxAffectUi) {
                 renderer.applyPostFxPass();
             }
@@ -5892,15 +6170,17 @@ int TableRenderer::runInteractiveWindow(
 ) {
 #if defined(__EMSCRIPTEN__)
     double initCssW = EM_ASM_DOUBLE({
+        if (typeof document === 'undefined') return 1280;
         var container = document.getElementById('canvas-container');
-        return (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 1280);
+        return (container && container.clientWidth > 0) ? container.clientWidth : (typeof window !== 'undefined' && window.innerWidth ? window.innerWidth : 1280);
     });
     double initCssH = EM_ASM_DOUBLE({
+        if (typeof document === 'undefined') return 720;
         var container = document.getElementById('canvas-container');
-        return (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 720);
+        return (container && container.clientHeight > 0) ? container.clientHeight : (typeof window !== 'undefined' && window.innerHeight ? window.innerHeight : 720);
     });
     double initDpr = EM_ASM_DOUBLE({
-        return window.devicePixelRatio || 1.0;
+        return (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1.0;
     });
     initDpr = std::clamp(initDpr, 1.0, 2.0);
     if (initCssW > 0.0 && initCssH > 0.0) {
@@ -5943,6 +6223,7 @@ int TableRenderer::runInteractiveWindow(
 
 #if defined(__EMSCRIPTEN__)
     EM_ASM({
+        if (typeof document === 'undefined') return;
         var canvas = document.getElementById('canvas');
         if (canvas) {
             canvas.width = $0;

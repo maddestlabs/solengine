@@ -1,0 +1,143 @@
+# SolEngine Procedural Background Theme — Sands
+# Pure Eatscript Bytecode Shader: Domain-warped wind-rippled dunes, wet tidal sand with water-film sheen, and fine beach sand
+
+sol.set_theme({
+    id: "sands",
+    name: "Sands",
+    author: "Maddest Labs",
+    description: "Pure procedural sand tabletops: wind-rippled dunes, wet tidal sand with water-film sheen, and fine beach sand",
+    version: 1,
+    procedural: true,
+    lacquer: 0.2,
+    relief_bump: 2.6,
+    option_label: "Surface",
+    options: [
+        { id: "fine",    name: "Fine Beach",    u: [0.92, 0.79, 0.58, 0.2] },
+        { id: "wet",     name: "Wet Tidal",     u: [0.72, 0.58, 0.41, 1.0] },
+        { id: "rippled", name: "Rippled Dunes", u: [0.90, 0.76, 0.55, 0.0] }
+    ]
+})
+
+def rippled_sand_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    # 1. Domain-warped wind ripples with asymmetric dune profile
+    warp = fbm(nx * 2.2 + 1.3, ny * 2.2 + 5.7, 3) * 1.35
+    phase = (nx * 0.72 + ny * 1.18) * 18.0 + warp * 3.8
+    w0 = pow(0.5 + 0.5 * sin(phase), 1.55)
+
+    # Directional finite-difference slope for sunlit windward crests vs shaded leeward faces
+    warp_s = fbm((nx + 0.014) * 2.2 + 1.3, (ny + 0.022) * 2.2 + 5.7, 2) * 1.35
+    phase_s = ((nx + 0.014) * 0.72 + (ny + 0.022) * 1.18) * 18.0 + warp_s * 3.8
+    w1 = pow(0.5 + 0.5 * sin(phase_s), 1.55)
+    slope = clamp((w0 - w1) * 3.0, -0.28, 0.32)
+
+    # 2. Multi-scale sand grain with soft-blurred mineral pockets and varied light quartz glints
+    grain_fine = fract(sin(px * 12.9898 + py * 78.233) * 43758.5453)
+    grain_med = fbm(px * 0.14, py * 0.14, 2)
+    # Soft-blurred darker mineral flecks (smooth multi-pixel pockets instead of harsh 1px dots)
+    dark_blur = smoothstep(0.66, 0.90, fbm(px * 0.36 + 13.7, py * 0.36 + 7.1, 2))
+    # Varied lighter sand & shell highlights (broad soft patches + crisp quartz glints)
+    light_soft = smoothstep(0.58, 0.88, fbm(px * 0.28 + 3.1, py * 0.28 + 19.4, 2))
+    speck_light = smoothstep(0.945, 0.995, fract(sin(px * 73.11 + py * 19.43) * 18392.3))
+
+    # 3. Warm golden-beige dune palette (lighter troughs, airy sunlit crests)
+    height_t = clamp(w0 * 0.78 + slope * 0.55 + (grain_med - 0.5) * 0.18, 0.0, 1.0)
+    base_r = mix(0.76, 0.96, height_t)
+    base_g = mix(0.62, 0.84, height_t)
+    base_b = mix(0.43, 0.65, height_t)
+
+    # Micro-grain modulation biased toward warm lighter highlights
+    grain_amp = mix(0.065, 0.045, w0)
+    micro = (grain_fine - 0.46) * grain_amp + (grain_med - 0.5) * 0.040
+    light_var = light_soft * 0.055 + speck_light * 0.085
+    r = base_r + micro - dark_blur * 0.075 + light_var
+    g = base_g + micro * 0.92 - dark_blur * 0.068 + light_var * 0.94
+    b = base_b + micro * 0.78 - dark_blur * 0.055 + light_var * 0.84
+
+    # 4. Gentle elliptical edge vignette
+    d_vig = hypot((u - 0.5) * 1.30, (v - 0.5) * 1.30)
+    vig = 1.0 - smoothstep(0.48, 1.12, d_vig) * 0.11
+
+    return [clamp(r * vig, 0.0, 1.0), clamp(g * vig, 0.0, 1.0), clamp(b * vig, 0.0, 1.0)]
+
+def wet_sand_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    # 1. Compacted tidal swash undulations & faint water-runoff rivulet trace
+    swash = fbm(nx * 2.6 + 4.1, ny * 5.8 + 1.2, 3)
+    riv_val = abs(fbm(nx * 3.0 + 9.1, ny * 1.5 + 2.3, 2) - 0.52)
+    rivulet = (1.0 - smoothstep(0.0, 0.050, riv_val)) * 0.045
+
+    # 2. Soft-edged air-bubble pinholes characteristic of wet tidal sand
+    cell_x = floor(px * 0.18)
+    cell_y = floor(py * 0.18)
+    p_hash = fract(sin(cell_x * 127.1 + cell_y * 311.7) * 43758.5453)
+    dx = fract(px * 0.18) - 0.5
+    dy = fract(py * 0.18) - 0.5
+    d_hole = hypot(dx, dy)
+    pinhole = (1.0 - smoothstep(0.06, 0.30, d_hole)) * step(0.988, p_hash) * 0.14
+
+    # 3. Fine compacted wet mineral grain + blurred dark specks + subtle light shell flecks
+    grain_fine = fract(sin(px * 12.9898 + py * 78.233) * 43758.5453)
+    dark_blur = smoothstep(0.68, 0.92, fbm(px * 0.38 + 21.3, py * 0.38 + 5.9, 2))
+    light_soft = smoothstep(0.62, 0.90, fbm(px * 0.30 + 8.4, py * 0.30 + 14.2, 2))
+
+    # 4. Saturated amber-tan wet sand palette (#BA9B72 mid-tone)
+    t = clamp(swash * 0.85 + 0.10, 0.0, 1.0)
+    base_r = mix(0.68, 0.81, t)
+    base_g = mix(0.54, 0.67, t)
+    base_b = mix(0.38, 0.50, t)
+
+    micro = (grain_fine - 0.48) * 0.024
+    light_var = light_soft * 0.038
+    r = base_r + micro - rivulet - pinhole - dark_blur * 0.060 + light_var
+    g = base_g + micro * 0.92 - rivulet * 0.90 - pinhole * 0.90 - dark_blur * 0.054 + light_var * 0.94
+    b = base_b + micro * 0.78 - rivulet * 0.80 - pinhole * 0.80 - dark_blur * 0.044 + light_var * 0.84
+
+    # 5. Gentle elliptical edge vignette
+    d_vig = hypot((u - 0.5) * 1.30, (v - 0.5) * 1.30)
+    vig = 1.0 - smoothstep(0.48, 1.12, d_vig) * 0.11
+
+    return [clamp(r * vig, 0.0, 1.0), clamp(g * vig, 0.0, 1.0), clamp(b * vig, 0.0, 1.0)]
+
+def fine_sand_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    # 1. Softly undulating beach sand heightfield + gentle directional slope
+    h0 = fbm(nx * 2.2 + 3.4, ny * 2.2 + 7.1, 3)
+    h1 = fbm((nx + 0.018) * 2.2 + 3.4, (ny + 0.018) * 2.2 + 7.1, 3)
+    slope = clamp((h0 - h1) * 4.2, -0.20, 0.24)
+
+    # 2. Crisp fine mineral grain with soft-blurred dark pockets & varied light highlights
+    grain_fine = fract(sin(px * 12.9898 + py * 78.233) * 43758.5453)
+    grain_med = fbm(px * 0.18, py * 0.18, 2)
+    dark_blur = smoothstep(0.66, 0.90, fbm(px * 0.36 + 13.7, py * 0.36 + 7.1, 2))
+    light_soft = smoothstep(0.56, 0.88, fbm(px * 0.28 + 3.1, py * 0.28 + 19.4, 2))
+    speck_light = smoothstep(0.945, 0.995, fract(sin(px * 73.11 + py * 19.43) * 18392.3))
+
+    # 3. Pale warm beach sand palette (#E8CCA0 to #D6B88A)
+    t = clamp(h0 * 0.80 + slope * 0.60 + (grain_med - 0.5) * 0.14, 0.0, 1.0)
+    base_r = mix(0.84, 0.96, t)
+    base_g = mix(0.72, 0.86, t)
+    base_b = mix(0.53, 0.67, t)
+
+    micro = (grain_fine - 0.46) * 0.052 + (grain_med - 0.5) * 0.032
+    light_var = light_soft * 0.050 + speck_light * 0.075
+    r = base_r + micro - dark_blur * 0.065 + light_var
+    g = base_g + micro * 0.92 - dark_blur * 0.058 + light_var * 0.94
+    b = base_b + micro * 0.78 - dark_blur * 0.048 + light_var * 0.84
+
+    # 4. Gentle elliptical edge vignette
+    d_vig = hypot((u - 0.5) * 1.30, (v - 0.5) * 1.30)
+    vig = 1.0 - smoothstep(0.48, 1.12, d_vig) * 0.11
+
+    return [clamp(r * vig, 0.0, 1.0), clamp(g * vig, 0.0, 1.0), clamp(b * vig, 0.0, 1.0)]
+
+def on_draw_background(ctx, w, h):
+    if (option_id == "wet"):
+        ctx.set_lacquer(0.75, 0.45)
+        ctx.fill_rect(0, 0, w, h, "#b6966e")
+        ctx.apply_shader("wet_sand_shader", intensity=1.0)
+    elif (option_id == "fine"):
+        ctx.set_lacquer(0.0, 1.8)
+        ctx.fill_rect(0, 0, w, h, "#e4c89c")
+        ctx.apply_shader("fine_sand_shader", intensity=1.0)
+    else:
+        ctx.set_lacquer(0.02, 2.6)
+        ctx.fill_rect(0, 0, w, h, "#dfc092")
+        ctx.apply_shader("rippled_sand_shader", intensity=1.0)

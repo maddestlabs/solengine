@@ -1,6 +1,7 @@
 #include "solengine/card_canvas.hpp"
 #include "solengine/card_texture_cache.hpp"
 #include "solengine/classic_deck_symbols.hpp"
+#include "solengine/classic_minimal_courts.hpp"
 #include "solengine/vector_binary.hpp"
 #include "eatstextures/field_ops.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
@@ -11,6 +12,7 @@
 #include "stb_image.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -19,6 +21,7 @@
 #include <iomanip>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -4418,7 +4421,7 @@ void CardCanvas::drawCornerIndices(const std::string& rank, Suit suit, float car
     }
 
     float pipSize = fontSize * 0.85f;
-    float marginX = cardW * 0.09f;
+    float marginX = cardW * 0.085f;
     float marginY = cardH * 0.05f;
 
     // Top-left index with 3px vertical padding between rank and suit pip
@@ -4444,7 +4447,7 @@ void CardCanvas::drawPipLayout(int rank, Suit suit, float cardW, float cardH, ui
 
     const bool useGemPips = (variant == "gem" || variant == "baroque" || variant == "baroque_gem" || variant == "relief");
     const auto& layout = getStandardPipLayout(rank);
-    float basePipSize = cardW * (useGemPips ? 0.16f : 0.17f);
+    float basePipSize = cardW * (useGemPips ? 0.16f : 0.185f);
 
     for (const auto& item : layout) {
         float px = item.x * cardW;
@@ -4481,15 +4484,80 @@ void CardCanvas::drawCourt(const std::string& rank, Suit suit, float x, float y,
     push();
     translate(x, y);
 
+    const int rInt = parseRank(rank);
+    const uint32_t suitColor = (suit == Suit::Hearts || suit == Suit::Diamonds) ? 0xFFCC0000 : 0xFF14151A;
+
+    size_t eveczSize = 0;
+    const uint8_t* eveczData = getClassicMinimalCourtEvecz(suit, rInt, eveczSize);
+    if (eveczData && eveczSize > 0 && w > 1.0f && h > 1.0f) {
+        static std::mutex s_courtCacheMutex;
+        static std::array<VectorImage, 12> s_courtCache;
+        static std::array<bool, 12> s_courtReady{};
+
+        const size_t cacheIdx = static_cast<size_t>(suit) * 3 + static_cast<size_t>(rInt - 11);
+        const VectorImage* vecPtr = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(s_courtCacheMutex);
+            if (!s_courtReady[cacheIdx]) {
+                if (VectorImage::parseAuto(eveczData, eveczSize, s_courtCache[cacheIdx])) {
+                    s_courtReady[cacheIdx] = true;
+                }
+            }
+            if (s_courtReady[cacheIdx]) {
+                vecPtr = &s_courtCache[cacheIdx];
+            }
+        }
+
+        if (vecPtr && !vecPtr->empty()) {
+            const float dstW = w * std::abs(state_.a);
+            const float dstH = h * std::abs(state_.d);
+            const int iw = std::max(1, static_cast<int>(std::round(dstW)));
+            const int ih = std::max(1, static_cast<int>(std::round(dstH)));
+
+            std::vector<uint8_t> topBuf(static_cast<size_t>(iw * ih * 4), 0);
+            VectorRasterizer::rasterizeToRgba(
+                *vecPtr, topBuf.data(), iw, ih,
+                0.0f, 0.0f, static_cast<float>(iw), static_cast<float>(ih), false
+            );
+
+            // Mirror top half 180 degrees for the bottom half
+            std::vector<uint8_t> botBuf(static_cast<size_t>(iw * ih * 4), 0);
+            const size_t totalPx = static_cast<size_t>(iw) * static_cast<size_t>(ih);
+            for (size_t p = 0; p < totalPx; ++p) {
+                const uint8_t* src = &topBuf[p * 4];
+                if (src[3] == 0) continue;
+                uint8_t* dst = &botBuf[(totalPx - 1 - p) * 4];
+                dst[0] = src[0];
+                dst[1] = src[1];
+                dst[2] = src[2];
+                dst[3] = src[3];
+            }
+
+            // Composite mirrored bottom first, then edited top half on top
+            compositeBuffer(botBuf.data(), iw, ih, state_.tx, state_.ty, static_cast<float>(iw), static_cast<float>(ih));
+            compositeBuffer(topBuf.data(), iw, ih, state_.tx, state_.ty, static_cast<float>(iw), static_cast<float>(ih));
+
+            // Draw uniform court-box corner suit symbols using CardCanvas::drawSuit
+            const float courtPipSize = std::min(w, h) * 0.16f;
+            drawSuit(suit, w * 0.12f, h * 0.105f, courtPipSize, suitColor);
+            push();
+            translate(w * 0.88f, h * 0.895f);
+            rotate180();
+            drawSuit(suit, 0.0f, 0.0f, courtPipSize, suitColor);
+            pop();
+
+            pop();
+            return;
+        }
+    }
+
+    // Fallback minimalist crest if rank is out of range or EVECZ decode fails
     float cx = w * 0.5f;
     uint32_t gold = (tint != 0) ? tint : 0xFFD4AF37;
-    uint32_t suitColor = (suit == Suit::Hearts || suit == Suit::Diamonds) ? 0xFFB81424 : 0xFF14151A;
 
-    // 1. Ornate Arch Frame
     strokeRoundedRect(4.0f, 4.0f, w - 8.0f, h - 8.0f, 6.0f, gold, 1.8f);
     strokeRoundedRect(8.0f, 8.0f, w - 16.0f, h - 16.0f, 4.0f, gold, 0.8f);
 
-    // 2. Royal Crest Crown
     float crownW = w * 0.44f;
     float crownH = crownW * 0.55f;
     float crownY = h * 0.14f;
@@ -4506,11 +4574,8 @@ void CardCanvas::drawCourt(const std::string& rank, Suit suit, float x, float y,
              << "</svg>";
     rasterizeSvgFragment(crownSvg.str(), state_.tx + state_.a * (cx - crownW * 0.5f), state_.ty + state_.d * crownY, crownW * std::abs(state_.a), crownH * std::abs(state_.d));
 
-    // 3. Central Ornate Pip
     float pipSize = std::min(w, h) * 0.38f;
     drawOrnateSuit(suit, cx, h * 0.52f, pipSize, suitColor, gold);
-
-    // 4. Bold Royal Rank Letter below crown
     drawRank(rank, cx, h * 0.86f, std::min(w, h) * 0.28f, gold);
 
     pop();
@@ -4526,7 +4591,7 @@ void CardCanvas::drawCardFace(const std::string& rank, Suit suit, float cardW, f
         color = (suit == Suit::Hearts || suit == Suit::Diamonds) ? 0xFFCC0000 : 0xFF1A1A1A;
     }
 
-    drawCornerIndices(rank, suit, cardW, cardH, color, cardW * 0.095f);
+    drawCornerIndices(rank, suit, cardW, cardH, color, cardW * 0.105f);
 
     if (rInt >= 11 && rInt <= 13) {
         float marginX = cardW * 0.16f;

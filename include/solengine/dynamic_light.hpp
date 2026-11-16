@@ -52,7 +52,31 @@ enum class LightingPreset : uint8_t {
     Candlelight,          // Cozy warm gold flame with delicate wind-draft flicker
     HauntedManor,         // Dark eerie amber/green gaslamp with unsettling dropouts & creep
     CyberpunkNeon,        // Electric cyan/magenta pulse with high-frequency neon buzzing
-    StudioSteady          // Perfectly crisp, motionless photographic studio lighting
+    StudioSteady,         // Perfectly crisp, motionless photographic studio lighting
+    MorningWindow,        // Crisp warm morning sunlight with cool ambient shadow fill
+    GoldenHour,           // Rich late-afternoon amber sun with soft warm-slate shadows
+    Evening,              // Cozy warm tungsten / hearthlight glow
+    DarkNight             // Cool silver-blue moonlight with deep indigo shadow fill
+};
+
+/**
+ * Placement / direction of the primary scene light source.
+ */
+enum class LightAngle : uint8_t {
+    Overhead = 0, // Centered overhead pool
+    TopLeft,      // Raking sunlight / lamp from top-left
+    TopRight,     // Raking sunlight / lamp from top-right
+    LowLeft       // Dramatic low-angle afternoon sun from far left
+};
+
+/**
+ * Environmental shadow occluder (gobo) projected across the tabletop and cards.
+ */
+enum class ShadowGobo : uint8_t {
+    None = 0,       // Unobstructed light
+    WindowFrame,    // Angled window panes & mullions
+    VenetianBlinds, // Parallel slatted window blinds
+    DappledCanopy   // Soft organic tree/foliage shadows gently drifting
 };
 
 /**
@@ -75,6 +99,15 @@ public:
 
     void setFlicker(const LightingFlickerConfig& flicker) noexcept { flicker_ = flicker; }
     [[nodiscard]] const LightingFlickerConfig& getFlicker() const noexcept { return flicker_; }
+
+    void setAngle(LightAngle angle) noexcept;
+    [[nodiscard]] LightAngle getAngle() const noexcept { return angle_; }
+
+    void setWaver(float waver) noexcept;
+    [[nodiscard]] float getWaver() const noexcept { return waverLevel_; }
+
+    void setFlickerLevel(float flicker) noexcept;
+    [[nodiscard]] float getFlickerLevel() const noexcept { return flickerLevel_; }
 
     void setBasePosition(float xRatio, float yRatio, float elevation) noexcept {
         baseXRatio_ = xRatio;
@@ -109,6 +142,11 @@ public:
     [[nodiscard]] eatsbits::ui::LightSource2D getEffectiveLight(float viewportW, float viewportH) const noexcept;
 
     /**
+     * Compute steady (un-swayed, un-flickered) base light position for architectural shadows & god rays.
+     */
+    [[nodiscard]] eatsbits::ui::LightSource2D getSteadyLight(float viewportW, float viewportH) const noexcept;
+
+    /**
      * RGBA light color with dynamic flicker intensity applied to alpha.
      */
     [[nodiscard]] std::array<float, 4> getLightColor() const noexcept;
@@ -125,6 +163,9 @@ public:
 
 private:
     LightingPreset preset_{LightingPreset::StudioSteady};
+    LightAngle angle_{LightAngle::Overhead};
+    float waverLevel_{0.0f};
+    float flickerLevel_{0.0f};
     LightingSwayConfig sway_{};
     LightingFlickerConfig flicker_{};
 

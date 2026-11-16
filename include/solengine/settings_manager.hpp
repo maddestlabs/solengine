@@ -17,8 +17,8 @@ class SolitaireBoard;
 struct AppSettings {
     GameVariant variant{GameVariant::KlondikeDraw1};
     TableThemeId tableTheme{TableThemeId::PastelTan};
-    std::string tableThemeSlug;
-    std::string tableThemeOption; // Active option id for current theme (e.g. "navy_blue", "cognac")
+    std::string tableThemeSlug{"pastel"};
+    std::string tableThemeOption{"stone"}; // Active option id for current theme (e.g. "navy_blue", "cognac")
     std::unordered_map<std::string, std::string> tableThemeOptions; // Per-theme option preference cache
     std::string postFxId{"none"};
     std::string postFxOption;
@@ -27,13 +27,13 @@ struct AppSettings {
     bool postFxAffectUi{false};
     TableTintPreset tableTint{TableTintPreset::Auto};
     DeckThemeId deckTheme{DeckThemeId::SolEnshade};
-    std::string deckSlug;
-    std::string cardBackId{"auto"};
+    std::string deckSlug{"solengine"};
+    std::string cardBackId{"classic_sapphire"};
     GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
-    CardWearLevel cardWear{CardWearLevel::Pristine};
-    CardStock cardStock{CardStock::None};
+    CardWearLevel cardWear{CardWearLevel::Natural};
+    CardStock cardStock{CardStock::SmoothParchment};
     CardCornerStyle cardCorners{CardCornerStyle::Auto};
-    float cardDeviation{0.25f}; // 0.0 = perfectly neat (0px, 0 deg), 0.25 = Subtle (+-2.5px, +-1.25 deg), 1.0 = maximum organic skew (+-10px, +-5 deg)
+    float cardDeviation{0.50f}; // 0.0 = perfectly neat (0px, 0 deg), 0.25 = Subtle (+-2.5px, +-1.25 deg), 1.0 = maximum organic skew (+-10px, +-5 deg)
     ResponsiveLayoutMode layoutMode{ResponsiveLayoutMode::Auto};
     StockPosition stockPosition{StockPosition::Auto};
     MenuAnchor menuAnchor{MenuAnchor::BottomLeft};
@@ -42,7 +42,14 @@ struct AppSettings {
     ToolbarScale toolbarScale{ToolbarScale::Regular};
     uint32_t toolbarItems{ToolbarItem_Default};
     int aaMode{4}; // Permanently 4x MSAA (supersampled anti-aliasing)
-    LightingPreset lightingPreset{LightingPreset::StudioSteady}; // Animated lighting (default StudioSteady = off)
+    LightingPreset lightingPreset{LightingPreset::GoldenHour}; // Light mood palette
+    LightAngle lightAngle{LightAngle::TopLeft};
+    ShadowGobo shadowGobo{ShadowGobo::WindowFrame};
+    float lightWaver{0.50f};          // 0.0 = steady, 1.0 = full organic sway
+    float lightFlicker{0.0f};        // 0.0 = steady, 1.0 = dynamic candle/draft flicker
+    float goboSoftness{0.45f};       // 0.05 = crisp mullions, 1.0 = soft diffused penumbra
+    float godRaysIntensity{0.0f};     // 0.0 = off, up to 1.0 = dramatic light shafts
+    float dustMotesIntensity{0.0f};   // 0.0 = off, up to 1.0 = sunlit floating dust
     float sceneDarkness{0.22f}; // 0.0 = 0% darkening, 0.22 = 22% subtle atmospheric darkening, up to 0.85
     float lightStrength{1.20f}; // 0.0 = off, 1.20 = 120% warm overhead light pool, up to 2.00
     float masterVolume{0.85f};

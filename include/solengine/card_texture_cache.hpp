@@ -296,12 +296,12 @@ private:
     bool hasGpuAtlas_{false};
     bool atlasDirty_{false};
     DeckThemeId currentTheme_{DeckThemeId::SolEnshade};
-    std::string currentDeckId_{"solenshade"};
-    CardWearLevel wearLevel_{CardWearLevel::Pristine};
-    CardStock cardStock_{CardStock::None};
+    std::string currentDeckId_{"solengine"};
+    CardWearLevel wearLevel_{CardWearLevel::Natural};
+    CardStock cardStock_{CardStock::SmoothParchment};
     float deckCornerRadius_{24.0f};
     CardCornerStyle cornerStyle_{CardCornerStyle::Auto};
-    std::string activeCardBackId_{"auto"};
+    std::string activeCardBackId_{"classic_sapphire"};
     DeckThemeId previewDeckTheme_{DeckThemeId::Count};
     std::string previewDeckId_;
     CardTexture previewFaceTexture_{};

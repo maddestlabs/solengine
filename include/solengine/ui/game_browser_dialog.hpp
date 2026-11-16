@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <chrono>
 
 namespace solengine {
 
@@ -66,6 +67,7 @@ public:
 private:
     void updateFilter();
     void ensureVisible(int index);
+    bool launchSelectedGame(AudioFoleyEngine& foley);
 
     bool isOpen_{false};
     bool searchFocused_{true};
@@ -77,6 +79,8 @@ private:
     std::string searchQuery_{""};
     std::string selectedCategory_{"ALL"};
     int highlightedIndex_{0};
+    int lastClickedIndex_{-1};
+    std::chrono::steady_clock::time_point lastClickTime_{};
     float scrollOffsetY_{0.0f};
     float maxScrollY_{0.0f};
     float cursorBlinkTimer_{0.0f};

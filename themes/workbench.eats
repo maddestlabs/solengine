@@ -1,0 +1,240 @@
+# SolEngine Custom Background Theme — Workbench
+# Hand-crafted workshop timber tabletops: White Oak, Golden Birch, Artisan Birch, and Honey Oak
+
+sol.set_theme({
+    id: "workbench",
+    name: "Workbench",
+    author: "SolEngine / Eatscript",
+    description: "Hand-crafted workshop timber tabletops: White Oak, Golden Birch, Artisan Birch, and Honey Oak",
+    version: 1,
+    procedural: true,
+    lacquer: 0.65,
+    relief_bump: 2.2,
+    option_label: "Wood",
+    options: [
+        { id: "white_oak",     name: "White Oak",     u: [0.0, 0.0, 0.0, 0.0] },
+        { id: "golden_birch",  name: "Golden Birch",  u: [0.0, 0.0, 0.0, 0.0] },
+        { id: "artisan_birch", name: "Artisan Birch", u: [0.0, 0.0, 0.0, 0.0] },
+        { id: "honey_oak",     name: "Honey Oak",     u: [0.0, 0.0, 0.0, 0.0] }
+    ]
+})
+
+def crown_oak_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.85, ny)
+
+    # 1. Organic domain warp
+    warp_y = fbm(nx * 2.2 + 5.7, ny * 1.8 + 1.2) * 0.30 + sin(nx * 3.1) * 0.06
+
+    # 2. Crown grain arches with dual cathedral peaks
+    cathedral = min((nx + 0.35) * (nx + 0.35) * 0.38, (nx - 0.45) * (nx - 0.45) * 0.30)
+    ring_coord = ny * 12.0 + cathedral + warp_y * 2.2
+
+    # 3. Latewood growth rings
+    ring_val = 0.5 + 0.5 * sin(ring_coord * 3.14159265)
+    latewood = smoothstep(0.35, 0.88, ring_val) * 0.32
+
+    # 4. Medullary ray flecks (radial ribbons characteristic of white oak)
+    ray_noise = fbm(nx * 32.0, ny * 18.0)
+    medullary_rays = smoothstep(0.70, 0.85, ray_noise) * 0.12
+
+    # 5. Open vessel pores (dense horizontal capillary ticks)
+    pore_noise = fbm(nx * 18.0, ny * 160.0)
+    vessel_pores = smoothstep(0.65, 0.86, pore_noise) * 0.40
+
+    # 6. Fine background tracheid fibers
+    fiber_noise = fbm(nx * 10.0, ny * 85.0)
+    fibers = (fiber_noise - 0.5) * 0.11
+
+    # 7. Subtle organic heartwood warmth variation
+    heartwood_drift = (fbm(nx * 1.5, ny * 1.5) - 0.5) * 0.12
+
+    # 8. Crown White Oak Palette (Mean ~#D0A878)
+    wood_r = 0.86 - latewood * 0.22 + medullary_rays * 0.14 - vessel_pores * 0.44 + fibers * 0.4 + heartwood_drift * 0.12
+    wood_g = 0.70 - latewood * 0.21 + medullary_rays * 0.12 - vessel_pores * 0.40 + fibers * 0.3 + heartwood_drift * 0.10
+    wood_b = 0.51 - latewood * 0.18 + medullary_rays * 0.09 - vessel_pores * 0.34 + fibers * 0.2 + heartwood_drift * 0.08
+
+    # 9. Natural lighting falloff
+    vignette = smoothstep(1.45, 0.50, dist)
+    speck = (random() - 0.5) * 0.010
+
+    base_r = wood_r * (0.94 + 0.06 * vignette) + speck
+    base_g = wood_g * (0.94 + 0.06 * vignette) + speck
+    base_b = wood_b * (0.94 + 0.06 * vignette) + speck
+
+    # Composite with canvas edge trim if present
+    r = clamp(mix(base_r, in_r, in_r * 0.35), 0.0, 1.0)
+    g = clamp(mix(base_g, in_g, in_g * 0.35), 0.0, 1.0)
+    b = clamp(mix(base_b, in_b, in_b * 0.35), 0.0, 1.0)
+    return [r, g, b]
+
+def birch_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Continuous longitudinal wood grain with organic domain warping
+    warp1 = fbm(nx * 1.8, ny * 0.9) * 0.35
+    warp2 = sin(ny * 2.6 + warp1 * 1.8) * 0.08
+    flow_x = nx * 13.5 + warp1 * 2.4 + warp2
+
+    # 2. Asymmetric growth rings (broad golden earlywood and crisp amber latewood)
+    ring_phase = flow_x * 3.14159265
+    ring_val = abs(sin(ring_phase))
+    latewood = (1.0 - ring_val * ring_val) * 0.16
+
+    # 3. Flame figure undulations (subtle chatoyancy across figure zones)
+    fig_mask = smoothstep(0.32, 0.68, fbm(nx * 1.6 + 3.1, ny * 1.8 + 5.2))
+    flame = sin(flow_x * 1.2 + ny * 6.5) * 0.08 * fig_mask
+
+    # 4. Fine anisotropic longitudinal tracheid fibers (dense vertical capillary streaks)
+    fiber_noise = fbm(nx * 75.0 + warp1 * 2.5, ny * 2.2)
+    fibers = (fiber_noise - 0.5) * 0.14
+
+    # 5. Delicate medullary pore ticks
+    pore_noise = fbm(nx * 140.0, ny * 14.0)
+    pores = (smoothstep(0.60, 0.80, pore_noise) - 0.5) * 0.06 * fig_mask
+
+    # 6. Scandinavian Golden Birch Palette (#D19E5C earlywood to #8C5C2B latewood)
+    base_r = 0.82 + fibers * 0.6
+    base_g = 0.62 + fibers * 0.5
+    base_b = 0.36 + fibers * 0.3
+
+    dark_r = 0.52
+    dark_g = 0.34
+    dark_b = 0.16
+
+    wood_r = base_r - latewood * (base_r - dark_r) + flame * 0.5 + pores * 0.4
+    wood_g = base_g - latewood * (base_g - dark_g) + flame * 0.4 + pores * 0.3
+    wood_b = base_b - latewood * (base_b - dark_b) + flame * 0.25 + pores * 0.2
+
+    # 7. Photographic vignette & satin timber tactile speckle
+    vignette = smoothstep(1.42, 0.40, dist)
+    speck = (random() - 0.5) * 0.012
+
+    # Composite with delicate vector edge trim if present
+    r = clamp(mix(wood_r * vignette, in_r, in_r * 0.35) + speck, 0.0, 1.0)
+    g = clamp(mix(wood_g * vignette, in_g, in_g * 0.35) + speck, 0.0, 1.0)
+    b = clamp(mix(wood_b * vignette, in_b, in_b * 0.35) + speck, 0.0, 1.0)
+    return [r, g, b]
+
+def artisan_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.95, ny)
+
+    # 1. Multi-frequency vertical timber flow with organic wandering
+    warp = fbm(nx * 2.1 + 1.4, ny * 1.1 + 2.7) * 0.38
+    flow_x = nx * 15.5 + warp * 2.8 + sin(ny * 2.2) * 0.07
+
+    # 2. Asymmetric growth rings with crisp latewood bands
+    ring_raw = abs(sin(flow_x * 3.14159265))
+    latewood = (1.0 - ring_raw * ring_raw) * 0.20
+
+    # 3. Dense longitudinal wood fibers and microscopic pores
+    fiber_noise = fbm(nx * 85.0 + warp * 2.5, ny * 2.4)
+    fibers = (fiber_noise - 0.5) * 0.16
+
+    pore_noise = fbm(nx * 160.0, ny * 16.0)
+    pores = (smoothstep(0.62, 0.82, pore_noise) - 0.5) * 0.07
+
+    # 4. Distinctive diagonal hairline knife/tool mark on left flank
+    sc_x = (nx + 0.42) * 0.848 - (ny + 0.05) * 0.530
+    sc_y = (nx + 0.42) * 0.530 + (ny + 0.05) * 0.848
+    scratch_width = abs(sc_y)
+    scratch_len = abs(sc_x)
+    scratch_groove = (1.0 - smoothstep(0.0008, 0.0042, scratch_width)) * (1.0 - smoothstep(0.18, 0.32, scratch_len)) * 0.35
+    scratch_highlight = (1.0 - smoothstep(0.0025, 0.0065, abs(sc_y - 0.003))) * (1.0 - smoothstep(0.16, 0.28, scratch_len)) * 0.08
+
+    # 5. Natural heartwood & mineral patina drift toward right flank
+    right_drift = smoothstep(-0.25, 0.95, nx)
+    mineral_grain = (fbm(nx * 3.5 + 4.2, ny * 1.5 + 1.8) - 0.5) * 0.08 * right_drift
+    patina_shade = 1.0 - right_drift * 0.08 + mineral_grain
+
+    # 6. Warm honey-caramel workshop palette (#CC944D base with deep #7A461B grain)
+    base_r = 0.80 + fibers * 0.6
+    base_g = 0.59 + fibers * 0.5
+    base_b = 0.33 + fibers * 0.3
+
+    dark_r = 0.48
+    dark_g = 0.30
+    dark_b = 0.13
+
+    wood_r = (base_r - latewood * (base_r - dark_r) + pores * 0.4 - scratch_groove + scratch_highlight) * patina_shade
+    wood_g = (base_g - latewood * (base_g - dark_g) + pores * 0.3 - scratch_groove * 0.8 + scratch_highlight) * patina_shade
+    wood_b = (base_b - latewood * (base_b - dark_b) + pores * 0.2 - scratch_groove * 0.6 + scratch_highlight * 0.5) * patina_shade
+
+    # 7. Photographic vignette & tactile surface grain
+    vignette = smoothstep(1.40, 0.42, dist)
+    speck = (random() - 0.5) * 0.015
+
+    # Composite with delicate canvas edge trim if present
+    r = clamp(mix(wood_r * vignette, in_r, in_r * 0.35) + speck, 0.0, 1.0)
+    g = clamp(mix(wood_g * vignette, in_g, in_g * 0.35) + speck, 0.0, 1.0)
+    b = clamp(mix(wood_b * vignette, in_b, in_b * 0.35) + speck, 0.0, 1.0)
+    return [r, g, b]
+
+def oak_shader(u, v, nx, ny, in_r, in_g, in_b):
+    dist = hypot(nx * 0.85, ny)
+
+    # 1. Subtle pin knot deflection in upper right (nx ~ 0.50, ny ~ -0.22)
+    k1_x = nx - 0.50
+    k1_y = ny - (-0.22)
+    k1_dist = hypot(k1_x * 2.2, k1_y)
+    k1_swirl = 0.14 / (k1_dist * 12.0 + 1.0)
+    k1_core = (1.0 - smoothstep(0.012, 0.045, k1_dist)) * 0.45
+
+    # 2. Organic domain warp along Y (across growth rings)
+    warp_y = fbm(nx * 1.8 + 2.3, ny * 1.5 + 4.1) * 0.35 + sin(nx * 2.2) * 0.07 + k1_swirl
+
+    # 3. Tangential cathedral grain arch (crown cut parabolic curves)
+    cathedral_arch = (nx + 0.15) * (nx + 0.15) * 0.24
+    ring_coord = ny * 9.5 + cathedral_arch + warp_y * 1.8
+
+    # 4. Soft growth ring banding
+    ring_val = 0.5 + 0.5 * sin(ring_coord * 3.14159265)
+    latewood = smoothstep(0.30, 0.85, ring_val) * 0.28
+
+    # 5. Broad timber figure & tone flow
+    figure_flow = fbm(nx * 1.2 + 7.1, ny * 2.8 + 1.9)
+    timber_shade = (figure_flow - 0.5) * 0.15
+
+    # 6. Distinct open vessel pores (elongated horizontal capillary ticks)
+    pore_noise = fbm(nx * 15.0, ny * 150.0)
+    vessel_pores = smoothstep(0.66, 0.86, pore_noise) * 0.38
+
+    # 7. Fine background tracheid micro-fibers
+    fiber_noise = fbm(nx * 8.0, ny * 70.0)
+    fibers = (fiber_noise - 0.5) * 0.10
+
+    # 8. Calibrated Natural Honey Oak Palette (Mean ~#D2A879)
+    wood_r = 0.87 - latewood * 0.20 + timber_shade * 0.10 + fibers * 0.4 - vessel_pores * 0.42 - k1_core * 0.50
+    wood_g = 0.71 - latewood * 0.20 + timber_shade * 0.09 + fibers * 0.3 - vessel_pores * 0.38 - k1_core * 0.46
+    wood_b = 0.52 - latewood * 0.18 + timber_shade * 0.07 + fibers * 0.2 - vessel_pores * 0.32 - k1_core * 0.40
+
+    # 9. Natural soft table surface lighting
+    vignette = smoothstep(1.45, 0.50, dist)
+    speck = (random() - 0.5) * 0.010
+
+    base_r = wood_r * (0.94 + 0.06 * vignette) + speck
+    base_g = wood_g * (0.94 + 0.06 * vignette) + speck
+    base_b = wood_b * (0.94 + 0.06 * vignette) + speck
+
+    # Composite with delicate canvas edge trim if present
+    r = clamp(mix(base_r, in_r, in_r * 0.35), 0.0, 1.0)
+    g = clamp(mix(base_g, in_g, in_g * 0.35), 0.0, 1.0)
+    b = clamp(mix(base_b, in_b, in_b * 0.35), 0.0, 1.0)
+    return [r, g, b]
+
+def on_draw_background(ctx, w, h):
+    if (option_id == "golden_birch"):
+        ctx.set_lacquer(0.60, 2.2)
+        ctx.fill_rect(0, 0, w, h, "#c89454")
+        ctx.apply_shader("birch_shader", intensity=1.0)
+    elif (option_id == "artisan_birch"):
+        ctx.set_lacquer(0.65, 2.2)
+        ctx.fill_rect(0, 0, w, h, "#c28e4a")
+        ctx.apply_shader("artisan_shader", intensity=1.0)
+    elif (option_id == "honey_oak"):
+        ctx.set_lacquer(0.95, 2.0)
+        ctx.fill_rect(0, 0, w, h, "#d2a879")
+        ctx.apply_shader("oak_shader", intensity=1.0)
+    else:
+        ctx.set_lacquer(0.50, 2.2)
+        ctx.fill_rect(0, 0, w, h, "#d0a878")
+        ctx.apply_shader("crown_oak_shader", intensity=1.0)

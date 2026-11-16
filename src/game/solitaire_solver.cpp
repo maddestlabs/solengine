@@ -1167,6 +1167,421 @@ struct NodeComparator {
     }
 };
 
+// ============================================================================
+// Reusable Fast Native Room-Crawl RPG Solver (Scoundrel / Card Crawl Archetype)
+// ============================================================================
+
+struct RpgCrawlConfig {
+    uint8_t stockZone{0};
+    uint8_t graveyardZone{1};
+    uint8_t weaponZone{2};
+    uint8_t roomStartZone{3};
+    uint8_t roomEndZone{6};
+    int16_t maxHp{20};
+    int16_t acePower{14};
+    uint8_t maxPotionsPerRoom{1}; // 1 for Scoundrel, 99 for unlimited
+    bool durabilityLessOrEqual{true};
+    bool allowBarehanded{true};
+    bool allowFlee{true};
+    bool allowConsecutiveFlee{false};
+};
+
+struct RpgCrawlState {
+    int16_t hp{20};
+    int16_t weapon{0};
+    int16_t cap{99};
+    uint8_t potionsUsed{0};
+    uint8_t fleeUsed{0};
+};
+
+bool isRpgCrawlGame(const SolitaireBoard& board) noexcept {
+    const auto& def = board.activeGameDef();
+    if (def.family == "Scoundrel") return true;
+    return def.category == "RPG" &&
+           def.tableaus >= 2 &&
+           board.piles().size() >= static_cast<size_t>(3 + def.tableaus) &&
+           board.blackboard().intStats.count("HP") > 0;
+}
+
+RpgCrawlConfig extractRpgCrawlConfig(const SolitaireBoard& board) noexcept {
+    RpgCrawlConfig cfg{};
+    const auto& def = board.activeGameDef();
+    const auto& bb = board.blackboard();
+    cfg.roomStartZone = 3;
+    cfg.roomEndZone = static_cast<uint8_t>(std::min<size_t>(
+        board.piles().size() - 1,
+        static_cast<size_t>(3 + std::max<uint8_t>(1, def.tableaus) - 1)
+    ));
+    cfg.maxHp = static_cast<int16_t>(std::max(1, bb.getInt("MAX_HP", bb.getInt("HP", 20))));
+    cfg.acePower = 14;
+    cfg.maxPotionsPerRoom = (bb.intStats.count("POTION_USED") > 0) ? 1 : 99;
+    cfg.durabilityLessOrEqual = true;
+    cfg.allowBarehanded = true;
+    cfg.allowFlee = true;
+    cfg.allowConsecutiveFlee = false;
+    return cfg;
+}
+
+int16_t rpgCardPower(CompactCard c, const RpgCrawlConfig& cfg) noexcept {
+    uint8_t r = static_cast<uint8_t>(c.rank());
+    return (r == 1) ? cfg.acePower : static_cast<int16_t>(r);
+}
+
+uint8_t rpgRoomCount(const CompactBoard& b, const RpgCrawlConfig& cfg) noexcept {
+    uint8_t cnt = 0;
+    for (uint8_t z = cfg.roomStartZone; z <= cfg.roomEndZone; ++z) {
+        if (!b.piles[z].empty()) ++cnt;
+    }
+    return cnt;
+}
+
+void rpgDealEmptyRoomSlots(CompactBoard& b, const RpgCrawlConfig& cfg) noexcept {
+    auto& stock = b.piles[cfg.stockZone];
+    for (uint8_t z = cfg.roomStartZone; z <= cfg.roomEndZone; ++z) {
+        if (b.piles[z].empty() && !stock.empty()) {
+            CompactCard c = stock.back();
+            stock.pop_back();
+            c.setFaceUp(true);
+            b.piles[z].push_back(c);
+        }
+    }
+}
+
+void rpgRefillRoom(CompactBoard& b, RpgCrawlState& st, const RpgCrawlConfig& cfg) noexcept {
+    rpgDealEmptyRoomSlots(b, cfg);
+    st.potionsUsed = 0;
+    st.fleeUsed = 0;
+}
+
+bool rpgApplyAction(
+    CompactBoard& b,
+    RpgCrawlState& st,
+    const RpgCrawlConfig& cfg,
+    SolverMove::Action action,
+    uint8_t zoneIdx,
+    bool useWeapon
+) noexcept {
+    if (action == SolverMove::Action::DrawStock) {
+        if (!cfg.allowFlee || b.piles[cfg.stockZone].empty()) return false;
+        const uint8_t numSlots = static_cast<uint8_t>(cfg.roomEndZone - cfg.roomStartZone + 1);
+        if (rpgRoomCount(b, cfg) != numSlots) return false;
+        if (!cfg.allowConsecutiveFlee && st.fleeUsed != 0) return false;
+
+        auto& stock = b.piles[cfg.stockZone];
+        for (uint8_t z = cfg.roomStartZone; z <= cfg.roomEndZone; ++z) {
+            if (!b.piles[z].empty()) {
+                CompactCard c = b.piles[z].back();
+                b.piles[z].pop_back();
+                c.setFaceUp(false);
+                if (stock.count < kMaxCardsPerPile) {
+                    std::memmove(&stock.cards[1], &stock.cards[0], stock.count * sizeof(CompactCard));
+                    stock.cards[0] = c;
+                    ++stock.count;
+                }
+            }
+        }
+        rpgDealEmptyRoomSlots(b, cfg);
+        st.potionsUsed = 0;
+        st.fleeUsed = 1;
+        return true;
+    }
+
+    if (zoneIdx < cfg.roomStartZone || zoneIdx > cfg.roomEndZone || b.piles[zoneIdx].empty()) {
+        return false;
+    }
+
+    CompactCard c = b.piles[zoneIdx].back();
+    const Suit s = c.suit();
+    const int16_t p = rpgCardPower(c, cfg);
+
+    if (s == Suit::Hearts) {
+        if (st.potionsUsed < cfg.maxPotionsPerRoom) {
+            st.hp = static_cast<int16_t>(std::min<int>(cfg.maxHp, st.hp + p));
+            if (cfg.maxPotionsPerRoom < 99) ++st.potionsUsed;
+        }
+        b.piles[zoneIdx].pop_back();
+        b.piles[cfg.graveyardZone].push_back(c);
+    } else if (s == Suit::Diamonds) {
+        if (!b.piles[cfg.weaponZone].empty()) {
+            CompactCard oldWpn = b.piles[cfg.weaponZone].back();
+            b.piles[cfg.weaponZone].pop_back();
+            b.piles[cfg.graveyardZone].push_back(oldWpn);
+        }
+        b.piles[zoneIdx].pop_back();
+        b.piles[cfg.weaponZone].push_back(c);
+        st.weapon = p;
+        st.cap = 99;
+    } else {
+        int16_t dmg = p;
+        const bool canBlock = useWeapon && st.weapon > 0 &&
+            (cfg.durabilityLessOrEqual ? (p <= st.cap) : (p < st.cap));
+        if (canBlock) {
+            dmg = static_cast<int16_t>(std::max(0, p - st.weapon));
+            st.cap = p;
+        }
+        st.hp = static_cast<int16_t>(std::max(0, st.hp - dmg));
+        b.piles[zoneIdx].pop_back();
+        b.piles[cfg.graveyardZone].push_back(c);
+    }
+
+    if (st.hp <= 0) {
+        return false; // Defeat branch: prune immediately
+    }
+
+    if (rpgRoomCount(b, cfg) <= 1 && !b.piles[cfg.stockZone].empty()) {
+        rpgRefillRoom(b, st, cfg);
+    }
+    return true;
+}
+
+uint64_t hashRpgCrawlState(const CompactBoard& b, const RpgCrawlState& st, const RpgCrawlConfig& cfg) noexcept {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (uint8_t p = 0; p < b.numPiles; ++p) {
+        if (p == cfg.graveyardZone) continue; // Graveyard order is inert
+        h ^= static_cast<uint64_t>(b.piles[p].count) + 0x9e3779b97f4a7c15ULL;
+        h *= 0x100000001b3ULL;
+        for (uint8_t c = 0; c < b.piles[p].count; ++c) {
+            h ^= b.piles[p].cards[c].raw;
+            h *= 0x100000001b3ULL;
+        }
+    }
+    auto mix = [&](uint64_t v) noexcept {
+        h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+    };
+    mix(static_cast<uint64_t>(st.hp));
+    mix(static_cast<uint64_t>(st.weapon));
+    mix(static_cast<uint64_t>(st.cap));
+    mix(static_cast<uint64_t>(st.potionsUsed));
+    mix(static_cast<uint64_t>(st.fleeUsed));
+    return h;
+}
+
+int32_t evalRpgCrawlHeuristic(const CompactBoard& b, const RpgCrawlState& st, const RpgCrawlConfig& cfg, uint32_t depth) noexcept {
+    const int32_t remaining = static_cast<int32_t>(b.piles[cfg.stockZone].count) +
+                              static_cast<int32_t>(rpgRoomCount(b, cfg));
+    const int32_t effCap = (st.cap >= 99) ? 14 : static_cast<int32_t>(st.cap);
+    return static_cast<int32_t>(st.hp) * 70 +
+           static_cast<int32_t>(st.weapon) * 35 +
+           effCap * 30 -
+           remaining * 180 -
+           static_cast<int32_t>(st.fleeUsed) * 40 -
+           static_cast<int32_t>(depth) * 2;
+}
+
+SolveResult solveRpgCrawlBoard(
+    const SolitaireBoard& initialBoard,
+    const RpgCrawlConfig& cfg,
+    uint32_t maxStates,
+    float timeoutMs,
+    std::atomic<bool>* cancelSignal
+) {
+    auto startTime = std::chrono::high_resolution_clock::now();
+    SolveResult result{};
+
+    if (initialBoard.isVictory()) {
+        result.solved = true;
+        return result;
+    }
+
+    const auto& bb = initialBoard.blackboard();
+    RpgCrawlState rootState{};
+    rootState.hp = static_cast<int16_t>(bb.getInt("HP", cfg.maxHp));
+    rootState.weapon = static_cast<int16_t>(bb.getInt("WEAPON", 0));
+    rootState.cap = static_cast<int16_t>(bb.getInt("CAP", 99));
+    rootState.potionsUsed = static_cast<uint8_t>(bb.getInt("POTION_USED", 0));
+    rootState.fleeUsed = static_cast<uint8_t>(bb.getInt("FLEE_USED", 0));
+
+    CompactBoard rootBoard = fromSolitaireBoard(initialBoard);
+    if (rootState.hp > 0 && rootBoard.piles[cfg.stockZone].empty() && rpgRoomCount(rootBoard, cfg) == 0) {
+        result.solved = true;
+        return result;
+    }
+
+    struct RpgNode {
+        uint32_t id{0};
+        uint32_t parentId{0};
+        uint32_t depth{0};
+        int32_t score{0};
+        SolverMove move{};
+        CompactBoard board{};
+        RpgCrawlState state{};
+    };
+
+    const uint32_t cappedMax = std::max<uint32_t>(1000u, maxStates);
+    std::vector<RpgNode> nodes;
+    nodes.reserve(std::min<size_t>(cappedMax + 256u, 65536u));
+
+    auto cmp = [&nodes](uint32_t a, uint32_t b) noexcept {
+        if (nodes[a].score != nodes[b].score) return nodes[a].score < nodes[b].score;
+        return nodes[a].depth > nodes[b].depth;
+    };
+    std::priority_queue<uint32_t, std::vector<uint32_t>, decltype(cmp)> open(cmp);
+
+    std::unordered_set<uint64_t> visited;
+    visited.reserve(std::min<size_t>(cappedMax * 2u, 131072u));
+
+    RpgNode root{};
+    root.id = 0;
+    root.board = rootBoard;
+    root.state = rootState;
+    root.score = evalRpgCrawlHeuristic(rootBoard, rootState, cfg, 0);
+    nodes.push_back(root);
+    visited.insert(hashRpgCrawlState(rootBoard, rootState, cfg));
+    open.push(0);
+
+    uint32_t bestPartialId = 0;
+    int32_t bestPartialScore = std::numeric_limits<int32_t>::min();
+
+    while (!open.empty()) {
+        if (cancelSignal && cancelSignal->load(std::memory_order_relaxed)) {
+            result.cancelled = true;
+            break;
+        }
+        if ((result.statesExplored & 255u) == 0u) {
+            auto now = std::chrono::high_resolution_clock::now();
+            float elapsed = std::chrono::duration<float, std::milli>(now - startTime).count();
+            if (elapsed >= timeoutMs) {
+                result.timedOut = true;
+                break;
+            }
+        }
+        if (nodes.size() >= cappedMax) {
+            result.timedOut = true;
+            break;
+        }
+
+        const uint32_t curId = open.top();
+        open.pop();
+        ++result.statesExplored;
+
+        const uint32_t curDepth = nodes[curId].depth;
+        if (curDepth >= 256u) continue;
+
+        auto tryPush = [&](const CompactBoard& nextBoard, const RpgCrawlState& nextState, SolverMove mv) -> bool {
+            const bool won = (nextState.hp > 0 &&
+                              nextBoard.piles[cfg.stockZone].empty() &&
+                              rpgRoomCount(nextBoard, cfg) == 0);
+            const uint64_t h = hashRpgCrawlState(nextBoard, nextState, cfg);
+            if (!won && !visited.insert(h).second) {
+                return false;
+            }
+
+            RpgNode child{};
+            child.id = static_cast<uint32_t>(nodes.size());
+            child.parentId = curId;
+            child.depth = curDepth + 1;
+            child.move = std::move(mv);
+            child.board = nextBoard;
+            child.state = nextState;
+            child.score = evalRpgCrawlHeuristic(nextBoard, nextState, cfg, child.depth);
+            const uint32_t childId = child.id;
+            const int32_t childScore = child.score;
+            nodes.push_back(child);
+
+            if (child.depth >= 2u && childScore > bestPartialScore) {
+                bestPartialScore = childScore;
+                bestPartialId = childId;
+            }
+
+            if (won) {
+                std::vector<SolverMove> path;
+                uint32_t trace = childId;
+                while (trace != 0) {
+                    path.push_back(nodes[trace].move);
+                    trace = nodes[trace].parentId;
+                }
+                std::reverse(path.begin(), path.end());
+                result.moves = std::move(path);
+                result.solved = true;
+                return true;
+            }
+            open.push(childId);
+            return false;
+        };
+
+        const CompactBoard curBoard = nodes[curId].board;
+        const RpgCrawlState curState = nodes[curId].state;
+
+        // 1. Room card actions (ClickCard, plus barehanded MoveCards to graveyard when armed)
+        for (uint8_t z = cfg.roomStartZone; z <= cfg.roomEndZone; ++z) {
+            if (curBoard.piles[z].empty()) continue;
+            const CompactCard c = curBoard.piles[z].back();
+            const Suit s = c.suit();
+            const int16_t p = rpgCardPower(c, cfg);
+
+            {
+                CompactBoard nb = curBoard;
+                RpgCrawlState ns = curState;
+                if (rpgApplyAction(nb, ns, cfg, SolverMove::Action::ClickCard, z, true)) {
+                    SolverMove mv{};
+                    mv.action = SolverMove::Action::ClickCard;
+                    mv.fromPile = z;
+                    mv.cardIndex = 0;
+                    mv.toPile = z;
+                    if (tryPush(nb, ns, std::move(mv))) {
+                        auto end = std::chrono::high_resolution_clock::now();
+                        result.solveTimeMs = std::chrono::duration<float, std::milli>(end - startTime).count();
+                        return result;
+                    }
+                }
+            }
+
+            const bool isMonster = (s == Suit::Spades || s == Suit::Clubs);
+            const bool weaponEligible = (curState.weapon > 0) &&
+                (cfg.durabilityLessOrEqual ? (p <= curState.cap) : (p < curState.cap));
+            if (cfg.allowBarehanded && isMonster && weaponEligible) {
+                CompactBoard nb = curBoard;
+                RpgCrawlState ns = curState;
+                if (rpgApplyAction(nb, ns, cfg, SolverMove::Action::MoveCards, z, false)) {
+                    SolverMove mv{};
+                    mv.action = SolverMove::Action::MoveCards;
+                    mv.fromPile = z;
+                    mv.cardIndex = 0;
+                    mv.toPile = cfg.graveyardZone;
+                    if (tryPush(nb, ns, std::move(mv))) {
+                        auto end = std::chrono::high_resolution_clock::now();
+                        result.solveTimeMs = std::chrono::duration<float, std::milli>(end - startTime).count();
+                        return result;
+                    }
+                }
+            }
+        }
+
+        // 2. Flee Room (DrawStock when all room slots are occupied and not fleeing consecutively)
+        if (cfg.allowFlee) {
+            CompactBoard nb = curBoard;
+            RpgCrawlState ns = curState;
+            if (rpgApplyAction(nb, ns, cfg, SolverMove::Action::DrawStock, cfg.stockZone, false)) {
+                SolverMove mv{};
+                mv.action = SolverMove::Action::DrawStock;
+                mv.fromPile = cfg.stockZone;
+                mv.toPile = cfg.stockZone;
+                if (tryPush(nb, ns, std::move(mv))) {
+                    auto end = std::chrono::high_resolution_clock::now();
+                    result.solveTimeMs = std::chrono::duration<float, std::milli>(end - startTime).count();
+                    return result;
+                }
+            }
+        }
+    }
+
+    if (!result.solved && !result.cancelled && bestPartialId != 0) {
+        std::vector<SolverMove> path;
+        uint32_t trace = bestPartialId;
+        while (trace != 0) {
+            path.push_back(nodes[trace].move);
+            trace = nodes[trace].parentId;
+        }
+        std::reverse(path.begin(), path.end());
+        result.moves = std::move(path);
+        result.isPartialDemo = !result.moves.empty();
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    result.solveTimeMs = std::chrono::duration<float, std::milli>(end - startTime).count();
+    return result;
+}
+
 } // namespace
 
 // ============================================================================
@@ -1182,6 +1597,11 @@ SolveResult SolitaireSolver::solve(
     auto startTime = std::chrono::high_resolution_clock::now();
     SolveResult result{};
     result.solved = false;
+
+    if (isRpgCrawlGame(initialBoard)) {
+        const RpgCrawlConfig cfg = extractRpgCrawlConfig(initialBoard);
+        return solveRpgCrawlBoard(initialBoard, cfg, maxStates, timeoutMs, cancelSignal);
+    }
 
     const bool useScriptSolver = initialBoard.hasScriptHooks() &&
         (initialBoard.activeGameDef().category == "RPG" ||

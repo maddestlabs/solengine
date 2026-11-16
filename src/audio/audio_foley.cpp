@@ -166,17 +166,17 @@ void AudioFoleyEngine::populateDefaultBank(FoleySoundBank& bank) {
     bank.customSounds.clear();
     bank.customSequences.clear();
 
-    // Snap baseline (Dirac Edge Snap)
+    // Tap/Snap baseline (Physical Card Tap modeled from cardsounds/card-tap.wav)
     {
         auto& sn = bank.coreSounds[FoleySound::Snap];
         sn.name = "snap";
         sn.soundId = FoleySound::Snap;
         sn.isCustom = false;
         sn.hasModalResonators = false;
-        sn.durationBase = 0.045f;
-        sn.durationDev = 0.08f;
+        sn.durationBase = 0.042f;
+        sn.durationDev = 0.16f;
         sn.gainBase = 1.0f;
-        sn.gainDev = 0.05f;
+        sn.gainDev = 0.07f;
         sn.panBase = 0.0f;
         sn.panDev = 0.04f;
     }
@@ -487,6 +487,50 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         v.diracFreq = 9400.0f * v.pitchMod;
         float diracSamples = std::max(1.0f, 0.0025f * sr);
         v.diracFreqStep = std::pow(1800.0f / std::max(1.0f, v.diracFreq), 1.0f / diracSamples);
+        return v;
+    };
+
+    // Helper to spawn a procedural Card Tap voice modeled from cardsounds/card-tap.wav
+    // Physical phenomenon: Crisp 5.05kHz/6.65kHz/3.45kHz cardstock tap transient with subtle micro-bounce,
+    // 950Hz card body knock, and warm 74Hz->54Hz finger/table coupling thump.
+    auto makeTapVoice = [&](float delay, float amp, float pitchMod = 1.0f, float lengthScale = 1.0f, float voicePan = 0.0f) noexcept -> Voice {
+        Voice v{};
+        v.reset();
+        v.active = true;
+        v.type = VoiceType::Tap;
+        v.soundId = FoleySound::Snap;
+        v.delaySec = std::max(0.0f, delay);
+        v.tapLengthScale = std::clamp(lengthScale, 0.70f, 1.38f);
+        v.durationSec = std::clamp(0.042f * v.tapLengthScale, 0.028f, 0.060f);
+        v.intensity = amp;
+        v.pitchMod = std::clamp(pitchMod, 0.84f, 1.18f);
+        v.pan = std::clamp(voicePan + nextNoise() * 0.030f * varScale, -1.0f, 1.0f);
+
+        v.velvetIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
+        v.velvetPlaybackRate = std::clamp(v.pitchMod * (1.0f + nextNoise() * 0.06f * varScale), 0.80f, 1.25f);
+        v.continuousIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
+
+        float mainFreq = std::clamp(5050.0f * v.pitchMod * (1.0f + nextNoise() * 0.03f * varScale), 3600.0f, 6800.0f);
+        float airFreq  = std::clamp(6650.0f * v.pitchMod * (1.0f + nextNoise() * 0.04f * varScale), 4800.0f, 9200.0f);
+        float snapFreq = std::clamp(3450.0f * v.pitchMod * (1.0f + nextNoise() * 0.04f * varScale), 2400.0f, 4800.0f);
+        float bodyFreq = std::clamp(950.0f  * v.pitchMod * (1.0f + nextNoise() * 0.06f * varScale), 600.0f, 1450.0f);
+        float feltCutoff = pp.feltDampingCutoff * (1.0f + nextNoise() * 0.06f * varScale);
+
+        v.biquad1.c = makeBandpass(mainFreq, 2.2f, sr);
+        v.biquad2.c = makeBandpass(airFreq,  2.1f, sr);
+        v.biquad3.c = makeBandpass(snapFreq, 1.8f, sr);
+        v.biquad4.c = makeBandpass(bodyFreq, 1.2f, sr);
+        v.biquad5.c = makeLowpass(feltCutoff, 0.707f, sr);
+
+        v.tapBounceDelaySec = std::clamp((0.0023f + nextNoise() * 0.0005f * varScale) * v.tapLengthScale, 0.0015f, 0.0040f);
+        v.tapBounceGain = std::clamp(0.22f + nextNoise() * 0.06f * varScale, 0.10f, 0.34f);
+        v.tapBodyGain = std::clamp(0.24f + nextNoise() * 0.05f * varScale, 0.14f, 0.36f);
+        v.tapThumpGain = std::clamp(0.14f + nextNoise() * 0.03f * varScale, 0.08f, 0.20f);
+
+        v.dropFreq = (74.0f + nextNoise() * 5.0f * varScale) * v.pitchMod;
+        float targetThumpFreq = (54.0f + nextNoise() * 3.0f * varScale) * v.pitchMod;
+        float thumpSweepSamples = std::max(1.0f, 0.015f * v.tapLengthScale * sr);
+        v.dropFreqStep = std::pow(std::max(25.0f, targetThumpFreq) / std::max(25.0f, v.dropFreq), 1.0f / thumpSweepSamples);
         return v;
     };
 
@@ -819,10 +863,17 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
     // 2. HD Physical Procedural Synthesis Routines (Built-in LPC-16, Dirac snaps, 2-stage touchdown, discrete riffle):
     switch (soundId) {
         case FoleySound::Snap: {
-            // Core Dirac Edge Snap (Card click / tap / selection interaction)
-            float pitchJitter = 1.0f + (nextNoise() * 0.075f * varScale);
-            float snapAmp = intensity * (1.0f + nextNoise() * 0.06f * varScale);
-            allocateVoice(makeSnapVoice(0.0f, snapAmp, pitchJitter, pan));
+            // Physical Card Tap modeled from cardsounds/card-tap.wav with organic pitch & length variation
+            tapAlternator_++;
+            float pitchCycle = (static_cast<float>((tapAlternator_ * 3) % 7) - 3.0f) * 0.022f;
+            float pitchJitter = std::clamp(1.0f + (pitchCycle + nextNoise() * 0.055f) * varScale, 0.88f, 1.14f);
+
+            float lenCycle = (static_cast<float>((tapAlternator_ * 5) % 9) - 4.0f) * 0.038f;
+            float lengthScale = std::clamp(1.0f + (lenCycle + nextNoise() * 0.12f) * varScale, 0.74f, 1.32f);
+
+            float tapAmp = intensity * (1.0f + nextNoise() * 0.07f * varScale);
+            float tapPan = std::clamp(pan + ((static_cast<float>(tapAlternator_ % 5) - 2.0f) * 0.015f * varScale), -1.0f, 1.0f);
+            allocateVoice(makeTapVoice(0.0f, tapAmp, pitchJitter, lengthScale, tapPan));
             break;
         }
 
@@ -1187,6 +1238,61 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                         }
 
                         sample = (triOut + noiseOut + diracOut) * 0.95f;
+                        break;
+                    }
+
+                    case VoiceType::Tap: {
+                        // Procedural Physical Card Tap modeled from cardsounds/card-tap.wav
+                        float velvet = 0.0f;
+                        if (hasVelvet) {
+                            size_t vIdx = static_cast<size_t>(v.velvetIdx) % kNoiseBufferSize;
+                            velvet = velvetNoiseBuffer_[vIdx];
+                            v.velvetIdx += v.velvetPlaybackRate;
+                            if (v.velvetIdx >= static_cast<float>(kNoiseBufferSize)) v.velvetIdx -= static_cast<float>(kNoiseBufferSize);
+                        } else {
+                            velvet = nextNoise();
+                        }
+
+                        float cont = nextNoise();
+                        if (hasContinuous) {
+                            size_t cIdx = static_cast<size_t>(v.continuousIdx) % kNoiseBufferSize;
+                            cont = continuousNoiseBuffer_[cIdx] * 3.5f;
+                            v.continuousIdx += 1.0f;
+                            if (v.continuousIdx >= static_cast<float>(kNoiseBufferSize)) v.continuousIdx -= static_cast<float>(kNoiseBufferSize);
+                        }
+
+                        const float exc = cont * 0.55f + velvet * 0.45f;
+                        const float bpMain = v.biquad1.process(exc);
+                        const float bpAir  = v.biquad2.process(exc);
+                        const float bpSnap = v.biquad3.process(exc);
+                        const float bpBody = v.biquad4.process(cont);
+
+                        const float lenScale = v.tapLengthScale;
+                        const float attTap = std::min(1.0f, v.ageSec / 0.0004f);
+                        const float tauTap = 0.0018f * lenScale;
+                        float tapEnv = std::exp(-v.ageSec / tauTap);
+                        if (v.ageSec >= v.tapBounceDelaySec) {
+                            const float bounceAge = v.ageSec - v.tapBounceDelaySec;
+                            tapEnv += v.tapBounceGain * std::exp(-bounceAge / (0.0009f * lenScale));
+                        }
+                        tapEnv *= attTap;
+
+                        const float tauBody = 0.0024f * lenScale;
+                        const float bodyEnv = attTap * std::exp(-v.ageSec / tauBody);
+
+                        const float crispOut = (bpMain * 1.25f + bpAir * 0.65f + bpSnap * 0.32f) * tapEnv
+                                             + (bpBody * v.tapBodyGain) * bodyEnv;
+                        const float feltCrisp = v.biquad5.process(crispOut);
+
+                        // Warm finger/table coupling thump (74Hz -> 54Hz)
+                        v.dropFreq = std::max(30.0f, v.dropFreq * v.dropFreqStep);
+                        v.phaseSine += v.dropFreq * dt;
+                        if (v.phaseSine >= 1.0f) v.phaseSine -= 1.0f;
+                        const float thumpAtt = std::min(1.0f, v.ageSec / 0.0012f);
+                        const float thumpEnv = thumpAtt * std::exp(-v.ageSec / (0.010f * lenScale));
+                        const float thumpOut = std::sin(v.phaseSine * kTwoPi) * v.tapThumpGain * thumpEnv;
+
+                        sample = (feltCrisp + thumpOut) * v.intensity * 1.15f;
                         break;
                     }
 

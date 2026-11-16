@@ -2,7 +2,7 @@
 
 > *"The Solitaire Engine. Bake your new Sol into existence with the power of Python-based scripting in Eatscript."*
 
-[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live%20Demo-brightgreen?style=flat-square&logo=github)](https://maddestlabs.github.io/solengine/)
+[![Play Online](https://img.shields.io/badge/Play%20Online-solengine.org-brightgreen?style=flat-square&logo=github)](https://solengine.org/)
 [![Repository](https://img.shields.io/badge/Repository-maddestlabs%2Fsolengine-blue?style=flat-square&logo=github)](https://github.com/maddestlabs/solengine)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](file:///c:/git/solengine/LICENSE.md)
 [![Standard: C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?style=flat-square&logo=c%2B%2B)](file:///c:/git/solengine/CMakeLists.txt)
@@ -20,7 +20,7 @@ To minimize runtime, SolEngine leans heavily into procedural generation.
 Every shuffle is deterministic, powered by an editable seed. Easily replay games via seeds. Built-in solver can ensure solvable games (depending on variant) and allows walkthrough of gameplay to facilitate learning new dynamics.
 
 Play instantly in your browser:  
-👉 **[Launch SolEngine](https://maddestlabs.github.io/solengine/)**
+👉 **[Launch SolEngine](https://solengine.org/)**
 
 ---
 

@@ -14,6 +14,7 @@
     <meta name="theme-color" content="#0d140e">
     <meta name="color-scheme" content="dark">
     <meta name="description" content="High-fidelity procedural Solitaire board game built in C++20 and WebGPU with PBR table lighting and custom Eatscript decks.">
+    <link rel="canonical" href="https://solengine.org/">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
@@ -918,14 +919,33 @@
             }
         };
 
-        // Service Worker for Offline PWA
+        // Service Worker for Offline PWA & Cross-Origin Isolation (COOP/COEP for SharedArrayBuffer)
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js').then((reg) => {
-                    console.log('[SolEngine PWA] Registered with scope:', reg.scope);
-                }).catch((err) => {
-                    console.warn('[SolEngine PWA] ServiceWorker registration failed:', err);
-                });
+            if (window.crossOriginIsolated) {
+                try { sessionStorage.removeItem('solengine_coi_reloaded'); } catch (e) {}
+            } else if (window.isSecureContext) {
+                let alreadyReloaded = false;
+                try { alreadyReloaded = sessionStorage.getItem('solengine_coi_reloaded') === '1'; } catch (e) {}
+                if (!alreadyReloaded) {
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        try { sessionStorage.setItem('solengine_coi_reloaded', '1'); } catch (e) {}
+                        window.location.reload();
+                    }, { once: true });
+                }
+            }
+
+            navigator.serviceWorker.register('./sw.js').then((reg) => {
+                console.log('[SolEngine PWA] Registered with scope:', reg.scope);
+                if (!window.crossOriginIsolated && window.isSecureContext && navigator.serviceWorker.controller) {
+                    let alreadyReloaded = false;
+                    try { alreadyReloaded = sessionStorage.getItem('solengine_coi_reloaded') === '1'; } catch (e) {}
+                    if (!alreadyReloaded) {
+                        try { sessionStorage.setItem('solengine_coi_reloaded', '1'); } catch (e) {}
+                        window.location.reload();
+                    }
+                }
+            }).catch((err) => {
+                console.warn('[SolEngine PWA] ServiceWorker registration failed:', err);
             });
         }
 

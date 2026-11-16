@@ -29,6 +29,7 @@ void GameBrowserDialog::open(const std::string& activeGameId) {
     selectedCategory_ = "ALL";
     scrollOffsetY_ = 0.0f;
     highlightedIndex_ = 0;
+    lastClickedIndex_ = -1;
     cursorBlinkTimer_ = 0.0f;
     updateFilter();
 
@@ -96,6 +97,27 @@ void GameBrowserDialog::ensureVisible(int index) {
         scrollOffsetY_ = cardBottom - visibleH;
     }
     scrollOffsetY_ = std::clamp(scrollOffsetY_, 0.0f, maxScrollY_);
+}
+
+bool GameBrowserDialog::launchSelectedGame(AudioFoleyEngine& foley) {
+    if (filteredGames_.empty() || highlightedIndex_ < 0 ||
+        highlightedIndex_ >= static_cast<int>(filteredGames_.size())) {
+        return false;
+    }
+
+    const auto sel = filteredGames_[static_cast<size_t>(highlightedIndex_)];
+    activeGameId_ = sel.id;
+    lastClickedIndex_ = -1;
+    close();
+
+    if (SettingsManager::instance().settings().guaranteeSolvable && onSolvableSelected) {
+        foley.triggerSound(FoleySound::Shuffle, 0.9f);
+        onSolvableSelected(sel);
+    } else {
+        foley.triggerSound(FoleySound::Deal, 0.85f);
+        if (onGameSelected) onGameSelected(sel);
+    }
+    return true;
 }
 
 void GameBrowserDialog::render(
@@ -270,11 +292,6 @@ void GameBrowserDialog::render(
             bool isHov = (!isDragging_ && mouseX >= cx && mouseX <= cx + cardW && mouseY >= cy && mouseY <= cy + cardH &&
                           mouseY >= cardsAreaY_ && mouseY <= cardsAreaY_ + cardsAreaH_);
 
-            // Hover syncs highlightedIndex_
-            if (isHov && highlightedIndex_ != static_cast<int>(i)) {
-                highlightedIndex_ = static_cast<int>(i);
-            }
-
             // Card background
             float bgR = pal.woodR0 + 0.05f;
             float bgG = pal.woodG0 + 0.04f;
@@ -358,8 +375,9 @@ void GameBrowserDialog::render(
             eatsbits::ui::glyph::drawVectorText(r, g.family.c_str(), badgeRightX + 5.0f, cy + 3.5f + 7.0f, 8.5f, pal.accentR, pal.accentG, pal.accentB, 0.95f);
 
             // 2. Metadata: Decks & Columns
-            std::string metaStr = std::to_string(g.decks) + (g.decks == 1 ? " Deck" : " Decks") + " * " +
-                                  std::to_string(g.tableaus) + " Cols";
+            std::string metaStr = std::to_string(g.decks) + (g.decks == 1 ? " Deck" : " Decks");
+            if (g.deckCards > 0) metaStr += " (" + std::to_string(g.deckCards) + " Cards)";
+            metaStr += " * " + std::to_string(g.tableaus) + " Cols";
             if (g.freecells > 0) metaStr += " * " + std::to_string(g.freecells) + " Cells";
             float metaTxtW = eatsbits::ui::glyph::getVectorTextWidth(9.0f, metaStr.c_str());
             badgeRightX -= (metaTxtW + 14.0f);
@@ -397,38 +415,107 @@ void GameBrowserDialog::render(
     }
 
     // 7. Footer bar
-    const float footerY = dialogY_ + dialogH_ - 38.0f;
-    std::string countStr = "Showing " + std::to_string(filteredGames_.size()) + " variants (Enter: Play, [Space]: Auto-Play Demo)";
-    eatsbits::ui::glyph::drawVectorText(r, countStr.c_str(), dialogX_ + 20.0f, footerY + 7.0f, 10.0f, 0.80f, 0.78f, 0.72f, 0.85f);
+    const float footerY = dialogY_ + dialogH_ - 39.0f;
+    const float btnH = 28.0f;
 
-    // Footer buttons from right to left
-    // [ CLOSE ] button
-    const float closeFooterBtnW = 74.0f;
-    const float closeFooterBtnX = dialogX_ + dialogW_ - closeFooterBtnW - 16.0f;
-    const float randBtnH = 26.0f;
-    bool closeFootHov = (mouseX >= closeFooterBtnX && mouseX <= closeFooterBtnX + closeFooterBtnW && mouseY >= footerY && mouseY <= footerY + randBtnH);
-    r.drawRoundedRect(closeFooterBtnX, footerY, closeFooterBtnW, randBtnH, 4.0f, pal.woodR0 + (closeFootHov ? 0.08f : 0.04f), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
-    r.drawRoundedRectOutline(closeFooterBtnX, footerY, closeFooterBtnW, randBtnH, 4.0f, closeFootHov ? pal.accentR : pal.trimR, closeFootHov ? pal.accentG : pal.trimG, closeFootHov ? pal.accentB : pal.trimB, 0.70f, 1.0f, 4);
-    float closeTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.0f, "CLOSE");
-    eatsbits::ui::glyph::drawVectorText(r, "CLOSE", closeFooterBtnX + (closeFooterBtnW - closeTxtW) * 0.5f, footerY + 7.0f, 10.0f, 0.90f, 0.88f, 0.82f, 1.0f);
+    // [ ► Play ] button (bottom right)
+    const float playBtnW = 92.0f;
+    const float playBtnX = dialogX_ + dialogW_ - playBtnW - 16.0f;
+    const bool hasSelection = !filteredGames_.empty() && highlightedIndex_ >= 0 &&
+                              highlightedIndex_ < static_cast<int>(filteredGames_.size());
+    const bool playHov = hasSelection && (mouseX >= playBtnX && mouseX <= playBtnX + playBtnW &&
+                                          mouseY >= footerY && mouseY <= footerY + btnH);
+    const float playAlpha = hasSelection ? 0.98f : 0.45f;
 
-    // [ * SOLVABLE ] button
-    const float solvBtnW = 120.0f;
-    const float solvBtnX = closeFooterBtnX - solvBtnW - 8.0f;
-    bool solvHov = (mouseX >= solvBtnX && mouseX <= solvBtnX + solvBtnW && mouseY >= footerY && mouseY <= footerY + randBtnH);
-    r.drawRoundedRect(solvBtnX, footerY, solvBtnW, randBtnH, 4.0f, pal.woodR0 + (solvHov ? 0.12f : 0.06f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
-    r.drawRoundedRectOutline(solvBtnX, footerY, solvBtnW, randBtnH, 4.0f, solvHov ? pal.accentR : pal.trimR, solvHov ? pal.accentG : pal.trimG, solvHov ? pal.accentB : pal.trimB, 0.85f, 1.2f, 4);
-    float solvTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.0f, "* SOLVABLE");
-    eatsbits::ui::glyph::drawVectorText(r, "* SOLVABLE", solvBtnX + (solvBtnW - solvTxtW) * 0.5f, footerY + 7.0f, 10.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+    r.drawRoundedRect(
+        playBtnX, footerY, playBtnW, btnH, 5.0f,
+        hasSelection ? (pal.accentR * (playHov ? 0.36f : 0.24f) + pal.woodR0 * 0.72f) : pal.woodR0 + 0.02f,
+        hasSelection ? (pal.accentG * (playHov ? 0.36f : 0.24f) + pal.woodG0 * 0.72f) : pal.woodG0 + 0.02f,
+        hasSelection ? (pal.accentB * (playHov ? 0.36f : 0.24f) + pal.woodB0 * 0.72f) : pal.woodB0 + 0.02f,
+        playAlpha, 4
+    );
+    r.drawRoundedRectOutline(
+        playBtnX, footerY, playBtnW, btnH, 5.0f,
+        (hasSelection && playHov) ? pal.accentR : pal.trimR,
+        (hasSelection && playHov) ? pal.accentG : pal.trimG,
+        (hasSelection && playHov) ? pal.accentB : pal.trimB,
+        hasSelection ? (playHov ? 1.0f : 0.85f) : 0.35f,
+        playHov ? 1.5f : 1.2f, 4
+    );
 
-    // [ RANDOM GAME ] button
-    const float randBtnW = 120.0f;
-    const float randBtnX = solvBtnX - randBtnW - 8.0f;
-    bool randHov = (mouseX >= randBtnX && mouseX <= randBtnX + randBtnW && mouseY >= footerY && mouseY <= footerY + randBtnH);
-    r.drawRoundedRect(randBtnX, footerY, randBtnW, randBtnH, 4.0f, pal.woodR0 + (randHov ? 0.10f : 0.05f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
-    r.drawRoundedRectOutline(randBtnX, footerY, randBtnW, randBtnH, 4.0f, randHov ? pal.accentR : pal.trimR, randHov ? pal.accentG : pal.trimG, randHov ? pal.accentB : pal.trimB, 0.85f, 1.2f, 4);
-    float randTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.0f, "RANDOM");
-    eatsbits::ui::glyph::drawVectorText(r, "RANDOM", randBtnX + (randBtnW - randTxtW) * 0.5f, footerY + 7.0f, 10.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+    const float playTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, "Play");
+    const float triW = 8.0f;
+    const float triGap = 7.0f;
+    const float contentTotalW = triW + triGap + playTxtW;
+    const float contentStartX = playBtnX + (playBtnW - contentTotalW) * 0.5f;
+    const float triCy = footerY + btnH * 0.5f;
+    const float triHalfH = 4.5f;
+    r.drawTriangle(
+        contentStartX, triCy - triHalfH,
+        contentStartX, triCy + triHalfH,
+        contentStartX + triW, triCy,
+        pal.accentR, pal.accentG, pal.accentB, playAlpha
+    );
+    eatsbits::ui::glyph::drawVectorText(
+        r, "Play", contentStartX + triW + triGap, footerY + 8.0f, 11.0f,
+        pal.accentR, pal.accentG, pal.accentB, playAlpha
+    );
+
+    // "Solvable" toggle switch to the left of Play
+    const bool solvableOn = SettingsManager::instance().settings().guaranteeSolvable;
+    const float labelTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, "Solvable");
+    const float trackW = 36.0f;
+    const float trackH = 18.0f;
+    const float labelGap = 8.0f;
+    const float toggleTotalW = labelTxtW + labelGap + trackW;
+    const float toggleX = playBtnX - toggleTotalW - 16.0f;
+    const bool toggleHov = (mouseX >= toggleX - 4.0f && mouseX <= toggleX + toggleTotalW + 4.0f &&
+                            mouseY >= footerY && mouseY <= footerY + btnH);
+
+    eatsbits::ui::glyph::drawVectorText(
+        r, "Solvable", toggleX, footerY + 8.5f, 10.5f,
+        solvableOn ? pal.accentR : (toggleHov ? 0.95f : 0.82f),
+        solvableOn ? pal.accentG : (toggleHov ? 0.93f : 0.80f),
+        solvableOn ? pal.accentB : (toggleHov ? 0.88f : 0.74f),
+        0.95f
+    );
+
+    const float trackX = toggleX + labelTxtW + labelGap;
+    const float trackY = footerY + (btnH - trackH) * 0.5f;
+    r.drawRoundedRect(
+        trackX, trackY, trackW, trackH, trackH * 0.5f,
+        solvableOn ? (pal.accentR * 0.40f + pal.woodR0 * 0.60f) : (pal.woodR0 + (toggleHov ? 0.06f : 0.02f)),
+        solvableOn ? (pal.accentG * 0.40f + pal.woodG0 * 0.60f) : (pal.woodG0 + (toggleHov ? 0.05f : 0.02f)),
+        solvableOn ? (pal.accentB * 0.40f + pal.woodB0 * 0.60f) : (pal.woodB0 + (toggleHov ? 0.04f : 0.01f)),
+        0.96f, 6
+    );
+    r.drawRoundedRectOutline(
+        trackX, trackY, trackW, trackH, trackH * 0.5f,
+        (solvableOn || toggleHov) ? pal.accentR : pal.trimR,
+        (solvableOn || toggleHov) ? pal.accentG : pal.trimG,
+        (solvableOn || toggleHov) ? pal.accentB : pal.trimB,
+        solvableOn ? 0.95f : 0.65f, 1.2f, 6
+    );
+
+    const float knobRadius = 6.5f;
+    const float knobCx = solvableOn ? (trackX + trackW - 9.0f) : (trackX + 9.0f);
+    const float knobCy = trackY + trackH * 0.5f;
+    r.drawCircle(
+        knobCx, knobCy, knobRadius,
+        solvableOn ? pal.accentR : 0.78f,
+        solvableOn ? pal.accentG : 0.75f,
+        solvableOn ? pal.accentB : 0.70f,
+        1.0f, 16
+    );
+
+    // Left-aligned variant count / hint (auto-shortens if narrow)
+    const float countX = dialogX_ + 20.0f;
+    const float availCountW = toggleX - countX - 12.0f;
+    std::string longCountStr = "Showing " + std::to_string(filteredGames_.size()) + " variants (Double-click: Play)";
+    std::string shortCountStr = std::to_string(filteredGames_.size()) + " variants";
+    const std::string& countStr = (eatsbits::ui::glyph::getVectorTextWidth(10.0f, longCountStr.c_str()) <= availCountW)
+        ? longCountStr : shortCountStr;
+    eatsbits::ui::glyph::drawVectorText(r, countStr.c_str(), countX, footerY + 8.5f, 10.0f, 0.80f, 0.78f, 0.72f, 0.85f);
 }
 
 bool GameBrowserDialog::handleMouseButton(
@@ -519,49 +606,33 @@ bool GameBrowserDialog::handleMouseButton(
             chipX += chipW + 8.0f;
         }
 
-        // 4. Check footer buttons
-        const float footerY = dialogY_ + dialogH_ - 38.0f;
-        const float closeFooterBtnW = 74.0f;
-        const float closeFooterBtnX = dialogX_ + dialogW_ - closeFooterBtnW - 16.0f;
-        const float randBtnH = 26.0f;
-        const float solvBtnW = 120.0f;
-        const float solvBtnX = closeFooterBtnX - solvBtnW - 8.0f;
-        const float randBtnW = 120.0f;
-        const float randBtnX = solvBtnX - randBtnW - 8.0f;
+        // 4. Check footer controls ("Solvable" toggle + "► Play" button)
+        const float footerY = dialogY_ + dialogH_ - 39.0f;
+        const float btnH = 28.0f;
+        const float playBtnW = 92.0f;
+        const float playBtnX = dialogX_ + dialogW_ - playBtnW - 16.0f;
 
-        // [ CLOSE ]
-        if (mouseX >= closeFooterBtnX && mouseX <= closeFooterBtnX + closeFooterBtnW && mouseY >= footerY && mouseY <= footerY + randBtnH) {
-            close();
-            foley.triggerSound(FoleySound::WoodClick, 0.7f);
+        const float labelTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, "Solvable");
+        const float trackW = 36.0f;
+        const float labelGap = 8.0f;
+        const float toggleTotalW = labelTxtW + labelGap + trackW;
+        const float toggleX = playBtnX - toggleTotalW - 16.0f;
+
+        // "Solvable" toggle switch
+        if (mouseX >= toggleX - 4.0f && mouseX <= toggleX + toggleTotalW + 4.0f &&
+            mouseY >= footerY && mouseY <= footerY + btnH) {
+            auto& s = SettingsManager::instance().settings();
+            s.guaranteeSolvable = !s.guaranteeSolvable;
+            SettingsManager::instance().save();
+            foley.triggerSound(FoleySound::WoodClick, 0.75f);
             return true;
         }
 
-        // [ * SOLVABLE ]
-        if (mouseX >= solvBtnX && mouseX <= solvBtnX + solvBtnW && mouseY >= footerY && mouseY <= footerY + randBtnH) {
-            if (!filteredGames_.empty() && highlightedIndex_ >= 0 && highlightedIndex_ < static_cast<int>(filteredGames_.size())) {
-                const auto& sel = filteredGames_[static_cast<size_t>(highlightedIndex_)];
-                activeGameId_ = sel.id;
-                close();
-                foley.triggerSound(FoleySound::Shuffle, 0.9f);
-                if (onSolvableSelected) onSolvableSelected(sel);
-                return true;
-            }
-        }
-
-        // [ RANDOM GAME ]
-        if (mouseX >= randBtnX && mouseX <= randBtnX + randBtnW && mouseY >= footerY && mouseY <= footerY + randBtnH) {
-            if (!filteredGames_.empty()) {
-                std::random_device rd;
-                auto nowVal = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-                uint32_t idx = static_cast<uint32_t>((rd() ^ nowVal) % filteredGames_.size());
-                const auto& sel = filteredGames_[idx];
-                activeGameId_ = sel.id;
-                highlightedIndex_ = static_cast<int>(idx);
-                close();
-                foley.triggerSound(FoleySound::DeckShuffle, 0.85f);
-                if (onGameSelected) onGameSelected(sel);
-                return true;
-            }
+        // [ ► Play ] button
+        if (mouseX >= playBtnX && mouseX <= playBtnX + playBtnW &&
+            mouseY >= footerY && mouseY <= footerY + btnH) {
+            launchSelectedGame(foley);
+            return true;
         }
 
         // 5. Initiate drag-to-scroll tracking in cards area
@@ -607,11 +678,19 @@ bool GameBrowserDialog::handleMouseButton(
                             return true;
                         }
 
-                        activeGameId_ = sel.id;
-                        highlightedIndex_ = static_cast<int>(i);
-                        close();
-                        foley.triggerSound(FoleySound::Deal, 0.85f);
-                        if (onGameSelected) onGameSelected(sel);
+                        const int clickedIdx = static_cast<int>(i);
+                        const auto now = std::chrono::steady_clock::now();
+                        const bool isDoubleClick = (clickedIdx == lastClickedIndex_) &&
+                            (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastClickTime_).count() <= 400);
+
+                        highlightedIndex_ = clickedIdx;
+                        if (isDoubleClick) {
+                            launchSelectedGame(foley);
+                        } else {
+                            lastClickedIndex_ = clickedIdx;
+                            lastClickTime_ = now;
+                            foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                        }
                         return true;
                     }
                 }
@@ -649,12 +728,7 @@ bool GameBrowserDialog::handleKey(
     }
 
     if (key == 257) { // GLFW_KEY_ENTER
-        if (!filteredGames_.empty() && highlightedIndex_ >= 0 && highlightedIndex_ < static_cast<int>(filteredGames_.size())) {
-            const auto& sel = filteredGames_[static_cast<size_t>(highlightedIndex_)];
-            activeGameId_ = sel.id;
-            close();
-            foley.triggerSound(FoleySound::Deal, 0.85f);
-            if (onGameSelected) onGameSelected(sel);
+        if (launchSelectedGame(foley)) {
             return true;
         }
     }

@@ -1015,11 +1015,24 @@ struct ProceduralBackgroundSystem::Impl {
 
         // 1. Built-in clean non-shader table
         scannedThemes.push_back(TableThemeDef{
-            "pastel_tan",
-            "PASTEL TAN",
+            "pastel",
+            "PASTEL",
             "",
             TableThemeId::PastelTan,
-            false
+            false,
+            0.0f,
+            2.4f,
+            "Color",
+            {
+                {"tan",        "Tan",        {0.83f, 0.77f, 0.69f, 1.0f}},
+                {"olive",      "Olive",      {0.68f, 0.74f, 0.62f, 1.0f}},
+                {"auburn",     "Auburn",     {0.74f, 0.56f, 0.49f, 1.0f}},
+                {"slate_blue", "Slate Blue", {0.65f, 0.73f, 0.80f, 1.0f}},
+                {"rose",       "Rose",       {0.80f, 0.68f, 0.70f, 1.0f}},
+                {"lavender",   "Lavender",   {0.73f, 0.70f, 0.80f, 1.0f}},
+                {"seafoam",    "Seafoam",    {0.63f, 0.76f, 0.74f, 1.0f}},
+                {"stone",      "Stone",      {0.75f, 0.75f, 0.73f, 1.0f}}
+            }
         });
 
         std::error_code ec;
@@ -1156,7 +1169,7 @@ struct ProceduralBackgroundSystem::Impl {
 
             for (char& c : parsedName) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 
-            TableThemeId legacy = (parsedId == "pastel_tan") ? TableThemeId::PastelTan : TableThemeId::Count;
+            TableThemeId legacy = (parsedId == "pastel" || parsedId == "pastel_tan") ? TableThemeId::PastelTan : TableThemeId::Count;
 
             std::string lowerId = toLowerStr(parsedId);
             std::string lowerName = toLowerStr(parsedName);
@@ -1204,7 +1217,7 @@ struct ProceduralBackgroundSystem::Impl {
             nameToIndex[lowerName] = newIdx;
         }
 
-        // Sort dynamically discovered themes alphabetically after index 0 (Pastel Tan remains index 0)
+        // Sort dynamically discovered themes alphabetically after index 0 (Pastel remains index 0)
         if (scannedThemes.size() > 2) {
             std::sort(scannedThemes.begin() + 1, scannedThemes.end(), [](const TableThemeDef& a, const TableThemeDef& b) {
                 return a.name < b.name;
@@ -1657,10 +1670,26 @@ void ProceduralBackgroundSystem::renderBackground(
 ) {
     if (w <= 0.0f || h <= 0.0f) return;
 
-    if (themeSlug == "pastel_tan") {
+    auto renderPastelFallback = [&]() {
+        float baseR = 0.83f, baseG = 0.77f, baseB = 0.69f;
+        if (impl_) {
+            std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+            const TableThemeDef* pastelDef = getThemeDef(0);
+            if (pastelDef) {
+                if (const ThemeOptionChoice* opt = getActiveOption(*pastelDef)) {
+                    baseR = opt->u[0];
+                    baseG = opt->u[1];
+                    baseB = opt->u[2];
+                }
+            }
+        }
         r.setTableSurfaceLighting(0.0f, 2.4f);
-        r.drawRect(x, y, w, h, 0.83f, 0.77f, 0.69f, 1.0f);
-        r.drawRectVignette(x, y, w, h, 0.0f, 0.15f, 0.68f, 0.61f, 0.52f);
+        r.drawRect(x, y, w, h, baseR, baseG, baseB, 1.0f);
+        r.drawRectVignette(x, y, w, h, 0.0f, 0.15f, baseR * 0.80f, baseG * 0.79f, baseB * 0.76f);
+    };
+
+    if (themeSlug == "pastel" || themeSlug == "pastel_tan") {
+        renderPastelFallback();
         return;
     }
 
@@ -1674,10 +1703,8 @@ void ProceduralBackgroundSystem::renderBackground(
             themeDef = getThemeDef(idx);
         }
 
-        if (!themeDef || themeDef->id == "pastel_tan" || (themeDef->filePath.empty() && !impl_->customThemeLoaded)) {
-            r.setTableSurfaceLighting(0.0f, 2.4f);
-            r.drawRect(x, y, w, h, 0.83f, 0.77f, 0.69f, 1.0f);
-            r.drawRectVignette(x, y, w, h, 0.0f, 0.15f, 0.68f, 0.61f, 0.52f);
+        if (!themeDef || themeDef->id == "pastel" || themeDef->id == "pastel_tan" || (themeDef->filePath.empty() && !impl_->customThemeLoaded)) {
+            renderPastelFallback();
             return;
         }
 
@@ -1846,9 +1873,7 @@ void ProceduralBackgroundSystem::renderBackground(
         }
     }
 
-    r.setTableSurfaceLighting(0.0f, 2.4f);
-    r.drawRect(x, y, w, h, 0.83f, 0.77f, 0.69f, 1.0f);
-    r.drawRectVignette(x, y, w, h, 0.0f, 0.15f, 0.68f, 0.61f, 0.52f);
+    renderPastelFallback();
 }
 
 void ProceduralBackgroundSystem::renderBackground(
@@ -1859,7 +1884,7 @@ void ProceduralBackgroundSystem::renderBackground(
     uint32_t seed
 ) {
     if (theme == TableThemeId::PastelTan) {
-        renderBackground(r, x, y, w, h, "pastel_tan", light, seed);
+        renderBackground(r, x, y, w, h, "pastel", light, seed);
         return;
     }
     size_t idx = findThemeIndex("", theme);
@@ -1868,7 +1893,7 @@ void ProceduralBackgroundSystem::renderBackground(
         renderBackground(r, x, y, w, h, def->id, light, seed);
         return;
     }
-    renderBackground(r, x, y, w, h, "pastel_tan", light, seed);
+    renderBackground(r, x, y, w, h, "pastel", light, seed);
 }
 
 float ProceduralBackgroundSystem::activeLacquer() const noexcept {

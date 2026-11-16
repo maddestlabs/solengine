@@ -2759,7 +2759,26 @@ public:
         float lightIntensity;
         float lightColor[4];
         float ambientLight[4];
+        float sceneAtmosphere[4]; // x=goboType (0..3), y=goboSoftness, z=godRays, w=dustMotes
+        float steadyLight[4];     // x,y,z=steady base light pos, w=lightAngle (0..3)
     };
+
+    void fillGpuUniforms(GpuUniforms& ubo, float w, float h) const noexcept {
+        ubo.viewport[0] = w;
+        ubo.viewport[1] = h;
+        ubo.gamma = isSrgbSurface_ ? 2.2f : 1.0f;
+        ubo.time = shaderTime_;
+        ubo.lightPos[0] = globalLight_.x;
+        ubo.lightPos[1] = globalLight_.y;
+        ubo.lightPos[2] = globalLight_.z;
+        ubo.lightIntensity = globalLight_.intensity;
+        for (int i = 0; i < 4; ++i) {
+            ubo.lightColor[i] = lightColor_[i];
+            ubo.ambientLight[i] = ambientLight_[i];
+            ubo.sceneAtmosphere[i] = sceneAtmosphere_[i];
+            ubo.steadyLight[i] = steadyLight_[i];
+        }
+    }
 
     void beginPass(float width, float height) override {
         frameDraws_.clear();
@@ -2768,22 +2787,7 @@ public:
         height_ = static_cast<uint32_t>(std::round(height));
         if (device_ && uniformBuffer_) {
             GpuUniforms ubo{};
-            ubo.viewport[0] = width;
-            ubo.viewport[1] = height;
-            ubo.gamma = isSrgbSurface_ ? 2.2f : 1.0f;
-            ubo.time = shaderTime_;
-            ubo.lightPos[0] = globalLight_.x;
-            ubo.lightPos[1] = globalLight_.y;
-            ubo.lightPos[2] = globalLight_.z;
-            ubo.lightIntensity = globalLight_.intensity;
-            ubo.lightColor[0] = lightColor_[0];
-            ubo.lightColor[1] = lightColor_[1];
-            ubo.lightColor[2] = lightColor_[2];
-            ubo.lightColor[3] = lightColor_[3];
-            ubo.ambientLight[0] = ambientLight_[0];
-            ubo.ambientLight[1] = ambientLight_[1];
-            ubo.ambientLight[2] = ambientLight_[2];
-            ubo.ambientLight[3] = ambientLight_[3];
+            fillGpuUniforms(ubo, width, height);
             wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
         }
         if (!customTargetView_ && currentBackBufferView_) {
@@ -3315,22 +3319,26 @@ public:
         ambientLight_[3] = sceneDarkness;
         if (device_ && uniformBuffer_ && width_ > 0 && height_ > 0) {
             GpuUniforms ubo{};
-            ubo.viewport[0] = static_cast<float>(width_);
-            ubo.viewport[1] = static_cast<float>(height_);
-            ubo.gamma = isSrgbSurface_ ? 2.2f : 1.0f;
-            ubo.time = shaderTime_;
-            ubo.lightPos[0] = globalLight_.x;
-            ubo.lightPos[1] = globalLight_.y;
-            ubo.lightPos[2] = globalLight_.z;
-            ubo.lightIntensity = globalLight_.intensity;
-            ubo.lightColor[0] = lightColor_[0];
-            ubo.lightColor[1] = lightColor_[1];
-            ubo.lightColor[2] = lightColor_[2];
-            ubo.lightColor[3] = lightColor_[3];
-            ubo.ambientLight[0] = ambientLight_[0];
-            ubo.ambientLight[1] = ambientLight_[1];
-            ubo.ambientLight[2] = ambientLight_[2];
-            ubo.ambientLight[3] = ambientLight_[3];
+            fillGpuUniforms(ubo, static_cast<float>(width_), static_cast<float>(height_));
+            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
+        }
+    }
+
+    void setSceneAtmosphere(uint8_t goboType, float goboSoftness,
+                            float godRaysIntensity, float dustMotesIntensity,
+                            float steadyX, float steadyY,
+                            float steadyZ, uint8_t lightAngle) override {
+        sceneAtmosphere_[0] = static_cast<float>(goboType);
+        sceneAtmosphere_[1] = goboSoftness;
+        sceneAtmosphere_[2] = godRaysIntensity;
+        sceneAtmosphere_[3] = dustMotesIntensity;
+        steadyLight_[0] = steadyX;
+        steadyLight_[1] = steadyY;
+        steadyLight_[2] = steadyZ;
+        steadyLight_[3] = static_cast<float>(lightAngle);
+        if (device_ && uniformBuffer_ && width_ > 0 && height_ > 0) {
+            GpuUniforms ubo{};
+            fillGpuUniforms(ubo, static_cast<float>(width_), static_cast<float>(height_));
             wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
         }
     }
@@ -3359,6 +3367,8 @@ private:
                 lightIntensity: f32,
                 lightColor: vec4<f32>,
                 ambientLight: vec4<f32>,
+                sceneAtmosphere: vec4<f32>,
+                steadyLight: vec4<f32>,
             };
 
             @group(0) @binding(0) var fontTexture: texture_2d<f32>;
@@ -3420,6 +3430,54 @@ private:
                 }
                 let q = abs(pos) - baseHalf + vec2<f32>(baseRad, baseRad);
                 return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - baseRad;
+            }
+
+            fn evalGoboMask(worldPos: vec2<f32>, zOffset: f32) -> f32 {
+                let goboType = uniforms.sceneAtmosphere.x;
+                if (goboType < 0.5) {
+                    return 1.0;
+                }
+                let vp = max(uniforms.viewport.xy, vec2<f32>(1.0));
+                let toLight = uniforms.steadyLight.xy - worldPos;
+                let lDist = max(length(toLight), 1.0);
+                let rayDir = toLight / lDist;
+                let slope = lDist / max(uniforms.steadyLight.z, 120.0);
+                let proj = (worldPos + rayDir * (zOffset * slope)) / vp;
+                let soft = clamp(uniforms.sceneAtmosphere.y, 0.05, 1.0);
+
+                if (goboType < 1.5) {
+                    // 1: Window Frame & Mullions (diagonal sunlit panes)
+                    let c = cos(0.46);
+                    let s = sin(0.46);
+                    let p = proj - vec2<f32>(0.5, 0.5);
+                    let rp = vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c) + vec2<f32>(0.5, 0.5);
+                    let pen = mix(0.014, 0.09, soft);
+                    let barX = abs(fract(rp.x * 2.15 + 0.12) - 0.5);
+                    let barY = abs(fract(rp.y * 1.65 + 0.20) - 0.5);
+                    let mx = smoothstep(0.065 - pen, 0.065 + pen, barX);
+                    let my = smoothstep(0.055 - pen, 0.055 + pen, barY);
+                    // Outer casement frame falloff near edges
+                    let frameDist = max(abs(rp.x - 0.5) * 1.15, abs(rp.y - 0.5) * 1.35);
+                    let outer = 1.0 - smoothstep(0.46 - pen * 1.5, 0.56 + pen * 1.5, frameDist);
+                    return clamp(mx * my * outer, 0.0, 1.0);
+                } else if (goboType < 2.5) {
+                    // 2: Venetian Blinds (angled parallel slats)
+                    let pen = mix(0.025, 0.16, soft);
+                    let p = proj - vec2<f32>(0.5, 0.5);
+                    let slatCoord = dot(p, vec2<f32>(0.42, 0.91)) * 8.5;
+                    let slat = abs(fract(slatCoord) - 0.5);
+                    return smoothstep(0.18 - pen, 0.18 + pen, slat);
+                } else {
+                    // 3: Dappled Foliage Canopy (soft drifting leaf shadows)
+                    let t = uniforms.time * 0.35;
+                    let uv = proj * vec2<f32>(5.5, 4.2);
+                    let w1 = sin(uv.x * 1.7 + t + sin(uv.y * 1.3 - t * 0.6)) * 0.5 + 0.5;
+                    let w2 = cos(uv.y * 2.3 - t * 0.8 + cos(uv.x * 2.1 + t * 0.4)) * 0.5 + 0.5;
+                    let w3 = sin((uv.x + uv.y) * 3.1 + t * 0.5) * 0.5 + 0.5;
+                    let canopy = w1 * 0.45 + w2 * 0.35 + w3 * 0.20;
+                    let pen = mix(0.06, 0.24, soft);
+                    return smoothstep(0.48 - pen, 0.48 + pen, canopy);
+                }
             }
         )") + R"(
             @fragment
@@ -3534,7 +3592,82 @@ private:
                 } else if (baseMode == 6u) {
                     let tex = textureSampleLevel(bgTexture, fontSampler, in.uv, 0.0);
                     col = tex * in.color;
+                } else if (baseMode == 7u) {
+                    // Atmospheric Volumetric God Rays + Floating Dust Motes (anchored to steady architectural light)
+                    let rayStr = uniforms.sceneAtmosphere.z;
+                    let dustStr = uniforms.sceneAtmosphere.w;
+                    let vp = max(uniforms.viewport.xy, vec2<f32>(1.0));
+                    let lp = uniforms.steadyLight.xy;
+                    let isOverhead = (uniforms.steadyLight.w < 0.5);
+                    let rayOrigin = select(lp, vec2<f32>(vp.x * 0.50, -vp.y * 0.42), isOverhead);
+                    let toPix = in.worldPos - rayOrigin;
+                    let distNorm = length(toPix) / max(vp.x, vp.y);
+                    var rayAccum = 0.0;
+                    if (rayStr > 0.005) {
+                        let angle = atan2(toPix.y, toPix.x);
+                        let tDrift = uniforms.time * 0.12;
+                        // Distinct radial shafts + fine sub-rays fanning downward from architectural origin
+                        let beamA = sin(angle * 15.0 + tDrift) * 0.5 + 0.5;
+                        let beamB = sin(angle * 29.0 - tDrift * 0.7 + 1.1) * 0.5 + 0.5;
+                        let beamC = cos(angle * 47.0 + tDrift * 0.4 + 2.4) * 0.5 + 0.5;
+                        let fineRay = pow(beamA * 0.52 + beamB * 0.32 + beamC * 0.16, 2.6);
+                        let broadRay = pow(sin(angle * 7.0 + 0.4) * 0.5 + 0.5, 1.5);
+                        let shaftPattern = fineRay * 0.78 + broadRay * 0.22;
+
+                        // Modulate by gobo occlusion along the ray when a window/blind gobo is active
+                        var goboRay = 0.0;
+                        for (var s = 0; s < 5; s = s + 1) {
+                            let f = (f32(s) + 0.5) / 5.0;
+                            let samplePos = mix(rayOrigin, in.worldPos, 0.25 + 0.75 * f);
+                            goboRay = goboRay + evalGoboMask(samplePos, 0.0);
+                        }
+                        goboRay = goboRay / 5.0;
+                        let radialDecay = select(
+                            exp(-distNorm * 2.15) * smoothstep(0.015, 0.10, distNorm),
+                            exp(-distNorm * 1.45) * smoothstep(0.0, 0.35, in.worldPos.y / vp.y + 0.15),
+                            isOverhead
+                        );
+                        rayAccum = shaftPattern * mix(0.35, 1.0, goboRay) * radialDecay * rayStr * 0.58;
+                    }
+                    var dustAccum = 0.0;
+                    if (dustStr > 0.005) {
+                        let dxyDust = in.worldPos - lp;
+                        let refRDust = max(300.0, max(vp.x, vp.y) * 0.62);
+                        let r2Dust = dot(dxyDust, dxyDust) / (refRDust * refRDust);
+                        let lightFalloff = 1.0 / (1.0 + 1.25 * r2Dust);
+                        let goboHere = evalGoboMask(in.worldPos, 4.0);
+                        let litArea = smoothstep(0.35, 0.75, goboHere) * smoothstep(0.22, 0.55, lightFalloff);
+                        if (litArea > 0.01) {
+                            let dCoord = in.worldPos * 0.032 + vec2<f32>(uniforms.time * 0.18, -uniforms.time * 0.11);
+                            let cell = floor(dCoord);
+                            let fuv = fract(dCoord) - vec2<f32>(0.5);
+                            let h1 = fract(sin(dot(cell, vec2<f32>(127.1, 311.7))) * 43758.5453);
+                            let h2 = fract(sin(dot(cell, vec2<f32>(269.5, 183.3))) * 43758.5453);
+                            if (h1 > 0.78) {
+                                let jitter = vec2<f32>(sin(uniforms.time * 0.8 + h2 * 6.28), cos(uniforms.time * 0.65 + h1 * 6.28)) * 0.18;
+                                let d = length(fuv - jitter);
+                                let speck = smoothstep(0.11, 0.015, d);
+                                let flickerA = 0.5 + 0.5 * sin(uniforms.time * (2.2 + h1 * 3.8) + h2 * 18.0);
+                                let flickerB = 0.72 + 0.28 * cos(uniforms.time * 7.5 + h1 * 9.0);
+                                let softTwinkle = 0.28 + 0.52 * flickerA * flickerB;
+                                let strobeWave = max(0.0, sin(uniforms.time * (3.2 + h2 * 4.5) + h1 * 27.3));
+                                let strobePeak = pow(strobeWave, 10.0) * 0.85;
+                                let twinkle = clamp(softTwinkle + strobePeak, 0.0, 1.35);
+                                dustAccum = speck * twinkle * litArea * dustStr * 0.58;
+                            }
+                        }
+                    }
+                    let totalAlpha = clamp(rayAccum + dustAccum, 0.0, 0.85);
+                    if (totalAlpha <= 0.001) {
+                        discard;
+                    }
+                    let warmLight = max(uniforms.lightColor.rgb, vec3<f32>(0.92, 0.88, 0.80));
+                    let rayRGB = clamp(warmLight * vec3<f32>(1.08, 1.02, 0.90), vec3<f32>(0.0), vec3<f32>(1.0));
+                    let dustRGB = vec3<f32>(1.0, 0.98, 0.92);
+                    let shaftCol = mix(rayRGB, dustRGB, clamp(dustAccum / max(totalAlpha, 0.001), 0.0, 1.0));
+                    col = vec4<f32>(clamp(shaftCol, vec3<f32>(0.0), vec3<f32>(1.0)), totalAlpha);
                 }
+            )" + R"(
                 if (isSceneLit && !(baseMode == 2u && in.uv.y > 0.5)) {
                     let darkness = uniforms.ambientLight.w;
                     let strength = uniforms.lightColor.w * uniforms.lightIntensity;
@@ -3542,8 +3675,10 @@ private:
                     let refR = max(300.0, max(uniforms.viewport.x, uniforms.viewport.y) * 0.62);
                     let r2 = dot(dxy, dxy) / (refR * refR);
                     let falloff = 1.0 / (1.0 + 1.25 * r2);
+                    let gobo = evalGoboMask(in.worldPos, select(0.0, 8.0, baseMode == 3u));
+                    let effFalloff = falloff * mix(0.18, 1.0, gobo);
                     let baseAmb = 1.0 - darkness;
-                    let lightPool = (darkness * strength + (strength - 1.0) * 0.24) * falloff;
+                    let lightPool = (darkness * strength + (strength - 1.0) * 0.24) * effFalloff;
                     let rawGain = clamp(baseAmb + lightPool, 0.06, 1.45);
                     var gain = rawGain;
                     var specHighlight = vec3<f32>(0.0);
@@ -3649,8 +3784,9 @@ private:
                             }
                         }
                     }
-                    let tint = mix(vec3<f32>(1.0, 1.0, 1.0), uniforms.lightColor.rgb, clamp(falloff * 0.40 * strength, 0.0, 1.0));
-                    col = vec4<f32>(clamp(col.rgb * gain * tint + specHighlight, vec3<f32>(0.0), vec3<f32>(1.0)), col.a);
+                    let ambTint = mix(vec3<f32>(1.0), uniforms.ambientLight.rgb * 2.1, clamp(darkness * 0.65 * (1.0 - effFalloff), 0.0, 0.65));
+                    let tint = mix(ambTint, uniforms.lightColor.rgb, clamp(effFalloff * 0.45 * strength, 0.0, 1.0));
+                    col = vec4<f32>(clamp(col.rgb * gain * tint + specHighlight * gobo, vec3<f32>(0.0), vec3<f32>(1.0)), col.a);
                 }
                 if (uniforms.gamma > 1.05) {
                     return vec4<f32>(pow(col.rgb, vec3<f32>(uniforms.gamma)), col.a);
@@ -3800,26 +3936,11 @@ private:
 
         // Uniform buffer for viewport, lighting, and time upload
         WGPUBufferDescriptor uboDesc{};
-        uboDesc.size = 64;
+        uboDesc.size = sizeof(GpuUniforms);
         uboDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
         uniformBuffer_ = wgpuDeviceCreateBuffer(device_, &uboDesc);
         GpuUniforms initUbo{};
-        initUbo.viewport[0] = static_cast<float>(width_);
-        initUbo.viewport[1] = static_cast<float>(height_);
-        initUbo.gamma = isSrgbSurface_ ? 2.2f : 1.0f;
-        initUbo.time = 0.0f;
-        initUbo.lightPos[0] = globalLight_.x;
-        initUbo.lightPos[1] = globalLight_.y;
-        initUbo.lightPos[2] = globalLight_.z;
-        initUbo.lightIntensity = globalLight_.intensity;
-        initUbo.lightColor[0] = lightColor_[0];
-        initUbo.lightColor[1] = lightColor_[1];
-        initUbo.lightColor[2] = lightColor_[2];
-        initUbo.lightColor[3] = lightColor_[3];
-        initUbo.ambientLight[0] = ambientLight_[0];
-        initUbo.ambientLight[1] = ambientLight_[1];
-        initUbo.ambientLight[2] = ambientLight_[2];
-        initUbo.ambientLight[3] = ambientLight_[3];
+        fillGpuUniforms(initUbo, static_cast<float>(width_), static_cast<float>(height_));
         wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &initUbo, sizeof(initUbo));
 
         // Bind group matching layout (font texture, sampler, uniforms, rgba card atlas, bg texture)
@@ -3831,7 +3952,7 @@ private:
         entries[2].binding = 2;
         entries[2].buffer = uniformBuffer_;
         entries[2].offset = 0;
-        entries[2].size = 64;
+        entries[2].size = sizeof(GpuUniforms);
         entries[3].binding = 3;
         entries[3].textureView = rgbaTextureView_;
         entries[4].binding = 4;
@@ -3888,6 +4009,8 @@ private:
     LightSource2D globalLight_{640.0f, 200.0f, 550.0f, 1.0f};
     float lightColor_[4]{1.04f, 1.00f, 0.94f, 1.0f};
     float ambientLight_[4]{0.35f, 0.35f, 0.35f, 1.0f};
+    float sceneAtmosphere_[4]{0.0f, 0.45f, 0.0f, 0.0f};
+    float steadyLight_[4]{640.0f, 200.0f, 550.0f, 0.0f};
     float shaderTime_{0.0f};
     float tableLacquer_{0.0f};
     float tableBump_{2.4f};
@@ -4247,6 +4370,31 @@ void BatchRenderer2D::setGlobalLight(const LightSource2D& light,
     if (backend_) {
         backend_->setGlobalLight(light, colR, colG, colB, ambR, ambG, ambB, sceneDarkness, lightStrength);
     }
+}
+
+void BatchRenderer2D::setSceneAtmosphere(uint8_t goboType, float goboSoftness,
+                                         float godRaysIntensity, float dustMotesIntensity,
+                                         float steadyX, float steadyY,
+                                         float steadyZ, uint8_t lightAngle) {
+    if (backend_) {
+        backend_->setSceneAtmosphere(goboType, goboSoftness, godRaysIntensity, dustMotesIntensity,
+                                     steadyX, steadyY, steadyZ, lightAngle);
+    }
+}
+
+void BatchRenderer2D::drawSceneAtmospherePass(float width, float height) {
+    if (width <= 0.0f || height <= 0.0f) return;
+    uint32_t col = packColor(1.0f, 1.0f, 1.0f, 1.0f);
+    Vertex2D v0{0.0f,  0.0f,   0.0f, 0.0f, col, 7u, {0.0f, 0.0f}};
+    Vertex2D v1{width, 0.0f,   1.0f, 0.0f, col, 7u, {0.0f, 0.0f}};
+    Vertex2D v2{width, height, 1.0f, 1.0f, col, 7u, {0.0f, 0.0f}};
+    Vertex2D v3{0.0f,  height, 0.0f, 1.0f, col, 7u, {0.0f, 0.0f}};
+    vertices_.push_back(v0);
+    vertices_.push_back(v1);
+    vertices_.push_back(v2);
+    vertices_.push_back(v0);
+    vertices_.push_back(v2);
+    vertices_.push_back(v3);
 }
 
 void BatchRenderer2D::setShaderTime(float timeSeconds) {

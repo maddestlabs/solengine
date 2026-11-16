@@ -1,15 +1,19 @@
 # =============================================================================
 # SolEngine RPG Solitaire: Scoundrel (.eats)
 # =============================================================================
-# Classic single-deck dungeon-crawl solitaire using Eatscript rule hooks,
-# card stat badges, global HP/Weapon blackboard, and Victory/Defeat states.
+# Classic 44-card dungeon-crawl solitaire by Zach Gage & Kurt Bieg.
+# Removes Red Face Cards (J/Q/K) and Red Aces; supports 1 potion per room,
+# Flee Room (bottom of deck, no consecutive flees), <= durability cap,
+# and barehanded vs. armed combat choice.
 
-name = "Scoundrel (Dungeon)"
+name = "Scoundrel"
 family = "Scoundrel"
 category = "RPG"
 layout = "columns"
-description = "Dungeon-crawl solitaire. Spades/Clubs are monsters, Diamonds are weapons, Hearts are potions. Survive the deck!"
+description = "44-card dungeon-crawl solitaire. Spades/Clubs are monsters, Diamonds are weapons, Hearts are potions. Survive the deck!"
 decks = 1
+deck_cards = 44
+exclude_red_royals = True
 tableaus = 4
 foundations = 1
 freecells = 0
@@ -19,32 +23,39 @@ foundation_starter_card = False
 stock_deal_mode = "none"
 stock_deal_count = 1
 max_redeals = 0
-demo_seed = 5
-demo_seeds = [5, 9, 13, 17, 29, 33, 37, 2026]
+demo_seed = 6
+demo_seeds = [6, 13, 53, 79, 142, 179, 237, 238]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 3, "25%-55%", 3, "Tactical")
 doc_aliases(["Dungeon Solitaire", "Scoundrel Card Game"])
-doc_goal("Clear the entire Dungeon deck and Room without falling to 0 HP.", "Your HP drops to 0 during combat.")
-doc_zone(0, "Dungeon Deck", "Remaining face-down cards in the dungeon. Click to refill empty Room slots.", ["AS", "KC"], ["Click to deal into empty [[Room]] slots."])
-doc_zone(1, "Graveyard", "Slain monsters, consumed potions, and discarded weapons.", [], ["Cards resolved from the [[Room]] move here."])
-doc_zone(2, "Equipped Weapon", "Active Diamond weapon.", ["7D", "4D"], ["Equip [[Weapon]] cards here to reduce damage.", "Each kill lowers your [[CAP]] to that monster's power."])
-doc_zone(3, "Room Slot 1", "Active dungeon encounter card.", ["10S", "5H", "7D"], ["Click [[Monster]], [[Weapon]], or [[Potion]] to resolve."])
-doc_zone(4, "Room Slot 2", "Active dungeon encounter card.", [], ["When 1 card remains, 3 new cards deal automatically."])
+doc_goal("Clear the entire 44-card Dungeon deck and Room without falling to 0 HP.", "Your HP drops to 0 during combat.")
+doc_zone(0, "Dungeon Deck", "44-card deck (no Red Face Cards or Red Aces). Click when all 4 Room cards are untouched to Flee.", ["AS", "KC"], ["Deals 3 cards when 1 Room card remains.", "Click with 4 untouched Room cards to [[Flee]] (once per room)."])
+doc_zone(1, "Graveyard", "Slain monsters, consumed potions, and discarded weapons.", [], ["Drag a [[Monster]] here to fight BAREHANDED (preserves weapon durability)."])
+doc_zone(2, "Equipped Weapon", "Active Diamond weapon.", ["7D", "4D"], ["Equip [[Weapon]] cards here to reduce monster damage.", "Each armed kill lowers [[CAP]] to that monster's power (usable on <= CAP)."])
+doc_zone(3, "Room Slot 1", "Active dungeon encounter card.", ["10S", "5H", "7D"], ["Click to resolve (uses Weapon if eligible) or drag to [[Graveyard]] / [[Equipped Weapon]]."])
+doc_zone(4, "Room Slot 2", "Active dungeon encounter card.", [], ["Resolve 3 of 4 cards; the 4th carries over into the next Room."])
 doc_zone(5, "Room Slot 3", "Active dungeon encounter card.")
 doc_zone(6, "Room Slot 4", "Active dungeon encounter card.")
 doc_stat("HP", "Hit Points", "Starts at 20 (max 20). Reaching 0 ends the run in defeat.")
 doc_stat("WEAPON", "Weapon Power", "Attack value of your currently equipped Diamond weapon.")
-doc_stat("CAP", "Weapon Durability Cap", "Maximum monster power your current weapon can still block.")
-doc_tag("monster", "Monsters (Spades & Clubs)", "Deal damage equal to rank (Ace = 14), reduced by an eligible equipped weapon.")
-doc_tag("weapon", "Weapons (Diamonds)", "Equip to block monster damage; each kill lowers your weapon's CAP to that monster's power.")
-doc_tag("potion", "Potions (Hearts)", "Click to restore HP up to a maximum of 20.")
+doc_stat("CAP", "Weapon Durability Cap", "Maximum monster power your current weapon can still block (<= CAP).")
+doc_stat("POTION_USED", "Room Potion Limit", "Only 1 Heart potion may heal per Room; extra potions are discarded with no effect.")
+doc_stat("FLEE_USED", "Flee Cooldown", "1 if you fled the previous Room (cannot flee two Rooms in a row).")
+doc_tag("monster", "Monsters (Spades & Clubs)", "Deal damage equal to rank (Ace = 14). Click to use Weapon (if <= CAP), or drag to Graveyard to fight barehanded.")
+doc_tag("weapon", "Weapons (Diamonds 2-10)", "Equip to block monster damage; each armed kill sets CAP to that monster's power.")
+doc_tag("potion", "Potions (Hearts 2-10)", "Restores HP up to 20 (max 1 healing potion per Room).")
 
 def eval_heuristic():
     hp = get_stat("HP", 20)
     wpn = get_stat("WEAPON", 0)
+    cap = get_stat("CAP", 99)
+    eff_cap = cap
+    if cap >= 99:
+        eff_cap = 14
+    flee = get_stat("FLEE_USED", 0)
     remaining = zone_size(0) + room_card_count()
-    return hp * 120 + wpn * 25 - remaining * 80
+    return hp * 90 + wpn * 30 + eff_cap * 10 - remaining * 220 - flee * 40
 
 def card_power(z, i):
     r = card_rank(z, i)
@@ -74,7 +85,7 @@ def room_card_count():
         z = z + 1
     return cnt
 
-def refill_room():
+def deal_empty_room_slots():
     z = 3
     while z <= 6:
         if zone_size(z) == 0 and zone_size(0) > 0:
@@ -84,65 +95,42 @@ def refill_room():
             tag_card_rpg(z, 0)
         z = z + 1
 
-def on_deal():
-    set_stat("HP", 20)
-    set_stat("WEAPON", 0)
-    set_stat("CAP", 99)
-    # Remove red face cards & red aces from initial room/stock if desired, or tag all room cards
-    z = 3
-    while z <= 6:
-        if zone_size(z) > 0:
-            tag_card_rpg(z, 0)
-        z = z + 1
-    return True
+def refill_room():
+    deal_empty_room_slots()
+    set_stat("POTION_USED", 0)
+    set_stat("FLEE_USED", 0)
 
-def can_pick(z, i):
-    return z >= 3 and z <= 6 and card_face_up(z, i)
-
-def can_drop(from_z, i, to_z):
-    # Allow dragging a room card onto the Waste/Graveyard (zone 1) or Equipped Weapon (zone 2)
-    if from_z < 3 or from_z > 6:
-        return False
-    if to_z == 1 or to_z == 2:
-        return True
-    return False
-
-def on_card_click(z, i):
-    if z < 3 or z > 6:
-        return False
-    if zone_size(z) == 0:
-        return False
-
-    s = card_suit(z, i)
+def resolve_potion(z, i):
     p = card_power(z, i)
-    hp = get_stat("HP", 20)
-
-    if s == 1:
-        # Heart = Healing Potion
+    if get_stat("POTION_USED", 0) == 0:
+        hp = get_stat("HP", 20)
         new_hp = hp + p
         if new_hp > 20:
             new_hp = 20
         set_stat("HP", new_hp)
-        move_cards(z, i, 1)
+        set_stat("POTION_USED", 1)
         add_score(p * 10)
-        return True
+    move_cards(z, i, 1)
+    return True
 
-    if s == 2:
-        # Diamond = Equip Weapon (discard old weapon to Graveyard)
-        if zone_size(2) > 0:
-            move_cards(2, 0, 1)
-        move_cards(z, i, 2)
-        set_stat("WEAPON", p)
-        set_stat("CAP", 99)
-        set_card_stat(2, 0, "durability", 99)
-        add_score(p * 5)
-        return True
+def resolve_weapon(z, i):
+    p = card_power(z, i)
+    if zone_size(2) > 0:
+        move_cards(2, 0, 1)
+    move_cards(z, i, 2)
+    set_stat("WEAPON", p)
+    set_stat("CAP", 99)
+    set_card_stat(2, 0, "durability", 99)
+    add_score(p * 5)
+    return True
 
-    # Spade or Club = Monster combat
+def resolve_monster(z, i, use_weapon):
+    p = card_power(z, i)
+    hp = get_stat("HP", 20)
     wpn = get_stat("WEAPON", 0)
     cap = get_stat("CAP", 99)
     dmg = p
-    if wpn > 0 and p < cap:
+    if use_weapon and wpn > 0 and p <= cap:
         dmg = p - wpn
         if dmg < 0:
             dmg = 0
@@ -158,11 +146,86 @@ def on_card_click(z, i):
     add_score(p * 15)
     return True
 
+def on_deal():
+    set_stat("HP", 20)
+    set_stat("WEAPON", 0)
+    set_stat("CAP", 99)
+    set_stat("POTION_USED", 0)
+    set_stat("FLEE_USED", 0)
+    z = 3
+    while z <= 6:
+        if zone_size(z) > 0:
+            tag_card_rpg(z, 0)
+        z = z + 1
+    return True
+
+def can_pick(z, i):
+    return z >= 3 and z <= 6 and card_face_up(z, i)
+
+def can_drop(from_z, i, to_z):
+    if from_z < 3 or from_z > 6:
+        return False
+    if not card_face_up(from_z, i):
+        return False
+    # Only allow dragging a Monster to Graveyard (zone 1) to fight BAREHANDED
+    # when an eligible weapon is equipped; all other actions use click-to-resolve
+    # so the solver does not explore duplicate branches.
+    if to_z == 1:
+        s = card_suit(from_z, i)
+        if s == 0 or s == 3:
+            wpn = get_stat("WEAPON", 0)
+            cap = get_stat("CAP", 99)
+            return wpn > 0 and card_power(from_z, i) <= cap
+    return False
+
+def on_drop(from_z, i, to_z):
+    if not can_drop(from_z, i, to_z):
+        return False
+    s = card_suit(from_z, i)
+    if s == 1:
+        return resolve_potion(from_z, i)
+    if s == 2:
+        if to_z == 2:
+            return resolve_weapon(from_z, i)
+        move_cards(from_z, i, 1)
+        return True
+    if to_z == 2:
+        return resolve_monster(from_z, i, True)
+    return resolve_monster(from_z, i, False)
+
+def on_card_click(z, i):
+    if z < 3 or z > 6:
+        return False
+    if zone_size(z) == 0:
+        return False
+    s = card_suit(z, i)
+    if s == 1:
+        return resolve_potion(z, i)
+    if s == 2:
+        return resolve_weapon(z, i)
+    return resolve_monster(z, i, True)
+
 def on_stock_click():
     if zone_size(0) == 0:
         return False
-    refill_room()
-    return True
+    cnt = room_card_count()
+    if cnt == 4:
+        if get_stat("FLEE_USED", 0) != 0:
+            return False
+        z = 3
+        while z <= 6:
+            if zone_size(z) > 0:
+                flip_card(z, 0, False)
+                move_cards_bottom(z, 0, 0)
+            z = z + 1
+        deal_empty_room_slots()
+        set_stat("POTION_USED", 0)
+        set_stat("FLEE_USED", 1)
+        return True
+    if cnt <= 1:
+        refill_room()
+        return True
+    return False
 
 def on_turn_end():
     if room_card_count() <= 1 and zone_size(0) > 0:

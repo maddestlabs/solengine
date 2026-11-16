@@ -319,7 +319,8 @@ public:
         ModalCard,
         PeelFriction,
         ShuffleRiffle,
-        MagicTine
+        MagicTine,
+        Tap
     };
 
 private:
@@ -429,6 +430,13 @@ private:
         float dropKnockGain{0.45f};
         float dropThudGain{0.16f};
 
+        // Card Tap physical parameters (modeled from cardsounds/card-tap.wav)
+        float tapLengthScale{1.0f};
+        float tapBounceDelaySec{0.0023f};
+        float tapBounceGain{0.22f};
+        float tapBodyGain{0.24f};
+        float tapThumpGain{0.14f};
+
         void reset() noexcept {
             active = false;
             type = VoiceType::Snap;
@@ -445,6 +453,11 @@ private:
             dropSlapGain = 1.10f;
             dropKnockGain = 0.45f;
             dropThudGain = 0.16f;
+            tapLengthScale = 1.0f;
+            tapBounceDelaySec = 0.0023f;
+            tapBounceGain = 0.22f;
+            tapBodyGain = 0.24f;
+            tapThumpGain = 0.14f;
             lpcHistory.fill(0.0f);
             lpcIdx = 0;
             delaySec = 0.0f;
@@ -593,6 +606,7 @@ private:
 
     uint32_t rngState_{0x9E3779B9u};
     uint32_t dealAlternator_{0};
+    uint32_t tapAlternator_{0};
     bool initialized_{false};
     void* maDevicePtr_{nullptr};
 };

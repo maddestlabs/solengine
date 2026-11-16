@@ -89,6 +89,7 @@ bool SessionManager::saveSession(const SolitaireBoard& board) {
     root["seed"] = static_cast<double>(board.seed());
     root["rngState"] = static_cast<double>(board.rngState());
     root["variant"] = static_cast<int>(board.variant());
+    root["gameId"] = board.activeGameDef().id;
     root["score"] = static_cast<double>(board.score());
     root["moveCount"] = static_cast<double>(board.moveCount());
     root["elapsedSeconds"] = static_cast<double>(board.elapsedSeconds());
@@ -213,7 +214,8 @@ bool SessionManager::loadSession(SolitaireBoard& board) {
 
         uint32_t seed = root["seed"].asUInt(2026u);
         uint32_t rngState = root["rngState"].asUInt(seed);
-        GameVariant variant = static_cast<GameVariant>(std::clamp(root["variant"].asInt(0), 0, 7));
+        GameVariant variant = static_cast<GameVariant>(std::clamp(root["variant"].asInt(0), 0, static_cast<int>(GameVariant::CustomScript)));
+        std::string gameId = (root.contains("gameId") && root["gameId"].isString()) ? root["gameId"].asString() : "";
         int32_t score = root["score"].asInt(0);
         uint32_t moveCount = root["moveCount"].asUInt(0u);
         float elapsedSeconds = root["elapsedSeconds"].asFloat(0.0f);
@@ -276,7 +278,7 @@ bool SessionManager::loadSession(SolitaireBoard& board) {
             }
         }
 
-        bool ok = board.restoreSessionState(seed, rngState, variant, score, moveCount, elapsedSeconds, piles, undoStack, redoStack);
+        bool ok = board.restoreSessionState(seed, rngState, variant, score, moveCount, elapsedSeconds, piles, undoStack, redoStack, gameId);
         if (ok) {
             std::cout << "[SolEngine] Successfully restored in-progress game session (Seed #" << seed << ", Moves: " << moveCount << ").\n";
         }

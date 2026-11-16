@@ -44,6 +44,7 @@ ScriptRuleEngine::ScriptRuleEngine(const ScriptRuleEngine& other)
     , hasOnDeal_(other.hasOnDeal_)
     , hasCanPick_(other.hasCanPick_)
     , hasCanDrop_(other.hasCanDrop_)
+    , hasOnDrop_(other.hasOnDrop_)
     , hasCanTarget_(other.hasCanTarget_)
     , hasOnTarget_(other.hasOnTarget_)
     , hasOnCardClick_(other.hasOnCardClick_)
@@ -66,6 +67,7 @@ ScriptRuleEngine& ScriptRuleEngine::operator=(const ScriptRuleEngine& other) {
     hasOnDeal_ = other.hasOnDeal_;
     hasCanPick_ = other.hasCanPick_;
     hasCanDrop_ = other.hasCanDrop_;
+    hasOnDrop_ = other.hasOnDrop_;
     hasCanTarget_ = other.hasCanTarget_;
     hasOnTarget_ = other.hasOnTarget_;
     hasOnCardClick_ = other.hasOnCardClick_;
@@ -88,6 +90,7 @@ ScriptRuleEngine::ScriptRuleEngine(ScriptRuleEngine&& other) noexcept
     , hasOnDeal_(other.hasOnDeal_)
     , hasCanPick_(other.hasCanPick_)
     , hasCanDrop_(other.hasCanDrop_)
+    , hasOnDrop_(other.hasOnDrop_)
     , hasCanTarget_(other.hasCanTarget_)
     , hasOnTarget_(other.hasOnTarget_)
     , hasOnCardClick_(other.hasOnCardClick_)
@@ -112,6 +115,7 @@ ScriptRuleEngine& ScriptRuleEngine::operator=(ScriptRuleEngine&& other) noexcept
     hasOnDeal_ = other.hasOnDeal_;
     hasCanPick_ = other.hasCanPick_;
     hasCanDrop_ = other.hasCanDrop_;
+    hasOnDrop_ = other.hasOnDrop_;
     hasCanTarget_ = other.hasCanTarget_;
     hasOnTarget_ = other.hasOnTarget_;
     hasOnCardClick_ = other.hasOnCardClick_;
@@ -134,6 +138,7 @@ void ScriptRuleEngine::reset() noexcept {
     hasOnDeal_ = false;
     hasCanPick_ = false;
     hasCanDrop_ = false;
+    hasOnDrop_ = false;
     hasCanTarget_ = false;
     hasOnTarget_ = false;
     hasOnCardClick_ = false;
@@ -145,7 +150,7 @@ void ScriptRuleEngine::reset() noexcept {
 }
 
 bool ScriptRuleEngine::hasAnyHooks() const noexcept {
-    return hasOnDeal_ || hasCanPick_ || hasCanDrop_ || hasCanTarget_ ||
+    return hasOnDeal_ || hasCanPick_ || hasCanDrop_ || hasOnDrop_ || hasCanTarget_ ||
            hasOnTarget_ || hasOnCardClick_ || hasOnStockClick_ ||
            hasOnTurnEnd_ || hasGetStatus_;
 }
@@ -173,6 +178,7 @@ bool ScriptRuleEngine::loadScript(const std::string& source) {
     hasOnDeal_      = evaluator_.hasFunction("on_deal");
     hasCanPick_     = evaluator_.hasFunction("can_pick");
     hasCanDrop_     = evaluator_.hasFunction("can_drop");
+    hasOnDrop_      = evaluator_.hasFunction("on_drop");
     hasCanTarget_   = evaluator_.hasFunction("can_target");
     hasOnTarget_    = evaluator_.hasFunction("on_target");
     hasOnCardClick_ = evaluator_.hasFunction("on_card_click");
@@ -280,6 +286,23 @@ void ScriptRuleEngine::registerHostApi() {
         op.toPile = static_cast<uint8_t>(toZ);
         op.cardIdx = static_cast<uint32_t>(startI);
         op.count = static_cast<uint32_t>((*boundCtx_->piles)[static_cast<size_t>(fromZ)].cards.size() - static_cast<size_t>(startI));
+        recordAndApply(boundCtx_, std::move(op));
+        return Value(true);
+    });
+
+    evaluator_.registerFunction("move_cards_bottom", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() < 3 || !boundCtx_) return Value(false);
+        int fromZ = args[0].asInt(-1);
+        int startI = args[1].asInt(-1);
+        int toZ = args[2].asInt(-1);
+        if (!validCard(boundCtx_, fromZ, startI) || !validZone(boundCtx_, toZ)) return Value(false);
+        BoardOp op{};
+        op.type = BoardOpType::MoveCards;
+        op.fromPile = static_cast<uint8_t>(fromZ);
+        op.toPile = static_cast<uint8_t>(toZ);
+        op.cardIdx = static_cast<uint32_t>(startI);
+        op.count = static_cast<uint32_t>((*boundCtx_->piles)[static_cast<size_t>(fromZ)].cards.size() - static_cast<size_t>(startI));
+        op.nextBool = true; // Insert at bottom (index 0) of destination zone
         recordAndApply(boundCtx_, std::move(op));
         return Value(true);
     });
@@ -508,6 +531,18 @@ bool ScriptRuleEngine::invokeCanDrop(ScriptBoardContext& ctx, uint8_t fromZone, 
     return res.asBoolean(false);
 }
 
+bool ScriptRuleEngine::invokeOnDrop(ScriptBoardContext& ctx, uint8_t fromZone, size_t cardIdx, uint8_t toZone) {
+    if (!hasOnDrop_) return false;
+    bindContext(&ctx);
+    Value res = evaluator_.callFunction("on_drop", {
+        Value(static_cast<int>(fromZone)),
+        Value(static_cast<int>(cardIdx)),
+        Value(static_cast<int>(toZone))
+    });
+    bindContext(nullptr);
+    return res.asBoolean(false);
+}
+
 bool ScriptRuleEngine::invokeCanTarget(ScriptBoardContext& ctx, uint8_t fromZone, size_t fromIdx, uint8_t toZone, size_t toIdx) {
     if (!hasCanTarget_) return false;
     bindContext(&ctx);
@@ -589,7 +624,11 @@ bool ScriptRuleEngine::applyOp(ScriptBoardContext& ctx, const BoardOp& op) {
             auto& src = (*ctx.piles)[op.fromPile].cards;
             auto& dst = (*ctx.piles)[op.toPile].cards;
             if (op.cardIdx > src.size() || op.cardIdx + op.count > src.size()) return false;
-            dst.insert(dst.end(), src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
+            if (op.nextBool) {
+                dst.insert(dst.begin(), src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
+            } else {
+                dst.insert(dst.end(), src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
+            }
             src.erase(src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
             return true;
         }
@@ -652,10 +691,10 @@ bool ScriptRuleEngine::revertOp(ScriptBoardContext& ctx, const BoardOp& op) {
             auto& src = (*ctx.piles)[op.fromPile].cards;
             auto& dst = (*ctx.piles)[op.toPile].cards;
             if (dst.size() < op.count) return false;
-            size_t dstStart = dst.size() - op.count;
+            size_t dstStart = op.nextBool ? 0 : (dst.size() - op.count);
             size_t insertPos = std::min(static_cast<size_t>(op.cardIdx), src.size());
-            src.insert(src.begin() + insertPos, dst.begin() + dstStart, dst.end());
-            dst.erase(dst.begin() + dstStart, dst.end());
+            src.insert(src.begin() + insertPos, dst.begin() + dstStart, dst.begin() + dstStart + op.count);
+            dst.erase(dst.begin() + dstStart, dst.begin() + dstStart + op.count);
             return true;
         }
         case BoardOpType::FlipCard: {

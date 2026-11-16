@@ -147,7 +147,7 @@ if(EMSCRIPTEN)
     set_target_properties(solengine_web PROPERTIES
         OUTPUT_NAME "solengine"
         SUFFIX ".html"
-        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=4 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/classic.eats@/decks/classic.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/minimal.eats@/decks/minimal.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/engraved_intaglio.eats@/decks/engraved_intaglio.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/imperial_baroque.eats@/decks/imperial_baroque.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/baroque_arches.eats@/decks/baroque_arches.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/another_world.eats@/decks/another_world.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/themes@/themes --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/postfx@/postfx --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/games@/games --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/sounds@/sounds --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/ambience@/ambience --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=4 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/classic.eats@/decks/classic.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/minimal.eats@/decks/minimal.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/baroque_arches.eats@/decks/baroque_arches.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/decks/another_world.eats@/decks/another_world.eats --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/themes@/themes --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/postfx@/postfx --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/games@/games --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/sounds@/sounds --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/ambience@/ambience --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
     )
     add_custom_command(TARGET solengine_web POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -174,7 +174,10 @@ if(EMSCRIPTEN)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/web/solengine_logo.svg"
             "${CMAKE_BINARY_DIR}/solengine_logo.svg"
-        COMMENT "Copying PWA manifest, service worker, icons, and index.html to web root"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/CNAME"
+            "${CMAKE_BINARY_DIR}/CNAME"
+        COMMENT "Copying PWA manifest, service worker, icons, CNAME, and index.html to web root"
     )
 else()
     target_link_libraries(solengine_render PUBLIC solengine_core eats_proctex_core glfw)

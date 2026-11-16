@@ -8,7 +8,7 @@ sol.set_theme({
     description: "Weathered antique timber planks with visible grain, beveled seams, and milk paint finish",
     version: 3,
     procedural: true,
-    lacquer: 0.55,
+    lacquer: 1.0,
     relief_bump: 2.2,
     option_label: "Finish",
     options: [
@@ -24,7 +24,7 @@ def wood_shader(u, v, nx, ny, in_r, in_g, in_b):
     dist = hypot(nx * 0.95, ny)
 
     # 1. Horizontal plank seams with precision-milled 3D beveled chamfers
-    plank_coord = ny * 3.5
+    plank_coord = ny * 2.5
     plank_angle = plank_coord * 3.14159265
     plank_sin = sin(plank_angle)
     plank_cos = cos(plank_angle)
@@ -32,27 +32,27 @@ def wood_shader(u, v, nx, ny, in_r, in_g, in_b):
 
     # Tight, crisp milled chamfer bevel
     bevel_zone = smoothstep(0.048, 0.004, plank_dist)
-    bevel_light = clamp(plank_sin * plank_cos * 14.0, -1.0, 1.0) * bevel_zone * 0.075
+    bevel_light = clamp(plank_sin * plank_cos * 10.0, -1.0, 1.0) * bevel_zone * 0.045
 
     # Crisp, clean seam groove
-    seam_shade = 1.0 - smoothstep(0.020, 0.002, plank_dist) * 0.58
+    seam_shade = 1.0 - smoothstep(0.020, 0.002, plank_dist) * 0.44
 
     # 2. Curly/flame heartwood timber grain (spatially modulated density)
-    grain_density = smoothstep(0.30, 0.70, fbm(nx * 1.5 + 3.7, ny * 1.7 + 6.2))
-    grain_flame = sin(nx * 4.5 + ny * 5.0) * 0.15
-    grain_warp = fbm(nx * 2.8 + 7.3, ny * 2.2 + 2.1) * 0.35 + grain_flame
+    grain_density = smoothstep(0.30, 0.70, fbm(nx * 1.5 + 3.7, ny * 1.4 + 6.2))
+    grain_flame = sin(nx * 4.5 + ny * 3.5) * 0.10
+    grain_warp = fbm(nx * 2.8 + 7.3, ny * 1.8 + 2.1) * 0.25 + grain_flame
 
-    smooth_grain = (fbm(nx * 2.0 + 11.7, ny * 36.0 + grain_warp) - 0.5) * 0.15
-    ring_phase = ny * 18.0 + grain_warp * 2.6
+    smooth_grain = (fbm(nx * 2.0 + 11.7, ny * 22.0 + grain_warp) - 0.5) * 0.09
+    ring_phase = ny * 11.0 + grain_warp * 1.8
     ring_raw = abs(sin(ring_phase * 3.14159265))
-    crisp_rings = (1.0 - ring_raw * ring_raw) * 0.16
+    crisp_rings = (1.0 - ring_raw * ring_raw) * 0.10
     grain = mix(smooth_grain, crisp_rings + smooth_grain * 0.5, grain_density)
 
-    pore_noise = fbm(nx * 6.0 + 4.9, ny * 120.0)
-    micro_pores = (smoothstep(0.38, 0.62, pore_noise) - 0.5) * 0.05 * grain_density
+    pore_noise = fbm(nx * 6.0 + 4.9, ny * 75.0)
+    micro_pores = (smoothstep(0.38, 0.62, pore_noise) - 0.5) * 0.03 * grain_density
 
     # 3. Weathered paint wear (vintage wash worn thin exposing bare wood)
-    wear = fbm(nx * 2.6 + 1.2, ny * 3.2 + 4.5)
+    wear = fbm(nx * 2.6 + 1.2, ny * 2.4 + 4.5)
 
     # Distressed paint wash color from uniforms
     paint_base_r = mix(0.27, u0, u3)
@@ -64,9 +64,9 @@ def wood_shader(u, v, nx, ny, in_r, in_g, in_b):
     wood_base_g = mix(0.15, u1 * 0.58, u3)
     wood_base_b = mix(0.09, u2 * 0.40, u3)
 
-    wood_r = wood_base_r + grain * 1.1 + micro_pores
-    wood_g = wood_base_g + grain * 0.7 + micro_pores * 0.8
-    wood_b = wood_base_b + grain * 0.4 + micro_pores * 0.4
+    wood_r = wood_base_r + grain * 0.75 + micro_pores
+    wood_g = wood_base_g + grain * 0.48 + micro_pores * 0.8
+    wood_b = wood_base_b + grain * 0.28 + micro_pores * 0.4
 
     paint_r = paint_base_r + micro_pores * 0.4
     paint_g = paint_base_g + micro_pores * 0.4

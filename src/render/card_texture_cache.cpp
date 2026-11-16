@@ -1128,7 +1128,7 @@ static void bakeThemeCardBack(CardTexture& back, DeckThemeId theme, int cardW, i
 
 const char* CardTextureCache::deckThemeName(DeckThemeId theme) noexcept {
     switch (theme) {
-        case DeckThemeId::SolEnshade:  return "SOLENSHADE";
+        case DeckThemeId::SolEnshade:  return "SOLENGINE";
         case DeckThemeId::ClassicSvg:  return "CLASSIC";
         case DeckThemeId::SteampunkAi: return "STEAMPUNK";
         case DeckThemeId::Anime:       return "ANIME";
@@ -1182,7 +1182,7 @@ const char* CardTextureCache::cornerStyleName(CardCornerStyle style) noexcept {
 
 std::string CardTextureCache::currentDeckSlug() const {
     switch (currentTheme_) {
-        case DeckThemeId::SolEnshade:        return "solenshade";
+        case DeckThemeId::SolEnshade:        return "solengine";
         case DeckThemeId::ClassicSvg:        return "classic";
         case DeckThemeId::SteampunkAi:       return "steampunk";
         case DeckThemeId::Anime:             return "anime";
@@ -1195,7 +1195,7 @@ std::string CardTextureCache::currentDeckSlug() const {
         case DeckThemeId::PolychromeCrt:     return "shader_holo_synthwave";
         case DeckThemeId::WatercolorSketch:  return "shader_watercolor_sketch";
         case DeckThemeId::Custom:            return "custom";
-        default:                             return "solenshade";
+        default:                             return "solengine";
     }
 }
 
@@ -1936,7 +1936,7 @@ static bool loadBaseFromEats(
     int cardW = inOutCardW;
     int cardH = inOutCardH;
 
-    if (eatsFilePath.find("solenshade") != std::string::npos) {
+    if (eatsFilePath.find("solengine") != std::string::npos || eatsFilePath.find("solenshade") != std::string::npos) {
         outTheme = DeckThemeId::SolEnshade;
     } else if (eatsFilePath.find("cyberpunk") != std::string::npos) {
         outTheme = DeckThemeId::Cyberpunk;
@@ -2068,7 +2068,7 @@ static bool loadBaseFromEats(
 
         std::string tId = getOptString("theme_id", getOptString("theme", ""));
         if (!tId.empty()) {
-            if (tId == "solenshade") outTheme = DeckThemeId::SolEnshade;
+            if (tId == "solengine" || tId == "solenshade") outTheme = DeckThemeId::SolEnshade;
             else if (tId == "classic") outTheme = DeckThemeId::ClassicSvg;
             else if (tId == "steampunk") outTheme = DeckThemeId::SteampunkAi;
             else if (tId == "anime") outTheme = DeckThemeId::Anime;
@@ -2125,7 +2125,7 @@ static bool loadBaseFromEats(
         };
         std::string themeId = getOptString("id", getOptString("theme_id", ""));
         if (!themeId.empty()) {
-            if (themeId == "solenshade") outTheme = DeckThemeId::SolEnshade;
+            if (themeId == "solengine" || themeId == "solenshade") outTheme = DeckThemeId::SolEnshade;
             else if (themeId == "classic") outTheme = DeckThemeId::ClassicSvg;
             else if (themeId == "steampunk") outTheme = DeckThemeId::SteampunkAi;
             else if (themeId == "anime") outTheme = DeckThemeId::Anime;
@@ -2718,9 +2718,9 @@ bool CardTextureCache::loadDeckTheme(DeckThemeId theme, int cardW, int cardH) {
     if (!loadBaseDeckTheme(theme, cardW, cardH, baseTextures_, nullptr)) {
         return false;
     }
+    isLoaded_ = true;
     setActiveCardBack(activeCardBackId_);
     applyConditioningAndSync(wearLevel_, cardStock_);
-    isLoaded_ = true;
     return true;
 }
 
@@ -2945,8 +2945,8 @@ void CardTextureCache::commitStagedDeck(StagingDeck&& staging) {
     previewFaceTexture_ = textures_[cardIndex(Suit::Spades, Rank::Queen)];
     previewDeckTheme_ = currentTheme_;
     previewDeckId_ = currentDeckId_;
-    setActiveCardBack(activeCardBackId_);
     isLoaded_ = true;
+    setActiveCardBack(activeCardBackId_);
     atlasDirty_ = true;
 }
 
@@ -3253,7 +3253,7 @@ static std::string extractEatsMetaField(const std::string& header, const char* k
 
 static DeckThemeId mapDeckSlugToLegacyId(const std::string& id) {
     std::string low = toLowerCopy(id);
-    if (low == "solenshade") return DeckThemeId::SolEnshade;
+    if (low == "solengine" || low == "solenshade") return DeckThemeId::SolEnshade;
     if (low == "classic") return DeckThemeId::ClassicSvg;
     if (low == "steampunk") return DeckThemeId::SteampunkAi;
     if (low == "anime") return DeckThemeId::Anime;
@@ -3270,7 +3270,7 @@ static DeckThemeId mapDeckSlugToLegacyId(const std::string& id) {
 
 void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
     scannedDecks_.clear();
-    scannedDecks_.push_back(DeckDef{ "solenshade", "SOLENSHADE", "", DeckThemeId::SolEnshade });
+    scannedDecks_.push_back(DeckDef{ "solengine", "SOLENGINE", "", DeckThemeId::SolEnshade });
 
     std::error_code ec;
     const std::string searchPaths[] = {
@@ -3293,6 +3293,7 @@ void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
     }
 
     std::unordered_map<std::string, size_t> idToIndex;
+    idToIndex["solengine"] = 0;
     idToIndex["solenshade"] = 0;
 
     if (!targetDir.empty()) {

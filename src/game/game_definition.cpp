@@ -504,6 +504,8 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.layout = kv.count("layout") ? kv["layout"] : "";
         outDef.description = kv.count("description") ? kv["description"] : "";
         outDef.decks = static_cast<uint8_t>(kv.count("decks") ? std::clamp(std::stoi(kv["decks"]), 1, 4) : 1);
+        outDef.excludeRedRoyals = kv.count("exclude_red_royals") && (kv["exclude_red_royals"] == "True" || kv["exclude_red_royals"] == "true" || kv["exclude_red_royals"] == "1");
+        outDef.deckCards = static_cast<uint16_t>(kv.count("deck_cards") ? std::clamp(std::stoi(kv["deck_cards"]), 0, 416) : (outDef.excludeRedRoyals ? outDef.decks * 44 : 0));
         outDef.tableaus = static_cast<uint8_t>(kv.count("tableaus") ? std::clamp(std::stoi(kv["tableaus"]), 1, 32) : 7);
         outDef.foundations = static_cast<uint8_t>(kv.count("foundations") ? std::clamp(std::stoi(kv["foundations"]), 1, 8) : 4);
         outDef.freecells = static_cast<uint8_t>(kv.count("freecells") ? std::clamp(std::stoi(kv["freecells"]), 0, 8) : 0);
@@ -549,6 +551,8 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.layout = ev.hasVariable("layout") ? ev.getVariable("layout").asString() : "";
         outDef.description = ev.hasVariable("description") ? ev.getVariable("description").asString() : "";
         outDef.decks = static_cast<uint8_t>(std::clamp(ev.getVariable("decks").asInt(1), 1, 4));
+        outDef.excludeRedRoyals = ev.getVariable("exclude_red_royals").asBoolean(false);
+        outDef.deckCards = static_cast<uint16_t>(std::clamp(ev.getVariable("deck_cards").asInt(outDef.excludeRedRoyals ? outDef.decks * 44 : 0), 0, 416));
         outDef.tableaus = static_cast<uint8_t>(std::clamp(ev.getVariable("tableaus").asInt(7), 1, 32));
         outDef.foundations = static_cast<uint8_t>(std::clamp(ev.getVariable("foundations").asInt(4), 1, 8));
         outDef.freecells = static_cast<uint8_t>(std::clamp(ev.getVariable("freecells").asInt(0), 0, 8));

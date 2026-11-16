@@ -236,11 +236,11 @@ void CardBackRegistry::initialize(int cardW, int cardH) {
     currentCardH_ = cardH;
     universalBacks_.clear();
 
-    // 1. SolEnshade Minimalist
+    // 1. SolEngine Minimalist
     {
         CardBackDescriptor d;
-        d.id = "solenshade";
-        d.displayName = "SolEnshade Charcoal";
+        d.id = "solengine";
+        d.displayName = "SolEngine Charcoal";
         d.deckOrigin = "";
         d.type = CardBackType::ProceduralDraw;
         d.generator = [](CardTexture& tex, int w, int h) -> bool {
@@ -656,9 +656,9 @@ const CardBackDescriptor* CardBackRegistry::getDefaultBackForDeck(const std::str
         for (const auto& u : universalBacks_) if (u.id == "classic_sapphire") return &u;
     }
 
-    // Default to SolEnshade minimal or first universal
+    // Default to SolEngine minimal or first universal
     for (const auto& u : universalBacks_) {
-        if (u.id == "solenshade") return &u;
+        if (u.id == "solengine" || u.id == "solenshade") return &u;
     }
     return universalBacks_.empty() ? nullptr : &universalBacks_.front();
 }

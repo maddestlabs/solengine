@@ -96,6 +96,10 @@ public:
                                 float /*colR*/ = 1.04f, float /*colG*/ = 1.00f, float /*colB*/ = 0.94f,
                                 float /*ambR*/ = 0.35f, float /*ambG*/ = 0.35f, float /*ambB*/ = 0.35f,
                                 float /*sceneDarkness*/ = 0.0f, float /*lightStrength*/ = 1.0f) {}
+    virtual void setSceneAtmosphere(uint8_t /*goboType*/, float /*goboSoftness*/,
+                                      float /*godRaysIntensity*/, float /*dustMotesIntensity*/,
+                                      float /*steadyX*/ = 640.0f, float /*steadyY*/ = 200.0f,
+                                      float /*steadyZ*/ = 550.0f, uint8_t /*lightAngle*/ = 0) {}
     virtual void setTableSurfaceLighting(float /*lacquerStrength*/, float /*bumpStrength*/ = 2.4f) {}
     virtual void invalidateBgTexture() {}
     virtual void setShaderTime(float /*timeSeconds*/) {}
@@ -239,6 +243,11 @@ public:
                         float colR = 1.04f, float colG = 1.00f, float colB = 0.94f,
                         float ambR = 0.35f, float ambG = 0.35f, float ambB = 0.35f,
                         float sceneDarkness = 0.0f, float lightStrength = 1.0f);
+    void setSceneAtmosphere(uint8_t goboType, float goboSoftness,
+                            float godRaysIntensity, float dustMotesIntensity,
+                            float steadyX = 640.0f, float steadyY = 200.0f,
+                            float steadyZ = 550.0f, uint8_t lightAngle = 0);
+    void drawSceneAtmospherePass(float width, float height);
     void setTableSurfaceLighting(float lacquerStrength, float bumpStrength = 2.4f) noexcept;
     void invalidateBgTexture() noexcept;
     [[nodiscard]] float getTableLacquer() const noexcept { return tableLacquer_; }
