@@ -21,6 +21,7 @@ stock_deal_mode = "deal_to_all_columns"
 stock_deal_count = 7
 max_redeals = 0
 demo_seed = 8
+demo_seeds = [8, 18, 19, 21, 23, 28, 41, 42]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 3, "Moderate", 3, "Tactical")
@@ -80,7 +81,7 @@ def can_drop(from_z, i, to_z):
         tsz = zone_size(to_z)
         if tsz == 0:
             return r == 13
-        return (card_is_red(to_z, tsz - 1) != red) and (card_rank(to_z, tsz - 1) == r + 1)
+        return card_face_up(to_z, tsz - 1) and (card_is_red(to_z, tsz - 1) != red) and (card_rank(to_z, tsz - 1) == r + 1)
 
     return False
 

@@ -22,6 +22,7 @@ stock_deal_mode = "none"
 stock_deal_count = 0
 max_redeals = 0
 demo_seed = 2
+demo_seeds = [2, 9, 13, 17, 21, 37, 41, 45]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 1, "Pure Skill", 4, "Strategic")
@@ -70,14 +71,23 @@ def can_pick(z, i):
             if card_suit(z, k) != card_suit(z, k + 1) or card_rank(z, k) != card_rank(z, k + 1) + 1:
                 return False
             k = k + 1
-        empty_fc = 0
-        f = 0
-        while f <= 3:
-            if zone_size(f) == 0:
-                empty_fc = empty_fc + 1
-            f = f + 1
-        return (sz - i) <= (empty_fc + 1)
+        return (sz - i) <= max_supermove(-1)
     return False
+
+def max_supermove(exclude_z):
+    empty_fc = 0
+    f = 0
+    while f <= 3:
+        if zone_size(f) == 0:
+            empty_fc = empty_fc + 1
+        f = f + 1
+    mult = 1
+    t = 8
+    while t <= 17:
+        if t != exclude_z and zone_size(t) == 0:
+            mult = mult * 2
+        t = t + 1
+    return (empty_fc + 1) * mult
 
 def can_drop(from_z, i, to_z):
     if from_z == to_z or zone_size(from_z) == 0:
@@ -98,6 +108,8 @@ def can_drop(from_z, i, to_z):
         return card_suit(to_z, fsz - 1) == s and r == card_rank(to_z, fsz - 1) + 1
 
     if to_z >= 8 and to_z <= 17:
+        if (sz - i) > max_supermove(to_z):
+            return False
         tsz = zone_size(to_z)
         if tsz == 0:
             return r == 13

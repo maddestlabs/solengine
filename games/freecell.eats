@@ -21,19 +21,14 @@ stock_deal_mode = "none"
 stock_deal_count = 0
 max_redeals = 0
 demo_seed = 2
+demo_seeds = [2, 17, 18, 21, 25, 29, 41, 45]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 1, "Pure Skill", 4, "Strategic")
 doc_aliases(["Baker's Alternating", "Eight-Column FreeCell"])
 doc_goal("Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain.")
-doc_zone(0, "FreeCell 1", "Temporary single-card holding cell.", [], ["Holds any 1 card at a time."])
-doc_zone(1, "FreeCell 2", "Temporary single-card holding cell.")
-doc_zone(2, "FreeCell 3", "Temporary single-card holding cell.")
-doc_zone(3, "FreeCell 4", "Temporary single-card holding cell.")
-doc_zone(4, "Foundation 1", "Build up by same suit from Ace to King.", ["AS", "2S", "3S"])
-doc_zone(5, "Foundation 2", "Build up by same suit from Ace to King.")
-doc_zone(6, "Foundation 3", "Build up by same suit from Ace to King.")
-doc_zone(7, "Foundation 4", "Build up by same suit from Ace to King.")
+doc_zone(0, "FreeCells (1-4)", "4 temporary single-card holding cells.", [], ["Each cell holds any 1 card at a time."])
+doc_zone(4, "Foundations (1-4)", "Build up by same suit from Ace to King.", ["AS", "2S", "3S"])
 doc_zone(8, "Tableau Columns (1-8)", "Build down in alternating colors; any card may fill an empty column.", ["KH", "QS", "JD"])
 
 def eval_heuristic():
@@ -76,14 +71,23 @@ def can_pick(z, i):
             if card_is_red(z, k) == card_is_red(z, k + 1) or card_rank(z, k) != card_rank(z, k + 1) + 1:
                 return False
             k = k + 1
-        empty_fc = 0
-        f = 0
-        while f <= 3:
-            if zone_size(f) == 0:
-                empty_fc = empty_fc + 1
-            f = f + 1
-        return (sz - i) <= (empty_fc + 1)
+        return (sz - i) <= max_supermove(-1)
     return False
+
+def max_supermove(exclude_z):
+    empty_fc = 0
+    f = 0
+    while f <= 3:
+        if zone_size(f) == 0:
+            empty_fc = empty_fc + 1
+        f = f + 1
+    mult = 1
+    t = 8
+    while t <= 15:
+        if t != exclude_z and zone_size(t) == 0:
+            mult = mult * 2
+        t = t + 1
+    return (empty_fc + 1) * mult
 
 def can_drop(from_z, i, to_z):
     if from_z == to_z or zone_size(from_z) == 0:
@@ -105,6 +109,8 @@ def can_drop(from_z, i, to_z):
         return card_suit(to_z, fsz - 1) == s and r == card_rank(to_z, fsz - 1) + 1
 
     if to_z >= 8 and to_z <= 15:
+        if (sz - i) > max_supermove(to_z):
+            return False
         tsz = zone_size(to_z)
         if tsz == 0:
             return True

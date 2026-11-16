@@ -20,7 +20,8 @@ foundation_starter_card = False
 stock_deal_mode = "none"
 stock_deal_count = 0
 max_redeals = 0
-demo_seed = 2026
+demo_seed = 10
+demo_seeds = [10, 14, 17, 18, 29, 42, 45, 2026]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 2, "Low Luck", 4, "Strategic")

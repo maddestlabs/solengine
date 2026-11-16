@@ -20,7 +20,8 @@ foundation_starter_card = False
 stock_deal_mode = "waste_draw_1"
 stock_deal_count = 1
 max_redeals = 2
-demo_seed = 2026
+demo_seed = 1
+demo_seeds = [1, 2, 21, 29, 30, 33, 34, 2026]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 4, "High Luck", 2, "Casual")

@@ -101,6 +101,7 @@ public:
     // Unlimited Undo / Redo
     bool undo();
     bool redo();
+    bool applyTransaction(const TurnTransaction& tx);
 
     // Hit testing helpers for pointer/touch input
     bool hitTestCard(float px, float py, int& outPileIdx, int& outCardIdx) const noexcept;
@@ -118,6 +119,7 @@ public:
     [[nodiscard]] std::vector<Pile>& piles() noexcept { return piles_; }
     [[nodiscard]] const std::vector<MoveCommand>& undoStack() const noexcept { return undoStack_; }
     [[nodiscard]] const std::vector<MoveCommand>& redoStack() const noexcept { return redoStack_; }
+    [[nodiscard]] const std::vector<TurnTransaction>& txUndoStack() const noexcept { return txUndoStack_; }
     [[nodiscard]] const HintMove& activeHint() const noexcept { return activeHint_; }
     void clearHint() noexcept;
 

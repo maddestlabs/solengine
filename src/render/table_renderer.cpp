@@ -1783,7 +1783,10 @@ void drawHelpSidebar(
     float mouseY,
     const HelpOddsInfo* odds
 ) {
-    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, width, height, helpScrollY, odds);
+    const HelpSidebarLayout rawHl = buildHelpSidebarLayout(board, width, height, 0.0f, odds);
+    const float maxScrollY = std::max(0.0f, rawHl.contentH - rawHl.viewH);
+    const float clampedScrollY = std::clamp(helpScrollY, 0.0f, maxScrollY);
+    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, width, height, clampedScrollY, odds);
     const HelpSidebarRect& sb = hl.sb;
     r.drawRoundedRectGradient(sb.x, sb.y, sb.w, sb.h, 8.0f,
                               pal.woodR0 * 0.92f, pal.woodG0 * 0.92f, pal.woodB0 * 0.92f,
@@ -1808,7 +1811,7 @@ void drawHelpSidebar(
 
     {
         auto scissor = r.makeScissorScope(sb.x + 2.0f, hl.viewY, sb.w - 4.0f, hl.viewH);
-        float cy = hl.viewY + 4.0f - std::max(0.0f, helpScrollY);
+        float cy = hl.viewY + 4.0f - clampedScrollY;
 
         // 1. On-Demand Solver Odds / Skill / Time
         if (odds && odds->hasResults && !odds->running) {
@@ -1959,6 +1962,19 @@ void drawHelpSidebar(
         eatsbits::ui::glyph::drawVectorText(r, "HINT [H]", hl.hintX + 12.0f, cy + 6.0f, 10.0f, pal.trimR, pal.trimG, pal.trimB, 1.0f);
     }
 
+    // Subtle vertical scrollbar indicator when content overflows
+    if (maxScrollY > 1.0f) {
+        const float trackX = sb.x + sb.w - 7.0f;
+        const float trackY = hl.viewY + 4.0f;
+        const float trackW = 4.0f;
+        const float trackH = std::max(24.0f, hl.viewH - 8.0f);
+        const float thumbH = std::max(24.0f, trackH * (hl.viewH / std::max(hl.viewH, hl.contentH)));
+        const float scrollFrac = clampedScrollY / maxScrollY;
+        const float thumbY = trackY + scrollFrac * (trackH - thumbH);
+        r.drawRoundedRect(trackX, trackY, trackW, trackH, 2.0f, 0.05f, 0.04f, 0.03f, 0.45f, 2);
+        r.drawRoundedRect(trackX, thumbY, trackW, thumbH, 2.0f, pal.accentR, pal.accentG, pal.accentB, 0.85f, 2);
+    }
+
     // Floating Glossary Tooltip (outside scissor!)
     if (!hoveredGlossaryTerm.empty()) {
         std::string tip = lookupGlossaryTerm(hoveredGlossaryTerm, board);
@@ -1982,8 +1998,19 @@ void computeZoneHighlightBounds(const SolitaireBoard& board, int zoneIdx,
         return;
     }
     const Pile& target = piles[static_cast<size_t>(zoneIdx)];
-    const bool groupByType = board.docManifest().zones.empty() &&
-        (target.type == PileType::Foundation || target.type == PileType::Tableau || target.type == PileType::FreeCell);
+    const auto& docZones = board.docManifest().zones;
+    size_t docZonesOfSameType = 0;
+    for (const auto& zd : docZones) {
+        if (zd.zoneIndex < piles.size() && piles[zd.zoneIndex].type == target.type) {
+            ++docZonesOfSameType;
+        }
+    }
+    const bool groupByType = (docZones.empty() || docZonesOfSameType <= 1) &&
+        (target.type == PileType::Foundation ||
+         target.type == PileType::Tableau ||
+         target.type == PileType::FreeCell ||
+         target.type == PileType::Stock ||
+         target.type == PileType::Waste);
 
     float minX = target.x;
     float minY = target.y;
@@ -2019,9 +2046,57 @@ void computeZoneHighlightBounds(const SolitaireBoard& board, int zoneIdx,
     outH = (maxY - minY) + 8.0f;
 }
 
+namespace {
+void drawShadowedEmber(
+    eatsbits::ui::BatchRenderer2D& r,
+    float x,
+    float y,
+    float radius,
+    float cr,
+    float cg,
+    float cb,
+    float alpha
+) {
+    if (radius <= 0.1f || alpha <= 0.01f) return;
+    // 1. Dark espresso/soot shadow well: carves high-contrast silhouette over white/parchment cards
+    r.drawCircleRadialGradient(
+        x, y, radius * 2.45f,
+        0.04f, 0.02f, 0.01f, alpha * 0.72f,
+        0.04f, 0.02f, 0.01f, 0.0f,
+        0.0f, 0.0f, 12
+    );
+    // 2. 3-stop ember: incandescent cream core -> theme accent ring -> soft fade
+    r.drawCircleRadial3StopGradient(
+        x, y, radius * 1.35f,
+        1.0f, 0.98f, 0.88f, alpha,
+        cr, cg, cb, alpha * 0.96f,
+        cr * 0.55f, cg * 0.30f, cb * 0.08f, 0.0f,
+        0.0f, 0.0f, 0.48f, 10
+    );
+}
+} // namespace
+
 int MagicParticleSystem::update(float dt) noexcept {
     if (dt <= 0.0f) return 0;
     int newlyActivated = 0;
+    for (size_t i = 0; i < ribbons_.size();) {
+        MagicArcRibbon& rib = ribbons_[i];
+        if (rib.delay > 0.0f) {
+            rib.delay -= dt;
+            if (rib.delay <= 0.0f) {
+                rib.delay = 0.0f;
+            }
+            ++i;
+            continue;
+        }
+        rib.age += dt;
+        if (rib.age >= rib.travelDuration + rib.fadeDuration) {
+            ribbons_[i] = ribbons_.back();
+            ribbons_.pop_back();
+            continue;
+        }
+        ++i;
+    }
     for (size_t i = 0; i < particles_.size();) {
         MagicParticle& p = particles_[i];
         if (p.delay > 0.0f) {
@@ -2049,14 +2124,67 @@ int MagicParticleSystem::update(float dt) noexcept {
 }
 
 void MagicParticleSystem::render(eatsbits::ui::BatchRenderer2D& r) const {
+    // 1. Tapered comet ribbons (drawn underneath individual embers)
+    for (const auto& rib : ribbons_) {
+        if (rib.delay > 0.0f || rib.travelDuration <= 0.0f) continue;
+
+        float headT = 1.0f;
+        float tailT = 0.0f;
+        float headAlpha = 1.0f;
+        if (rib.age <= rib.travelDuration) {
+            const float u = std::clamp(rib.age / rib.travelDuration, 0.0f, 1.0f);
+            headT = 1.0f - (1.0f - u) * (1.0f - u);
+            tailT = std::max(0.0f, headT - 0.55f);
+            headAlpha = std::clamp(u / 0.12f, 0.0f, 1.0f);
+        } else {
+            const float f = std::clamp((rib.age - rib.travelDuration) / std::max(0.01f, rib.fadeDuration), 0.0f, 1.0f);
+            headT = 1.0f;
+            tailT = 0.45f + 0.52f * f;
+            headAlpha = 1.0f - f;
+        }
+
+        if (headT - tailT <= 0.01f || headAlpha <= 0.01f) continue;
+
+        constexpr int kRibbonPts = 20;
+        std::array<Point2D, kRibbonPts> pts{};
+        for (int i = 0; i < kRibbonPts; ++i) {
+            const float s = static_cast<float>(i) / static_cast<float>(kRibbonPts - 1);
+            const float t = tailT + (headT - tailT) * s;
+            const float it = 1.0f - t;
+            pts[static_cast<size_t>(i)] = Point2D{
+                it * it * rib.x0 + 2.0f * it * t * rib.cx + t * t * rib.x1,
+                it * it * rib.y0 + 2.0f * it * t * rib.cy + t * t * rib.y1
+            };
+        }
+
+        // Dark under-stroke for universal contrast on white cards and light themes
+        r.drawPathGradient(
+            pts.data(), pts.size(), rib.width * 1.9f,
+            0.04f, 0.02f, 0.01f, 0.0f,
+            0.04f, 0.02f, 0.01f, headAlpha * 0.66f,
+            false, true
+        );
+        // Glowing theme-colored -> incandescent comet core
+        r.drawPathGradient(
+            pts.data(), pts.size(), rib.width,
+            rib.r, rib.g, rib.b, 0.0f,
+            1.0f, 0.94f, 0.72f, headAlpha * 0.96f,
+            false, true
+        );
+
+        // Bright comet head leading the arc
+        const Point2D& headPt = pts.back();
+        drawShadowedEmber(r, headPt.x, headPt.y, rib.width * 1.05f, rib.r, rib.g, rib.b, headAlpha);
+    }
+
+    // 2. Shadowed ember particles
     for (const auto& p : particles_) {
         if (p.delay > 0.0f || p.maxLife <= 0.0f) continue;
         float t = std::clamp(p.life / p.maxLife, 0.0f, 1.0f);
-        float alpha = (t < 0.2f) ? (t / 0.2f) : (1.0f - (t - 0.2f) / 0.8f);
+        float alpha = (t < 0.18f) ? (t / 0.18f) : (1.0f - (t - 0.18f) / 0.82f);
         alpha = std::clamp(alpha, 0.0f, 1.0f);
-        float rad = p.size * (1.15f - 0.55f * t);
-        r.drawCircle(p.x, p.y, rad * 2.1f, p.r, p.g, p.b, alpha * 0.28f, 12);
-        r.drawCircle(p.x, p.y, rad, 1.0f, 0.98f, 0.86f, alpha * 0.92f, 10);
+        float rad = p.size * (1.15f - 0.50f * t);
+        drawShadowedEmber(r, p.x, p.y, rad, p.r, p.g, p.b, alpha);
     }
 }
 
@@ -2069,6 +2197,7 @@ void MagicParticleSystem::spawnZoneBurst(float x, float y, float w, float h, flo
     };
     constexpr size_t kMaxParticles = 180;
     const int count = std::clamp(static_cast<int>((w + h) * 0.16f), 56, 144);
+    const float baseSize = std::clamp((w + h) * 0.015f, 2.4f, 4.8f);
     for (int i = 0; i < count; ++i) {
         float u = static_cast<float>(i) / static_cast<float>(count);
         float px = x, py = y, nx = 0.0f, ny = 0.0f;
@@ -2092,7 +2221,7 @@ void MagicParticleSystem::spawnZoneBurst(float x, float y, float w, float h, flo
         p.vy = ny * (14.0f + nextF() * 20.0f) + (nextF() - 0.5f) * 10.0f;
         p.delay = 0.001f + nextF() * 0.16f;
         p.maxLife = 0.45f + nextF() * 0.30f;
-        p.size = 1.2f + nextF() * 1.1f;
+        p.size = baseSize * (0.75f + nextF() * 0.55f);
         p.r = r; p.g = g; p.b = b;
         if (particles_.size() >= kMaxParticles) {
             particles_.erase(particles_.begin());
@@ -2101,7 +2230,8 @@ void MagicParticleSystem::spawnZoneBurst(float x, float y, float w, float h, flo
     }
 }
 
-void MagicParticleSystem::spawnArcTrail(float x0, float y0, float x1, float y1, float r, float g, float b) {
+void MagicParticleSystem::spawnArcTrail(float x0, float y0, float x1, float y1, float r, float g, float b,
+                                        float cardWidth, float startDelay, bool withRibbon) {
     auto nextF = [&]() noexcept -> float {
         rng_ ^= rng_ << 13;
         rng_ ^= rng_ >> 17;
@@ -2111,21 +2241,40 @@ void MagicParticleSystem::spawnArcTrail(float x0, float y0, float x1, float y1, 
     const float dist = std::hypot(x1 - x0, y1 - y0);
     const float midX = (x0 + x1) * 0.5f;
     const float midY = std::min(y0, y1) - std::clamp(dist * 0.26f, 24.0f, 110.0f);
+
+    if (withRibbon) {
+        constexpr size_t kMaxRibbons = 8;
+        MagicArcRibbon rib{};
+        rib.x0 = x0; rib.y0 = y0;
+        rib.cx = midX; rib.cy = midY;
+        rib.x1 = x1; rib.y1 = y1;
+        rib.delay = startDelay;
+        rib.travelDuration = 0.38f;
+        rib.fadeDuration = 0.34f;
+        rib.width = std::clamp(cardWidth * 0.062f, 3.6f, 7.2f);
+        rib.r = r; rib.g = g; rib.b = b;
+        if (ribbons_.size() >= kMaxRibbons) {
+            ribbons_.erase(ribbons_.begin());
+        }
+        ribbons_.push_back(rib);
+    }
+
     constexpr size_t kMaxParticles = 180;
-    constexpr int kSteps = 48;
+    constexpr int kSteps = 28;
+    const float baseSize = std::clamp(cardWidth * 0.044f, 2.5f, 5.2f);
     for (int i = 0; i <= kSteps; ++i) {
         float t = static_cast<float>(i) / static_cast<float>(kSteps);
         float it = 1.0f - t;
         float bx = it * it * x0 + 2.0f * it * t * midX + t * t * x1;
         float by = it * it * y0 + 2.0f * it * t * midY + t * t * y1;
         MagicParticle p{};
-        p.x = bx + (nextF() - 0.5f) * 4.0f;
-        p.y = by + (nextF() - 0.5f) * 4.0f;
-        p.vx = (nextF() - 0.5f) * 18.0f;
-        p.vy = -8.0f - nextF() * 16.0f;
-        p.delay = 0.001f + t * 0.28f;
-        p.maxLife = 0.48f + nextF() * 0.22f;
-        p.size = 1.3f + (1.0f - std::abs(t - 0.5f)) * 1.1f;
+        p.x = bx + (nextF() - 0.5f) * 6.0f;
+        p.y = by + (nextF() - 0.5f) * 6.0f;
+        p.vx = (nextF() - 0.5f) * 22.0f;
+        p.vy = -8.0f - nextF() * 18.0f;
+        p.delay = startDelay + 0.001f + t * 0.34f;
+        p.maxLife = 0.52f + nextF() * 0.24f;
+        p.size = baseSize * (0.70f + (1.0f - std::abs(t - 0.5f)) * 0.60f);
         p.r = r; p.g = g; p.b = b;
         if (particles_.size() >= kMaxParticles) {
             particles_.erase(particles_.begin());
@@ -2163,7 +2312,8 @@ void TableRenderer::renderBoard(
     float helpMouseX,
     float helpMouseY,
     const HelpOddsInfo* helpOdds,
-    const MagicParticleSystem* magicParticles
+    const MagicParticleSystem* magicParticles,
+    const HintHighlight* hintHighlight
 ) {
     const ThemePalette pal = getPalette(board.tableTheme());
     // Overhead table illumination: dynamic swaying light or centered static default
@@ -2551,8 +2701,54 @@ void TableRenderer::renderBoard(
         }
     }
 
-    // Disable scene lighting for HUD menu, anchor medallion, and modal dialogs so UI stays at 100% crisp contrast
+    // Disable scene lighting for hint highlights, HUD menu, anchor medallion, and modal dialogs so UI stays at 100% crisp contrast
     r.setSceneLightingActive(false);
+
+    // 7b. Hint Source & Destination Dual-Contrast Card Rim Highlights
+    if (hintHighlight && hintHighlight->active && hintHighlight->duration > 0.0f) {
+        const float ht = std::clamp(hintHighlight->age / hintHighlight->duration, 0.0f, 1.0f);
+        const float fadeIn = std::clamp(ht / 0.08f, 0.0f, 1.0f);
+        const float fadeOut = (ht > 0.78f) ? std::clamp((1.0f - ht) / 0.22f, 0.0f, 1.0f) : 1.0f;
+        const float pulse = 0.72f + 0.28f * std::sin(ht * 12.56637f); // 2 full pulses
+        const float srcAlpha = fadeIn * fadeOut * pulse;
+        const float dstFadeIn = std::clamp((ht - 0.14f) / 0.16f, 0.0f, 1.0f);
+        const float dstAlpha = dstFadeIn * fadeOut * pulse;
+
+        const float effRu = CardTextureCache::instance().effectiveRu();
+        const float cardRad = (effRu <= 0.001f) ? 2.0f : std::max(2.0f, effRu * cw);
+        const float darkW = std::max(4.6f, cw * 0.068f);
+        const float accentW = std::max(2.3f, cw * 0.034f);
+
+        auto drawHintRim = [&](float bx, float by, float bw, float bh, float alpha) {
+            if (alpha <= 0.01f) return;
+            r.drawRoundedRectOutline(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, cardRad + 2.0f,
+                                     0.04f, 0.02f, 0.01f, alpha * 0.84f, darkW, 4);
+            r.drawRoundedRectOutline(bx - 1.5f, by - 1.5f, bw + 3.0f, bh + 3.0f, cardRad + 1.5f,
+                                     pal.accentR, pal.accentG, pal.accentB, alpha * 0.98f, accentW, 4);
+            r.drawRoundedRectOutline(bx - 0.5f, by - 0.5f, bw + 1.0f, bh + 1.0f, cardRad + 0.5f,
+                                     1.0f, 0.96f, 0.80f, alpha * 0.65f, 1.1f, 4);
+        };
+
+        if (hintHighlight->fromPile < piles.size()) {
+            const auto& sp = piles[hintHighlight->fromPile];
+            float sx = sp.x, sy = sp.y, sw = cw, sh = ch;
+            if (hintHighlight->cardIndex < sp.cards.size()) {
+                sx = sp.cards[hintHighlight->cardIndex].x;
+                sy = sp.cards[hintHighlight->cardIndex].y;
+                sh = std::max(ch, (sp.cards.back().y + ch) - sy);
+            }
+            drawHintRim(sx, sy, sw, sh, srcAlpha);
+        }
+        if (hintHighlight->toPile < piles.size() && dstAlpha > 0.01f) {
+            const auto& dp = piles[hintHighlight->toPile];
+            float dx = dp.x, dy = dp.y;
+            if (!dp.cards.empty()) {
+                dx = dp.cards.back().x;
+                dy = dp.cards.back().y;
+            }
+            drawHintRim(dx, dy, cw, ch, dstAlpha);
+        }
+    }
 
     // 8. Always-on-Top Floating Clockwork Medallion Bar
     const auto layout = computeClockworkBarLayout(width, height, board, menuAnchor, menuFlowVertical);
@@ -2612,7 +2808,19 @@ void TableRenderer::renderBoard(
         drawTransportBar(r, width, height, *autoPlay, tBtns, hoveredButtonId, pal, light);
     }
 
-    // 10. Responsive Help Sidebar + Magic Particles
+    // 10. Responsive Help Sidebar + Zone Outline + Magic Particles
+    if (helpOpen && highlightedHelpZone >= 0 && static_cast<size_t>(highlightedHelpZone) < piles.size()) {
+        float zx = 0.0f, zy = 0.0f, zw = 0.0f, zh = 0.0f;
+        computeZoneHighlightBounds(board, highlightedHelpZone, zx, zy, zw, zh);
+        if (zw > 0.0f && zh > 0.0f) {
+            const float pulse = 0.78f + 0.22f * std::sin(sAnimTime * 4.5f);
+            r.drawRoundedRect(zx, zy, zw, zh, 8.0f, pal.accentR, pal.accentG, pal.accentB, 0.08f * pulse, 4);
+            r.drawRoundedRectOutline(zx - 1.5f, zy - 1.5f, zw + 3.0f, zh + 3.0f, 9.5f,
+                                     0.04f, 0.02f, 0.01f, 0.70f * pulse, 3.6f, 4);
+            r.drawRoundedRectOutline(zx, zy, zw, zh, 8.0f,
+                                     pal.accentR, pal.accentG, pal.accentB, 0.92f * pulse, 2.0f, 4);
+        }
+    }
     if (magicParticles) {
         magicParticles->render(r);
     }
@@ -3112,12 +3320,21 @@ struct InteractiveContext {
     bool helpOpen = false;
     int highlightedHelpZone = -1;
     float helpScrollY = 0.0f;
+    float helpMaxScrollY = 0.0f;
+    bool helpPointerDown = false;
+    bool helpDraggingScroll = false;
+    bool helpDraggingScrollbar = false;
+    float helpDragStartX = 0.0f;
+    float helpDragStartY = 0.0f;
+    float helpInitialScrollY = 0.0f;
     float prevHelpMouseX = -1.0f;
     float prevHelpMouseY = -1.0f;
     std::string lastOddsGameId;
     size_t lastTrailedMoveIdx = SIZE_MAX;
     int magicSoundAccum = 0;
     MagicParticleSystem magicParticles;
+    HintHighlight hintHighlight{};
+    uint32_t hintMoveCount = 0;
     HelpOddsInfo helpOdds{};
     std::atomic<bool> oddsCancel{false};
     std::mutex oddsMutex;
@@ -4027,10 +4244,11 @@ struct InteractiveContext {
         }
 
 #if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
-        asyncManager.workerThread = std::thread([this, def, startSeed]() {
+        const uint32_t prevBoardSeed = board.seed();
+        asyncManager.workerThread = std::thread([this, def, startSeed, prevBoardSeed]() {
             SolitaireSolver solver;
             uint32_t currentSeed = startSeed;
-            const uint32_t maxAttempts = 80;
+            const uint32_t maxAttempts = 150;
             uint32_t attempts = 0;
             bool found = false;
 
@@ -4045,7 +4263,7 @@ struct InteractiveContext {
                 SolitaireBoard testBoard;
                 testBoard.newDeal(currentSeed, def);
 
-                SolveResult res = solver.solve(testBoard, 16000, 350.0f, &asyncManager.cancelRequested);
+                SolveResult res = solver.solve(testBoard, 25000, 350.0f, &asyncManager.cancelRequested);
                 if (res.solved) {
                     found = true;
                     asyncManager.solvableSeed = currentSeed;
@@ -4058,13 +4276,33 @@ struct InteractiveContext {
             }
 
             if (!found && !asyncManager.cancelRequested.load()) {
-                asyncManager.solvableSeed = startSeed;
+                uint32_t fallbackSeed = startSeed;
+                if (!def.demoSeeds.empty()) {
+                    size_t idx = static_cast<size_t>(startSeed) % def.demoSeeds.size();
+                    if (def.demoSeeds.size() > 1 && def.demoSeeds[idx] == prevBoardSeed) {
+                        idx = (idx + 1) % def.demoSeeds.size();
+                    }
+                    fallbackSeed = def.demoSeeds[idx];
+                } else if (def.demoSeed != 0) {
+                    fallbackSeed = def.demoSeed;
+                }
+                asyncManager.solvableSeed = fallbackSeed;
                 asyncManager.solvableSeedReady = true;
             }
             asyncManager.isBusy.store(false);
         });
 #else
-        asyncManager.solvableSeed = startSeed;
+        uint32_t fallbackSeed = startSeed;
+        if (!def.demoSeeds.empty()) {
+            size_t idx = static_cast<size_t>(startSeed) % def.demoSeeds.size();
+            if (def.demoSeeds.size() > 1 && def.demoSeeds[idx] == board.seed()) {
+                idx = (idx + 1) % def.demoSeeds.size();
+            }
+            fallbackSeed = def.demoSeeds[idx];
+        } else if (def.demoSeed != 0) {
+            fallbackSeed = def.demoSeed;
+        }
+        asyncManager.solvableSeed = fallbackSeed;
         asyncManager.solvableSeedReady = true;
         asyncManager.isBusy.store(false);
 #endif
@@ -4101,7 +4339,11 @@ struct InteractiveContext {
         seedDialog.onDealSeed = [this](uint32_t s) {
             autoCascadeActive = false;
             autoPlayController.stop();
-            board.newDeal(s, board.variant());
+            if (!board.activeGameDef().id.empty()) {
+                board.newDeal(s, board.activeGameDef());
+            } else {
+                board.newDeal(s, board.variant());
+            }
             board.computeLayout(static_cast<float>(width), static_cast<float>(height));
             SessionManager::instance().clearSession();
             foley.triggerSound(FoleySound::Shuffle, 0.9f);
@@ -4366,6 +4608,9 @@ struct InteractiveContext {
     }
 
     void triggerAction(int btnId) {
+        if (btnId != BtnHint) {
+            hintHighlight.active = false;
+        }
         switch (btnId) {
             case BtnNewDeal:
                 autoPlayController.stop();
@@ -4468,7 +4713,11 @@ struct InteractiveContext {
                 auto nowVal = std::chrono::high_resolution_clock::now().time_since_epoch().count();
                 uint32_t nextSeed = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(nowVal)) & 0x7FFFFFFFu;
                 if (nextSeed == 0) nextSeed = 2026u;
-                board.newDeal(nextSeed, board.variant());
+                if (!board.activeGameDef().id.empty()) {
+                    board.newDeal(nextSeed, board.activeGameDef());
+                } else {
+                    board.newDeal(nextSeed, board.variant());
+                }
                 board.computeLayout(static_cast<float>(width), static_cast<float>(height));
                 SettingsManager::instance().settings().lastSeed = nextSeed;
                 SettingsManager::instance().save();
@@ -4530,7 +4779,15 @@ struct InteractiveContext {
                             dy = dp.cards.back().y + board.cardHeight() * 0.5f;
                         }
                         ThemePalette hpal = getPalette(board.tableTheme());
-                        magicParticles.spawnArcTrail(sx, sy, dx, dy, hpal.accentR, hpal.accentG, hpal.accentB);
+                        hintHighlight.active = true;
+                        hintHighlight.fromPile = hm.fromPile;
+                        hintHighlight.cardIndex = hm.cardIndex;
+                        hintHighlight.toPile = hm.toPile;
+                        hintHighlight.age = 0.0f;
+                        hintHighlight.duration = 1.45f;
+                        hintMoveCount = board.moveCount();
+                        magicParticles.spawnArcTrail(sx, sy, dx, dy, hpal.accentR, hpal.accentG, hpal.accentB,
+                                                     board.cardWidth(), 0.12f, true);
                     }
                 } else {
                     foley.triggerSound(FoleySound::Flip, 0.5f);
@@ -4623,6 +4880,9 @@ struct InteractiveContext {
                 if (!helpOpen) {
                     highlightedHelpZone = -1;
                     helpScrollY = 0.0f;
+                    helpPointerDown = false;
+                    helpDraggingScroll = false;
+                    helpDraggingScrollbar = false;
                 }
                 foley.triggerSound(FoleySound::Flip, 0.75f);
                 break;
@@ -4988,6 +5248,9 @@ struct InteractiveContext {
                     helpOpen = false;
                     highlightedHelpZone = -1;
                     helpScrollY = 0.0f;
+                    helpPointerDown = false;
+                    helpDraggingScroll = false;
+                    helpDraggingScrollbar = false;
                     foley.triggerSound(FoleySound::WoodClick, 0.75f);
                     return true;
                 }
@@ -4997,30 +5260,21 @@ struct InteractiveContext {
                     return true;
                 }
                 if (fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
-                    if (fmx >= hl.analyzeX && fmx <= hl.analyzeX + hl.analyzeW && fmy >= hl.analyzeY && fmy <= hl.analyzeY + hl.analyzeH) {
-                        if (oddsSnap.running) cancelOddsAnalysis();
-                        else startOddsAnalysis();
-                        foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                    helpMaxScrollY = std::max(0.0f, hl.contentH - hl.viewH);
+                    if (helpMaxScrollY > 1.0f && fmx >= sb.x + sb.w - 22.0f) {
+                        helpDraggingScrollbar = true;
+                        const float trackY = hl.viewY + 4.0f;
+                        const float trackH = std::max(24.0f, hl.viewH - 8.0f);
+                        const float frac = std::clamp((fmy - trackY) / trackH, 0.0f, 1.0f);
+                        helpScrollY = frac * helpMaxScrollY;
                         return true;
                     }
-                    if (fmx >= hl.hintX && fmx <= hl.hintX + hl.hintW && fmy >= hl.hintY && fmy <= hl.hintY + hl.hintH) {
-                        triggerAction(BtnHint);
-                        return true;
-                    }
-                    for (const auto& zh : hl.zoneHits) {
-                        if (fmx >= zh.x && fmx <= zh.x + zh.w && fmy >= zh.y && fmy <= zh.y + zh.h) {
-                            int zIdx = static_cast<int>(zh.zoneIndex);
-                            highlightedHelpZone = zIdx;
-                            if (zIdx >= 0 && static_cast<size_t>(zIdx) < board.piles().size()) {
-                                float zx = 0.0f, zy = 0.0f, zw = 0.0f, zh = 0.0f;
-                                computeZoneHighlightBounds(board, zIdx, zx, zy, zw, zh);
-                                ThemePalette hpal = getPalette(board.tableTheme());
-                                magicParticles.spawnZoneBurst(zx, zy, zw, zh, hpal.accentR, hpal.accentG, hpal.accentB);
-                            }
-                            foley.triggerSound(FoleySound::WoodClick, 0.75f);
-                            return true;
-                        }
-                    }
+                    helpPointerDown = true;
+                    helpDraggingScroll = false;
+                    helpDragStartX = fmx;
+                    helpDragStartY = fmy;
+                    helpInitialScrollY = std::clamp(helpScrollY, 0.0f, helpMaxScrollY);
+                    return true;
                 }
                 return true;
             }()) {
@@ -5143,11 +5397,62 @@ struct InteractiveContext {
                 foley.triggerSound(FoleySound::Slide, 0.32f * speed, screenPan(fmx));
                 dragSoundAccumulator = 0.0f;
             }
+        } else if (leftDown && helpOpen && (helpPointerDown || helpDraggingScrollbar)) {
+            HelpOddsInfo oddsSnap;
+            { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
+            const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap);
+            helpMaxScrollY = std::max(0.0f, hl.contentH - hl.viewH);
+            if (helpDraggingScrollbar && helpMaxScrollY > 1.0f) {
+                const float trackY = hl.viewY + 4.0f;
+                const float trackH = std::max(24.0f, hl.viewH - 8.0f);
+                const float frac = std::clamp((fmy - trackY) / trackH, 0.0f, 1.0f);
+                helpScrollY = frac * helpMaxScrollY;
+            } else if (helpPointerDown && helpMaxScrollY > 1.0f) {
+                if (!helpDraggingScroll && std::abs(fmy - helpDragStartY) > 5.0f) {
+                    helpDraggingScroll = true;
+                }
+                if (helpDraggingScroll) {
+                    helpScrollY = std::clamp(helpInitialScrollY - (fmy - helpDragStartY), 0.0f, helpMaxScrollY);
+                }
+            }
         } else if (leftDown && isGesturing) {
             gestureCurX = fmx;
             gestureCurY = fmy;
         } else if (!leftDown && prevLeftDown) {
-            if (pressedToolbarBtn != BtnNone) {
+            if (helpPointerDown || helpDraggingScrollbar) {
+                if (helpOpen && !helpDraggingScroll && !helpDraggingScrollbar) {
+                    HelpOddsInfo oddsSnap;
+                    { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
+                    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap);
+                    if (fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
+                        if (fmx >= hl.analyzeX && fmx <= hl.analyzeX + hl.analyzeW && fmy >= hl.analyzeY && fmy <= hl.analyzeY + hl.analyzeH) {
+                            if (oddsSnap.running) cancelOddsAnalysis();
+                            else startOddsAnalysis();
+                            foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                        } else if (fmx >= hl.hintX && fmx <= hl.hintX + hl.hintW && fmy >= hl.hintY && fmy <= hl.hintY + hl.hintH) {
+                            triggerAction(BtnHint);
+                        } else {
+                            for (const auto& zh : hl.zoneHits) {
+                                if (fmx >= zh.x && fmx <= zh.x + zh.w && fmy >= zh.y && fmy <= zh.y + zh.h) {
+                                    int zIdx = static_cast<int>(zh.zoneIndex);
+                                    highlightedHelpZone = zIdx;
+                                    if (zIdx >= 0 && static_cast<size_t>(zIdx) < board.piles().size()) {
+                                        float zx = 0.0f, zy = 0.0f, zw = 0.0f, zb = 0.0f;
+                                        computeZoneHighlightBounds(board, zIdx, zx, zy, zw, zb);
+                                        ThemePalette hpal = getPalette(board.tableTheme());
+                                        magicParticles.spawnZoneBurst(zx, zy, zw, zb, hpal.accentR, hpal.accentG, hpal.accentB);
+                                    }
+                                    foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                helpPointerDown = false;
+                helpDraggingScroll = false;
+                helpDraggingScrollbar = false;
+            } else if (pressedToolbarBtn != BtnNone) {
                 if (!holdTriggered && hoveredBtn == pressedToolbarBtn) {
                     if (pressedToolbarBtn == BtnToolbarResize) {
                         auto& s = SettingsManager::instance().settings();
@@ -5334,13 +5639,21 @@ struct InteractiveContext {
             }
             if (edgeKey(GLFW_KEY_F1, prevKeyF1)) {
                 helpOpen = !helpOpen;
-                if (!helpOpen) highlightedHelpZone = -1;
+                if (!helpOpen) {
+                    highlightedHelpZone = -1;
+                    helpPointerDown = false;
+                    helpDraggingScroll = false;
+                    helpDraggingScrollbar = false;
+                }
                 foley.triggerSound(FoleySound::Flip, 0.75f);
             }
             if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) {
                 if (helpOpen) {
                     helpOpen = false;
                     highlightedHelpZone = -1;
+                    helpPointerDown = false;
+                    helpDraggingScroll = false;
+                    helpDraggingScrollbar = false;
                 } else if (playMenuOpen) {
                     playMenuOpen = false;
                 } else if (toolbarConfigOpen) {
@@ -5455,6 +5768,16 @@ struct InteractiveContext {
                 lastOddsGameId = board.activeGameDef().id;
             }
 
+            if (hintHighlight.active) {
+                hintHighlight.age += dt;
+                if (hintHighlight.age >= hintHighlight.duration ||
+                    board.moveCount() != hintMoveCount ||
+                    autoPlayController.isPlaying() ||
+                    board.isVictory()) {
+                    hintHighlight.active = false;
+                }
+            }
+
             int newlyActivated = magicParticles.update(dt);
             if (newlyActivated > 0) {
                 if (magicSoundAccum == 0) {
@@ -5490,7 +5813,8 @@ struct InteractiveContext {
                             dy = dp.cards.back().y + board.cardHeight() * 0.5f;
                         }
                         ThemePalette apal = getPalette(board.tableTheme());
-                        magicParticles.spawnArcTrail(sx, sy, dx, dy, apal.accentR, apal.accentG, apal.accentB);
+                        magicParticles.spawnArcTrail(sx, sy, dx, dy, apal.accentR, apal.accentG, apal.accentB,
+                                                     board.cardWidth(), 0.0f, true);
                     }
                 }
             }
@@ -5502,7 +5826,7 @@ struct InteractiveContext {
                                        menuOpen, menuAnchor, menuFlowVertical, isDraggingMenu, dragPreviewAnchor, dragPreviewFlowVertical,
                                        isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
                                        &dynamicLight, &autoPlayController,
-                                       helpOpen, highlightedHelpZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles);
+                                       helpOpen, highlightedHelpZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles, &hintHighlight);
             if (postFxEnabled && !activeCfg.postFxAffectUi) {
                 renderer.applyPostFxPass();
             }
@@ -5656,7 +5980,21 @@ int TableRenderer::runInteractiveWindow(
         } else if (s_activeContext->settingsDialog.isOpen()) {
             s_activeContext->settingsDialog.handleScroll(static_cast<float>(yoffset));
         } else if (s_activeContext->helpOpen) {
-            s_activeContext->helpScrollY = std::clamp(s_activeContext->helpScrollY - static_cast<float>(yoffset) * 28.0f, 0.0f, 1200.0f);
+            HelpOddsInfo oddsSnap;
+            { std::lock_guard<std::mutex> lk(s_activeContext->oddsMutex); oddsSnap = s_activeContext->helpOdds; }
+            const HelpSidebarLayout hl = buildHelpSidebarLayout(
+                s_activeContext->board,
+                static_cast<float>(s_activeContext->width),
+                static_cast<float>(s_activeContext->height),
+                0.0f,
+                &oddsSnap
+            );
+            s_activeContext->helpMaxScrollY = std::max(0.0f, hl.contentH - hl.viewH);
+            s_activeContext->helpScrollY = std::clamp(
+                s_activeContext->helpScrollY - static_cast<float>(yoffset) * 28.0f,
+                0.0f,
+                s_activeContext->helpMaxScrollY
+            );
         }
     });
 

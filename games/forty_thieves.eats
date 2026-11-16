@@ -17,6 +17,7 @@ stock_deal_mode = "waste_draw_1"
 stock_deal_count = 1
 max_redeals = 0
 demo_seed = 60
+demo_seeds = [60, 72, 103, 105, 110, 131, 155, 178]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(4, "Long", 3, "Moderate", 5, "Master")

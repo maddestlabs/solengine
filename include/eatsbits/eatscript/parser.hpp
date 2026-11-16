@@ -31,6 +31,7 @@ private:
     std::vector<std::shared_ptr<Stmt>> parseBlock();
     std::shared_ptr<Stmt> parseStatement();
     std::shared_ptr<Stmt> parseIfStatement();
+    std::shared_ptr<Stmt> parseWhileStatement();
     std::shared_ptr<Stmt> parseReturnStatement();
     std::shared_ptr<Stmt> parseExpressionOrAssignment();
 

@@ -65,17 +65,43 @@ struct MagicParticle {
     float r{1.0f}, g{0.85f}, b{0.40f};
 };
 
+struct MagicArcRibbon {
+    float x0{0.0f}, y0{0.0f};
+    float cx{0.0f}, cy{0.0f};
+    float x1{0.0f}, y1{0.0f};
+    float delay{0.0f};
+    float age{0.0f};
+    float travelDuration{0.42f};
+    float fadeDuration{0.34f};
+    float width{4.0f};
+    float r{1.0f}, g{0.85f}, b{0.40f};
+};
+
+struct HintHighlight {
+    bool active{false};
+    uint8_t fromPile{0};
+    uint8_t cardIndex{0};
+    uint8_t toPile{0};
+    float age{0.0f};
+    float duration{1.45f};
+};
+
 class MagicParticleSystem {
 public:
-    void clear() noexcept { particles_.clear(); }
+    void clear() noexcept {
+        particles_.clear();
+        ribbons_.clear();
+    }
     int update(float dt) noexcept;
     void render(eatsbits::ui::BatchRenderer2D& r) const;
 
     void spawnZoneBurst(float x, float y, float w, float h, float r, float g, float b);
-    void spawnArcTrail(float x0, float y0, float x1, float y1, float r, float g, float b);
+    void spawnArcTrail(float x0, float y0, float x1, float y1, float r, float g, float b,
+                       float cardWidth = 80.0f, float startDelay = 0.0f, bool withRibbon = true);
 
 private:
     std::vector<MagicParticle> particles_;
+    std::vector<MagicArcRibbon> ribbons_;
     uint32_t rng_{0x9E3779B9u};
 };
 
@@ -113,7 +139,8 @@ public:
         float helpMouseX = -1.0f,
         float helpMouseY = -1.0f,
         const HelpOddsInfo* helpOdds = nullptr,
-        const MagicParticleSystem* magicParticles = nullptr
+        const MagicParticleSystem* magicParticles = nullptr,
+        const HintHighlight* hintHighlight = nullptr
     );
 
     static bool renderToPng(

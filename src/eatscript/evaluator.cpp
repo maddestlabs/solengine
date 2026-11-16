@@ -125,16 +125,27 @@ void Evaluator::registerBuiltins() {
 }
 
 void Evaluator::setVariable(const std::string& name, Value val) {
+    if (!localScopes_.empty()) {
+        localScopes_.back()[name] = std::move(val);
+        return;
+    }
     globals_[name] = std::move(val);
 }
 
 Value Evaluator::getVariable(const std::string& name) const {
+    if (!localScopes_.empty()) {
+        auto lit = localScopes_.back().find(name);
+        if (lit != localScopes_.back().end()) return lit->second;
+    }
     auto it = globals_.find(name);
     if (it != globals_.end()) return it->second;
     return Value();
 }
 
 bool Evaluator::hasVariable(const std::string& name) const {
+    if (!localScopes_.empty() && localScopes_.back().find(name) != localScopes_.back().end()) {
+        return true;
+    }
     return globals_.find(name) != globals_.end();
 }
 
@@ -231,16 +242,18 @@ Value Evaluator::invokeCallable(const Value& callable,
 
     if (callable.funcDef) {
         auto* def = callable.funcDef.get();
-        // Save current variable state for parameters
-        std::map<std::string, Value> savedLocals;
+        std::map<std::string, Value> frame;
         for (size_t i = 0; i < def->params.size(); ++i) {
             const std::string& pName = def->params[i];
-            if (hasVariable(pName)) {
-                savedLocals[pName] = getVariable(pName);
-            }
-            Value pVal = resolveArg(args, kwargs, i, pName, Value());
-            setVariable(pName, pVal);
+            frame[pName] = resolveArg(args, kwargs, i, pName, Value());
         }
+        localScopes_.push_back(std::move(frame));
+        struct ScopePop {
+            std::vector<std::map<std::string, Value>>& stack;
+            ~ScopePop() {
+                if (!stack.empty()) stack.pop_back();
+            }
+        } popGuard{localScopes_};
 
         returning_ = false;
         returnValue_ = Value();
@@ -251,18 +264,7 @@ Value Evaluator::invokeCallable(const Value& callable,
             }
         }
         returning_ = false;
-        Value result = returnValue_;
-
-        // Restore locals
-        for (const auto& pName : def->params) {
-            auto sIt = savedLocals.find(pName);
-            if (sIt != savedLocals.end()) {
-                setVariable(pName, sIt->second);
-            } else {
-                globals_.erase(pName);
-            }
-        }
-        return result;
+        return returnValue_;
     }
 
     return Value();
@@ -312,6 +314,21 @@ Value Evaluator::evalStmt(Stmt* stmt) {
             }
         } else {
             for (const auto& s : ifs->elseBranch) {
+                evalStmt(s.get());
+                if (returning_) return returnValue_;
+            }
+        }
+        return Value();
+    }
+    if (auto* ws = ast_cast<WhileStmt>(stmt)) {
+        constexpr int kMaxWhileIterations = 100000;
+        int iter = 0;
+        while (evalExpr(ws->condition.get()).asBoolean()) {
+            if (++iter > kMaxWhileIterations) {
+                lastError_ = "While loop exceeded maximum iteration limit";
+                break;
+            }
+            for (const auto& s : ws->body) {
                 evalStmt(s.get());
                 if (returning_) return returnValue_;
             }

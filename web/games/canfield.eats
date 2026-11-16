@@ -18,7 +18,8 @@ foundation_starter_card = True
 stock_deal_mode = "waste_draw_3"
 stock_deal_count = 3
 max_redeals = -1
-demo_seed = 3
+demo_seed = 19
+demo_seeds = [19, 22, 33, 58, 64, 106, 113, 301]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 4, "High Luck", 3, "Tactical")
@@ -75,14 +76,14 @@ def can_drop(from_z, i, to_z):
         return card_suit(to_z, fsz - 1) == s and r == next_r
 
     if to_z >= 7 and to_z <= 10:
+        # Whole column moves when dragging from tableau onto tableau
+        if from_z >= 7 and from_z <= 10 and i != 0:
+            return False
         tsz = zone_size(to_z)
         if tsz == 0:
             if from_z == 6:
                 return True
             return zone_size(6) == 0 and (from_z == 1 or (from_z >= 7 and from_z <= 10))
-        # Whole column moves when dragging from tableau onto tableau
-        if from_z >= 7 and from_z <= 10 and i != 0:
-            return False
         top_r = card_rank(to_z, tsz - 1)
         next_down = (r % 13) + 1
         return (card_is_red(to_z, tsz - 1) != red) and (top_r == next_down)

@@ -205,4 +205,22 @@ else()
                 "$<TARGET_FILE_DIR:solengine>/wgpu_native.dll"
         )
     endif()
+
+    # 6. Pure-CPU Headless Solver & Seed Audit CLI (Zero GPU / Audio / Windowing)
+    add_executable(solcli
+        src/tools/solcli.cpp
+        src/game/game_definition.cpp
+        src/game/solitaire_board.cpp
+        src/game/solitaire_solver.cpp
+        src/game/script_rule_engine.cpp
+    )
+    target_compile_definitions(solcli PRIVATE SOLENGINE_HEADLESS_CLI)
+    target_include_directories(solcli PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(solcli PRIVATE eats_script)
+    if(NOT MSVC)
+        target_compile_options(solcli PRIVATE -fopenmp)
+        target_link_libraries(solcli PRIVATE -fopenmp)
+    endif()
 endif()

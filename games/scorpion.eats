@@ -17,6 +17,7 @@ stock_deal_mode = "deal_to_all_columns"
 stock_deal_count = 3
 max_redeals = 0
 demo_seed = 2
+demo_seeds = [2, 28, 33, 36, 37, 42, 77, 89]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 3, "Moderate", 4, "Strategic")
@@ -73,7 +74,7 @@ def can_drop(from_z, i, to_z):
     tsz = zone_size(to_z)
     if tsz == 0:
         return card_rank(from_z, i) == 13
-    return card_suit(to_z, tsz - 1) == card_suit(from_z, i) and card_rank(to_z, tsz - 1) == card_rank(from_z, i) + 1
+    return card_face_up(to_z, tsz - 1) and card_suit(to_z, tsz - 1) == card_suit(from_z, i) and card_rank(to_z, tsz - 1) == card_rank(from_z, i) + 1
 
 def on_stock_click():
     if zone_size(0) == 0:
@@ -90,19 +91,21 @@ def collect_completed_runs():
     z = 6
     while z <= 12:
         sz = zone_size(z)
-        if sz == 13:
+        if sz >= 13:
+            start = sz - 13
             ok = True
-            s0 = card_suit(z, 0)
+            s0 = card_suit(z, start)
             k = 0
             while k < 13:
-                if not card_face_up(z, k) or card_suit(z, k) != s0 or card_rank(z, k) != 13 - k:
+                idx = start + k
+                if not card_face_up(z, idx) or card_suit(z, idx) != s0 or card_rank(z, idx) != 13 - k:
                     ok = False
                 k = k + 1
             if ok:
                 f = 2
                 while f <= 5:
                     if zone_size(f) == 0:
-                        move_cards(z, 0, f)
+                        move_cards(z, start, f)
                         add_score(100)
                         f = 99
                     f = f + 1

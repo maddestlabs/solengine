@@ -27,6 +27,10 @@ struct ScriptBoardContext {
 class ScriptRuleEngine {
 public:
     ScriptRuleEngine() = default;
+    ScriptRuleEngine(const ScriptRuleEngine& other);
+    ScriptRuleEngine& operator=(const ScriptRuleEngine& other);
+    ScriptRuleEngine(ScriptRuleEngine&& other) noexcept;
+    ScriptRuleEngine& operator=(ScriptRuleEngine&& other) noexcept;
 
     bool loadScript(const std::string& source);
     bool loadScriptFile(const std::string& filePath);

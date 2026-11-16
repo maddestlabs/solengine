@@ -357,7 +357,7 @@ struct CompactCard {
     }
 };
 
-static constexpr size_t kMaxCardsPerPile = 52;
+static constexpr size_t kMaxCardsPerPile = 104;
 static constexpr size_t kMaxPiles = 44;
 
 struct CompactPile {
@@ -436,7 +436,8 @@ GameRules extractGameRules(const SolitaireBoard& board) {
     rules.variant = board.variant();
     rules.decks = def.decks > 0 ? def.decks : (board.isSpider() ? 2 : 1);
     rules.targetFoundationCards = static_cast<uint32_t>(rules.decks) * 52u;
-    rules.isSpider = board.isSpider() || id == "spiderette";
+    rules.isScorpion = (id == "scorpion" || id == "wasp");
+    rules.isSpider = !rules.isScorpion && (board.isSpider() || id == "spiderette");
     rules.isTriPeaks = (id == "tri_peaks");
     rules.isGolf = board.isGolf() || rules.isTriPeaks || id == "golf";
     rules.isPyramid = board.isPyramidGame();
@@ -454,7 +455,6 @@ GameRules extractGameRules(const SolitaireBoard& board) {
     rules.isAnyEmpty = (id == "freecell" || id == "bakers_game" || rules.isFortyThieves ||
                         id == "wasp" || rules.isSpider);
     rules.isEasthaven = (id == "easthaven");
-    rules.isScorpion = (id == "scorpion" || id == "wasp");
     rules.isCanfield = (def.layout == "canfield" || def.family == "Canfield");
     rules.isRainbow = (id == "rainbow");
     if (rules.isCanfield) {
@@ -572,30 +572,32 @@ int evaluateHeuristic(const CompactBoard& board, const GameRules& rules) {
         return (52 - tabRemaining) * 200;
     }
 
-    if (rules.isSpider) {
+    if (rules.isSpider || rules.isScorpion) {
         int completedFoundations = 0;
         int inSuitSequences = 0;
-        int faceUpCount = 0;
+        int faceDownCount = 0;
+        int stockCount = 0;
         int emptyCols = 0;
 
         for (size_t p = 0; p < board.numPiles; ++p) {
             const auto& pile = board.piles[p];
-            if (pile.type == PileType::Foundation) {
+            if (pile.type == PileType::Stock) {
+                stockCount += static_cast<int>(pile.count);
+            } else if (pile.type == PileType::Foundation) {
                 completedFoundations += static_cast<int>(pile.count / 13);
             } else if (pile.type == PileType::Tableau) {
                 if (pile.empty()) {
                     ++emptyCols;
                 } else {
                     for (size_t i = 0; i < pile.count; ++i) {
-                        if (pile.cards[i].faceUp()) {
-                            ++faceUpCount;
-                            if (i + 1 < pile.count && pile.cards[i + 1].faceUp()) {
-                                if (static_cast<int>(pile.cards[i].rank()) == static_cast<int>(pile.cards[i + 1].rank()) + 1) {
-                                    if (pile.cards[i].suit() == pile.cards[i + 1].suit()) {
-                                        inSuitSequences += 4;
-                                    } else {
-                                        inSuitSequences += 1;
-                                    }
+                        if (!pile.cards[i].faceUp()) {
+                            ++faceDownCount;
+                        } else if (i + 1 < pile.count && pile.cards[i + 1].faceUp()) {
+                            if (static_cast<int>(pile.cards[i].rank()) == static_cast<int>(pile.cards[i + 1].rank()) + 1) {
+                                if (pile.cards[i].suit() == pile.cards[i + 1].suit()) {
+                                    inSuitSequences += 4;
+                                } else {
+                                    inSuitSequences += 1;
                                 }
                             }
                         }
@@ -603,12 +605,14 @@ int evaluateHeuristic(const CompactBoard& board, const GameRules& rules) {
                 }
             }
         }
-        return completedFoundations * 3000 + inSuitSequences * 60 + faceUpCount * 30 + emptyCols * 80;
+        const int stockBonus = (rules.decks >= 2) ? (stockCount * 15) : 0;
+        return completedFoundations * 3000 + inSuitSequences * 60 + emptyCols * 140 + stockBonus - faceDownCount * 120;
     }
 
     // Classic Foundation Games (Klondike, FreeCell, Yukon, Forty Thieves, Baker's, etc.)
     int foundationCards = 0;
-    int faceUpCards = 0;
+    int faceDownCards = 0;
+    int wasteCards = 0;
     int emptyColumns = 0;
     int emptyFreeCells = 0;
     int tableauSequences = 0;
@@ -617,6 +621,8 @@ int evaluateHeuristic(const CompactBoard& board, const GameRules& rules) {
         const auto& pile = board.piles[p];
         if (pile.type == PileType::Foundation) {
             foundationCards += static_cast<int>(pile.count);
+        } else if (pile.type == PileType::Waste) {
+            wasteCards += static_cast<int>(pile.count);
         } else if (pile.type == PileType::FreeCell) {
             if (pile.empty()) ++emptyFreeCells;
         } else if (pile.type == PileType::Tableau) {
@@ -624,16 +630,16 @@ int evaluateHeuristic(const CompactBoard& board, const GameRules& rules) {
                 ++emptyColumns;
             } else {
                 for (size_t i = 0; i < pile.count; ++i) {
-                    if (pile.cards[i].faceUp()) {
-                        ++faceUpCards;
-                        if (i + 1 < pile.count && pile.cards[i + 1].faceUp()) {
-                            const auto& cA = pile.cards[i];
-                            const auto& cB = pile.cards[i + 1];
-                            if (static_cast<int>(cA.rank()) == static_cast<int>(cB.rank()) + 1) {
-                                if (isRedSuit(cA.suit()) != isRedSuit(cB.suit())) {
-                                    tableauSequences += 2;
-                                    if (cA.suit() == cB.suit()) tableauSequences += 1;
-                                }
+                    if (!pile.cards[i].faceUp()) {
+                        ++faceDownCards;
+                    } else if (i + 1 < pile.count && pile.cards[i + 1].faceUp()) {
+                        const auto& cA = pile.cards[i];
+                        const auto& cB = pile.cards[i + 1];
+                        if (static_cast<int>(cA.rank()) == static_cast<int>(cB.rank()) + 1) {
+                            if (cA.suit() == cB.suit()) {
+                                tableauSequences += rules.isSameSuitTableau ? 3 : 1;
+                            } else if (!rules.isSameSuitTableau && isRedSuit(cA.suit()) != isRedSuit(cB.suit())) {
+                                tableauSequences += 2;
                             }
                         }
                     }
@@ -642,7 +648,8 @@ int evaluateHeuristic(const CompactBoard& board, const GameRules& rules) {
         }
     }
 
-    return (foundationCards * 400) + (emptyColumns * 120) + (emptyFreeCells * 80) + (tableauSequences * 30) + (faceUpCards * 20);
+    return (foundationCards * 400) + (emptyColumns * 120) + (emptyFreeCells * 80) +
+           (tableauSequences * 30) - (faceDownCards * 80) - (wasteCards * 12);
 }
 
 // ============================================================================
@@ -803,12 +810,12 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
             return (lead.suit() == top.suit()) && (static_cast<uint8_t>(lead.rank()) == nextR);
         }
         if (dst.type == PileType::Tableau) {
+            if (src.type == PileType::Tableau && startCardIdx != 0) return false;
             const bool reserveEmpty = (b.numPiles <= 6 || b.piles[6].empty());
             if (dst.empty()) {
                 if (fromPileIdx == 6) return true;
                 return reserveEmpty && (src.type == PileType::Waste || src.type == PileType::Tableau);
             }
-            if (src.type == PileType::Tableau && startCardIdx != 0) return false;
             const CompactCard& top = dst.back();
             if (!top.faceUp()) return false;
             uint8_t nextDown = static_cast<uint8_t>((static_cast<int>(lead.rank()) % 13) + 1);
@@ -873,7 +880,7 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
         return false;
     }
 
-    if (rules.isSpider) {
+    if (rules.isSpider || rules.isScorpion) {
         if (moveCount > 1) {
             for (size_t i = startCardIdx; i + 1 < src.count; ++i) {
                 const CompactCard& upper = src.cards[i];
@@ -907,6 +914,22 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
                     static_cast<int>(upper.rank()) != static_cast<int>(lower.rank()) + 1) {
                     return false;
                 }
+            }
+        }
+        if (rules.isFreeCell && dst.type == PileType::Tableau) {
+            size_t emptyFC = 0;
+            size_t emptyOtherTab = 0;
+            for (size_t p = 0; p < b.numPiles; ++p) {
+                if (b.piles[p].type == PileType::FreeCell && b.piles[p].empty()) {
+                    ++emptyFC;
+                } else if (b.piles[p].type == PileType::Tableau && p != toPileIdx && b.piles[p].empty()) {
+                    ++emptyOtherTab;
+                }
+            }
+            const size_t shift = std::min<size_t>(emptyOtherTab, 10);
+            const size_t maxMovable = (emptyFC + 1) << shift;
+            if (moveCount > maxMovable) {
+                return false;
             }
         }
     }
@@ -1029,7 +1052,7 @@ bool drawFromStock(CompactBoard& b, const GameRules& rules) {
         return true;
     }
 
-    if (rules.isSpider) {
+    if (rules.isSpider || rules.isScorpion) {
         if (stock.empty()) return false;
         std::vector<size_t> tabIndices;
         for (size_t i = 0; i < b.numPiles; ++i) {
@@ -1202,7 +1225,7 @@ SolveResult SolitaireSolver::solve(
     openQueue.push(0);
 
     uint32_t statesCount = 0;
-    const uint32_t maxDepth = 220;
+    const uint32_t maxDepth = 500;
     uint32_t bestPartialId = 0;
     int32_t bestPartialScore = -2147483647;
 
@@ -1338,7 +1361,7 @@ SolveResult SolitaireSolver::solve(
                     const auto& card = src.cards[topIdx];
                     if (!card.faceUp()) continue;
 
-                    if (card.rank() == Rank::Ace || card.rank() == Rank::Two) {
+                    if (card.rank() == Rank::Ace || card.rank() == Rank::Two || ((rules.isFan || rules.isFortyThieves) && rules.isSameSuitTableau)) {
                         for (size_t d = 0; d < currentBoard.numPiles; ++d) {
                             if (currentBoard.piles[d].type == PileType::Foundation && canMoveCards(currentBoard, static_cast<uint8_t>(s), topIdx, static_cast<uint8_t>(d), rules)) {
                                 CompactMove cm{SolverMove::Action::MoveCards, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(d)};
@@ -1412,7 +1435,7 @@ SolveResult SolitaireSolver::solve(
                                     if (below.suit() == target.suit()) {
                                         continue;
                                     }
-                                    if (!rules.isSpider && isRedSuit(below.suit()) == isRedSuit(target.suit())) {
+                                    if (!rules.isSpider && !rules.isSameSuitTableau && isRedSuit(below.suit()) == isRedSuit(target.suit())) {
                                         continue;
                                     }
                                 }

@@ -169,6 +169,7 @@ private:
     void registerBuiltins();
 
     std::map<std::string, Value> globals_;
+    std::vector<std::map<std::string, Value>> localScopes_;
     std::map<std::string, std::map<std::string, HostFunction>> memberFunctions_;
     std::vector<std::string> logs_;
     std::string lastError_;

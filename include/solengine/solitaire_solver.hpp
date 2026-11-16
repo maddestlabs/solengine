@@ -15,7 +15,8 @@ struct SolverMove {
         MoveCards = 0,
         DrawStock = 1,
         PairPyramid = 2,
-        ClickCard = 3
+        ClickCard = 3,
+        ReplayTransaction = 4
     };
     Action action{Action::MoveCards};
     uint8_t fromPile{0};
@@ -75,6 +76,9 @@ public:
 
 // Formats card rank and suit into human-friendly unicode notation (e.g. "♠A", "♡10", "♢K")
 std::string formatCardNotation(Suit suit, Rank rank);
+
+// Builds a human-readable notation string for a SolverMove on the given board state
+std::string buildMoveNotation(const SolitaireBoard& board, const SolverMove& m);
 
 } // namespace solengine
 

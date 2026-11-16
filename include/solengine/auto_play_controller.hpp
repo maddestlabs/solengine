@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -67,6 +68,7 @@ public:
     [[nodiscard]] AutoPlaySpeed speed() const noexcept { return speed_; }
 
     [[nodiscard]] size_t currentMoveIndex() const noexcept { return currentMoveIdx_; }
+    [[nodiscard]] size_t historyMoveCount() const noexcept { return historyCount_; }
     [[nodiscard]] size_t totalMoves() const noexcept { return moves_.size(); }
     [[nodiscard]] float moveInterval() const noexcept;
     [[nodiscard]] float moveProgress() const noexcept {
@@ -93,7 +95,10 @@ private:
 
     std::vector<SolverMove> moves_;
     size_t currentMoveIdx_{0};
+    size_t historyCount_{0};
+    std::unordered_map<size_t, TurnTransaction> historyTransactions_;
     float moveTimer_{0.0f};
+    std::string failReason_;
     bool showMoveTrails_{true};
     bool allowPartialDemo_{true};
     bool demoFallbackToSeed_{false};
@@ -107,6 +112,8 @@ private:
     std::mutex resultMutex_;
     bool hasResult_{false};
     SolveResult asyncResult_;
+    std::vector<SolverMove> pendingHistoryMoves_;
+    std::unordered_map<size_t, TurnTransaction> pendingHistoryTxs_;
     uint32_t currentDealSeed_{0};
 };
 

@@ -303,7 +303,7 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
                     c.faceUp = false;
                     piles_[4 + col].cards.push_back(c);
                 }
-                for (uint8_t u = 0; u < 4 && cursor < deck.size(); ++u) {
+                for (uint8_t u = 0; u < 5 && cursor < deck.size(); ++u) {
                     Card c = deck[cursor++];
                     c.faceUp = true;
                     c.flipAngle = kPi * 0.75f;
@@ -388,7 +388,7 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
                 }
             }
         } else {
-            for (uint8_t col = 0; col < 10; ++col) {
+            for (uint8_t col = 0; col < 10 && (tabBase + col) < piles_.size(); ++col) {
                 const uint8_t count = (col < 4) ? 6u : 5u;
                 for (uint8_t row = 0; row < count && cursor < deck.size(); ++row) {
                     Card c = deck[cursor++];
@@ -429,10 +429,13 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
 
         size_t cursor = 0;
         for (uint8_t col = 0; col < 7; ++col) {
-            for (uint8_t row = 0; row < 5 && cursor < deck.size(); ++row) {
+            const uint8_t count = (col < activeDef_.tableauDealCounts.size()) ? activeDef_.tableauDealCounts[col] : 5;
+            for (uint8_t row = 0; row < count && cursor < deck.size(); ++row) {
                 Card c = deck[cursor++];
-                c.faceUp = true;
-                c.flipAngle = kPi * 0.75f;
+                c.faceUp = activeDef_.tableauAllFaceUp || (row + 1 == count);
+                if (c.faceUp) {
+                    c.flipAngle = kPi * 0.75f;
+                }
                 piles_[2 + col].cards.push_back(c);
             }
         }
@@ -2503,6 +2506,19 @@ bool SolitaireBoard::redo() {
         return executeMove(cmd.fromPile, src.cards.size() - cmd.cardCount, cmd.toPile, true);
     }
     return false;
+}
+
+bool SolitaireBoard::applyTransaction(const TurnTransaction& tx) {
+    clearHint();
+    clearSelection();
+    statusCacheDirty_ = true;
+    auto ctx = makeScriptContext(nullptr);
+    ScriptRuleEngine::applyTransaction(ctx, tx);
+    txUndoStack_.push_back(tx);
+    txRedoStack_.clear();
+    ++moveCount_;
+    updateCardTargets();
+    return true;
 }
 
 bool SolitaireBoard::hitTestCard(float px, float py, int& outPileIdx, int& outCardIdx) const noexcept {

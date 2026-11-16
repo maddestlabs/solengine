@@ -17,6 +17,7 @@ stock_deal_mode = "none"
 stock_deal_count = 0
 max_redeals = 0
 demo_seed = 7
+demo_seeds = [7, 43, 55, 58, 71, 85, 106, 144]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 2, "Low Luck", 5, "Master")
@@ -74,7 +75,7 @@ def can_drop(from_z, i, to_z):
         tsz = zone_size(to_z)
         if tsz == 0:
             return r == 13
-        return (card_suit(to_z, tsz - 1) == s) and (card_rank(to_z, tsz - 1) == r + 1)
+        return card_face_up(to_z, tsz - 1) and (card_suit(to_z, tsz - 1) == s) and (card_rank(to_z, tsz - 1) == r + 1)
 
     return False
 

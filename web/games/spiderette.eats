@@ -16,7 +16,8 @@ foundation_starter_card = False
 stock_deal_mode = "deal_to_all_columns"
 stock_deal_count = 7
 max_redeals = 0
-demo_seed = 137
+demo_seed = 71
+demo_seeds = [71, 85, 133, 137, 161, 170, 289, 301]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 3, "Moderate", 3, "Tactical")
@@ -72,7 +73,7 @@ def can_drop(from_z, i, to_z):
     tsz = zone_size(to_z)
     if tsz == 0:
         return True
-    return card_rank(to_z, tsz - 1) == card_rank(from_z, i) + 1
+    return card_face_up(to_z, tsz - 1) and card_rank(to_z, tsz - 1) == card_rank(from_z, i) + 1
 
 def on_stock_click():
     if zone_size(0) == 0:

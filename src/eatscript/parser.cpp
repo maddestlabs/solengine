@@ -144,10 +144,21 @@ std::shared_ptr<Stmt> Parser::parseStatement() {
     if (match(TokenType::If)) {
         return parseIfStatement();
     }
+    if (match(TokenType::While)) {
+        return parseWhileStatement();
+    }
     if (match(TokenType::Return)) {
         return parseReturnStatement();
     }
     return parseExpressionOrAssignment();
+}
+
+std::shared_ptr<Stmt> Parser::parseWhileStatement() {
+    auto condition = parseExpression();
+    consume(TokenType::Colon, "Expected ':' after while condition");
+    skipNewlines();
+    auto body = parseBlock();
+    return std::make_shared<WhileStmt>(std::move(condition), std::move(body));
 }
 
 std::shared_ptr<Stmt> Parser::parseIfStatement() {

@@ -16,7 +16,8 @@ foundation_starter_card = False
 stock_deal_mode = "waste_draw_3"
 stock_deal_count = 3
 max_redeals = -1
-demo_seed = 2
+demo_seed = 6
+demo_seeds = [6, 7, 10, 14, 26, 33, 35, 46]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 4, "High Luck", 3, "Tactical")
@@ -74,7 +75,7 @@ def can_drop(from_z, i, to_z):
         tsz = zone_size(to_z)
         if tsz == 0:
             return r == 13
-        return (card_is_red(to_z, tsz - 1) != red) and (card_rank(to_z, tsz - 1) == r + 1)
+        return card_face_up(to_z, tsz - 1) and (card_is_red(to_z, tsz - 1) != red) and (card_rank(to_z, tsz - 1) == r + 1)
 
     return False
 

@@ -17,6 +17,25 @@ std::string toLowerStr(std::string_view s) {
     for (char c : s) out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return out;
 }
+
+std::string deriveGameId(const std::string& filePath, const std::string& name) {
+    if (!filePath.empty()) {
+        std::string stem = toLowerStr(std::filesystem::path(filePath).stem().string());
+        if (!stem.empty()) return stem;
+    }
+    std::string id;
+    id.reserve(name.size());
+    for (char ch : name) {
+        unsigned char c = static_cast<unsigned char>(ch);
+        if (std::isalnum(c)) {
+            id += static_cast<char>(std::tolower(c));
+        } else if (ch == ' ' || ch == '-' || ch == '_') {
+            if (id.empty() || id.back() != '_') id += '_';
+        }
+    }
+    while (!id.empty() && id.back() == '_') id.pop_back();
+    return id;
+}
 } // namespace
 
 GameRegistry& GameRegistry::instance() {
@@ -479,14 +498,13 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
             return false;
         }
         outDef.name = kv["name"];
-        outDef.id = toLowerStr(outDef.name);
-        std::replace(outDef.id.begin(), outDef.id.end(), ' ', '_');
+        outDef.id = deriveGameId(filePath, outDef.name);
         outDef.family = kv.count("family") ? kv["family"] : outDef.name;
         outDef.category = kv.count("category") ? kv["category"] : outDef.family;
         outDef.layout = kv.count("layout") ? kv["layout"] : "";
         outDef.description = kv.count("description") ? kv["description"] : "";
         outDef.decks = static_cast<uint8_t>(kv.count("decks") ? std::clamp(std::stoi(kv["decks"]), 1, 4) : 1);
-        outDef.tableaus = static_cast<uint8_t>(kv.count("tableaus") ? std::clamp(std::stoi(kv["tableaus"]), 1, 12) : 7);
+        outDef.tableaus = static_cast<uint8_t>(kv.count("tableaus") ? std::clamp(std::stoi(kv["tableaus"]), 1, 32) : 7);
         outDef.foundations = static_cast<uint8_t>(kv.count("foundations") ? std::clamp(std::stoi(kv["foundations"]), 1, 8) : 4);
         outDef.freecells = static_cast<uint8_t>(kv.count("freecells") ? std::clamp(std::stoi(kv["freecells"]), 0, 8) : 0);
         outDef.tableauAllFaceUp = kv.count("tableau_all_face_up") && (kv["tableau_all_face_up"] == "True" || kv["tableau_all_face_up"] == "true" || kv["tableau_all_face_up"] == "1");
@@ -524,15 +542,14 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         }
     } else {
         outDef.name = ev.getVariable("name").asString();
-        outDef.id = toLowerStr(outDef.name);
-        std::replace(outDef.id.begin(), outDef.id.end(), ' ', '_');
+        outDef.id = deriveGameId(filePath, outDef.name);
 
         outDef.family = ev.hasVariable("family") ? ev.getVariable("family").asString() : outDef.name;
         outDef.category = ev.hasVariable("category") ? ev.getVariable("category").asString() : outDef.family;
         outDef.layout = ev.hasVariable("layout") ? ev.getVariable("layout").asString() : "";
         outDef.description = ev.hasVariable("description") ? ev.getVariable("description").asString() : "";
         outDef.decks = static_cast<uint8_t>(std::clamp(ev.getVariable("decks").asInt(1), 1, 4));
-        outDef.tableaus = static_cast<uint8_t>(std::clamp(ev.getVariable("tableaus").asInt(7), 1, 12));
+        outDef.tableaus = static_cast<uint8_t>(std::clamp(ev.getVariable("tableaus").asInt(7), 1, 32));
         outDef.foundations = static_cast<uint8_t>(std::clamp(ev.getVariable("foundations").asInt(4), 1, 8));
         outDef.freecells = static_cast<uint8_t>(std::clamp(ev.getVariable("freecells").asInt(0), 0, 8));
 
@@ -597,7 +614,7 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
             outDef.layout = "fan_grid";
         } else if (famLower == "clock" || nameLower.find("clock") != std::string::npos) {
             outDef.layout = "radial_clock";
-        } else if (outDef.id == "tripeaks") {
+        } else if (outDef.id == "tri_peaks" || outDef.id == "tripeaks") {
             outDef.layout = "tripeaks";
         } else {
             outDef.layout = "columns";
@@ -605,7 +622,7 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
     }
     if (nameLower.find("golf") != std::string::npos || famLower.find("golf") != std::string::npos) {
         outDef.nativeVariant = GameVariant::Golf;
-    } else if (nameLower.find("spider") != std::string::npos || famLower.find("spider") != std::string::npos) {
+    } else if (nameLower.find("spider") != std::string::npos) {
         if (nameLower.find("1") != std::string::npos) outDef.nativeVariant = GameVariant::Spider1Suit;
         else if (nameLower.find("2") != std::string::npos) outDef.nativeVariant = GameVariant::Spider2Suits;
         else if (nameLower.find("3") != std::string::npos) outDef.nativeVariant = GameVariant::Spider3Suits;
@@ -661,7 +678,11 @@ std::vector<SolitaireGameDef> GameRegistry::search(const std::string& query, con
 
     for (const auto& g : games_) {
         if (cat == "favorites") {
+#if !defined(SOLENGINE_HEADLESS_CLI)
             if (!SettingsManager::instance().isFavorite(g.id)) continue;
+#else
+            continue;
+#endif
         } else if (cat != "all" && !cat.empty()) {
             std::string gCat = toLowerStr(g.category);
             std::string gFam = toLowerStr(g.family);

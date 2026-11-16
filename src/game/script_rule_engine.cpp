@@ -36,6 +36,96 @@ void recordAndApply(ScriptBoardContext* ctx, BoardOp op) {
 
 } // namespace
 
+ScriptRuleEngine::ScriptRuleEngine(const ScriptRuleEngine& other)
+    : evaluator_(other.evaluator_)
+    , boundCtx_(nullptr)
+    , lastError_(other.lastError_)
+    , loaded_(other.loaded_)
+    , hasOnDeal_(other.hasOnDeal_)
+    , hasCanPick_(other.hasCanPick_)
+    , hasCanDrop_(other.hasCanDrop_)
+    , hasCanTarget_(other.hasCanTarget_)
+    , hasOnTarget_(other.hasOnTarget_)
+    , hasOnCardClick_(other.hasOnCardClick_)
+    , hasOnStockClick_(other.hasOnStockClick_)
+    , hasOnTurnEnd_(other.hasOnTurnEnd_)
+    , hasGetStatus_(other.hasGetStatus_)
+    , hasEvalHeuristic_(other.hasEvalHeuristic_)
+    , docManifest_(other.docManifest_) {
+    if (loaded_) {
+        registerHostApi();
+    }
+}
+
+ScriptRuleEngine& ScriptRuleEngine::operator=(const ScriptRuleEngine& other) {
+    if (this == &other) return *this;
+    evaluator_ = other.evaluator_;
+    boundCtx_ = nullptr;
+    lastError_ = other.lastError_;
+    loaded_ = other.loaded_;
+    hasOnDeal_ = other.hasOnDeal_;
+    hasCanPick_ = other.hasCanPick_;
+    hasCanDrop_ = other.hasCanDrop_;
+    hasCanTarget_ = other.hasCanTarget_;
+    hasOnTarget_ = other.hasOnTarget_;
+    hasOnCardClick_ = other.hasOnCardClick_;
+    hasOnStockClick_ = other.hasOnStockClick_;
+    hasOnTurnEnd_ = other.hasOnTurnEnd_;
+    hasGetStatus_ = other.hasGetStatus_;
+    hasEvalHeuristic_ = other.hasEvalHeuristic_;
+    docManifest_ = other.docManifest_;
+    if (loaded_) {
+        registerHostApi();
+    }
+    return *this;
+}
+
+ScriptRuleEngine::ScriptRuleEngine(ScriptRuleEngine&& other) noexcept
+    : evaluator_(std::move(other.evaluator_))
+    , boundCtx_(nullptr)
+    , lastError_(std::move(other.lastError_))
+    , loaded_(other.loaded_)
+    , hasOnDeal_(other.hasOnDeal_)
+    , hasCanPick_(other.hasCanPick_)
+    , hasCanDrop_(other.hasCanDrop_)
+    , hasCanTarget_(other.hasCanTarget_)
+    , hasOnTarget_(other.hasOnTarget_)
+    , hasOnCardClick_(other.hasOnCardClick_)
+    , hasOnStockClick_(other.hasOnStockClick_)
+    , hasOnTurnEnd_(other.hasOnTurnEnd_)
+    , hasGetStatus_(other.hasGetStatus_)
+    , hasEvalHeuristic_(other.hasEvalHeuristic_)
+    , docManifest_(std::move(other.docManifest_)) {
+    other.boundCtx_ = nullptr;
+    if (loaded_) {
+        registerHostApi();
+    }
+}
+
+ScriptRuleEngine& ScriptRuleEngine::operator=(ScriptRuleEngine&& other) noexcept {
+    if (this == &other) return *this;
+    evaluator_ = std::move(other.evaluator_);
+    boundCtx_ = nullptr;
+    other.boundCtx_ = nullptr;
+    lastError_ = std::move(other.lastError_);
+    loaded_ = other.loaded_;
+    hasOnDeal_ = other.hasOnDeal_;
+    hasCanPick_ = other.hasCanPick_;
+    hasCanDrop_ = other.hasCanDrop_;
+    hasCanTarget_ = other.hasCanTarget_;
+    hasOnTarget_ = other.hasOnTarget_;
+    hasOnCardClick_ = other.hasOnCardClick_;
+    hasOnStockClick_ = other.hasOnStockClick_;
+    hasOnTurnEnd_ = other.hasOnTurnEnd_;
+    hasGetStatus_ = other.hasGetStatus_;
+    hasEvalHeuristic_ = other.hasEvalHeuristic_;
+    docManifest_ = std::move(other.docManifest_);
+    if (loaded_) {
+        registerHostApi();
+    }
+    return *this;
+}
+
 void ScriptRuleEngine::reset() noexcept {
     evaluator_ = eatsbits::eatscript::Evaluator{};
     boundCtx_ = nullptr;

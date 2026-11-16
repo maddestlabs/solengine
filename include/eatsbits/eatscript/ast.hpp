@@ -31,6 +31,7 @@ enum class StmtKind : uint8_t {
     IndexAssign,
     Return,
     If,
+    While,
     FunctionDef
 };
 
@@ -180,6 +181,14 @@ struct IfStmt : Stmt {
     ~IfStmt() { EATS_WASM_KEEP_THIS; }
 };
 
+struct WhileStmt : Stmt {
+    std::shared_ptr<Expr> condition;
+    std::vector<std::shared_ptr<Stmt>> body;
+    WhileStmt(std::shared_ptr<Expr> cond, std::vector<std::shared_ptr<Stmt>> b)
+        : Stmt(StmtKind::While), condition(std::move(cond)), body(std::move(b)) {}
+    ~WhileStmt() { EATS_WASM_KEEP_THIS; }
+};
+
 struct FunctionDef : Stmt {
     std::string name;
     std::vector<std::string> params;
@@ -213,6 +222,7 @@ template <> struct ASTTraits<AssignStmt> { static constexpr StmtKind stmtKind = 
 template <> struct ASTTraits<IndexAssignStmt> { static constexpr StmtKind stmtKind = StmtKind::IndexAssign; };
 template <> struct ASTTraits<ReturnStmt> { static constexpr StmtKind stmtKind = StmtKind::Return; };
 template <> struct ASTTraits<IfStmt> { static constexpr StmtKind stmtKind = StmtKind::If; };
+template <> struct ASTTraits<WhileStmt> { static constexpr StmtKind stmtKind = StmtKind::While; };
 template <> struct ASTTraits<FunctionDef> { static constexpr StmtKind stmtKind = StmtKind::FunctionDef; };
 
 template <typename T, typename Base>
