@@ -397,6 +397,7 @@ struct GameRules {
     bool isSpider{false};
     bool isGolf{false};
     bool isTriPeaks{false};
+    bool isRadialClock{false};
     bool isPyramid{false};
     bool isYukon{false};
     bool isRussian{false};
@@ -438,8 +439,9 @@ GameRules extractGameRules(const SolitaireBoard& board) {
     rules.targetFoundationCards = static_cast<uint32_t>(rules.decks) * 52u;
     rules.isScorpion = (id == "scorpion" || id == "wasp");
     rules.isSpider = !rules.isScorpion && (board.isSpider() || id == "spiderette");
-    rules.isTriPeaks = (id == "tri_peaks");
-    rules.isGolf = board.isGolf() || rules.isTriPeaks || id == "golf";
+    rules.isTriPeaks = (id == "tri_peaks" || id == "tripeaks" || def.layout == "tripeaks");
+    rules.isRadialClock = (id == "clockwork_dial" || def.layout == "radial_clock");
+    rules.isGolf = board.isGolf() || rules.isTriPeaks || rules.isRadialClock || id == "golf";
     rules.isPyramid = board.isPyramidGame();
     rules.isYukon = (def.family == "Yukon");
     rules.isRussian = (id == "russian_solitaire" || def.name.find("Russian") != std::string::npos);
@@ -770,8 +772,21 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
         if (src.type != PileType::Tableau || dst.type != PileType::Foundation || moveCount != 1) {
             return false;
         }
-        if (startCardIdx != src.count - 1) {
+        if (startCardIdx != src.count - 1 || !lead.faceUp()) {
             return false;
+        }
+        if (rules.isTriPeaks && fromPileIdx >= 2 && fromPileIdx <= 29) {
+            const size_t idx = static_cast<size_t>(fromPileIdx - 2);
+            if (idx < 18 && b.numPiles >= 30) {
+                static constexpr uint8_t kChildren[18][2] = {
+                    {3, 4}, {5, 6}, {7, 8},
+                    {9, 10}, {10, 11}, {12, 13}, {13, 14}, {15, 16}, {16, 17},
+                    {18, 19}, {19, 20}, {20, 21}, {21, 22}, {22, 23}, {23, 24}, {24, 25}, {25, 26}, {26, 27}
+                };
+                if (!b.piles[2 + kChildren[idx][0]].empty() || !b.piles[2 + kChildren[idx][1]].empty()) {
+                    return false;
+                }
+            }
         }
         if (dst.empty()) {
             return true;
@@ -779,7 +794,7 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
         const CompactCard& top = dst.back();
         const int movingRank = static_cast<int>(lead.rank());
         const int topRank = static_cast<int>(top.rank());
-        if (rules.isTriPeaks) {
+        if (rules.isTriPeaks || rules.isRadialClock) {
             return (movingRank == topRank + 1) || (movingRank == topRank - 1) ||
                    (topRank == 13 && movingRank == 1) || (topRank == 1 && movingRank == 13);
         }
@@ -996,6 +1011,22 @@ bool executeMove(CompactBoard& b, uint8_t fromPileIdx, size_t startCardIdx, uint
         src.back().setFaceUp(true);
     }
 
+    if (rules.isTriPeaks && b.numPiles >= 30) {
+        static constexpr uint8_t kChildren[18][2] = {
+            {3, 4}, {5, 6}, {7, 8},
+            {9, 10}, {10, 11}, {12, 13}, {13, 14}, {15, 16}, {16, 17},
+            {18, 19}, {19, 20}, {20, 21}, {21, 22}, {22, 23}, {23, 24}, {24, 25}, {25, 26}, {26, 27}
+        };
+        for (size_t idx = 0; idx < 18; ++idx) {
+            CompactPile& parent = b.piles[2 + idx];
+            if (!parent.empty() && !parent.back().faceUp() &&
+                b.piles[2 + kChildren[idx][0]].empty() &&
+                b.piles[2 + kChildren[idx][1]].empty()) {
+                parent.back().setFaceUp(true);
+            }
+        }
+    }
+
     if (rules.isCanfield && b.numPiles > 10 && !b.piles[6].empty()) {
         for (size_t t = 7; t <= 10; ++t) {
             if (b.piles[t].empty() && !b.piles[6].empty()) {
@@ -1018,10 +1049,17 @@ bool executeMove(CompactBoard& b, uint8_t fromPileIdx, size_t startCardIdx, uint
 }
 
 bool drawFromStock(CompactBoard& b, const GameRules& rules) {
-    if (b.numPiles == 0 || b.piles[0].type != PileType::Stock) {
+    size_t stockIdx = b.numPiles;
+    for (size_t i = 0; i < b.numPiles; ++i) {
+        if (b.piles[i].type == PileType::Stock) {
+            stockIdx = i;
+            break;
+        }
+    }
+    if (stockIdx >= b.numPiles) {
         return false;
     }
-    CompactPile& stock = b.piles[0];
+    CompactPile& stock = b.piles[stockIdx];
 
     if (rules.isScorpion) {
         if (stock.empty()) return false;
@@ -1765,9 +1803,12 @@ SolveResult SolitaireSolver::solve(
                     candidates.push_back(cm);
                 }
             }
-            if (currentBoard.numPiles > 0 && currentBoard.piles[0].type == PileType::Stock && !currentBoard.piles[0].empty()) {
-                CompactMove cm{SolverMove::Action::DrawStock, 0, 0, foundIdx};
-                candidates.push_back(cm);
+            for (size_t i = 0; i < currentBoard.numPiles; ++i) {
+                if (currentBoard.piles[i].type == PileType::Stock && !currentBoard.piles[i].empty()) {
+                    CompactMove cm{SolverMove::Action::DrawStock, static_cast<uint8_t>(i), 0, foundIdx};
+                    candidates.push_back(cm);
+                    break;
+                }
             }
         } else {
             bool foundDominant = false;

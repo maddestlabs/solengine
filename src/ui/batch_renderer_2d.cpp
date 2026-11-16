@@ -6252,8 +6252,10 @@ void BatchRenderer2D::drawRectDropShadow(float x, float y, float w, float h, flo
                                          float elevation, const LightSource2D& light, float opacity,
                                          float prevCardX, float prevCardY) {
     if (w <= 0.0f || h <= 0.0f || elevation <= 0.0f || opacity <= 0.001f) return;
-    float worldCx = x + w * 0.5f;
-    float worldCy = y + h * 0.5f;
+    const float localCx = x + w * 0.5f;
+    const float localCy = y + h * 0.5f;
+    float worldCx = localCx;
+    float worldCy = localCy;
     applyTransform(worldCx, worldCy);
     ShadowOffset shadow = light.computeShadowOffset(worldCx, worldCy, elevation, opacity);
 
@@ -6266,8 +6268,15 @@ void BatchRenderer2D::drawRectDropShadow(float x, float y, float w, float h, flo
         float prevWorldCx = prevCardX + w * 0.5f;
         float prevWorldCy = prevCardY + h * 0.5f;
         ShadowOffset prevShadow = light.computeShadowOffset(prevWorldCx, prevWorldCy, elevation, opacity);
-        relPrevX = (prevWorldCx + prevShadow.dx) - scx;
-        relPrevY = (prevWorldCy + prevShadow.dy) - scy;
+        float dxPrev = (prevWorldCx + prevShadow.dx) - scx;
+        float dyPrev = (prevWorldCy + prevShadow.dy) - scy;
+        if (transformActive_) {
+            relPrevX = dxPrev * transformCos_ + dyPrev * transformSin_;
+            relPrevY = -dxPrev * transformSin_ + dyPrev * transformCos_;
+        } else {
+            relPrevX = dxPrev;
+            relPrevY = dyPrev;
+        }
     }
 
     float outset = std::max(2.0f, shadow.blur * 1.15f);
@@ -6276,10 +6285,20 @@ void BatchRenderer2D::drawRectDropShadow(float x, float y, float w, float h, flo
     float effRadius = std::clamp(cornerRadius, 0.0f, std::min(w, h) * 0.5f);
 
     uint32_t col = packColor(0.0f, 0.0f, 0.0f, std::clamp(shadow.opacity * 0.62f, 0.0f, 1.0f));
-    Vertex2D v0{scx - halfW, scy - halfH, effRadius, outset, col, 2, {-halfW, -halfH}, {relPrevX, relPrevY}};
-    Vertex2D v1{scx + halfW, scy - halfH, effRadius, outset, col, 2, { halfW, -halfH}, {relPrevX, relPrevY}};
-    Vertex2D v2{scx + halfW, scy + halfH, effRadius, outset, col, 2, { halfW,  halfH}, {relPrevX, relPrevY}};
-    Vertex2D v3{scx - halfW, scy + halfH, effRadius, outset, col, 2, {-halfW,  halfH}, {relPrevX, relPrevY}};
+    Vertex2D v0{localCx - halfW, localCy - halfH, effRadius, outset, col, 2, {-halfW, -halfH}, {relPrevX, relPrevY}};
+    Vertex2D v1{localCx + halfW, localCy - halfH, effRadius, outset, col, 2, { halfW, -halfH}, {relPrevX, relPrevY}};
+    Vertex2D v2{localCx + halfW, localCy + halfH, effRadius, outset, col, 2, { halfW,  halfH}, {relPrevX, relPrevY}};
+    Vertex2D v3{localCx - halfW, localCy + halfH, effRadius, outset, col, 2, {-halfW,  halfH}, {relPrevX, relPrevY}};
+
+    applyTransform(v0.x, v0.y);
+    applyTransform(v1.x, v1.y);
+    applyTransform(v2.x, v2.y);
+    applyTransform(v3.x, v3.y);
+
+    v0.x += shadow.dx; v0.y += shadow.dy;
+    v1.x += shadow.dx; v1.y += shadow.dy;
+    v2.x += shadow.dx; v2.y += shadow.dy;
+    v3.x += shadow.dx; v3.y += shadow.dy;
 
     vertices_.push_back(v0);
     vertices_.push_back(v1);

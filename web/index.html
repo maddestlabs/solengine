@@ -23,7 +23,7 @@
     <!-- Fonts (non-render-blocking so loading screen paints immediately) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Montserrat:wght@400;500;600&family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Montserrat:wght@400;500;600&family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet" crossorigin="anonymous" media="print" onload="this.media='all'">
 
     <style>
         * {
@@ -1108,19 +1108,32 @@
             });
         }
 
+        function recentlyReloadedForCoi() {
+            try {
+                const ts = Number(sessionStorage.getItem('solengine_coi_reloaded_at') || '0');
+                return ts > 0 && (Date.now() - ts) < 5000;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function triggerCoiReload() {
+            if (recentlyReloadedForCoi()) return false;
+            try { sessionStorage.setItem('solengine_coi_reloaded_at', String(Date.now())); } catch (e) {}
+            window.location.reload();
+            return true;
+        }
+
         // Service Worker for Offline PWA & Cross-Origin Isolation (COOP/COEP for SharedArrayBuffer)
         if (window.crossOriginIsolated) {
-            try { sessionStorage.removeItem('solengine_coi_reloaded'); } catch (e) {}
+            try { sessionStorage.removeItem('solengine_coi_reloaded_at'); } catch (e) {}
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', loadSolEngineScript, { once: true });
             } else {
                 loadSolEngineScript();
             }
         } else if (window.isSecureContext && 'serviceWorker' in navigator) {
-            let alreadyReloaded = false;
-            try { alreadyReloaded = sessionStorage.getItem('solengine_coi_reloaded') === '1'; } catch (e) {}
-
-            if (alreadyReloaded) {
+            if (recentlyReloadedForCoi()) {
                 if (statusText) {
                     statusText.className = 'sol-status-text error-msg';
                     statusText.innerText = 'CROSS-ORIGIN ISOLATION REQUIRED — PLEASE RELOAD PAGE';
@@ -1130,8 +1143,7 @@
                     statusText.innerText = 'INITIALIZING CROSS-ORIGIN ISOLATION...';
                 }
                 navigator.serviceWorker.addEventListener('controllerchange', () => {
-                    try { sessionStorage.setItem('solengine_coi_reloaded', '1'); } catch (e) {}
-                    window.location.reload();
+                    triggerCoiReload();
                 }, { once: true });
             }
         } else {
@@ -1145,12 +1157,7 @@
             navigator.serviceWorker.register('./sw.js').then((reg) => {
                 console.log('[SolEngine PWA] Registered with scope:', reg.scope);
                 if (!window.crossOriginIsolated && window.isSecureContext && (navigator.serviceWorker.controller || reg.active)) {
-                    let alreadyReloaded = false;
-                    try { alreadyReloaded = sessionStorage.getItem('solengine_coi_reloaded') === '1'; } catch (e) {}
-                    if (!alreadyReloaded) {
-                        try { sessionStorage.setItem('solengine_coi_reloaded', '1'); } catch (e) {}
-                        window.location.reload();
-                    }
+                    triggerCoiReload();
                 }
             }).catch((err) => {
                 console.warn('[SolEngine PWA] ServiceWorker registration failed:', err);

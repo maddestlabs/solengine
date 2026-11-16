@@ -1,5 +1,5 @@
 // SolEngine - Offline PWA Service Worker with COOP/COEP Cross-Origin Isolation
-const CACHE_NAME = 'solengine-pwa-v2';
+const CACHE_NAME = 'solengine-pwa-v3';
 
 const PRECACHE_ASSETS = [
     './',
@@ -16,7 +16,17 @@ const PRECACHE_ASSETS = [
 ];
 
 function ensureCoopCoepHeaders(response) {
-    if (!response || response.type === 'opaque' || response.type === 'opaqueredirect' || response.status === 0) {
+    if (
+        !response ||
+        response.type === 'opaque' ||
+        response.type === 'opaqueredirect' ||
+        response.status === 0 ||
+        response.status === 204 ||
+        response.status === 205 ||
+        response.status === 304 ||
+        response.status < 200 ||
+        response.status > 599
+    ) {
         return response;
     }
     const headers = new Headers(response.headers);
@@ -67,11 +77,18 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET') return;
+    if (event.request.cache === 'only-if-cached' && event.request.mode !== 'same-origin') return;
+
+    // For top-level navigations, bypass the HTTP cache so we never get a 304 Not Modified
+    // without COOP/COEP headers; fall back to Cache Storage when offline.
+    const fetchRequest = event.request.mode === 'navigate'
+        ? new Request(event.request.url, { cache: 'no-store' })
+        : event.request;
 
     // Network-first so rebuilt WASM/JS/data/HTML are always picked up immediately,
     // falling back to Cache Storage when offline.
     event.respondWith(
-        fetch(event.request).then((networkResponse) => {
+        fetch(fetchRequest).then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
                 const responseToCache = networkResponse.clone();
                 caches.open(CACHE_NAME).then((cache) => {
@@ -84,7 +101,7 @@ self.addEventListener('fetch', (event) => {
                 if (cachedResponse) {
                     return ensureCoopCoepHeaders(cachedResponse);
                 }
-                if (event.request.headers.get('accept')?.includes('text/html')) {
+                if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
                     return caches.match('./index.html').then((fallback) => ensureCoopCoepHeaders(fallback));
                 }
             });
