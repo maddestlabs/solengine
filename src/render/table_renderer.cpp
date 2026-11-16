@@ -1497,6 +1497,7 @@ void drawStaticTableChrome(
         for (size_t pIdx = 0; pIdx < piles.size(); ++pIdx) {
             const Pile& p = piles[pIdx];
             if (p.x < -500.0f) continue;
+            ScopedCardRotation slotRotGuard(r, p.angle, p.x + cw * 0.5f, p.y + ch * 0.5f);
             r.drawRoundedRect(p.x, p.y, cw, ch, wellRadius, 0.0f, 0.0f, 0.0f, 0.25f, 4);
             r.drawRoundedRectOutline(p.x, p.y, cw, ch, wellRadius, pal.trimR, pal.trimG, pal.trimB, 0.40f, 1.2f, 4);
 
@@ -2470,8 +2471,14 @@ void TableRenderer::renderBoard(
     thread_local std::vector<AnimatingCardEntry> animatingCards;
     animatingCards.clear();
     thread_local std::vector<size_t> restingIndices;
+    thread_local std::vector<size_t> drawOrder;
+    drawOrder.resize(piles.size());
+    for (size_t i = 0; i < piles.size(); ++i) drawOrder[i] = i;
+    std::stable_sort(drawOrder.begin(), drawOrder.end(), [&piles](size_t a, size_t b) noexcept {
+        return piles[a].zIndex < piles[b].zIndex;
+    });
 
-    for (size_t pIdx = 0; pIdx < piles.size(); ++pIdx) {
+    for (size_t pIdx : drawOrder) {
         const Pile& p = piles[pIdx];
         if (p.cards.empty()) continue;
 
@@ -2557,6 +2564,7 @@ void TableRenderer::renderBoard(
                 // casting a tight, crisp contact shadow (gap ~0.3mm) across card i-1's face.
                 const float effRu = CardTextureCache::instance().effectiveRu();
                 const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
+                ScopedCardRotation contactRotGuard(r, c.angle, c.x + cw * 0.5f, c.y + ch * 0.5f);
                 r.drawRectDropShadow(c.x, c.y, cw, ch, cardRadius, 1.2f, light, 0.38f);
             }
             drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::BodyOnly);

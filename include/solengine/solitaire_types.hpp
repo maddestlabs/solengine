@@ -276,6 +276,10 @@ struct Pile {
     bool allowDrop{true};
     float x{0.0f};
     float y{0.0f};
+    float angle{0.0f};           // Resting orientation in radians
+    int32_t zIndex{0};           // Draw & overlap priority (higher renders on top)
+    float fanDirX{0.0f};         // Fanning direction X (0 = vertical)
+    float fanDirY{1.0f};         // Fanning direction Y (+1 = downward)
     float fanOffsetDown{18.0f};
     float fanOffsetUp{28.0f};
     std::vector<Card> cards;

@@ -18,6 +18,10 @@ struct ScriptBoardContext {
     int32_t* score{nullptr};
     uint32_t* rngState{nullptr};
     TurnTransaction* activeTx{nullptr};
+    float cardW{96.0f};
+    float cardH{136.0f};
+    float viewportW{1280.0f};
+    float viewportH{720.0f};
 };
 
 /**
@@ -72,6 +76,7 @@ public:
     static bool revertOp(ScriptBoardContext& ctx, const BoardOp& op);
     static void applyTransaction(ScriptBoardContext& ctx, const TurnTransaction& tx);
     static void revertTransaction(ScriptBoardContext& ctx, const TurnTransaction& tx);
+    [[nodiscard]] static bool isCardBlocked(const std::vector<Pile>& piles, size_t pileIdx, size_t cardIdx, float cardW, float cardH) noexcept;
 
 private:
     void registerHostApi();

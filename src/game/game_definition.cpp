@@ -200,17 +200,18 @@ void GameRegistry::registerBuiltins() {
     tp.name = "TriPeaks";
     tp.family = "Golf";
     tp.category = "GOLF";
+    tp.layout = "tripeaks";
     tp.description = "Fast-paced peak elimination. Stack cards +-1 rank onto foundation waste; streak bonuses.";
     tp.decks = 1;
-    tp.tableaus = 7;
+    tp.tableaus = 28;
     tp.foundations = 1;
     tp.freecells = 0;
-    tp.tableauDealCounts = {4, 4, 4, 4, 4, 4, 4};
+    tp.tableauDealCounts = std::vector<uint8_t>(28, 1);
     tp.tableauAllFaceUp = false;
     tp.foundationStarterCard = true;
     tp.stockDealMode = "deal_to_foundation";
     tp.stockDealCount = 1;
-    tp.nativeVariant = GameVariant::Golf;
+    tp.nativeVariant = GameVariant::CustomScript;
     games_.push_back(tp);
 
     // 12. Yukon

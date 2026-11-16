@@ -104,9 +104,11 @@ public:
     bool redo();
     bool applyTransaction(const TurnTransaction& tx);
 
-    // Hit testing helpers for pointer/touch input
+    // Hit testing & 2D occlusion helpers for pointer/touch input and planar graph layouts
     bool hitTestCard(float px, float py, int& outPileIdx, int& outCardIdx) const noexcept;
     int findBestDropPile(uint8_t fromPileIdx, size_t startCardIdx, float dropCenterX, float dropCenterY) const noexcept;
+    [[nodiscard]] bool isCardBlocked(size_t pileIdx, size_t cardIdx) const noexcept;
+    [[nodiscard]] bool isPileBlocked(size_t pileIdx) const noexcept;
 
     // Pairing solitaire helpers (Pyramid, Giza)
     [[nodiscard]] bool isPyramidGame() const noexcept;

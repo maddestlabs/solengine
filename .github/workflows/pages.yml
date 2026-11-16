@@ -48,8 +48,12 @@ jobs:
         run: |
           mkdir -p dist
           # Copy compiled WASM, preloaded asset bundle, JS runtime bridge, and generated HTML hosts
+          gzip -k -9 -f build-web/solengine.wasm
+          gzip -k -9 -f build-web/solengine.data
           cp -f build-web/solengine.wasm dist/
+          cp -f build-web/solengine.wasm.gz dist/
           cp -f build-web/solengine.data dist/
+          cp -f build-web/solengine.data.gz dist/
           cp -f build-web/solengine.js dist/
           cp -f build-web/solengine.html dist/
           cp -f build-web/index.html dist/

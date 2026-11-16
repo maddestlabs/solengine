@@ -16,7 +16,7 @@ const PRECACHE_ASSETS = [
 ];
 
 function ensureCoopCoepHeaders(response) {
-    if (!response || response.type === 'opaque') {
+    if (!response || response.type === 'opaque' || response.type === 'opaqueredirect' || response.status === 0) {
         return response;
     }
     const headers = new Headers(response.headers);

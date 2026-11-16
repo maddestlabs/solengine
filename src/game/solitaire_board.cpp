@@ -437,6 +437,107 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
             c.faceUp = false;
             piles_[0].cards.push_back(c);
         }
+    } else if (activeDef_.layout == "tripeaks") {
+        // Classic Overlapping TriPeaks Layout:
+        // 0 = Stock (23 cards face down)
+        // 1 = Foundation / Waste (1 starter card face up)
+        // 2..29 = 28 overlapping peak nodes (rows 0..2 face down, row 3 face up)
+        Pile stock{};
+        stock.type = PileType::Stock;
+        stock.index = 0;
+        stock.zIndex = 10;
+        piles_.push_back(stock);
+
+        Pile found{};
+        found.type = PileType::Foundation;
+        found.index = 0;
+        found.zIndex = 10;
+        piles_.push_back(found);
+
+        for (uint8_t i = 0; i < 28; ++i) {
+            Pile node{};
+            node.type = PileType::Tableau;
+            node.index = i;
+            if (i < 3) node.zIndex = 0;
+            else if (i < 9) node.zIndex = 1;
+            else if (i < 18) node.zIndex = 2;
+            else node.zIndex = 3;
+            piles_.push_back(node);
+        }
+
+        size_t cursor = 0;
+        for (uint8_t i = 0; i < 28 && cursor < deck.size(); ++i) {
+            Card c = deck[cursor++];
+            c.faceUp = activeDef_.tableauAllFaceUp || (i >= 18);
+            if (c.faceUp) {
+                c.flipAngle = kPi * 0.75f;
+            }
+            piles_[2 + i].cards.push_back(c);
+        }
+        if (cursor < deck.size()) {
+            Card startCard = deck[cursor++];
+            startCard.faceUp = true;
+            startCard.flipAngle = kPi * 0.75f;
+            piles_[1].cards.push_back(startCard);
+        }
+        while (cursor < deck.size()) {
+            Card c = deck[cursor++];
+            c.faceUp = false;
+            piles_[0].cards.push_back(c);
+        }
+    } else if (activeDef_.layout == "radial_clock") {
+        // Radial Clock Layout:
+        // 0..numTab-1 = Clock hour piles (default 12), numTab..numTab+numFound-1 = Center foundation/king piles
+        const uint8_t numTab = activeDef_.tableaus > 0 ? activeDef_.tableaus : 12;
+        const uint8_t numFound = activeDef_.foundations > 0 ? activeDef_.foundations : 1;
+        for (uint8_t i = 0; i < numTab; ++i) {
+            Pile t{};
+            t.type = PileType::Tableau;
+            t.index = i;
+            piles_.push_back(t);
+        }
+        for (uint8_t i = 0; i < numFound; ++i) {
+            Pile f{};
+            f.type = PileType::Foundation;
+            f.index = i;
+            f.zIndex = 2;
+            piles_.push_back(f);
+        }
+        const bool hasStock = (activeDef_.stockDealMode != "none");
+        if (hasStock) {
+            Pile stock{};
+            stock.type = PileType::Stock;
+            stock.index = 0;
+            stock.zIndex = 2;
+            piles_.push_back(stock);
+        }
+
+        size_t cursor = 0;
+        for (uint8_t i = 0; i < numTab; ++i) {
+            const uint8_t count = (i < activeDef_.tableauDealCounts.size()) ? activeDef_.tableauDealCounts[i] : 4;
+            for (uint8_t r = 0; r < count && cursor < deck.size(); ++r) {
+                Card c = deck[cursor++];
+                c.faceUp = activeDef_.tableauAllFaceUp || (r + 1 == count);
+                if (c.faceUp) {
+                    c.flipAngle = kPi * 0.75f;
+                }
+                piles_[i].cards.push_back(c);
+            }
+        }
+        if (activeDef_.foundationStarterCard && numFound > 0 && cursor < deck.size()) {
+            Card c = deck[cursor++];
+            c.faceUp = true;
+            c.flipAngle = kPi * 0.75f;
+            piles_[numTab].cards.push_back(c);
+        }
+        if (hasStock) {
+            const size_t stockIdx = static_cast<size_t>(numTab) + numFound;
+            while (cursor < deck.size()) {
+                Card c = deck[cursor++];
+                c.faceUp = false;
+                piles_[stockIdx].cards.push_back(c);
+            }
+        }
     } else if (variant_ == GameVariant::Golf) {
         // Golf Layout:
         // 0 = Stock (16 cards face down)
@@ -1118,6 +1219,104 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
         return;
     }
 
+    if (activeDef_.layout == "tripeaks") {
+        // 10-card-wide base, 4 overlapping peak rows (stepY = 0.48 * cardH) + Stock & Foundation row below
+        constexpr float stepYRatio = 0.48f;
+        const float spanWPerCard = 10.0f + 9.0f * kGapXRatio;
+        const float spanHPerCard = kCardAspect * (3.0f * stepYRatio + 2.0f + kGapYRatio * 1.4f);
+        const float maxW_fromWidth = availW / spanWPerCard;
+        const float maxW_fromHeight = availH / spanHPerCard;
+        cardW_ = std::clamp(std::min(maxW_fromWidth, maxW_fromHeight), 32.0f, 320.0f);
+        cardH_ = std::round(cardW_ * kCardAspect);
+
+        const float colGap = std::max(2.0f, std::round(cardW_ * kGapXRatio));
+        const float rowGap = std::max(6.0f, std::round(cardH_ * kGapYRatio * 1.25f));
+        const float stepX = cardW_ + colGap;
+        const float stepY = std::round(cardH_ * stepYRatio);
+
+        const float baseW = 10.0f * cardW_ + 9.0f * colGap;
+        const float baseStartX = std::round((viewportW_ - baseW) * 0.5f);
+        const float totalH = 3.0f * stepY + 2.0f * cardH_ + rowGap;
+        const float topY = std::round(marginY + std::max(0.0f, (playfieldH - totalH) * 0.35f));
+
+        // 28 peak nodes at piles_[2..29]
+        static constexpr float kPeakCols[28] = {
+            // Row 0 (3 peak tops)
+            1.5f, 4.5f, 7.5f,
+            // Row 1 (6 cards)
+            1.0f, 2.0f, 4.0f, 5.0f, 7.0f, 8.0f,
+            // Row 2 (9 cards)
+            0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f, 8.5f,
+            // Row 3 (10 base cards)
+            0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f
+        };
+        for (uint8_t i = 0; i < 28 && (2 + i) < piles_.size(); ++i) {
+            uint8_t row = 3;
+            if (i < 3) row = 0;
+            else if (i < 9) row = 1;
+            else if (i < 18) row = 2;
+            piles_[2 + i].x = std::round(baseStartX + kPeakCols[i] * stepX);
+            piles_[2 + i].y = topY + static_cast<float>(row) * stepY;
+            piles_[2 + i].angle = 0.0f;
+            piles_[2 + i].zIndex = static_cast<int32_t>(row);
+        }
+
+        // Stock & Foundation centered below the 3 peaks
+        if (piles_.size() >= 2) {
+            const float botY = topY + 3.0f * stepY + cardH_ + rowGap;
+            const float pairW = 2.0f * cardW_ + colGap * 2.0f;
+            const float pairX = std::round((viewportW_ - pairW) * 0.5f);
+            piles_[0].x = pairX;
+            piles_[0].y = botY;
+            piles_[0].zIndex = 10;
+            piles_[1].x = pairX + cardW_ + colGap * 2.0f;
+            piles_[1].y = botY;
+            piles_[1].zIndex = 10;
+        }
+
+        updateCardTargets();
+        return;
+    }
+
+    if (activeDef_.layout == "radial_clock") {
+        const uint8_t numTab = activeDef_.tableaus > 0 ? activeDef_.tableaus : 12;
+        const float minDim = std::min(availW, availH);
+        // Fit a ring of rotated cards + slight outward fan inside minDim
+        cardW_ = std::clamp(minDim * 0.135f, 36.0f, 160.0f);
+        cardH_ = std::round(cardW_ * kCardAspect);
+
+        const float cx = viewportW_ * 0.5f;
+        const float cy = marginY + playfieldH * 0.5f;
+        const float radius = std::max(cardH_ * 1.15f, minDim * 0.5f - cardH_ * 0.72f);
+
+        for (uint8_t i = 0; i < numTab && i < piles_.size(); ++i) {
+            // Clockwise from 12 o'clock (-pi/2)
+            const float theta = -kPi * 0.5f + (static_cast<float>(i) / static_cast<float>(numTab)) * (2.0f * kPi);
+            const float px = cx + std::cos(theta) * radius - cardW_ * 0.5f;
+            const float py = cy + std::sin(theta) * radius - cardH_ * 0.5f;
+            piles_[i].x = px;
+            piles_[i].y = py;
+            piles_[i].angle = theta + kPi * 0.5f;
+            piles_[i].fanDirX = std::cos(theta);
+            piles_[i].fanDirY = std::sin(theta);
+            piles_[i].zIndex = 0;
+        }
+        // Center foundation / reserve piles
+        const size_t remCount = (piles_.size() > numTab) ? (piles_.size() - numTab) : 0;
+        const float gap = std::max(4.0f, cardW_ * kGapXRatio);
+        const float centerSpanW = static_cast<float>(remCount) * cardW_ + (remCount > 1 ? static_cast<float>(remCount - 1) * gap : 0.0f);
+        const float centerStartX = cx - centerSpanW * 0.5f;
+        for (size_t k = numTab; k < piles_.size(); ++k) {
+            piles_[k].x = centerStartX + static_cast<float>(k - numTab) * (cardW_ + gap);
+            piles_[k].y = cy - cardH_ * 0.5f;
+            piles_[k].angle = 0.0f;
+            piles_[k].zIndex = 2;
+        }
+
+        updateCardTargets();
+        return;
+    }
+
     // Nominal cascade depth budget (in card heights) below the top tableau card:
     const float cascadeBudgetRatio = (variant_ == GameVariant::FreeCell) ? 1.38f : (isSpiderVariant(variant_) ? 1.55f : 1.48f);
 
@@ -1348,11 +1547,12 @@ void SolitaireBoard::updateCardTargets() {
 
     for (size_t pIdx = 0; pIdx < piles_.size(); ++pIdx) {
         auto& p = piles_[pIdx];
-        if (isPyramidGame() && pIdx >= 3 && pIdx <= 30) {
+        if ((isPyramidGame() && pIdx >= 3 && pIdx <= 30) ||
+            (activeDef_.layout == "tripeaks" && pIdx >= 2 && pIdx <= 29)) {
             for (auto& c : p.cards) {
                 c.targetX = p.x;
                 c.targetY = p.y;
-                c.targetAngle = 0.0f;
+                c.targetAngle = p.angle;
                 c.targetElevation = (static_cast<int>(pIdx) == selectedPileIdx_) ? 14.0f : 0.0f;
                 c.enshadedGlow = (static_cast<int>(pIdx) == selectedPileIdx_);
             }
@@ -1362,30 +1562,37 @@ void SolitaireBoard::updateCardTargets() {
             float downStep = std::round(cardH_ * 0.14f);
             float upStep = std::round(cardH_ * 0.24f);
 
-            size_t downCount = 0;
-            size_t upCount = 0;
-            for (const auto& c : p.cards) {
-                if (c.faceUp) ++upCount;
-                else ++downCount;
-            }
-            const float projectedH = p.y + cardH_ + static_cast<float>(downCount) * downStep +
-                                     (upCount > 0 ? static_cast<float>(upCount - 1) * upStep : 0.0f);
-            if (projectedH > maxTableauBottom && (downCount + upCount) > 1) {
-                const float availableSpan = maxTableauBottom - p.y - cardH_;
-                const float neededSpan = static_cast<float>(downCount) * downStep +
-                                         static_cast<float>(upCount > 0 ? upCount - 1 : 0) * upStep;
-                const float scale = availableSpan / std::max(1.0f, neededSpan);
+            const bool isStandardVerticalFan = (std::abs(p.fanDirX) < 0.001f && p.fanDirY > 0.999f);
+            if (isStandardVerticalFan) {
+                size_t downCount = 0;
+                size_t upCount = 0;
+                for (const auto& c : p.cards) {
+                    if (c.faceUp) ++upCount;
+                    else ++downCount;
+                }
+                const float projectedH = p.y + cardH_ + static_cast<float>(downCount) * downStep +
+                                         (upCount > 0 ? static_cast<float>(upCount - 1) * upStep : 0.0f);
+                if (projectedH > maxTableauBottom && (downCount + upCount) > 1) {
+                    const float availableSpan = maxTableauBottom - p.y - cardH_;
+                    const float neededSpan = static_cast<float>(downCount) * downStep +
+                                             static_cast<float>(upCount > 0 ? upCount - 1 : 0) * upStep;
+                    const float scale = availableSpan / std::max(1.0f, neededSpan);
 
-                // Minimum step bounds proportional to card scale so indices/ranks are always clearly legible
-                const float minDownStep = std::max(6.0f, std::round(cardH_ * 0.06f));
-                const float minUpStep = std::max(14.0f, std::round(cardH_ * 0.12f));
+                    // Minimum step bounds proportional to card scale so indices/ranks are always clearly legible
+                    const float minDownStep = std::max(6.0f, std::round(cardH_ * 0.06f));
+                    const float minUpStep = std::max(14.0f, std::round(cardH_ * 0.12f));
 
-                downStep = std::max(minDownStep, std::floor(downStep * scale));
-                upStep = std::max(minUpStep, std::floor(upStep * scale));
+                    downStep = std::max(minDownStep, std::floor(downStep * scale));
+                    upStep = std::max(minUpStep, std::floor(upStep * scale));
+                }
+            } else {
+                downStep = std::round(cardH_ * 0.08f);
+                upStep = std::round(cardH_ * 0.16f);
             }
             p.fanOffsetDown = downStep;
             p.fanOffsetUp = upStep;
 
+            float curX = p.x;
             float curY = p.y;
             for (size_t i = 0; i < p.cards.size(); ++i) {
                 // Subtle organic tactile micro-jitter for hand-dealt tableau feel
@@ -1393,11 +1600,13 @@ void SolitaireBoard::updateCardTargets() {
                 const float jy = cardHashNoise(seed_, p.cards[i].id, 102) * (maxPosDev * 0.60f);
                 const float ja = cardHashNoise(seed_, p.cards[i].id, 103) * maxAngleRad;
 
-                p.cards[i].targetX = p.x + jx;
+                p.cards[i].targetX = curX + jx;
                 p.cards[i].targetY = curY + jy;
-                p.cards[i].targetAngle = ja;
+                p.cards[i].targetAngle = p.angle + ja;
                 p.cards[i].targetElevation = 0.0f;
-                curY += p.cards[i].faceUp ? upStep : downStep;
+                const float step = p.cards[i].faceUp ? upStep : downStep;
+                curX += p.fanDirX * step;
+                curY += p.fanDirY * step;
             }
         } else if (p.type == PileType::Waste) {
             const size_t n = p.cards.size();
@@ -1414,7 +1623,7 @@ void SolitaireBoard::updateCardTargets() {
 
                 p.cards[i].targetX = p.x + fanOffset + jx;
                 p.cards[i].targetY = p.y + jy;
-                p.cards[i].targetAngle = ja;
+                p.cards[i].targetAngle = p.angle + ja;
                 p.cards[i].targetElevation = 0.0f;
             }
         } else if (p.type == PileType::Stock) {
@@ -1426,7 +1635,7 @@ void SolitaireBoard::updateCardTargets() {
 
                 p.cards[i].targetX = p.x + jx;
                 p.cards[i].targetY = p.y + jy;
-                p.cards[i].targetAngle = ja;
+                p.cards[i].targetAngle = p.angle + ja;
                 p.cards[i].targetElevation = 0.0f;
             }
         } else if (p.type == PileType::Foundation) {
@@ -1437,7 +1646,7 @@ void SolitaireBoard::updateCardTargets() {
 
                 p.cards[i].targetX = p.x + jx;
                 p.cards[i].targetY = p.y + jy;
-                p.cards[i].targetAngle = ja;
+                p.cards[i].targetAngle = p.angle + ja;
                 p.cards[i].targetElevation = 0.0f;
             }
         } else {
@@ -1448,7 +1657,7 @@ void SolitaireBoard::updateCardTargets() {
 
                 p.cards[i].targetX = p.x + jx;
                 p.cards[i].targetY = p.y + jy;
-                p.cards[i].targetAngle = ja;
+                p.cards[i].targetAngle = p.angle + ja;
                 p.cards[i].targetElevation = 0.0f;
             }
         }
@@ -2560,6 +2769,15 @@ bool SolitaireBoard::applyTransaction(const TurnTransaction& tx) {
     return true;
 }
 
+bool SolitaireBoard::isCardBlocked(size_t pileIdx, size_t cardIdx) const noexcept {
+    return ScriptRuleEngine::isCardBlocked(piles_, pileIdx, cardIdx, cardW_, cardH_);
+}
+
+bool SolitaireBoard::isPileBlocked(size_t pileIdx) const noexcept {
+    if (pileIdx >= piles_.size() || piles_[pileIdx].cards.empty()) return false;
+    return isCardBlocked(pileIdx, piles_[pileIdx].cards.size() - 1);
+}
+
 bool SolitaireBoard::hitTestCard(float px, float py, int& outPileIdx, int& outCardIdx) const noexcept {
     outPileIdx = -1;
     outCardIdx = -1;
@@ -2568,11 +2786,35 @@ bool SolitaireBoard::hitTestCard(float px, float py, int& outPileIdx, int& outCa
     const float padX = (cardW_ < 64.0f) ? std::min(10.0f, (64.0f - cardW_) * 0.5f) : 0.0f;
     const float padY = (cardH_ < 90.0f) ? std::min(10.0f, (90.0f - cardH_) * 0.5f) : 0.0f;
 
-    // Test piles back-to-front, and cards top-to-bottom within each pile
-    for (int pIdx = static_cast<int>(piles_.size()) - 1; pIdx >= 0; --pIdx) {
-        const Pile& p = piles_[static_cast<size_t>(pIdx)];
+    auto pointInRotatedRect = [padX, padY](float testX, float testY, float rx, float ry, float rw, float rh, float angleRad) noexcept -> bool {
+        if (std::abs(angleRad) > 0.0001f) {
+            const float cx = rx + rw * 0.5f;
+            const float cy = ry + rh * 0.5f;
+            const float dx = testX - cx;
+            const float dy = testY - cy;
+            const float c = std::cos(-angleRad);
+            const float s = std::sin(-angleRad);
+            testX = cx + dx * c - dy * s;
+            testY = cy + dx * s + dy * c;
+        }
+        return testX >= rx - padX && testX <= rx + rw + padX && testY >= ry - padY && testY <= ry + rh + padY;
+    };
+
+    // Sort pile indices by descending (zIndex, pIdx) so higher-zIndex piles are hit-tested first
+    std::vector<size_t> hitOrder(piles_.size());
+    for (size_t i = 0; i < piles_.size(); ++i) hitOrder[i] = i;
+    std::sort(hitOrder.begin(), hitOrder.end(), [this](size_t a, size_t b) noexcept {
+        if (piles_[a].zIndex != piles_[b].zIndex) {
+            return piles_[a].zIndex > piles_[b].zIndex;
+        }
+        return a > b;
+    });
+
+    for (size_t idx : hitOrder) {
+        const int pIdx = static_cast<int>(idx);
+        const Pile& p = piles_[idx];
         if (p.type == PileType::Stock) {
-            if (px >= p.x - padX && px <= p.x + cardW_ + padX && py >= p.y - padY && py <= p.y + cardH_ + padY) {
+            if (pointInRotatedRect(px, py, p.x, p.y, cardW_, cardH_, p.angle)) {
                 outPileIdx = pIdx;
                 outCardIdx = p.cards.empty() ? -1 : static_cast<int>(p.cards.size()) - 1;
                 return true;
@@ -2582,7 +2824,7 @@ bool SolitaireBoard::hitTestCard(float px, float py, int& outPileIdx, int& outCa
 
         for (int cIdx = static_cast<int>(p.cards.size()) - 1; cIdx >= 0; --cIdx) {
             const Card& c = p.cards[static_cast<size_t>(cIdx)];
-            if (px >= c.x - padX && px <= c.x + cardW_ + padX && py >= c.y - padY && py <= c.y + cardH_ + padY) {
+            if (pointInRotatedRect(px, py, c.x, c.y, cardW_, cardH_, c.angle)) {
                 // In Waste/Foundation/FreeCell, only the top card is interactive
                 if (p.type != PileType::Tableau && cIdx != static_cast<int>(p.cards.size()) - 1) {
                     continue;
@@ -2631,6 +2873,10 @@ ScriptBoardContext SolitaireBoard::makeScriptContext(TurnTransaction* tx) noexce
     ctx.score = &score_;
     ctx.rngState = &rngState_;
     ctx.activeTx = tx;
+    ctx.cardW = cardW_;
+    ctx.cardH = cardH_;
+    ctx.viewportW = viewportW_;
+    ctx.viewportH = viewportH_;
     return ctx;
 }
 
@@ -2641,6 +2887,10 @@ ScriptBoardContext SolitaireBoard::makeConstScriptContext() const noexcept {
     ctx.score = const_cast<int32_t*>(&score_);
     ctx.rngState = const_cast<uint32_t*>(&rngState_);
     ctx.activeTx = nullptr;
+    ctx.cardW = cardW_;
+    ctx.cardH = cardH_;
+    ctx.viewportW = viewportW_;
+    ctx.viewportH = viewportH_;
     return ctx;
 }
 

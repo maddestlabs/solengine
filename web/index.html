@@ -1090,24 +1090,61 @@
             }
         });
 
-        // Service Worker for Offline PWA & Cross-Origin Isolation (COOP/COEP for SharedArrayBuffer)
-        if ('serviceWorker' in navigator) {
-            if (window.crossOriginIsolated) {
-                try { sessionStorage.removeItem('solengine_coi_reloaded'); } catch (e) {}
-            } else if (window.isSecureContext) {
-                let alreadyReloaded = false;
-                try { alreadyReloaded = sessionStorage.getItem('solengine_coi_reloaded') === '1'; } catch (e) {}
-                if (!alreadyReloaded) {
-                    navigator.serviceWorker.addEventListener('controllerchange', () => {
-                        try { sessionStorage.setItem('solengine_coi_reloaded', '1'); } catch (e) {}
-                        window.location.reload();
-                    }, { once: true });
+        function loadSolEngineScript() {
+            if (window.__solengineScriptLoaded) return;
+            window.__solengineScriptLoaded = true;
+            const tpl = document.getElementById('solengine-loader-template');
+            if (!tpl) return;
+            const scripts = tpl.content.querySelectorAll('script');
+            scripts.forEach((orig) => {
+                const s = document.createElement('script');
+                for (const attr of orig.attributes) {
+                    s.setAttribute(attr.name, attr.value);
                 }
-            }
+                if (orig.textContent) {
+                    s.textContent = orig.textContent;
+                }
+                document.body.appendChild(s);
+            });
+        }
 
+        // Service Worker for Offline PWA & Cross-Origin Isolation (COOP/COEP for SharedArrayBuffer)
+        if (window.crossOriginIsolated) {
+            try { sessionStorage.removeItem('solengine_coi_reloaded'); } catch (e) {}
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', loadSolEngineScript, { once: true });
+            } else {
+                loadSolEngineScript();
+            }
+        } else if (window.isSecureContext && 'serviceWorker' in navigator) {
+            let alreadyReloaded = false;
+            try { alreadyReloaded = sessionStorage.getItem('solengine_coi_reloaded') === '1'; } catch (e) {}
+
+            if (alreadyReloaded) {
+                if (statusText) {
+                    statusText.className = 'sol-status-text error-msg';
+                    statusText.innerText = 'CROSS-ORIGIN ISOLATION REQUIRED — PLEASE RELOAD PAGE';
+                }
+            } else {
+                if (statusText) {
+                    statusText.innerText = 'INITIALIZING CROSS-ORIGIN ISOLATION...';
+                }
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    try { sessionStorage.setItem('solengine_coi_reloaded', '1'); } catch (e) {}
+                    window.location.reload();
+                }, { once: true });
+            }
+        } else {
+            if (statusText) {
+                statusText.className = 'sol-status-text error-msg';
+                statusText.innerText = 'CROSS-ORIGIN ISOLATION (HTTPS OR LOCALHOST) REQUIRED';
+            }
+        }
+
+        if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js').then((reg) => {
                 console.log('[SolEngine PWA] Registered with scope:', reg.scope);
-                if (!window.crossOriginIsolated && window.isSecureContext && navigator.serviceWorker.controller) {
+                if (!window.crossOriginIsolated && window.isSecureContext && (navigator.serviceWorker.controller || reg.active)) {
                     let alreadyReloaded = false;
                     try { alreadyReloaded = sessionStorage.getItem('solengine_coi_reloaded') === '1'; } catch (e) {}
                     if (!alreadyReloaded) {
@@ -1152,7 +1189,7 @@
     </script>
     <input id="sol-mobile-search-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
            style="position: fixed; top: -100px; left: -100px; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;">
-    {{{ SCRIPT }}}
+    <template id="solengine-loader-template">{{{ SCRIPT }}}</template>
 </body>
 </html>
 

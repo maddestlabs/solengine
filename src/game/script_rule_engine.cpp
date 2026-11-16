@@ -1,5 +1,6 @@
 #include "solengine/script_rule_engine.hpp"
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 
@@ -25,6 +26,55 @@ bool validCard(const ScriptBoardContext* ctx, int zoneIdx, int cardIdx) noexcept
     if (!validZone(ctx, zoneIdx)) return false;
     const auto& cards = (*ctx->piles)[static_cast<size_t>(zoneIdx)].cards;
     return cardIdx >= 0 && static_cast<size_t>(cardIdx) < cards.size();
+}
+
+// 2D Oriented Bounding Box (SAT) overlap test for arbitrary-pose card occlusion.
+// Uses a small inset so edge-adjacent cards do not falsely block one another.
+bool cardsOverlapOBB(float ax, float ay, float aAngle,
+                     float bx, float by, float bAngle,
+                     float w, float h, float inset) noexcept {
+    const float hw = std::max(1.0f, w * 0.5f - inset);
+    const float hh = std::max(1.0f, h * 0.5f - inset);
+
+    const float acx = ax + w * 0.5f;
+    const float acy = ay + h * 0.5f;
+    const float bcx = bx + w * 0.5f;
+    const float bcy = by + h * 0.5f;
+
+    const float dx = bcx - acx;
+    const float dy = bcy - acy;
+
+    // Fast radial reject before SAT projections
+    const float maxR = std::hypot(hw, hh) * 2.0f;
+    if (dx * dx + dy * dy >= maxR * maxR) {
+        return false;
+    }
+
+    const float ca = std::cos(aAngle);
+    const float sa = std::sin(aAngle);
+    const float cb = std::cos(bAngle);
+    const float sb = std::sin(bAngle);
+
+    // Local axes of A: uA = (ca, sa), vA = (-sa, ca)
+    // Local axes of B: uB = (cb, sb), vB = (-sb, cb)
+    const float axes[4][2] = {
+        { ca,  sa},
+        {-sa,  ca},
+        { cb,  sb},
+        {-sb,  cb}
+    };
+
+    for (const auto& axis : axes) {
+        const float lx = axis[0];
+        const float ly = axis[1];
+        const float dist = std::abs(dx * lx + dy * ly);
+        const float rA = hw * std::abs(ca * lx + sa * ly) + hh * std::abs(-sa * lx + ca * ly);
+        const float rB = hw * std::abs(cb * lx + sb * ly) + hh * std::abs(-sb * lx + cb * ly);
+        if (dist >= rA + rB) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void recordAndApply(ScriptBoardContext* ctx, BoardOp op) {
@@ -499,6 +549,69 @@ void ScriptRuleEngine::registerHostApi() {
         docManifest_.tags.push_back(std::move(td));
         return Value(true);
     });
+
+    // --- 2D Planar Graph & Spatial Layout Helpers ---
+    evaluator_.registerFunction("is_card_blocked", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() < 2 || !boundCtx_ || !boundCtx_->piles) return Value(false);
+        int z = args[0].asInt(-1);
+        int i = args[1].asInt(-1);
+        if (!validCard(boundCtx_, z, i)) return Value(false);
+        return Value(ScriptRuleEngine::isCardBlocked(*boundCtx_->piles, static_cast<size_t>(z), static_cast<size_t>(i),
+                                                     boundCtx_->cardW, boundCtx_->cardH));
+    });
+
+    evaluator_.registerFunction("is_zone_blocked", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.empty() || !boundCtx_ || !boundCtx_->piles) return Value(false);
+        int z = args[0].asInt(-1);
+        if (!validZone(boundCtx_, z)) return Value(false);
+        const auto& cards = (*boundCtx_->piles)[static_cast<size_t>(z)].cards;
+        if (cards.empty()) return Value(false);
+        return Value(ScriptRuleEngine::isCardBlocked(*boundCtx_->piles, static_cast<size_t>(z), cards.size() - 1,
+                                                     boundCtx_->cardW, boundCtx_->cardH));
+    });
+
+    evaluator_.registerFunction("set_zone_pose", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() < 3 || !boundCtx_ || !boundCtx_->piles) return Value(false);
+        int z = args[0].asInt(-1);
+        if (!validZone(boundCtx_, z)) return Value(false);
+        Pile& p = (*boundCtx_->piles)[static_cast<size_t>(z)];
+        p.x = static_cast<float>(args[1].asNumber(0.0));
+        p.y = static_cast<float>(args[2].asNumber(0.0));
+        if (args.size() >= 4) {
+            constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+            p.angle = static_cast<float>(args[3].asNumber(0.0)) * kDegToRad;
+        }
+        if (args.size() >= 5) {
+            p.zIndex = static_cast<int32_t>(args[4].asInt(0));
+        }
+        return Value(true);
+    });
+
+    evaluator_.registerFunction("set_zone_fan", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() < 3 || !boundCtx_ || !boundCtx_->piles) return Value(false);
+        int z = args[0].asInt(-1);
+        if (!validZone(boundCtx_, z)) return Value(false);
+        Pile& p = (*boundCtx_->piles)[static_cast<size_t>(z)];
+        p.fanDirX = static_cast<float>(args[1].asNumber(0.0));
+        p.fanDirY = static_cast<float>(args[2].asNumber(1.0));
+        return Value(true);
+    });
+
+    evaluator_.registerFunction("get_board_width", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(boundCtx_ ? static_cast<double>(boundCtx_->viewportW) : 1280.0);
+    });
+
+    evaluator_.registerFunction("get_board_height", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(boundCtx_ ? static_cast<double>(boundCtx_->viewportH) : 720.0);
+    });
+
+    evaluator_.registerFunction("get_card_width", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(boundCtx_ ? static_cast<double>(boundCtx_->cardW) : 96.0);
+    });
+
+    evaluator_.registerFunction("get_card_height", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(boundCtx_ ? static_cast<double>(boundCtx_->cardH) : 136.0);
+    });
 }
 
 // --- Hook Invocations ---
@@ -763,6 +876,40 @@ void ScriptRuleEngine::revertTransaction(ScriptBoardContext& ctx, const TurnTran
     for (auto it = tx.ops.rbegin(); it != tx.ops.rend(); ++it) {
         revertOp(ctx, *it);
     }
+}
+
+bool ScriptRuleEngine::isCardBlocked(const std::vector<Pile>& piles, size_t pileIdx, size_t cardIdx, float cardW, float cardH) noexcept {
+    if (pileIdx >= piles.size()) return false;
+    const Pile& targetPile = piles[pileIdx];
+    if (cardIdx >= targetPile.cards.size()) return false;
+
+    // 1. Buried under a higher card in the same pile
+    if (cardIdx + 1 < targetPile.cards.size()) {
+        return true;
+    }
+
+    // 2. Occluded by any card in a higher-zIndex (or later-index at equal zIndex) pile
+    const Card& targetCard = targetPile.cards[cardIdx];
+    const float inset = std::max(2.0f, cardW * 0.04f);
+
+    for (size_t otherIdx = 0; otherIdx < piles.size(); ++otherIdx) {
+        if (otherIdx == pileIdx) continue;
+        const Pile& otherPile = piles[otherIdx];
+        if (otherPile.cards.empty()) continue;
+
+        const bool otherAbove = (otherPile.zIndex > targetPile.zIndex) ||
+                                (otherPile.zIndex == targetPile.zIndex && otherIdx > pileIdx);
+        if (!otherAbove) continue;
+
+        for (const Card& otherCard : otherPile.cards) {
+            if (cardsOverlapOBB(targetCard.targetX, targetCard.targetY, targetCard.targetAngle,
+                                otherCard.targetX, otherCard.targetY, otherCard.targetAngle,
+                                cardW, cardH, inset)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace solengine
