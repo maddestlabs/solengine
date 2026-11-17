@@ -106,6 +106,7 @@ add_library(solengine_render STATIC
     src/render/table_renderer.cpp
     src/render/dynamic_light.cpp
     src/render/card_texture_cache.cpp
+    src/render/lowpoly_deck_generator.cpp
     src/render/card_canvas.cpp
     src/render/vector_binary.cpp
     src/render/card_back.cpp

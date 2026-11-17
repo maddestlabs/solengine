@@ -1317,8 +1317,13 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
         return;
     }
 
+    const bool isScoundrelBoard = (activeDef_.family == "Scoundrel" || activeDef_.category == "RPG");
     // Nominal cascade depth budget (in card heights) below the top tableau card:
-    const float cascadeBudgetRatio = (variant_ == GameVariant::FreeCell) ? 1.38f : (isSpiderVariant(variant_) ? 1.55f : 1.48f);
+    // RPG / Scoundrel boards use single-card Room slots (no tableau cascades), so we only
+    // reserve subtle breathing room for shadows/hover rather than a full cascade.
+    const float cascadeBudgetRatio = isScoundrelBoard
+        ? 0.16f
+        : ((variant_ == GameVariant::FreeCell) ? 1.38f : (isSpiderVariant(variant_) ? 1.55f : 1.48f));
 
     // Solve for maximum card width constrained by both width and height:
     // Horizontal span = numCols * w + (numCols - 1) * (kGapXRatio * w)
@@ -1349,7 +1354,12 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
 
     const float nominalGridH = cardH_ * (hasBottomStock ? 3.0f : 2.0f) + rowGap * (hasBottomStock ? 2.0f : 1.0f) + std::round(cardH_ * cascadeBudgetRatio);
     float topRowY = marginY;
-    if (playfieldH > nominalGridH) {
+    if (isScoundrelBoard) {
+        const float actualGridH = cardH_ * 2.0f + rowGap;
+        if (availH > actualGridH) {
+            topRowY = std::round(marginY + (availH - actualGridH) * 0.50f);
+        }
+    } else if (playfieldH > nominalGridH) {
         const float slackY = playfieldH - nominalGridH;
         topRowY = std::round(marginY + slackY * (hasBottomStock ? 0.15f : 0.28f));
     }

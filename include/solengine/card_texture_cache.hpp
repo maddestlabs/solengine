@@ -65,6 +65,9 @@ enum class DeckThemeId : uint8_t {
     PolychromeCrt     = 10,
     WatercolorSketch  = 11,
     Custom            = 12,
+    SolPolyWhite      = 13,
+    SolPolyDark       = 14,
+    ScoundrelLowPoly  = 15,
     Count
 };
 
@@ -253,6 +256,8 @@ public:
     void markAtlasClean() noexcept { atlasDirty_ = false; }
 
     [[nodiscard]] bool isLoaded() const noexcept { return isLoaded_; }
+    void setLowPolySeed(uint32_t seed);
+    [[nodiscard]] uint32_t lowPolySeed() const noexcept { return lowPolySeed_; }
     [[nodiscard]] int cardWidth() const noexcept { return cardW_; }
     [[nodiscard]] int cardHeight() const noexcept { return cardH_; }
     void scanDecksFolder(const std::string& decksDir = "decks");
@@ -297,6 +302,8 @@ private:
     bool atlasDirty_{false};
     DeckThemeId currentTheme_{DeckThemeId::SolEnshade};
     std::string currentDeckId_{"solengine"};
+    uint32_t lowPolySeed_{42};
+    uint32_t loadedLowPolySeed_{0};
     CardWearLevel wearLevel_{CardWearLevel::Natural};
     CardStock cardStock_{CardStock::SmoothParchment};
     float deckCornerRadius_{24.0f};

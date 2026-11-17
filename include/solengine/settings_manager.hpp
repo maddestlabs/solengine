@@ -28,6 +28,7 @@ struct AppSettings {
     TableTintPreset tableTint{TableTintPreset::Auto};
     DeckThemeId deckTheme{DeckThemeId::SolEnshade};
     std::string deckSlug{"solengine"};
+    uint32_t lowPolySeed{42};
     std::string cardBackId{"classic_sapphire"};
     GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
     CardWearLevel cardWear{CardWearLevel::Natural};

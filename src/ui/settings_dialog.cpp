@@ -588,7 +588,18 @@ void SettingsDialog::render(
         std::string backName = CardTextureCache::instance().getCardBackDisplayName(tempSettings_.cardBackId);
         std::string backStr = "Card Back: " + backName;
         drawStepper(backStr);
-        curY += rowH + 8.0f;
+        curY += rowH + rowGap;
+
+        // 2b. Low-Poly Seed (when SolPoly / Scoundrel Low-Poly is active)
+        const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
+                                    tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly);
+        if (isLowPolyDeck) {
+            std::string seedStr = "Low-Poly Seed: " + std::to_string(tempSettings_.lowPolySeed);
+            drawStepper(seedStr);
+            curY += rowH + rowGap;
+        }
+        curY += 8.0f - rowGap;
 
         // Section: Card Materials and Condition
         drawSectionHeader("Card Materials and Condition");
@@ -1581,7 +1592,27 @@ bool SettingsDialog::handleMouseButton(
             foley.triggerSound(FoleySound::CardSlide, 0.8f);
             return true;
         }
-        curY += rowH + 8.0f + 24.0f; // Row 2 + spacing + header
+        curY += rowH + rowGap;
+
+        // 2b. Low-Poly Seed (when SolPoly / Scoundrel Low-Poly is active)
+        const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
+                                    tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly);
+        if (isLowPolyDeck) {
+            if (testStepper(stepDelta)) {
+                int nextSeed = static_cast<int>(tempSettings_.lowPolySeed) + stepDelta;
+                if (nextSeed < 1) nextSeed = 999;
+                if (nextSeed > 999) nextSeed = 1;
+                tempSettings_.lowPolySeed = static_cast<uint32_t>(nextSeed);
+                auto& cache = CardTextureCache::instance();
+                cache.setLowPolySeed(tempSettings_.lowPolySeed);
+                cache.updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+                foley.triggerSound(FoleySound::CardSlide, 0.8f);
+                return true;
+            }
+            curY += rowH + rowGap;
+        }
+        curY += 8.0f - rowGap + 24.0f; // Spacing + header
 
         // 3. Stock
         if (testStepper(stepDelta)) {

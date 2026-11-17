@@ -162,6 +162,7 @@ int main(int argc, char** argv) {
         auto& cache = solengine::CardTextureCache::instance();
         cache.scanDecksFolder("decks");
         cache.setCornerStyle(loadedSettings.cardCorners);
+        cache.setLowPolySeed(loadedSettings.lowPolySeed);
         size_t dIdx = cache.findDeckIndex(loadedSettings.deckSlug, loadedSettings.deckTheme);
         if (const auto* def = cache.getDeckDef(dIdx)) {
             cache.loadDeckByDef(*def);

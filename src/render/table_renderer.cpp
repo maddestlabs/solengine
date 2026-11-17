@@ -4734,9 +4734,16 @@ struct InteractiveContext {
                 ProceduralBackgroundSystem::instance().setTableTint(s.tableTint);
                 ProceduralBackgroundSystem::instance().invalidateCache();
             }
-            bool deckChanged = (!s.deckSlug.empty())
+            const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
+                                    s.deckTheme == DeckThemeId::SolPolyDark ||
+                                    s.deckTheme == DeckThemeId::ScoundrelLowPoly);
+            bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
+            if (seedChanged) {
+                cache.setLowPolySeed(s.lowPolySeed);
+            }
+            bool deckChanged = seedChanged || ((!s.deckSlug.empty())
                 ? (s.deckSlug != cache.currentDeckId())
-                : (s.deckTheme != cache.currentDeckTheme());
+                : (s.deckTheme != cache.currentDeckTheme()));
             bool wearChanged = (s.cardWear != cache.cardWearLevel());
             bool stockChanged = (s.cardStock != cache.cardStock());
             bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
@@ -4786,9 +4793,16 @@ struct InteractiveContext {
         const auto& s = SettingsManager::instance().settings();
         auto& cache = CardTextureCache::instance();
 
-        bool deckChanged = (!s.deckSlug.empty())
+        const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
+                                s.deckTheme == DeckThemeId::SolPolyDark ||
+                                s.deckTheme == DeckThemeId::ScoundrelLowPoly);
+        bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
+        if (seedChanged) {
+            cache.setLowPolySeed(s.lowPolySeed);
+        }
+        bool deckChanged = seedChanged || ((!s.deckSlug.empty())
             ? (s.deckSlug != cache.currentDeckId())
-            : (s.deckTheme != cache.currentDeckTheme());
+            : (s.deckTheme != cache.currentDeckTheme()));
         bool wearChanged = (s.cardWear != cache.cardWearLevel());
         bool stockChanged = (s.cardStock != cache.cardStock());
         bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());

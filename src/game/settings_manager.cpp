@@ -139,6 +139,7 @@ bool SettingsManager::load() {
             }
             settings_.deckTheme = static_cast<DeckThemeId>(std::clamp(a["deckTheme"].asInt(0), 0, static_cast<int>(DeckThemeId::Count) - 1));
             settings_.deckSlug = (a.contains("deckSlug") && a["deckSlug"].isString()) ? a["deckSlug"].asString() : "";
+            settings_.lowPolySeed = static_cast<uint32_t>(std::max(1, a["lowPolySeed"].asInt(42)));
             settings_.cardBackId = (a.contains("cardBackId") && a["cardBackId"].isString()) ? a["cardBackId"].asString() : "auto";
             settings_.guiTheme = static_cast<GuiThemeStyle>(std::clamp(a["guiTheme"].asInt(static_cast<int>(GuiThemeStyle::ClockworkEngine)), 0, 1));
             settings_.cardWear = static_cast<CardWearLevel>(std::clamp(a["cardWear"].asInt(static_cast<int>(CardWearLevel::Pristine)), 0, static_cast<int>(CardWearLevel::Count) - 1));
@@ -246,6 +247,7 @@ bool SettingsManager::save() {
     if (!settings_.deckSlug.empty()) {
         a["deckSlug"] = settings_.deckSlug;
     }
+    a["lowPolySeed"] = static_cast<int>(settings_.lowPolySeed);
     a["cardBackId"] = settings_.cardBackId;
     a["guiTheme"] = static_cast<int>(settings_.guiTheme);
     a["cardWear"] = static_cast<int>(settings_.cardWear);
