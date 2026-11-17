@@ -26,6 +26,7 @@ int main(int argc, char** argv) {
     float cardDeviation = loadedSettings.cardDeviation;
     std::string bakeScript;
     std::string exportPbrPrefix;
+    bool startScreensaver = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -102,6 +103,8 @@ int main(int argc, char** argv) {
             cardDeviation = std::clamp(std::stof(argv[++i]), 0.0f, 1.0f);
         } else if ((arg == "-o" || arg == "--output") && i + 1 < argc) {
             outputPngPath = argv[++i];
+        } else if (arg == "--screensaver") {
+            startScreensaver = true;
         }
     }
 
@@ -181,8 +184,8 @@ int main(int argc, char** argv) {
     // Keep board and foley alive after main() returns to the browser event loop
     auto* rawBoard = board.release();
     auto* rawFoley = foley.release();
-    return solengine::TableRenderer::runInteractiveWindow(*rawBoard, *rawFoley, width, height, effectiveAa);
+    return solengine::TableRenderer::runInteractiveWindow(*rawBoard, *rawFoley, width, height, effectiveAa, startScreensaver);
 #else
-    return solengine::TableRenderer::runInteractiveWindow(*board, *foley, width, height, effectiveAa);
+    return solengine::TableRenderer::runInteractiveWindow(*board, *foley, width, height, effectiveAa, startScreensaver);
 #endif
 }

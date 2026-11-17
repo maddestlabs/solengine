@@ -140,7 +140,8 @@ public:
         float helpMouseY = -1.0f,
         const HelpOddsInfo* helpOdds = nullptr,
         const MagicParticleSystem* magicParticles = nullptr,
-        const HintHighlight* hintHighlight = nullptr
+        const HintHighlight* hintHighlight = nullptr,
+        bool screensaverMode = false
     );
 
     static bool renderToPng(
@@ -156,7 +157,8 @@ public:
         AudioFoleyEngine& foley,
         uint32_t width = 1280,
         uint32_t height = 720,
-        int initialAaMode = 4
+        int initialAaMode = 4,
+        bool startScreensaver = false
     );
 
     static bool writePngFile(

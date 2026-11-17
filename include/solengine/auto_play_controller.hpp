@@ -56,6 +56,7 @@ public:
     bool stepBackward(SolitaireBoard& board, AudioFoleyEngine* foley = nullptr);
     void restart(SolitaireBoard& board, AudioFoleyEngine* foley = nullptr);
     void cycleSpeed();
+    void setSpeed(AutoPlaySpeed s) noexcept { speed_ = s; }
 
     // Per-frame update called by the main render/input loop
     void update(float dt, SolitaireBoard& board, AudioFoleyEngine* foley = nullptr);

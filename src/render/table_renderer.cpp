@@ -2373,7 +2373,8 @@ void TableRenderer::renderBoard(
     float helpMouseY,
     const HelpOddsInfo* helpOdds,
     const MagicParticleSystem* magicParticles,
-    const HintHighlight* hintHighlight
+    const HintHighlight* hintHighlight,
+    bool screensaverMode
 ) {
     const ThemePalette pal = getPalette(board.tableTheme());
     // Overhead table illumination: dynamic swaying light or centered static default
@@ -2505,7 +2506,7 @@ void TableRenderer::renderBoard(
                 static_cast<int>(cIdx) >= draggedCardIdx) {
                 continue;
             }
-            if (board.isVictory() && p.type == PileType::Foundation) {
+            if (!screensaverMode && board.isVictory() && p.type == PileType::Foundation) {
                 uint8_t fIdx = p.index;
                 float tLaunch = (12.0f - static_cast<float>(cIdx)) * 0.16f + fIdx * 0.06f;
                 if (board.victorySeconds() >= tLaunch) {
@@ -2625,7 +2626,7 @@ void TableRenderer::renderBoard(
     }
 
     // 6. Hardwood 3.0 3D Victory Cascade & Banner Overlay
-    if (board.isVictory()) {
+    if (!screensaverMode && board.isVictory()) {
         struct VictoryAirborneCard {
             Card card;
             Card3DTransform xf;
@@ -2923,7 +2924,8 @@ void TableRenderer::renderBoard(
     static float sAnimTime = 0.0f;
     sAnimTime += 0.016f;
 
-    // Medallions
+    // Medallions & Transport Bar (hidden in Screensaver Mode)
+    if (!screensaverMode) {
     int hoveredIdx = -1;
     for (size_t i = 0; i < layout.buttons.size(); ++i) {
         const auto& b = layout.buttons[i];
@@ -3052,6 +3054,21 @@ void TableRenderer::renderBoard(
     if (autoPlay && autoPlay->isActive()) {
         auto tBtns = buildTransportButtons(width, height, *autoPlay);
         drawTransportBar(r, width, height, *autoPlay, tBtns, hoveredButtonId, pal, light);
+    }
+    } else {
+        // Subtle Screensaver Mode watermark
+        const char* ssLabel = "SCREENSAVER  |  TAP ANYWHERE TO EXIT";
+        const float fontSz = 10.0f;
+        const float txtW = eatsbits::ui::glyph::getVectorTextWidth(fontSz, ssLabel);
+        const float pillW = txtW + 24.0f;
+        const float pillH = 24.0f;
+        const float pillX = (width - pillW) * 0.5f;
+        const float pillY = height - pillH - 14.0f;
+        r.drawRoundedRect(pillX, pillY, pillW, pillH, pillH * 0.5f, 0.05f, 0.04f, 0.03f, 0.45f, 6);
+        r.drawRoundedRectOutline(pillX, pillY, pillW, pillH, pillH * 0.5f,
+                                 pal.accentR, pal.accentG, pal.accentB, 0.35f, 1.0f, 6);
+        eatsbits::ui::glyph::drawVectorText(r, ssLabel, pillX + 12.0f, pillY + 7.0f, fontSz,
+                                            0.92f, 0.90f, 0.85f, 0.65f);
     }
 
     // 10. Responsive Help Sidebar + Zone Outline + Magic Particles
@@ -3225,7 +3242,7 @@ void drawPlayContextMenu(
     constexpr float itemH = 30.0f;
     constexpr float headerH = 26.0f;
     constexpr float pad = 8.0f;
-    constexpr int kCount = 5;
+    constexpr int kCount = 6;
     constexpr float menuH = headerH + static_cast<float>(kCount) * itemH + pad * 2.0f;
 
     float menuX = anchorX;
@@ -3269,6 +3286,7 @@ void drawPlayContextMenu(
         { "*", "New Solvable Deal" },
         { "↺", "Restart Current Deal" },
         { isSolvableActive ? "[x]" : "[ ]", "Solvable Mode (Shift+N)" },
+        { ">>", "Screensaver (Shift+A)" },
         { "G", "Game Library..." }
     };
 
@@ -3714,6 +3732,7 @@ struct InteractiveContext {
 
     bool autoCascadeActive = false;
     float autoCascadeTimer = 0.0f;
+    bool screensaverActive = false;
     double lastTime = 0.0;
     SettingsDialog settingsDialog;
     SeedDialog seedDialog;
@@ -3750,6 +3769,7 @@ struct InteractiveContext {
         std::string dialogTitle{"PREPARING PROCEDURAL ASSETS"};
         std::string dialogInitialStatus{"Initializing..."};
         bool dialogCancellable{true};
+        bool silent{false};
         double startTime{0.0};
         double debounceSeconds{0.12}; // 120ms debounce threshold to prevent micro-flashes on fast cache hits
 #if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
@@ -3780,6 +3800,7 @@ struct InteractiveContext {
             customBgReady = false;
             customAudioReady = false;
             solvableSeedReady = false;
+            silent = false;
             cancelRequested.store(false);
             isBusy.store(false);
             progress.store(0.0f);
@@ -4472,7 +4493,7 @@ struct InteractiveContext {
 #endif
     }
 
-    void startAsyncSolvableDeal(const SolitaireGameDef& def, uint32_t startSeed = 0) {
+    void startAsyncSolvableDeal(const SolitaireGameDef& def, uint32_t startSeed = 0, bool silent = false) {
         asyncManager.stopWorker();
         asyncManager.resetState();
 
@@ -4489,6 +4510,7 @@ struct InteractiveContext {
         asyncManager.solvableSeed = startSeed;
         asyncManager.solvableDef = def;
         asyncManager.opType = AsyncOp::SolvableDeal;
+        asyncManager.silent = silent;
         asyncManager.dialogTitle = "SEEKING SOLVABLE DEAL";
         asyncManager.dialogInitialStatus = "Searching for guaranteed winnable seed...";
         asyncManager.dialogCancellable = true;
@@ -4563,6 +4585,38 @@ struct InteractiveContext {
         asyncManager.solvableSeedReady = true;
         asyncManager.isBusy.store(false);
 #endif
+    }
+
+    void enterScreensaverMode() {
+        menuOpen = false;
+        playMenuOpen = false;
+        toolbarConfigOpen = false;
+        helpOpen = false;
+        draggedPile = -1;
+        draggedCardIdx = -1;
+        isGesturing = false;
+        pressedToolbarBtn = BtnNone;
+        holdTriggered = false;
+        autoCascadeActive = false;
+        autoPlayController.stop();
+        autoPlayController.setSpeed(AutoPlaySpeed::Normal);
+        screensaverActive = true;
+        if (!asyncManager.isBusy.load()) {
+            startAsyncSolvableDeal(board.activeGameDef(), 0, true);
+        }
+        foley.triggerSound(FoleySound::Flip, 0.75f);
+    }
+
+    void exitScreensaverMode(bool triggerSound = true) {
+        if (!screensaverActive) return;
+        screensaverActive = false;
+        if (asyncManager.isBusy.load() && asyncManager.opType == AsyncOp::SolvableDeal) {
+            asyncManager.cancelRequested.store(true);
+        }
+        autoPlayController.stop();
+        if (triggerSound) {
+            foley.triggerSound(FoleySound::WoodClick, 0.7f);
+        }
     }
 
     InteractiveContext(SolitaireBoard& b, AudioFoleyEngine& f, uint32_t w, uint32_t h)
@@ -5161,7 +5215,7 @@ struct InteractiveContext {
 
         if (asyncManager.opType != AsyncOp::None || asyncManager.isBusy.load() || loadingDialog.isOpen()) {
             double elapsed = now - asyncManager.startTime;
-            if (asyncManager.isBusy.load() && elapsed >= asyncManager.debounceSeconds && !loadingDialog.isOpen()) {
+            if (asyncManager.isBusy.load() && !asyncManager.silent && elapsed >= asyncManager.debounceSeconds && !loadingDialog.isOpen()) {
                 loadingDialog.open(
                     asyncManager.dialogTitle,
                     asyncManager.dialogInitialStatus,
@@ -5203,15 +5257,21 @@ struct InteractiveContext {
                     autoPlayController.stop();
                     board.newDeal(asyncManager.solvableSeed, asyncManager.solvableDef);
                     board.computeLayout(static_cast<float>(width), static_cast<float>(height));
-                    SettingsManager::instance().settings().lastSeed = asyncManager.solvableSeed;
-                    SettingsManager::instance().settings().variant = asyncManager.solvableDef.nativeVariant;
-                    SettingsManager::instance().save();
-                    SessionManager::instance().clearSession();
+                    if (!screensaverActive) {
+                        SettingsManager::instance().settings().lastSeed = asyncManager.solvableSeed;
+                        SettingsManager::instance().settings().variant = asyncManager.solvableDef.nativeVariant;
+                        SettingsManager::instance().save();
+                        SessionManager::instance().clearSession();
+                    }
                     if (loadingDialog.isOpen()) {
                         loadingDialog.close();
                         foley.triggerSound(FoleySound::Shuffle, 0.90f);
                     } else {
                         foley.triggerSound(FoleySound::Deal, 0.85f);
+                    }
+                    if (screensaverActive) {
+                        autoPlayController.setSpeed(AutoPlaySpeed::Normal);
+                        autoPlayController.start(board);
                     }
                 } else if (asyncManager.opType == AsyncOp::TableTheme && asyncManager.themeReady) {
                     board.setTableTheme(asyncManager.targetTheme);
@@ -5332,8 +5392,8 @@ struct InteractiveContext {
         const float uiFmx = activeMouseCfg.postFxAffectUi ? fmx : rawFmx;
         const float uiFmy = activeMouseCfg.postFxAffectUi ? fmy : rawFmy;
 
-        int hoveredBtn = hitTestHudButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), board, menuAnchor, menuFlowVertical);
-        if (autoPlayController.isActive()) {
+        int hoveredBtn = screensaverActive ? BtnNone : hitTestHudButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), board, menuAnchor, menuFlowVertical);
+        if (!screensaverActive && autoPlayController.isActive()) {
             int tBtn = hitTestTransportButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), autoPlayController);
             if (tBtn != BtnNone) {
                 hoveredBtn = tBtn;
@@ -5343,7 +5403,11 @@ struct InteractiveContext {
         const bool leftDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         const bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
 
-        if (loadingDialog.isOpen() || asyncManager.isBusy.load()) {
+        if (screensaverActive) {
+            if ((leftDown && !prevLeftDown) || (rightDown && !prevRightDown)) {
+                exitScreensaverMode(true);
+            }
+        } else if (loadingDialog.isOpen() || asyncManager.isBusy.load()) {
             if (loadingDialog.isOpen()) {
                 if (leftDown && !prevLeftDown) {
                     loadingDialog.handleMouseButton(0, 1, uiFmx, uiFmy);
@@ -5379,7 +5443,7 @@ struct InteractiveContext {
                 constexpr float itemH = 30.0f;
                 constexpr float headerH = 26.0f;
                 constexpr float pad = 8.0f;
-                constexpr int kCount = 5;
+                constexpr int kCount = 6;
                 constexpr float menuH = headerH + static_cast<float>(kCount) * itemH + pad * 2.0f;
                 float menuX = playMenuAnchorX;
                 float menuY = (playMenuAnchorY > static_cast<float>(height) * 0.5f) ? (playMenuAnchorY - menuH - 8.0f) : (playMenuAnchorY + 44.0f);
@@ -5401,7 +5465,11 @@ struct InteractiveContext {
                                 s.guaranteeSolvable = !s.guaranteeSolvable;
                                 SettingsManager::instance().save();
                                 foley.triggerSound(FoleySound::WoodClick, 0.85f);
-                            } else if (i == 4) { // Game Library...
+                            } else if (i == 4) { // Screensaver Mode
+                                playMenuOpen = false;
+                                enterScreensaverMode();
+                                break;
+                            } else if (i == 5) { // Game Library...
                                 triggerAction(BtnVariant);
                             }
                             break;
@@ -5875,6 +5943,26 @@ struct InteractiveContext {
             if (edgeKey(GLFW_KEY_ENTER, prevKeyEnter)) settingsDialog.handleKey(GLFW_KEY_ENTER, 1, 0, board, foley);
             if (edgeKey(GLFW_KEY_BACKSPACE, prevKeyBack)) settingsDialog.handleKey(GLFW_KEY_BACKSPACE, 1, 0, board, foley);
             if (edgeKey(GLFW_KEY_TAB, prevKeyTab)) settingsDialog.handleKey(GLFW_KEY_TAB, 1, 0, board, foley);
+        } else if (screensaverActive) {
+            if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) {
+                exitScreensaverMode(true);
+            }
+            if (edgeKey(GLFW_KEY_A, prevKeyA)) {
+                if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
+                    exitScreensaverMode(true);
+                }
+            }
+            const bool isAlt = (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS) ||
+                               (glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS);
+            const bool keyEnter = (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) ||
+                                  (glfwGetKey(window, GLFW_KEY_KP_ENTER) == GLFW_PRESS);
+            const bool keyF11 = glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS;
+            const bool isFullscreenTrigger = (keyF11 && !prevKeyF11) || (isAlt && keyEnter && !prevKeyEnter);
+            prevKeyF11 = keyF11;
+            prevKeyEnter = keyEnter;
+            if (isFullscreenTrigger) {
+                toggleFullscreen();
+            }
         } else {
             if (edgeKey(GLFW_KEY_N, prevKeyN)) {
                 if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
@@ -5887,7 +5975,13 @@ struct InteractiveContext {
             if (edgeKey(GLFW_KEY_Z, prevKeyZ)) triggerAction(BtnUndo);
             if (edgeKey(GLFW_KEY_Y, prevKeyY)) triggerAction(BtnRedo);
             if (edgeKey(GLFW_KEY_H, prevKeyH)) triggerAction(BtnHint);
-            if (edgeKey(GLFW_KEY_A, prevKeyA)) triggerAction(BtnAutoPlay);
+            if (edgeKey(GLFW_KEY_A, prevKeyA)) {
+                if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
+                    enterScreensaverMode();
+                } else {
+                    triggerAction(BtnAutoPlay);
+                }
+            }
             if (edgeKey(GLFW_KEY_T, prevKeyT)) triggerAction(BtnTheme);
             if (edgeKey(GLFW_KEY_D, prevKeyD)) triggerAction(BtnDeck);
             if (edgeKey(GLFW_KEY_W, prevKeyW)) triggerAction(BtnCardWear);
@@ -5992,6 +6086,14 @@ struct InteractiveContext {
         }
 
         autoPlayController.update(dt, board, &foley);
+        if (screensaverActive && asyncManager.opType == AsyncOp::None && !asyncManager.isBusy.load()) {
+            const AutoPlayState apState = autoPlayController.state();
+            if (board.isVictory() || apState == AutoPlayState::Completed ||
+                apState == AutoPlayState::Failed || apState == AutoPlayState::Inactive) {
+                autoPlayController.stop();
+                startAsyncSolvableDeal(board.activeGameDef(), 0, true);
+            }
+        }
         board.updateAnimations(dt);
         const AppSettings& activeCfg = settingsDialog.isOpen()
             ? settingsDialog.previewSettings()
@@ -6109,7 +6211,8 @@ struct InteractiveContext {
                                        menuOpen, menuAnchor, menuFlowVertical, isDraggingMenu, dragPreviewAnchor, dragPreviewFlowVertical,
                                        isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
                                        &dynamicLight, &autoPlayController,
-                                       helpOpen, highlightedHelpZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles, &hintHighlight);
+                                       helpOpen, highlightedHelpZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles, &hintHighlight,
+                                       screensaverActive);
             if (activeCfg.godRaysIntensity > 0.005f || activeCfg.dustMotesIntensity > 0.005f) {
                 renderer.drawSceneAtmospherePass(static_cast<float>(width), static_cast<float>(height));
             }
@@ -6174,7 +6277,8 @@ int TableRenderer::runInteractiveWindow(
     AudioFoleyEngine& foley,
     uint32_t width,
     uint32_t height,
-    [[maybe_unused]] int initialAaMode
+    [[maybe_unused]] int initialAaMode,
+    bool startScreensaver
 ) {
 #if defined(__EMSCRIPTEN__)
     double initCssW = EM_ASM_DOUBLE({
@@ -6332,7 +6436,9 @@ int TableRenderer::runInteractiveWindow(
 
     // Check user settings and asynchronously load/condition deck if different from baseline
     ctx.checkStartupSettingsLoad();
-    if (!ctx.asyncManager.isBusy.load()) {
+    if (startScreensaver) {
+        ctx.enterScreensaverMode();
+    } else if (!ctx.asyncManager.isBusy.load()) {
         foley.triggerSound(FoleySound::DeckShuffle, 0.85f);
     }
 

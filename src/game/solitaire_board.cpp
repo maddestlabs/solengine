@@ -642,7 +642,7 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
                 piles_[0].cards.push_back(c);
             }
         }
-    } else if (activeDef_.layout == "fan_grid" || activeDef_.family == "Fan" || activeDef_.tableaus > 12) {
+    } else if (activeDef_.layout == "fan_grid" || activeDef_.family == "Fan" || (activeDef_.layout == "columns" && activeDef_.tableaus > 12)) {
         // 4 Foundations (0..3)
         for (uint8_t i = 0; i < 4; ++i) {
             Pile f{};
@@ -1145,7 +1145,7 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
         return;
     }
 
-    if (activeDef_.layout == "fan_grid" || activeDef_.family == "Fan" || activeDef_.tableaus > 12) {
+    if (activeDef_.layout == "fan_grid" || activeDef_.family == "Fan" || (activeDef_.layout == "columns" && activeDef_.tableaus > 12)) {
         const float spanWPerCard = 6.0f + 5.0f * kGapXRatio;
         const float spanHPerCard = kCardAspect * (4.0f + 3.0f * kGapYRatio + 0.35f);
         const float maxW_fromWidth = availW / spanWPerCard;
@@ -2550,20 +2550,29 @@ HintMove SolitaireBoard::findBestHint() {
     }
 
     if (isGolf()) {
-        for (size_t s = 2; s <= 8 && s < piles_.size(); ++s) {
+        uint8_t foundIdx = 1;
+        for (size_t i = 0; i < piles_.size(); ++i) {
+            if (piles_[i].type == PileType::Foundation) {
+                foundIdx = static_cast<uint8_t>(i);
+                break;
+            }
+        }
+        for (size_t s = 0; s < piles_.size(); ++s) {
             const Pile& src = piles_[s];
-            if (src.cards.empty()) continue;
+            if (src.type != PileType::Tableau || src.cards.empty()) continue;
             const size_t topIdx = src.cards.size() - 1;
-            if (canMoveCards(static_cast<uint8_t>(s), topIdx, 1)) {
-                activeHint_ = {true, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), 1};
+            if (canMoveCards(static_cast<uint8_t>(s), topIdx, foundIdx)) {
+                activeHint_ = {true, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), foundIdx};
                 piles_[s].cards[topIdx].enshadedGlow = true;
                 return activeHint_;
             }
         }
-        if (!piles_.empty() && !piles_[0].cards.empty()) {
-            activeHint_ = {true, 0, static_cast<uint8_t>(piles_[0].cards.size() - 1), 1};
-            piles_[0].cards.back().enshadedGlow = true;
-            return activeHint_;
+        for (size_t i = 0; i < piles_.size(); ++i) {
+            if (piles_[i].type == PileType::Stock && !piles_[i].cards.empty()) {
+                activeHint_ = {true, static_cast<uint8_t>(i), static_cast<uint8_t>(piles_[i].cards.size() - 1), foundIdx};
+                piles_[i].cards.back().enshadedGlow = true;
+                return activeHint_;
+            }
         }
         return activeHint_;
     }
