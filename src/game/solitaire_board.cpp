@@ -133,6 +133,7 @@ bool SolitaireBoard::restoreSessionState(
     moveCount_ = moveCount;
     elapsedSeconds_ = elapsedSeconds;
     victorySeconds_ = 0.0f;
+    victoryHookFired_ = false;
     activeHint_ = {};
     piles_ = piles;
     undoStack_ = undoStack;
@@ -185,6 +186,7 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
     moveCount_ = 0;
     elapsedSeconds_ = 0.0f;
     victorySeconds_ = 0.0f;
+    victoryHookFired_ = false;
     undoStack_.clear();
     redoStack_.clear();
     txUndoStack_.clear();
@@ -1687,7 +1689,15 @@ void SolitaireBoard::updateAnimations(float dt) {
     if (!isVictory()) {
         elapsedSeconds_ += clampedDt;
         victorySeconds_ = 0.0f;
+        victoryHookFired_ = false;
     } else {
+        if (!victoryHookFired_) {
+            victoryHookFired_ = true;
+            if (scriptEngine_.hasOnVictory()) {
+                ScriptBoardContext ctx{&piles_, &blackboard_, &score_, &rngState_, nullptr, cardW_, cardH_, viewportW_, viewportH_};
+                scriptEngine_.invokeOnVictory(ctx);
+            }
+        }
         victorySeconds_ += clampedDt;
     }
 

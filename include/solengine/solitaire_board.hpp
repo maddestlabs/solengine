@@ -51,6 +51,7 @@ public:
     [[nodiscard]] bool hasScriptCanTarget() const noexcept { return scriptEngine_.hasCanTarget(); }
     [[nodiscard]] bool canPickScriptCard(uint8_t pileIdx, size_t cardIdx) const;
     [[nodiscard]] const GameDocManifest& docManifest() const noexcept { return scriptEngine_.docManifest(); }
+    [[nodiscard]] const VictoryChoreography& victoryChoreography() const noexcept { return scriptEngine_.victoryChoreography(); }
     [[nodiscard]] int32_t evaluateScriptHeuristic() const;
 
     struct ScriptedSnapshot {
@@ -160,6 +161,7 @@ private:
     int selectedPileIdx_{-1};
     float elapsedSeconds_{0.0f};
     float victorySeconds_{0.0f};
+    bool victoryHookFired_{false};
     float viewportW_{1280.0f};
     float viewportH_{720.0f};
     float cardW_{96.0f};

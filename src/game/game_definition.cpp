@@ -465,6 +465,10 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         return eatsbits::eatscript::Value(true);
     };
     ev.registerFunction("doc_goal", noop);
+    ev.registerFunction("doc_victory", noop);
+    ev.registerFunction("doc_victory_anim", noop);
+    ev.registerFunction("victory_clear_stages", noop);
+    ev.registerFunction("victory_add_stage", noop);
     ev.registerFunction("doc_zone", noop);
     ev.registerFunction("doc_stat", noop);
     ev.registerFunction("doc_tag", noop);

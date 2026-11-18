@@ -51,7 +51,7 @@ struct CardTexture {
 };
 
 enum class DeckThemeId : uint8_t {
-    SolEnshade        = 0,
+    SolEngineClassic  = 0,
     ClassicSvg        = 1,
     SteampunkAi       = 2,
     Anime             = 3,
@@ -68,6 +68,8 @@ enum class DeckThemeId : uint8_t {
     SolPolyWhite      = 13,
     SolPolyDark       = 14,
     ScoundrelLowPoly  = 15,
+    SolPolyClassic    = 16,
+    SolPolyMobile     = 17,
     Count
 };
 
@@ -169,7 +171,7 @@ public:
     struct StagingDeck {
         std::array<CardTexture, kTotalTextures> baseTextures;
         std::array<CardTexture, kTotalTextures> textures;
-        DeckThemeId theme{DeckThemeId::SolEnshade};
+        DeckThemeId theme{DeckThemeId::SolPolyClassic};
         std::string deckId;
         CardWearLevel wearLevel{CardWearLevel::Pristine};
         CardStock cardStock{CardStock::None};
@@ -300,8 +302,8 @@ private:
     bool isLoaded_{false};
     bool hasGpuAtlas_{false};
     bool atlasDirty_{false};
-    DeckThemeId currentTheme_{DeckThemeId::SolEnshade};
-    std::string currentDeckId_{"solengine"};
+    DeckThemeId currentTheme_{DeckThemeId::SolPolyClassic};
+    std::string currentDeckId_{"solpoly_classic"};
     uint32_t lowPolySeed_{42};
     uint32_t loadedLowPolySeed_{0};
     CardWearLevel wearLevel_{CardWearLevel::Natural};

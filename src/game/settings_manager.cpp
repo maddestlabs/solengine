@@ -92,6 +92,8 @@ bool SettingsManager::load() {
             settings_.guaranteeSolvable = g["guaranteeSolvable"].asBool(false);
             settings_.lastSeed = g["lastSeed"].asUInt(2026u);
             settings_.autoFinish = g["autoFinish"].asBool(true);
+            settings_.victoryAnimOverride = static_cast<VictoryAnimOverride>(
+                std::clamp(g["victoryAnimOverride"].asInt(0), 0, static_cast<int>(VictoryAnimOverride::Fireworks)));
         }
 
         if (root.contains("appearance") && root["appearance"].isObject()) {
@@ -128,6 +130,19 @@ bool SettingsManager::load() {
             }
             if (a.contains("postFxAffectUi") && a["postFxAffectUi"].isBool()) {
                 settings_.postFxAffectUi = a["postFxAffectUi"].asBool(false);
+            }
+            if (a.contains("renderResolution")) {
+                if (a["renderResolution"].isString()) {
+                    const std::string rs = a["renderResolution"].asString();
+                    if (rs == "native") settings_.renderResolution = RenderResolutionMode::Native;
+                    else if (rs == "1080p") settings_.renderResolution = RenderResolutionMode::Res1080p;
+                    else if (rs == "720p") settings_.renderResolution = RenderResolutionMode::Res720p;
+                    else if (rs == "540p") settings_.renderResolution = RenderResolutionMode::Res540p;
+                    else settings_.renderResolution = RenderResolutionMode::Auto;
+                } else if (a["renderResolution"].isNumber()) {
+                    int rv = std::clamp(a["renderResolution"].asInt(0), 0, static_cast<int>(RenderResolutionMode::Count) - 1);
+                    settings_.renderResolution = static_cast<RenderResolutionMode>(rv);
+                }
             }
             if (a.contains("tableTint") && a["tableTint"].isString()) {
                 settings_.tableTint = parseTableTint(a["tableTint"].asString());
@@ -207,6 +222,7 @@ bool SettingsManager::save() {
     g["guaranteeSolvable"] = settings_.guaranteeSolvable;
     g["lastSeed"] = static_cast<double>(settings_.lastSeed);
     g["autoFinish"] = settings_.autoFinish;
+    g["victoryAnimOverride"] = static_cast<int>(settings_.victoryAnimOverride);
     root["game"] = g;
 
     json::Object a;
@@ -239,6 +255,17 @@ bool SettingsManager::save() {
     }
     a["postFxIntensity"] = static_cast<double>(settings_.postFxIntensity);
     a["postFxAffectUi"] = settings_.postFxAffectUi;
+    {
+        const char* resStr = "auto";
+        switch (settings_.renderResolution) {
+            case RenderResolutionMode::Native:   resStr = "native"; break;
+            case RenderResolutionMode::Res1080p: resStr = "1080p"; break;
+            case RenderResolutionMode::Res720p:  resStr = "720p"; break;
+            case RenderResolutionMode::Res540p:  resStr = "540p"; break;
+            default: break;
+        }
+        a["renderResolution"] = resStr;
+    }
     const auto* tintInfo = getTableTintInfo(settings_.tableTint);
     if (tintInfo && settings_.tableTint != TableTintPreset::Auto) {
         a["tableTint"] = tintInfo->id;

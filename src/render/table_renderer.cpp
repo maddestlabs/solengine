@@ -2343,6 +2343,398 @@ void MagicParticleSystem::spawnArcTrail(float x0, float y0, float x1, float y1, 
     }
 }
 
+namespace {
+
+struct VictoryDialogLayout {
+    float bx{0.0f}, by{0.0f}, bw{0.0f}, bh{0.0f};
+    float titleX{0.0f}, titleY{0.0f};
+    float subtitleX{0.0f}, subtitleY{0.0f};
+    bool hasSubtitle{false};
+    float btnX{0.0f}, btnY{0.0f}, btnW{0.0f}, btnH{0.0f};
+    float btnTextX{0.0f}, btnTextY{0.0f};
+    std::string title;
+    std::string subtitle;
+};
+
+void resolveVictoryBanner(const SolitaireBoard& board, std::string& outTitle, std::string& outSubtitle) {
+    outTitle = board.blackboard().getStr("victory_message");
+    if (outTitle.empty()) {
+        outTitle = board.docManifest().victoryTitle;
+    }
+    if (outTitle.empty()) {
+        outTitle = "Victory!";
+    }
+
+    outSubtitle = board.blackboard().getStr("victory_subtitle");
+    if (outSubtitle.empty()) {
+        outSubtitle = board.docManifest().victorySubtitle;
+    }
+}
+
+VictoryDialogLayout buildVictoryDialogLayout(const SolitaireBoard& board, float width, float height) {
+    VictoryDialogLayout vl{};
+    resolveVictoryBanner(board, vl.title, vl.subtitle);
+
+    constexpr float kTitleSize = 20.0f;
+    constexpr float kSubSize = 12.5f;
+    constexpr float kBtnLabelSize = 12.5f;
+    constexpr const char* kBtnLabel = "Start New Game";
+
+    const float titleW = eatsbits::ui::glyph::getVectorTextWidth(kTitleSize, vl.title);
+    const float subW = vl.subtitle.empty() ? 0.0f : eatsbits::ui::glyph::getVectorTextWidth(kSubSize, vl.subtitle);
+    const float btnLabelW = eatsbits::ui::glyph::getVectorTextWidth(kBtnLabelSize, kBtnLabel);
+
+    vl.btnW = std::max(188.0f, btnLabelW + 40.0f);
+    vl.btnH = 34.0f;
+    vl.bw = std::max({360.0f, titleW + 64.0f, subW + 64.0f, vl.btnW + 64.0f});
+    vl.hasSubtitle = !vl.subtitle.empty();
+    vl.bh = vl.hasSubtitle ? 138.0f : 114.0f;
+    vl.bx = (width - vl.bw) * 0.5f;
+    vl.by = (height - vl.bh) * 0.5f;
+
+    vl.titleX = vl.bx + (vl.bw - titleW) * 0.5f;
+    vl.titleY = vl.by + 20.0f;
+    vl.subtitleX = vl.bx + (vl.bw - subW) * 0.5f;
+    vl.subtitleY = vl.by + 50.0f;
+
+    vl.btnX = vl.bx + (vl.bw - vl.btnW) * 0.5f;
+    vl.btnY = vl.hasSubtitle ? (vl.by + 82.0f) : (vl.by + 60.0f);
+    vl.btnTextX = vl.btnX + (vl.btnW - btnLabelW) * 0.5f;
+    vl.btnTextY = vl.btnY + (vl.btnH - kBtnLabelSize) * 0.5f;
+    return vl;
+}
+
+struct VictoryAirborneCard {
+    Card card;
+    Card3DTransform xf;
+};
+
+struct VictorySourceCard {
+    Card card;
+    float startX{0.0f};
+    float startY{0.0f};
+    uint8_t pileIndex{0};
+    size_t cardIndexInPile{0};
+};
+
+inline float resolveVictoryAmp(float amp, float extent) noexcept {
+    return (amp <= 2.0f) ? (amp * extent) : amp;
+}
+
+inline uint32_t victoryHash(uint32_t x) noexcept {
+    x ^= x >> 16;
+    x *= 0x7FEB352Du;
+    x ^= x >> 15;
+    x *= 0x846CA68Bu;
+    x ^= x >> 16;
+    return x;
+}
+
+inline float victoryHashFloat(uint32_t x) noexcept {
+    return static_cast<float>(victoryHash(x) & 0x00FFFFFFu) / static_cast<float>(0x01000000u);
+}
+
+bool buildVictoryOverrideStage(VictoryAnimOverride mode, VictoryStageSpec& outSpec) noexcept {
+    if (mode == VictoryAnimOverride::GameDefault) return false;
+    outSpec = VictoryStageSpec{};
+    switch (mode) {
+        case VictoryAnimOverride::CascadeBounce:
+            outSpec.type = VictoryAnimType::CascadeBounce;
+            outSpec.source = VictoryCardSource::Foundation;
+            break;
+        case VictoryAnimOverride::FigureEight:
+            outSpec.type = VictoryAnimType::FigureEight;
+            outSpec.source = VictoryCardSource::AllPiles;
+            break;
+        case VictoryAnimOverride::SpiralVortex:
+            outSpec.type = VictoryAnimType::SpiralVortex;
+            outSpec.source = VictoryCardSource::AllPiles;
+            break;
+        case VictoryAnimOverride::OrbitRing:
+            outSpec.type = VictoryAnimType::OrbitRing;
+            outSpec.source = VictoryCardSource::AllPiles;
+            break;
+        case VictoryAnimOverride::Fireworks:
+            outSpec.type = VictoryAnimType::Fireworks;
+            outSpec.source = VictoryCardSource::SyntheticDeck;
+            break;
+        default:
+            return false;
+    }
+    return true;
+}
+
+bool shouldHideVictoryPileCard(const SolitaireBoard& board, const Pile& p, size_t cIdx) noexcept {
+    const float vTime = board.victorySeconds();
+    VictoryStageSpec overrideSpec{};
+    if (buildVictoryOverrideStage(SettingsManager::instance().settings().victoryAnimOverride, overrideSpec)) {
+        if (overrideSpec.source == VictoryCardSource::SyntheticDeck) return false;
+        if (overrideSpec.source == VictoryCardSource::AllPiles) return vTime >= overrideSpec.delay;
+        if (p.type != PileType::Foundation) return false;
+        const float tLaunch = (12.0f - static_cast<float>(cIdx)) * 0.16f + static_cast<float>(p.index) * 0.06f;
+        return vTime >= tLaunch;
+    }
+
+    const auto& stages = board.victoryChoreography().stages;
+    if (stages.empty()) {
+        if (p.type != PileType::Foundation) return false;
+        const float tLaunch = (12.0f - static_cast<float>(cIdx)) * 0.16f + static_cast<float>(p.index) * 0.06f;
+        return vTime >= tLaunch;
+    }
+
+    for (const auto& s : stages) {
+        if (vTime < s.delay) continue;
+        if (s.source == VictoryCardSource::AllPiles) {
+            return true;
+        }
+        if (s.source == VictoryCardSource::Foundation && p.type == PileType::Foundation) {
+            if (s.type == VictoryAnimType::CascadeBounce) {
+                const float tLaunch = s.delay + (12.0f - static_cast<float>(cIdx)) * 0.16f + static_cast<float>(p.index) * 0.06f;
+                if (vTime >= tLaunch) return true;
+            } else {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+std::vector<VictorySourceCard> collectVictorySourceCards(
+    const SolitaireBoard& board,
+    VictoryCardSource source,
+    float cw,
+    float ch,
+    float width,
+    float height,
+    int32_t countOverride) {
+    std::vector<VictorySourceCard> cards;
+    if (source != VictoryCardSource::SyntheticDeck) {
+        for (const auto& p : board.piles()) {
+            if (source == VictoryCardSource::Foundation && p.type != PileType::Foundation) continue;
+            for (size_t cIdx = 0; cIdx < p.cards.size(); ++cIdx) {
+                VictorySourceCard sc{};
+                sc.card = p.cards[cIdx];
+                sc.card.faceUp = true;
+                sc.card.flipAngle = 0.0f;
+                sc.startX = p.x + cw * 0.5f;
+                sc.startY = p.y + ch * 0.5f;
+                sc.pileIndex = p.index;
+                sc.cardIndexInPile = cIdx;
+                cards.push_back(sc);
+            }
+        }
+    }
+
+    if (cards.empty() || source == VictoryCardSource::SyntheticDeck) {
+        cards.clear();
+        const size_t total = (countOverride > 0) ? static_cast<size_t>(countOverride) : 52u;
+        cards.reserve(total);
+        for (size_t i = 0; i < total; ++i) {
+            VictorySourceCard sc{};
+            sc.card.suit = static_cast<Suit>((i / 13u) % 4u);
+            sc.card.rank = static_cast<Rank>(1u + (i % 13u));
+            sc.card.faceUp = true;
+            sc.card.flipAngle = 0.0f;
+            sc.startX = width * 0.5f;
+            sc.startY = height + ch * 0.45f;
+            sc.pileIndex = static_cast<uint8_t>((i / 13u) % 4u);
+            sc.cardIndexInPile = i % 13u;
+            cards.push_back(sc);
+        }
+    } else if (countOverride > 0 && static_cast<size_t>(countOverride) < cards.size()) {
+        cards.resize(static_cast<size_t>(countOverride));
+    }
+    return cards;
+}
+
+void evaluateVictoryStage(
+    const VictoryStageSpec& spec,
+    const SolitaireBoard& board,
+    float vTime,
+    float width,
+    float height,
+    float cw,
+    float ch,
+    std::vector<VictoryAirborneCard>& outAirborne) {
+    const float stageTime = vTime - spec.delay;
+    if (stageTime < 0.0f) return;
+    if (spec.duration > 0.0f && stageTime > spec.duration) return;
+
+    const float floorY = height - ch * 0.75f;
+    const float centerX = width * 0.5f;
+    const float centerY = height * 0.48f;
+    const float ax = resolveVictoryAmp(spec.ampX, width);
+    const float ay = resolveVictoryAmp(spec.ampY, height);
+
+    if (spec.type == VictoryAnimType::Fireworks) {
+        const auto pool = collectVictorySourceCards(board, spec.source, cw, ch, width, height, 0);
+        const int32_t rocketCount = (spec.count > 0) ? spec.count : 4;
+        const float speed = std::max(0.2f, spec.speed);
+        const float tBurst = 0.68f / speed;
+        const float cycleDur = spec.loop ? (2.55f / speed) : 10000.0f;
+
+        for (int32_t rIdx = 0; rIdx < rocketCount; ++rIdx) {
+            const float tRocket = stageTime - static_cast<float>(rIdx) * spec.stagger;
+            if (tRocket < 0.0f) continue;
+
+            const uint32_t burstCycle = spec.loop ? static_cast<uint32_t>(tRocket / cycleDur) : 0u;
+            const float tLocal = spec.loop ? std::fmod(tRocket, cycleDur) : tRocket;
+            const uint32_t seedBase = static_cast<uint32_t>(rIdx) * 977u + burstCycle * 7919u + 131u;
+
+            const float launchX = width * (0.18f + 0.64f * victoryHashFloat(seedBase + 1u));
+            const float launchY = height + ch * 0.45f;
+            const float apexX = width * (0.20f + 0.60f * victoryHashFloat(seedBase + 2u));
+            const float apexY = height * (0.18f + 0.28f * victoryHashFloat(seedBase + 3u));
+
+            if (tLocal < tBurst) {
+                const float u = std::clamp(tLocal / tBurst, 0.0f, 1.0f);
+                const float ease = 1.0f - (1.0f - u) * (1.0f - u);
+                const float posX = launchX + (apexX - launchX) * ease;
+                const float posY = launchY + (apexY - launchY) * ease;
+
+                VictoryAirborneCard vac{};
+                vac.card = pool[static_cast<size_t>(seedBase) % pool.size()].card;
+                vac.xf.baseW = cw;
+                vac.xf.baseH = ch;
+                vac.xf.cx = posX;
+                vac.xf.cy = posY;
+                vac.xf.cz = 45.0f + u * 55.0f;
+                vac.xf.yaw = tLocal * 8.0f * spec.spin;
+                vac.xf.pitch = 0.35f;
+                vac.xf.roll = std::atan2(apexY - launchY, apexX - launchX) + 1.5707963f;
+                outAirborne.push_back(vac);
+            } else {
+                const float tExp = tLocal - tBurst;
+                const float dragK = 1.45f;
+                const float dragSpan = (1.0f - std::exp(-dragK * tExp)) / dragK;
+                const float gravDrop = 0.5f * spec.gravity * tExp * tExp;
+
+                for (int32_t b = 0; b < spec.burstCount; ++b) {
+                    const uint32_t bSeed = seedBase + static_cast<uint32_t>(b + 1) * 313u;
+                    const float theta = (6.2831853f * static_cast<float>(b)) / static_cast<float>(spec.burstCount)
+                                      + (victoryHashFloat(bSeed + 1u) - 0.5f) * 0.35f;
+                    const float speedMag = (240.0f + 220.0f * victoryHashFloat(bSeed + 2u)) * speed;
+                    const float zDir = (victoryHashFloat(bSeed + 3u) - 0.35f) * 2.0f;
+
+                    const float vx = std::cos(theta) * speedMag;
+                    const float vy = std::sin(theta) * speedMag - 90.0f;
+                    const float vz = zDir * 140.0f;
+
+                    const float posX = apexX + vx * dragSpan;
+                    const float posY = apexY + vy * dragSpan + gravDrop;
+                    if (posY > height + ch * 1.4f) continue;
+
+                    VictoryAirborneCard vac{};
+                    vac.card = pool[(static_cast<size_t>(bSeed)) % pool.size()].card;
+                    vac.xf.baseW = cw;
+                    vac.xf.baseH = ch;
+                    vac.xf.cx = posX;
+                    vac.xf.cy = posY;
+                    vac.xf.cz = std::max(5.0f, 80.0f + vz * dragSpan);
+                    vac.xf.yaw = tExp * (3.2f + victoryHashFloat(bSeed + 4u) * 4.5f) * spec.spin;
+                    vac.xf.pitch = std::sin(tExp * 4.0f + static_cast<float>(b)) * 0.55f;
+                    vac.xf.roll = std::cos(tExp * 3.5f + static_cast<float>(b)) * 0.55f;
+                    outAirborne.push_back(vac);
+                }
+            }
+        }
+        return;
+    }
+
+    const auto sourceCards = collectVictorySourceCards(board, spec.source, cw, ch, width, height, spec.count);
+    const size_t totalCards = sourceCards.size();
+    for (size_t i = 0; i < totalCards; ++i) {
+        const auto& sc = sourceCards[i];
+        const float tLaunch = (spec.type == VictoryAnimType::CascadeBounce && spec.source == VictoryCardSource::Foundation)
+                            ? ((12.0f - static_cast<float>(sc.cardIndexInPile)) * 0.16f + static_cast<float>(sc.pileIndex) * 0.06f)
+                            : (static_cast<float>(i) * spec.stagger);
+        if (stageTime < tLaunch) continue;
+
+        const float dt = stageTime - tLaunch;
+        const uint32_t cardId = static_cast<uint32_t>(sc.pileIndex * 13 + sc.cardIndexInPile + i);
+
+        VictoryAirborneCard vac{};
+        vac.card = sc.card;
+
+        Card3DTransform xf{};
+        xf.baseW = cw;
+        xf.baseH = ch;
+
+        if (spec.type == VictoryAnimType::CascadeBounce) {
+            const float vx = ((static_cast<float>(sc.pileIndex) - 1.5f) * 170.0f) + std::sin(static_cast<float>(cardId) * 2.3f) * 85.0f;
+            const float rawX = sc.startX + vx * dt * spec.speed;
+
+            const float minX = cw * 0.6f;
+            const float maxX = width - cw * 0.6f;
+            const float spanX = std::max(10.0f, maxX - minX);
+            float normX = std::fmod(std::abs(rawX - minX), spanX * 2.0f);
+            if (normX > spanX) normX = spanX * 2.0f - normX;
+            const float posX = minX + normX;
+
+            const float bouncePeriod = 1.45f / std::max(0.2f, spec.speed);
+            const float cycle = std::fmod(dt, bouncePeriod) / bouncePeriod;
+            const int bounceNum = static_cast<int>(dt / bouncePeriod);
+            const float decay = std::max(0.25f, 1.0f - static_cast<float>(bounceNum) * 0.12f);
+            const float apexH = (decay * 340.0f) + 60.0f;
+            float posY = floorY - 4.0f * apexH * cycle * (1.0f - cycle);
+            if (dt < 0.35f) {
+                const float launchT = dt / 0.35f;
+                posY = sc.startY + (posY - sc.startY) * launchT;
+            }
+
+            xf.cx = posX;
+            xf.cy = posY;
+            xf.cz = 45.0f + std::sin(dt * 3.6f + static_cast<float>(cardId)) * 35.0f + (1.0f - cycle) * 30.0f;
+            xf.yaw = dt * (3.5f + static_cast<float>(cardId % 4) * 0.6f) * spec.spin;
+            xf.pitch = 0.22f + std::sin(dt * 4.0f + static_cast<float>(cardId) * 0.6f) * 0.40f;
+            xf.roll = std::cos(dt * 3.0f + static_cast<float>(cardId) * 0.8f) * 0.30f;
+        } else if (spec.type == VictoryAnimType::FigureEight) {
+            const float phase = dt * spec.speed * 1.45f - static_cast<float>(i) * 0.22f;
+            const float targetX = centerX + ax * std::sin(phase);
+            const float targetY = centerY + ay * std::sin(2.0f * phase);
+            const float blend = std::clamp(dt / 0.45f, 0.0f, 1.0f);
+            const float ease = blend * blend * (3.0f - 2.0f * blend);
+            xf.cx = sc.startX + (targetX - sc.startX) * ease;
+            xf.cy = sc.startY + (targetY - sc.startY) * ease;
+            xf.cz = 55.0f + 42.0f * std::cos(phase);
+            xf.yaw = dt * 2.2f * spec.spin + std::cos(phase) * 0.45f;
+            xf.pitch = 0.25f * std::sin(2.0f * phase);
+            xf.roll = 0.35f * std::cos(phase);
+        } else if (spec.type == VictoryAnimType::SpiralVortex) {
+            const float theta = dt * spec.speed * 2.2f + static_cast<float>(i) * 0.35f;
+            const float radialOsc = 0.22f + 0.78f * (0.5f + 0.5f * std::sin(dt * spec.speed * 0.9f + static_cast<float>(i) * 0.16f));
+            const float targetX = centerX + ax * radialOsc * std::cos(theta);
+            const float targetY = centerY + ay * radialOsc * std::sin(theta);
+            const float blend = std::clamp(dt / 0.45f, 0.0f, 1.0f);
+            const float ease = blend * blend * (3.0f - 2.0f * blend);
+            xf.cx = sc.startX + (targetX - sc.startX) * ease;
+            xf.cy = sc.startY + (targetY - sc.startY) * ease;
+            xf.cz = 40.0f + 75.0f * (1.0f - radialOsc);
+            xf.yaw = theta * 0.7f * spec.spin;
+            xf.pitch = 0.35f * std::sin(theta);
+            xf.roll = theta + 1.5707963f;
+        } else { // OrbitRing
+            const float denom = static_cast<float>(std::max<size_t>(1u, totalCards));
+            const float theta = dt * spec.speed * 1.5f + (6.2831853f * static_cast<float>(i)) / denom;
+            const float targetX = centerX + ax * std::cos(theta);
+            const float targetY = centerY + ay * 0.55f * std::sin(theta);
+            const float blend = std::clamp(dt / 0.5f, 0.0f, 1.0f);
+            const float ease = blend * blend * (3.0f - 2.0f * blend);
+            xf.cx = sc.startX + (targetX - sc.startX) * ease;
+            xf.cy = sc.startY + (targetY - sc.startY) * ease;
+            xf.cz = 75.0f + 55.0f * std::sin(theta);
+            xf.yaw = -theta * spec.spin;
+            xf.pitch = 0.30f;
+            xf.roll = 0.18f * std::cos(theta);
+        }
+
+        vac.xf = xf;
+        outAirborne.push_back(vac);
+    }
+}
+
+} // namespace
+
 void TableRenderer::renderBoard(
     eatsbits::ui::BatchRenderer2D& r,
     const SolitaireBoard& board,
@@ -2506,12 +2898,8 @@ void TableRenderer::renderBoard(
                 static_cast<int>(cIdx) >= draggedCardIdx) {
                 continue;
             }
-            if (!screensaverMode && board.isVictory() && p.type == PileType::Foundation) {
-                uint8_t fIdx = p.index;
-                float tLaunch = (12.0f - static_cast<float>(cIdx)) * 0.16f + fIdx * 0.06f;
-                if (board.victorySeconds() >= tLaunch) {
-                    continue; // Card launched into 3D victory cascade
-                }
+            if (!screensaverMode && board.isVictory() && shouldHideVictoryPileCard(board, p, cIdx)) {
+                continue; // Card launched into 3D victory animation
             }
             const Card& c = p.cards[cIdx];
             if (isCardMoving(c) || pileHasMovingBelow) {
@@ -2625,76 +3013,24 @@ void TableRenderer::renderBoard(
         }
     }
 
-    // 6. Hardwood 3.0 3D Victory Cascade & Banner Overlay
+    // 6. Hardwood 3.0 3D Victory Cascade / Choreography & Banner Overlay
     if (!screensaverMode && board.isVictory()) {
-        struct VictoryAirborneCard {
-            Card card;
-            Card3DTransform xf;
-        };
-
         std::vector<VictoryAirborneCard> airborne;
-        airborne.reserve(52);
+        airborne.reserve(64);
 
-        const float floorY = height - ch * 0.75f;
         const float vTime = board.victorySeconds();
-
-        for (const auto& p : board.piles()) {
-            if (p.type != PileType::Foundation) continue;
-            uint8_t fIdx = p.index;
-
-            for (size_t cIdx = 0; cIdx < p.cards.size(); ++cIdx) {
-                float tLaunch = (12.0f - static_cast<float>(cIdx)) * 0.16f + fIdx * 0.06f;
-                if (vTime < tLaunch) continue;
-
-                float dt = vTime - tLaunch;
-                const Card& c = p.cards[cIdx];
-                uint32_t cardId = static_cast<uint32_t>(fIdx * 13 + cIdx);
-
-                VictoryAirborneCard vac{};
-                vac.card = c;
-                vac.card.faceUp = true;
-                vac.card.flipAngle = 0.0f;
-
-                // Horizontal motion with edge bouncing
-                float startX = p.x + cw * 0.5f;
-                float startY = p.y + ch * 0.5f;
-                float vx = ((static_cast<float>(fIdx) - 1.5f) * 170.0f) + std::sin(static_cast<float>(cardId) * 2.3f) * 85.0f;
-                float rawX = startX + vx * dt;
-
-                const float minX = cw * 0.6f;
-                const float maxX = width - cw * 0.6f;
-                const float spanX = std::max(10.0f, maxX - minX);
-                float normX = std::fmod(std::abs(rawX - minX), spanX * 2.0f);
-                if (normX > spanX) normX = spanX * 2.0f - normX;
-                float posX = minX + normX;
-
-                // Vertical bouncing physics
-                const float bouncePeriod = 1.45f;
-                float cycle = std::fmod(dt, bouncePeriod) / bouncePeriod;
-                int bounceNum = static_cast<int>(dt / bouncePeriod);
-                float decay = std::max(0.25f, 1.0f - static_cast<float>(bounceNum) * 0.12f);
-                float apexH = (decay * 340.0f) + 60.0f;
-                float posY = floorY - 4.0f * apexH * cycle * (1.0f - cycle);
-                if (dt < 0.35f) {
-                    float launchT = dt / 0.35f;
-                    posY = startY + (posY - startY) * launchT;
+        VictoryStageSpec overrideSpec{};
+        if (buildVictoryOverrideStage(SettingsManager::instance().settings().victoryAnimOverride, overrideSpec)) {
+            evaluateVictoryStage(overrideSpec, board, vTime, width, height, cw, ch, airborne);
+        } else {
+            const auto& stages = board.victoryChoreography().stages;
+            if (stages.empty()) {
+                VictoryStageSpec defaultStage{};
+                evaluateVictoryStage(defaultStage, board, vTime, width, height, cw, ch, airborne);
+            } else {
+                for (const auto& stage : stages) {
+                    evaluateVictoryStage(stage, board, vTime, width, height, cw, ch, airborne);
                 }
-
-                // 3D elevation and tumbling rotations
-                float cz = 45.0f + std::sin(dt * 3.6f + static_cast<float>(cardId)) * 35.0f + (1.0f - cycle) * 30.0f;
-
-                Card3DTransform xf{};
-                xf.baseW = cw;
-                xf.baseH = ch;
-                xf.cx = posX;
-                xf.cy = posY;
-                xf.cz = cz;
-                xf.yaw = dt * (3.5f + static_cast<float>(cardId % 4) * 0.6f);
-                xf.pitch = 0.22f + std::sin(dt * 4.0f + static_cast<float>(cardId) * 0.6f) * 0.40f;
-                xf.roll = std::cos(dt * 3.0f + static_cast<float>(cardId) * 0.8f) * 0.30f;
-
-                vac.xf = xf;
-                airborne.push_back(vac);
             }
         }
 
@@ -2710,19 +3046,38 @@ void TableRenderer::renderBoard(
             render3DCard(r, vac.card, vac.xf, pal, light, CardRenderPass::BodyOnly);
         }
 
-        const float bw = 460.0f;
-        const float bh = 96.0f;
-        const float bx = (width - bw) * 0.5f;
-        const float by = (height - bh) * 0.5f;
-        r.drawRectDropShadow(bx, by, bw, bh, 10.0f, 16.0f, light, 0.60f);
-        r.drawRoundedRectGradient(bx, by, bw, bh, 10.0f,
+        const VictoryDialogLayout vl = buildVictoryDialogLayout(board, width, height);
+        const bool btnHovered = (helpMouseX >= vl.btnX && helpMouseX <= vl.btnX + vl.btnW &&
+                                 helpMouseY >= vl.btnY && helpMouseY <= vl.btnY + vl.btnH);
+
+        r.drawRectDropShadow(vl.bx, vl.by, vl.bw, vl.bh, 10.0f, 16.0f, light, 0.60f);
+        r.drawRoundedRectGradient(vl.bx, vl.by, vl.bw, vl.bh, 10.0f,
                                   pal.woodR0, pal.woodG0, pal.woodB0,
                                   pal.woodR1, pal.woodG1, pal.woodB1, 0.98f, 4);
-        r.drawRoundedRectOutline(bx, by, bw, bh, 10.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f, 2.2f, 4);
-        eatsbits::ui::glyph::drawVectorText(r, "THE VEIL IS PARTED  -  VICTORY!", bx + 48.0f, by + 24.0f, 18.0f,
+        r.drawRoundedRectOutline(vl.bx, vl.by, vl.bw, vl.bh, 10.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f, 2.2f, 4);
+
+        eatsbits::ui::glyph::drawVectorText(r, vl.title, vl.titleX, vl.titleY, 20.0f,
                                             pal.accentR, pal.accentG, pal.accentB, 1.0f);
-        eatsbits::ui::glyph::drawVectorText(r, "PRESS [N] OR CLICK NEW DEAL FOR HANDS ANEW", bx + 64.0f, by + 58.0f, 12.5f,
-                                            0.94f, 0.90f, 0.82f, 0.95f);
+        if (vl.hasSubtitle) {
+            eatsbits::ui::glyph::drawVectorText(r, vl.subtitle, vl.subtitleX, vl.subtitleY, 12.5f,
+                                                0.94f, 0.90f, 0.82f, 0.95f);
+        }
+
+        const float btnBgTopR = btnHovered ? std::min(1.0f, pal.woodR0 * 1.45f) : pal.woodR0 * 1.15f;
+        const float btnBgTopG = btnHovered ? std::min(1.0f, pal.woodG0 * 1.45f) : pal.woodG0 * 1.15f;
+        const float btnBgTopB = btnHovered ? std::min(1.0f, pal.woodB0 * 1.45f) : pal.woodB0 * 1.15f;
+        const float btnBgBotR = btnHovered ? pal.woodR1 * 1.25f : pal.woodR1 * 0.95f;
+        const float btnBgBotG = btnHovered ? pal.woodG1 * 1.25f : pal.woodG1 * 0.95f;
+        const float btnBgBotB = btnHovered ? pal.woodB1 * 1.25f : pal.woodB1 * 0.95f;
+        r.drawRoundedRectGradient(vl.btnX, vl.btnY, vl.btnW, vl.btnH, 6.0f,
+                                  btnBgTopR, btnBgTopG, btnBgTopB,
+                                  btnBgBotR, btnBgBotG, btnBgBotB, 0.96f, 2);
+        r.drawRoundedRectOutline(vl.btnX, vl.btnY, vl.btnW, vl.btnH, 6.0f,
+                                 pal.accentR, pal.accentG, pal.accentB, btnHovered ? 1.0f : 0.78f, btnHovered ? 1.8f : 1.3f, 2);
+        eatsbits::ui::glyph::drawVectorText(r, "Start New Game", vl.btnTextX, vl.btnTextY, 12.5f,
+                                            btnHovered ? pal.accentR : 0.96f,
+                                            btnHovered ? pal.accentG : 0.93f,
+                                            btnHovered ? pal.accentB : 0.86f, 1.0f);
     } else if (board.gameStatus() == GameStatus::Defeat) {
         const float bw = 460.0f;
         const float bh = 96.0f;
@@ -4027,10 +4382,12 @@ struct InteractiveContext {
 
     void startAsyncDeckDef(const CardTextureCache::DeckDef& def, CardWearLevel wear, CardStock stock) {
 #if defined(__EMSCRIPTEN__)
-        const bool isProceduralBuiltin = (def.legacyId == DeckThemeId::SolEnshade ||
+        const bool isProceduralBuiltin = (def.legacyId == DeckThemeId::SolEngineClassic ||
                                           def.legacyId == DeckThemeId::SolPolyWhite ||
                                           def.legacyId == DeckThemeId::SolPolyDark ||
-                                          def.legacyId == DeckThemeId::ScoundrelLowPoly);
+                                          def.legacyId == DeckThemeId::ScoundrelLowPoly ||
+                                          def.legacyId == DeckThemeId::SolPolyClassic ||
+                                          def.legacyId == DeckThemeId::SolPolyMobile);
         if (def.filePath.empty() && !isProceduralBuiltin) {
             std::string jsName = def.id;
             EM_ASM({
@@ -4322,7 +4679,7 @@ struct InteractiveContext {
             } else if (themeId == "baroque_dark" || filePath.find("baroque_dark") != std::string::npos) {
                 deckTheme = DeckThemeId::BaroqueDark;
             } else if (themeId == "solengine" || themeId == "solenshade") {
-                deckTheme = DeckThemeId::SolEnshade;
+                deckTheme = DeckThemeId::SolEngineClassic;
             } else if (themeId == "classic") {
                 deckTheme = DeckThemeId::ClassicSvg;
             } else if (themeId == "steampunk") {
@@ -4740,7 +5097,9 @@ struct InteractiveContext {
             }
             const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
                                     s.deckTheme == DeckThemeId::SolPolyDark ||
-                                    s.deckTheme == DeckThemeId::ScoundrelLowPoly);
+                                    s.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                    s.deckTheme == DeckThemeId::SolPolyClassic ||
+                                    s.deckTheme == DeckThemeId::SolPolyMobile);
             bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
             if (seedChanged) {
                 cache.setLowPolySeed(s.lowPolySeed);
@@ -4799,7 +5158,9 @@ struct InteractiveContext {
 
         const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
                                 s.deckTheme == DeckThemeId::SolPolyDark ||
-                                s.deckTheme == DeckThemeId::ScoundrelLowPoly);
+                                s.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                s.deckTheme == DeckThemeId::SolPolyClassic ||
+                                s.deckTheme == DeckThemeId::SolPolyMobile);
         bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
         if (seedChanged) {
             cache.setLowPolySeed(s.lowPolySeed);
@@ -5629,6 +5990,15 @@ struct InteractiveContext {
                 return true;
             }()) {
                 // Click handled by Help Sidebar
+            } else if (!screensaverActive && board.isVictory() && [&]() {
+                const VictoryDialogLayout vl = buildVictoryDialogLayout(board, static_cast<float>(width), static_cast<float>(height));
+                if (fmx >= vl.btnX && fmx <= vl.btnX + vl.btnW && fmy >= vl.btnY && fmy <= vl.btnY + vl.btnH) {
+                    triggerAction(BtnNewDeal);
+                    return true;
+                }
+                return (fmx >= vl.bx && fmx <= vl.bx + vl.bw && fmy >= vl.by && fmy <= vl.by + vl.bh);
+            }()) {
+                // Click handled by Victory dialog
             } else if (hoveredBtn == BtnMenuToggle) {
                 isClickingSolEngineOrb = true;
                 isDraggingMenu = false;
@@ -6152,6 +6522,23 @@ struct InteractiveContext {
             }
             renderer.setPostFxActive(postFxEnabled);
 
+            settingsDialog.setLowCapabilityHardware(renderer.isLowCapabilityHardware());
+            uint32_t maxRenderW = 0;
+            uint32_t maxRenderH = 0;
+            RenderResolutionMode effectiveRes = activeCfg.renderResolution;
+            if (effectiveRes == RenderResolutionMode::Auto) {
+                effectiveRes = renderer.isLowCapabilityHardware()
+                    ? RenderResolutionMode::Res720p
+                    : RenderResolutionMode::Native;
+            }
+            switch (effectiveRes) {
+                case RenderResolutionMode::Res1080p: maxRenderW = 1920; maxRenderH = 1080; break;
+                case RenderResolutionMode::Res720p:  maxRenderW = 1280; maxRenderH = 720;  break;
+                case RenderResolutionMode::Res540p:  maxRenderW = 960;  maxRenderH = 540;  break;
+                default: break;
+            }
+            renderer.setInternalMaxResolution(maxRenderW, maxRenderH);
+
             renderer.beginFrame(static_cast<float>(width), static_cast<float>(height));
             const eatsbits::ui::LightSource2D steadyLight = lightController.getSteadyLight(static_cast<float>(width), static_cast<float>(height));
             renderer.setGlobalLight(dynamicLight, lCol[0], lCol[1], lCol[2], aCol[0], aCol[1], aCol[2],
@@ -6234,7 +6621,7 @@ struct InteractiveContext {
             if (activeCfg.godRaysIntensity > 0.005f || activeCfg.dustMotesIntensity > 0.005f) {
                 renderer.drawSceneAtmospherePass(static_cast<float>(width), static_cast<float>(height));
             }
-            if (postFxEnabled && !activeCfg.postFxAffectUi) {
+            if (!activeCfg.postFxAffectUi) {
                 renderer.applyPostFxPass();
             }
             if (settingsDialog.isOpen()) {

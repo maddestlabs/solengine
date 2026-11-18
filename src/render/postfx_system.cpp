@@ -340,8 +340,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let base = sample_scene(in.uv);
     let levels: f32 = select(4.0, clamp(ufx.param1, 2.0, 32.0), ufx.param1 >= 2.0);
     let pxScale: f32 = select(1.0, clamp(ufx.param2, 1.0, 6.0), ufx.param2 >= 1.0);
-    let px = floor(in.uv.x * ufx.width / pxScale);
-    let py = floor(in.uv.y * ufx.height / pxScale);
+    let resScale: f32 = max(1.0, round(ufx.height / 720.0));
+    let effPxScale: f32 = clamp(pxScale * resScale, 1.0, 18.0);
+    let px = floor(in.uv.x * ufx.width / effPxScale);
+    let py = floor(in.uv.y * ufx.height / effPxScale);
     let threshold = bayer4x4(px, py) - 0.5;
     let spread = 1.0 / max(levels - 1.0, 1.0);
     let dithered = clamp(floor((base.rgb + vec3<f32>(threshold * spread)) * (levels - 1.0) + 0.5) / max(levels - 1.0, 1.0), vec3<f32>(0.0), vec3<f32>(1.0));

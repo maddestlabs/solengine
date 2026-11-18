@@ -54,9 +54,11 @@ public:
     [[nodiscard]] bool hasOnCardClick() const noexcept { return hasOnCardClick_; }
     [[nodiscard]] bool hasOnStockClick() const noexcept { return hasOnStockClick_; }
     [[nodiscard]] bool hasOnTurnEnd() const noexcept { return hasOnTurnEnd_; }
+    [[nodiscard]] bool hasOnVictory() const noexcept { return hasOnVictory_; }
     [[nodiscard]] bool hasGetStatus() const noexcept { return hasGetStatus_; }
     [[nodiscard]] bool hasEvalHeuristic() const noexcept { return hasEvalHeuristic_; }
     [[nodiscard]] const GameDocManifest& docManifest() const noexcept { return docManifest_; }
+    [[nodiscard]] const VictoryChoreography& victoryChoreography() const noexcept { return victoryChoreography_; }
 
     // Rule hook invocations
     bool invokeOnDeal(ScriptBoardContext& ctx);
@@ -68,6 +70,7 @@ public:
     bool invokeOnCardClick(ScriptBoardContext& ctx, uint8_t zoneIdx, size_t cardIdx);
     bool invokeOnStockClick(ScriptBoardContext& ctx);
     bool invokeOnTurnEnd(ScriptBoardContext& ctx);
+    bool invokeOnVictory(ScriptBoardContext& ctx);
     [[nodiscard]] GameStatus invokeGetStatus(ScriptBoardContext& ctx);
     [[nodiscard]] int32_t invokeEvalHeuristic(ScriptBoardContext& ctx);
 
@@ -96,9 +99,11 @@ private:
     bool hasOnCardClick_{false};
     bool hasOnStockClick_{false};
     bool hasOnTurnEnd_{false};
+    bool hasOnVictory_{false};
     bool hasGetStatus_{false};
     bool hasEvalHeuristic_{false};
     GameDocManifest docManifest_;
+    VictoryChoreography victoryChoreography_;
 };
 
 } // namespace solengine

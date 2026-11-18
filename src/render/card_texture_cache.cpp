@@ -852,7 +852,7 @@ static void bakeThemeCardBack(CardTexture& back, DeckThemeId theme, int cardW, i
             size_t p = static_cast<size_t>(y * cardW + x) * 4;
             uint8_t r = 240, g = 232, b = 214, a = 255;
 
-            if (theme == DeckThemeId::SolEnshade) {
+            if (theme == DeckThemeId::SolEngineClassic) {
                 // Crisp minimal card back in solid charcoal with clean geometric inner border
                 r = 24; g = 24; b = 27;
                 if (x >= pad && x < cardW - pad && y >= pad && y < cardH - pad) {
@@ -1129,7 +1129,7 @@ static void bakeThemeCardBack(CardTexture& back, DeckThemeId theme, int cardW, i
 
 const char* CardTextureCache::deckThemeName(DeckThemeId theme) noexcept {
     switch (theme) {
-        case DeckThemeId::SolEnshade:  return "SOLENGINE";
+        case DeckThemeId::SolEngineClassic: return "SOLENGINE CLASSIC";
         case DeckThemeId::ClassicSvg:  return "CLASSIC";
         case DeckThemeId::SteampunkAi: return "STEAMPUNK";
         case DeckThemeId::Anime:       return "ANIME";
@@ -1145,6 +1145,8 @@ const char* CardTextureCache::deckThemeName(DeckThemeId theme) noexcept {
         case DeckThemeId::SolPolyWhite:      return "SOLPOLY";
         case DeckThemeId::SolPolyDark:       return "SOLPOLY DARK";
         case DeckThemeId::ScoundrelLowPoly:  return "SCOUNDREL LOW-POLY";
+        case DeckThemeId::SolPolyClassic:    return "SOLPOLY CLASSIC";
+        case DeckThemeId::SolPolyMobile:     return "SOLPOLY MOBILE";
         case DeckThemeId::Count:       return "DEFAULT";
     }
     return "UNKNOWN";
@@ -1186,7 +1188,7 @@ const char* CardTextureCache::cornerStyleName(CardCornerStyle style) noexcept {
 
 std::string CardTextureCache::currentDeckSlug() const {
     switch (currentTheme_) {
-        case DeckThemeId::SolEnshade:        return "solengine";
+        case DeckThemeId::SolEngineClassic:  return "solengine";
         case DeckThemeId::ClassicSvg:        return "classic";
         case DeckThemeId::SteampunkAi:       return "steampunk";
         case DeckThemeId::Anime:             return "anime";
@@ -1202,6 +1204,8 @@ std::string CardTextureCache::currentDeckSlug() const {
         case DeckThemeId::SolPolyWhite:      return "solpoly";
         case DeckThemeId::SolPolyDark:       return "solpoly_dark";
         case DeckThemeId::ScoundrelLowPoly:  return "scoundrel_lowpoly";
+        case DeckThemeId::SolPolyClassic:    return "solpoly_classic";
+        case DeckThemeId::SolPolyMobile:     return "solpoly_mobile";
         default:                             return "solengine";
     }
 }
@@ -1714,7 +1718,7 @@ static void bakeBaseProceduralDeck(
     if (onProgress) {
         onProgress(52.0f / 53.0f, "Synthesizing Card 53/53 (Card Back)...");
     }
-    bakeThemeCardBack(outBase[CardTextureCache::kCardBackIndex], DeckThemeId::SolEnshade, cardW, cardH);
+    bakeThemeCardBack(outBase[CardTextureCache::kCardBackIndex], DeckThemeId::SolEngineClassic, cardW, cardH);
     for (size_t v = 1; v < CardTextureCache::kCardBackVariants; ++v) {
         outBase[CardTextureCache::kCardBackIndex + v] = outBase[CardTextureCache::kCardBackIndex];
     }
@@ -1944,7 +1948,7 @@ static bool loadBaseFromEats(
     int cardH = inOutCardH;
 
     if (eatsFilePath.find("solengine") != std::string::npos || eatsFilePath.find("solenshade") != std::string::npos) {
-        outTheme = DeckThemeId::SolEnshade;
+        outTheme = DeckThemeId::SolEngineClassic;
     } else if (eatsFilePath.find("cyberpunk") != std::string::npos) {
         outTheme = DeckThemeId::Cyberpunk;
     } else if (eatsFilePath.find("anime") != std::string::npos) {
@@ -2077,7 +2081,7 @@ static bool loadBaseFromEats(
 
         std::string tId = getOptString("theme_id", getOptString("theme", ""));
         if (!tId.empty()) {
-            if (tId == "solengine" || tId == "solenshade") outTheme = DeckThemeId::SolEnshade;
+            if (tId == "solengine" || tId == "solenshade") outTheme = DeckThemeId::SolEngineClassic;
             else if (tId == "classic") outTheme = DeckThemeId::ClassicSvg;
             else if (tId == "steampunk") outTheme = DeckThemeId::SteampunkAi;
             else if (tId == "anime") outTheme = DeckThemeId::Anime;
@@ -2134,7 +2138,7 @@ static bool loadBaseFromEats(
         };
         std::string themeId = getOptString("id", getOptString("theme_id", ""));
         if (!themeId.empty()) {
-            if (themeId == "solengine" || themeId == "solenshade") outTheme = DeckThemeId::SolEnshade;
+            if (themeId == "solengine" || themeId == "solenshade") outTheme = DeckThemeId::SolEngineClassic;
             else if (themeId == "classic") outTheme = DeckThemeId::ClassicSvg;
             else if (themeId == "steampunk") outTheme = DeckThemeId::SteampunkAi;
             else if (themeId == "anime") outTheme = DeckThemeId::Anime;
@@ -2431,7 +2435,9 @@ bool CardTextureCache::loadBaseDeckTheme(
 ) {
     const bool isLowPoly = (theme == DeckThemeId::SolPolyWhite ||
                             theme == DeckThemeId::SolPolyDark ||
-                            theme == DeckThemeId::ScoundrelLowPoly);
+                            theme == DeckThemeId::ScoundrelLowPoly ||
+                            theme == DeckThemeId::SolPolyClassic ||
+                            theme == DeckThemeId::SolPolyMobile);
     if (theme == currentTheme_ && isLoaded_ &&
         (!isLowPoly || loadedLowPolySeed_ == lowPolySeed_) &&
         &outBase != &baseTextures_ &&
@@ -2448,6 +2454,14 @@ bool CardTextureCache::loadBaseDeckTheme(
         lpOpts.seed = lowPolySeed_;
         if (theme == DeckThemeId::SolPolyWhite) {
             lpOpts.style = LowPolyStyle::Classic;
+            lpOpts.bg = LowPolyBg::White;
+            lpOpts.clearBottomRight = false;
+        } else if (theme == DeckThemeId::SolPolyClassic) {
+            lpOpts.style = LowPolyStyle::Clockwork;
+            lpOpts.bg = LowPolyBg::White;
+            lpOpts.clearBottomRight = false;
+        } else if (theme == DeckThemeId::SolPolyMobile) {
+            lpOpts.style = LowPolyStyle::Mobile;
             lpOpts.bg = LowPolyBg::White;
             lpOpts.clearBottomRight = false;
         } else if (theme == DeckThemeId::SolPolyDark) {
@@ -2486,7 +2500,7 @@ bool CardTextureCache::loadBaseDeckTheme(
         return loadBaseFromSvg(path, cardW, cardH, theme, outBase, onProgress);
     };
 
-    if (theme == DeckThemeId::SolEnshade) {
+    if (theme == DeckThemeId::SolEngineClassic) {
         const std::string candidateEats[] = {
             "decks/solenshade.eats",
             "/decks/solenshade.eats",
@@ -2737,9 +2751,9 @@ bool CardTextureCache::loadBaseDeckTheme(
         }
     }
 
-    if (theme != DeckThemeId::SolEnshade) {
-        std::cout << "[SolEngine] Themed deck not found, falling back to SolEnshade.\n";
-        return loadBaseDeckTheme(DeckThemeId::SolEnshade, cardW, cardH, outBase, onProgress);
+    if (theme != DeckThemeId::SolEngineClassic) {
+        std::cout << "[SolEngine] Themed deck not found, falling back to SolEngine Classic.\n";
+        return loadBaseDeckTheme(DeckThemeId::SolEngineClassic, cardW, cardH, outBase, onProgress);
     }
 
     std::cout << "[SolEngine] Falling back to built-in procedural high-res card textures.\n";
@@ -3223,9 +3237,13 @@ void CardTextureCache::setLowPolySeed(uint32_t seed) {
     sampleCardCache_.erase(DeckThemeId::SolPolyWhite);
     sampleCardCache_.erase(DeckThemeId::SolPolyDark);
     sampleCardCache_.erase(DeckThemeId::ScoundrelLowPoly);
+    sampleCardCache_.erase(DeckThemeId::SolPolyClassic);
+    sampleCardCache_.erase(DeckThemeId::SolPolyMobile);
     sampleDeckCardCache_.erase("solpoly");
     sampleDeckCardCache_.erase("solpoly_dark");
     sampleDeckCardCache_.erase("scoundrel_lowpoly");
+    sampleDeckCardCache_.erase("solpoly_classic");
+    sampleDeckCardCache_.erase("solpoly_mobile");
 }
 
 void CardTextureCache::updatePreviewCard(DeckThemeId theme, CardWearLevel wear, CardStock stock) {
@@ -3304,7 +3322,7 @@ static std::string extractEatsMetaField(const std::string& header, const char* k
 
 static DeckThemeId mapDeckSlugToLegacyId(const std::string& id) {
     std::string low = toLowerCopy(id);
-    if (low == "solengine" || low == "solenshade") return DeckThemeId::SolEnshade;
+    if (low == "solengine" || low == "solenshade" || low == "solengine_classic") return DeckThemeId::SolEngineClassic;
     if (low == "classic") return DeckThemeId::ClassicSvg;
     if (low == "steampunk") return DeckThemeId::SteampunkAi;
     if (low == "anime") return DeckThemeId::Anime;
@@ -3319,15 +3337,19 @@ static DeckThemeId mapDeckSlugToLegacyId(const std::string& id) {
     if (low == "solpoly") return DeckThemeId::SolPolyWhite;
     if (low == "solpoly_dark") return DeckThemeId::SolPolyDark;
     if (low == "scoundrel_lowpoly") return DeckThemeId::ScoundrelLowPoly;
+    if (low == "solpoly_classic") return DeckThemeId::SolPolyClassic;
+    if (low == "solpoly_mobile") return DeckThemeId::SolPolyMobile;
     return DeckThemeId::Custom;
 }
 
 void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
     scannedDecks_.clear();
-    scannedDecks_.push_back(DeckDef{ "solengine", "SOLENGINE", "", DeckThemeId::SolEnshade });
+    scannedDecks_.push_back(DeckDef{ "solpoly_classic", "SOLPOLY CLASSIC", "", DeckThemeId::SolPolyClassic });
+    scannedDecks_.push_back(DeckDef{ "solengine", "SOLENGINE CLASSIC", "", DeckThemeId::SolEngineClassic });
     scannedDecks_.push_back(DeckDef{ "solpoly", "SOLPOLY", "", DeckThemeId::SolPolyWhite });
     scannedDecks_.push_back(DeckDef{ "solpoly_dark", "SOLPOLY DARK", "", DeckThemeId::SolPolyDark });
     scannedDecks_.push_back(DeckDef{ "scoundrel_lowpoly", "SCOUNDREL LOW-POLY", "", DeckThemeId::ScoundrelLowPoly });
+    scannedDecks_.push_back(DeckDef{ "solpoly_mobile", "SOLPOLY MOBILE", "", DeckThemeId::SolPolyMobile });
 
     std::error_code ec;
     const std::string searchPaths[] = {
@@ -3350,11 +3372,13 @@ void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
     }
 
     std::unordered_map<std::string, size_t> idToIndex;
-    idToIndex["solengine"] = 0;
-    idToIndex["solenshade"] = 0;
-    idToIndex["solpoly"] = 1;
-    idToIndex["solpoly_dark"] = 2;
-    idToIndex["scoundrel_lowpoly"] = 3;
+    idToIndex["solpoly_classic"] = 0;
+    idToIndex["solengine"] = 1;
+    idToIndex["solenshade"] = 1;
+    idToIndex["solpoly"] = 2;
+    idToIndex["solpoly_dark"] = 3;
+    idToIndex["scoundrel_lowpoly"] = 4;
+    idToIndex["solpoly_mobile"] = 5;
 
     if (!targetDir.empty()) {
         std::vector<DeckDef> discovered;

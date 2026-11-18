@@ -593,7 +593,9 @@ void SettingsDialog::render(
         // 2b. Low-Poly Seed (when SolPoly / Scoundrel Low-Poly is active)
         const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
-                                    tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly);
+                                    tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyClassic ||
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyMobile);
         if (isLowPolyDeck) {
             std::string seedStr = "Low-Poly Seed: " + std::to_string(tempSettings_.lowPolySeed);
             drawStepper(seedStr);
@@ -995,6 +997,20 @@ void SettingsDialog::render(
 
         // 3. Post-Processing
         drawSectionHeader("POST-PROCESSING");
+        std::string resLabel = "Auto (Native)";
+        switch (tempSettings_.renderResolution) {
+            case RenderResolutionMode::Auto:
+                resLabel = lowCapabilityHardware_ ? "Auto (720p)" : "Auto (Native)";
+                break;
+            case RenderResolutionMode::Native:   resLabel = "Native"; break;
+            case RenderResolutionMode::Res1080p: resLabel = "1920x1080 (1080p)"; break;
+            case RenderResolutionMode::Res720p:  resLabel = "1280x720 (720p)"; break;
+            case RenderResolutionMode::Res540p:  resLabel = "960x540 (540p)"; break;
+            default: break;
+        }
+        drawSceneStepper("Render Res: " + resLabel);
+        curY += rowH + rowGap;
+
         (void)PostFxSystem::instance().availableEffects();
         size_t curPfxIdx = PostFxSystem::instance().findEffectIndex(tempSettings_.postFxId);
         const PostFxDef* curPfxDef = PostFxSystem::instance().getEffectDef(curPfxIdx);
@@ -1174,6 +1190,36 @@ void SettingsDialog::render(
                 r.drawRoundedRectOutline(ux, curY, gBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
                 float uTextW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, uiModes[u]);
                 eatsbits::ui::glyph::drawVectorText(r, uiModes[u], ux + (gBtnW - uTextW) * 0.5f, curY + 8.0f, 10.5f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+            }
+        }
+
+        curY += 38.0f;
+
+        drawSectionHeader("VICTORY ANIMATION");
+        const char* victoryLabels[6] = { "GAME DEFAULT", "CASCADE", "FIGURE 8", "SPIRAL", "ORBIT RING", "FIREWORKS" };
+        const VictoryAnimOverride victoryVals[6] = {
+            VictoryAnimOverride::GameDefault,
+            VictoryAnimOverride::CascadeBounce,
+            VictoryAnimOverride::FigureEight,
+            VictoryAnimOverride::SpiralVortex,
+            VictoryAnimOverride::OrbitRing,
+            VictoryAnimOverride::Fireworks
+        };
+        const float vBtnW = (contentW - 48.0f) / 3.0f;
+        for (int v = 0; v < 6; ++v) {
+            const int col = v % 3;
+            const int row = v / 3;
+            float vx = contentX + 16.0f + col * (vBtnW + 8.0f);
+            float vy = curY + row * 34.0f;
+            bool isSel = (tempSettings_.victoryAnimOverride == victoryVals[v]);
+            bool vHov = (mouseX >= vx && mouseX <= vx + vBtnW && mouseY >= vy && mouseY <= vy + 28.0f);
+            if (isClockwork) {
+                clockwork_ui::drawBrassButton(r, vx, vy, vBtnW, 28.0f, 4.0f, victoryLabels[v], vHov, isSel, 10.0f);
+            } else {
+                r.drawRoundedRect(vx, vy, vBtnW, 28.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (vHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                r.drawRoundedRectOutline(vx, vy, vBtnW, 28.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                float vTextW = eatsbits::ui::glyph::getVectorTextWidth(10.0f, victoryLabels[v]);
+                eatsbits::ui::glyph::drawVectorText(r, victoryLabels[v], vx + (vBtnW - vTextW) * 0.5f, vy + 8.0f, 10.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
             }
         }
     } else {
@@ -1597,7 +1643,9 @@ bool SettingsDialog::handleMouseButton(
         // 2b. Low-Poly Seed (when SolPoly / Scoundrel Low-Poly is active)
         const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
-                                    tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly);
+                                    tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyClassic ||
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyMobile);
         if (isLowPolyDeck) {
             if (testStepper(stepDelta)) {
                 int nextSeed = static_cast<int>(tempSettings_.lowPolySeed) + stepDelta;
@@ -1898,6 +1946,17 @@ bool SettingsDialog::handleMouseButton(
             }
             curY += (24.0f + rowGap) + (24.0f + 8.0f) + 24.0f; // God rays/dust row + darkness/strength row + gap + Post-FX header
 
+            // Render Resolution stepper
+            if (testSceneStepper(stepDelta)) {
+                constexpr int count = static_cast<int>(RenderResolutionMode::Count);
+                int cur = static_cast<int>(tempSettings_.renderResolution);
+                cur = (stepDelta < 0) ? ((cur + count - 1) % count) : ((cur + 1) % count);
+                tempSettings_.renderResolution = static_cast<RenderResolutionMode>(cur);
+                foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                return true;
+            }
+            curY += rowH + rowGap;
+
             // Post-FX stepper
             const auto& availablePfx = PostFxSystem::instance().availableEffects();
             size_t curPfxIdx = PostFxSystem::instance().findEffectIndex(tempSettings_.postFxId);
@@ -2011,6 +2070,28 @@ bool SettingsDialog::handleMouseButton(
             float ux = contentX + 16.0f + u * (gBtnW + 8.0f);
             if (mouseX >= ux && mouseX <= ux + gBtnW && mouseY >= curY && mouseY <= curY + 28.0f) {
                 tempSettings_.guiTheme = uiVals[u];
+                foley.triggerSound(FoleySound::WoodClick, 0.8f);
+                return true;
+            }
+        }
+
+        curY += 38.0f + 24.0f;
+        const VictoryAnimOverride victoryVals[6] = {
+            VictoryAnimOverride::GameDefault,
+            VictoryAnimOverride::CascadeBounce,
+            VictoryAnimOverride::FigureEight,
+            VictoryAnimOverride::SpiralVortex,
+            VictoryAnimOverride::OrbitRing,
+            VictoryAnimOverride::Fireworks
+        };
+        const float vBtnW = (contentW - 48.0f) / 3.0f;
+        for (int v = 0; v < 6; ++v) {
+            const int col = v % 3;
+            const int row = v / 3;
+            float vx = contentX + 16.0f + col * (vBtnW + 8.0f);
+            float vy = curY + row * 34.0f;
+            if (mouseX >= vx && mouseX <= vx + vBtnW && mouseY >= vy && mouseY <= vy + 28.0f) {
+                tempSettings_.victoryAnimOverride = victoryVals[v];
                 foley.triggerSound(FoleySound::WoodClick, 0.8f);
                 return true;
             }

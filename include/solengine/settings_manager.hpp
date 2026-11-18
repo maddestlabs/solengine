@@ -14,6 +14,15 @@ namespace solengine {
 
 class SolitaireBoard;
 
+enum class RenderResolutionMode : uint8_t {
+    Auto = 0,     // Native on capable hardware, 720p on low-capability CPU/GPU
+    Native = 1,   // Full swapchain resolution
+    Res1080p = 2, // Max 1920x1080 (aspect-preserving)
+    Res720p = 3,  // Max 1280x720 (aspect-preserving)
+    Res540p = 4,  // Max 960x540 (aspect-preserving)
+    Count
+};
+
 struct AppSettings {
     GameVariant variant{GameVariant::KlondikeDraw1};
     TableThemeId tableTheme{TableThemeId::PastelTan};
@@ -25,9 +34,10 @@ struct AppSettings {
     std::unordered_map<std::string, std::string> postFxOptions;
     float postFxIntensity{1.0f};
     bool postFxAffectUi{false};
+    RenderResolutionMode renderResolution{RenderResolutionMode::Auto};
     TableTintPreset tableTint{TableTintPreset::Auto};
-    DeckThemeId deckTheme{DeckThemeId::SolEnshade};
-    std::string deckSlug{"solengine"};
+    DeckThemeId deckTheme{DeckThemeId::SolPolyClassic};
+    std::string deckSlug{"solpoly_classic"};
     uint32_t lowPolySeed{42};
     std::string cardBackId{"classic_sapphire"};
     GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
@@ -64,6 +74,7 @@ struct AppSettings {
     uint32_t lastSeed{2026u};
     bool autoFinish{true};
     bool showTableMarkings{true}; // true = guides/runes/wells, false = pure bare tabletop (cards only)
+    VictoryAnimOverride victoryAnimOverride{VictoryAnimOverride::GameDefault};
     std::vector<std::string> favorites{
         "klondike_draw_1",
         "klondike_draw_3",

@@ -11,8 +11,14 @@
 - help sidebar mostly, but UI font size
 - environmental shadows: subtractive blend mode
 - Commit to solengine.org. Ensure the game doesn't get stuck with browser cache issues. Ensure PWA works.
-- Icons. We really do not proper icons.
+- Icons. We really do need proper icons.
 - logo needs to be vector for pwa.
+- eatsdither; dither shader + procedural library for easy reuse across eatsbits apps
+- change icon and clockwork theme still to low poly (should save a bit of gpu/cpu)
+- c header style apis from solengine
+- resolution setting: allow user to configure resolution for game itself (allows for better performance with potentially better results if user wants pixelart or dither aesthetic)
+- slider to control light movement maximum
+- slider to control light max speed
 
 ## Language and Accessibility
 

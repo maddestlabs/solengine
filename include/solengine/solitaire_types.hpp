@@ -369,6 +369,8 @@ struct TagDoc {
 struct GameDocManifest {
     std::string winGoal;
     std::string loseGoal;
+    std::string victoryTitle;
+    std::string victorySubtitle;
     uint8_t timeRating{3};
     std::string timeLabel{"Average"};
     uint8_t chanceRating{3};
@@ -384,6 +386,8 @@ struct GameDocManifest {
     void clear() noexcept {
         winGoal.clear();
         loseGoal.clear();
+        victoryTitle.clear();
+        victorySubtitle.clear();
         timeRating = 3;
         timeLabel = "Average";
         chanceRating = 3;
@@ -396,6 +400,50 @@ struct GameDocManifest {
         stats.clear();
         tags.clear();
     }
+};
+
+enum class VictoryAnimType : uint8_t {
+    CascadeBounce = 0,
+    FigureEight,
+    SpiralVortex,
+    OrbitRing,
+    Fireworks
+};
+
+enum class VictoryAnimOverride : uint8_t {
+    GameDefault = 0,
+    CascadeBounce,
+    FigureEight,
+    SpiralVortex,
+    OrbitRing,
+    Fireworks
+};
+
+enum class VictoryCardSource : uint8_t {
+    Foundation = 0,
+    AllPiles,
+    SyntheticDeck
+};
+
+struct VictoryStageSpec {
+    VictoryAnimType type{VictoryAnimType::CascadeBounce};
+    VictoryCardSource source{VictoryCardSource::Foundation};
+    float delay{0.0f};
+    float duration{0.0f};
+    float stagger{0.08f};
+    float speed{1.0f};
+    float ampX{0.34f};
+    float ampY{0.26f};
+    float gravity{680.0f};
+    float spin{1.0f};
+    int32_t count{0};
+    int32_t burstCount{13};
+    bool loop{true};
+};
+
+struct VictoryChoreography {
+    std::vector<VictoryStageSpec> stages;
+    void clear() noexcept { stages.clear(); }
 };
 
 struct MoveCommand {

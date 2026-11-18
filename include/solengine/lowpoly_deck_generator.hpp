@@ -11,7 +11,9 @@ namespace solengine {
 
 enum class LowPolyStyle : uint8_t {
     Classic   = 0,
-    Scoundrel = 1
+    Scoundrel = 1,
+    Clockwork = 2,
+    Mobile    = 3
 };
 
 enum class LowPolyBg : uint8_t {

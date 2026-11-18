@@ -1,4 +1,5 @@
 #include "solengine/lowpoly_deck_generator.hpp"
+#include "solengine/classic_deck_symbols.hpp"
 #include "solengine/vector_binary.hpp"
 
 #include <algorithm>
@@ -122,6 +123,93 @@ void addStrokeRectShape(VectorImage& img, float x, float y, float w, float h, ui
     img.shapes.push_back(std::move(shape));
 }
 
+void addPolyEx(
+    VectorImage& img,
+    const std::vector<std::pair<float, float>>& pts,
+    uint32_t fillArgb,
+    uint32_t strokeArgb = 0,
+    float strokeW = 0.0f
+) {
+    if (pts.size() < 3) return;
+    VectorShape shape{};
+    if (fillArgb != 0) {
+        shape.fillColor = fillArgb;
+        shape.flags |= kVectorHasFill;
+    }
+    if (strokeArgb != 0 && strokeW > 0.0f) {
+        shape.strokeColor = strokeArgb;
+        shape.strokeWidth = strokeW;
+        shape.flags |= kVectorHasStroke;
+    }
+    if (shape.flags == 0) return;
+
+    shape.minX = shape.maxX = pts[0].first;
+    shape.minY = shape.maxY = pts[0].second;
+    VectorPath path{};
+    path.closed = true;
+    path.verbs.reserve(pts.size());
+    for (size_t i = 0; i < pts.size(); ++i) {
+        const float x = pts[i].first;
+        const float y = pts[i].second;
+        shape.minX = std::min(shape.minX, x);
+        shape.maxX = std::max(shape.maxX, x);
+        shape.minY = std::min(shape.minY, y);
+        shape.maxY = std::max(shape.maxY, y);
+        VectorVerb v{};
+        v.type = (i == 0) ? VectorVerbType::MoveTo : VectorVerbType::LineTo;
+        v.x0 = x;
+        v.y0 = y;
+        path.verbs.push_back(v);
+    }
+    shape.paths.push_back(std::move(path));
+    img.shapes.push_back(std::move(shape));
+}
+
+void addLineShape(
+    VectorImage& img,
+    float x1,
+    float y1,
+    float x2,
+    float y2,
+    uint32_t strokeArgb,
+    float strokeW
+) {
+    VectorShape shape{};
+    shape.strokeColor = strokeArgb;
+    shape.strokeWidth = strokeW;
+    shape.flags = kVectorHasStroke;
+    shape.minX = std::min(x1, x2);
+    shape.maxX = std::max(x1, x2);
+    shape.minY = std::min(y1, y2);
+    shape.maxY = std::max(y1, y2);
+
+    VectorPath path{};
+    path.closed = false;
+    path.verbs.push_back({VectorVerbType::MoveTo, x1, y1, 0, 0, 0, 0});
+    path.verbs.push_back({VectorVerbType::LineTo, x2, y2, 0, 0, 0, 0});
+    shape.paths.push_back(std::move(path));
+    img.shapes.push_back(std::move(shape));
+}
+
+void addCircleApprox(
+    VectorImage& img,
+    float cx,
+    float cy,
+    float r,
+    uint32_t fillArgb,
+    uint32_t strokeArgb = 0,
+    float strokeW = 0.0f,
+    int segments = 20
+) {
+    std::vector<std::pair<float, float>> pts;
+    pts.reserve(static_cast<size_t>(segments));
+    for (int i = 0; i < segments; ++i) {
+        const float a = (2.0f * kPi * static_cast<float>(i)) / static_cast<float>(segments);
+        pts.emplace_back(cx + r * std::cos(a), cy + r * std::sin(a));
+    }
+    addPolyEx(img, pts, fillArgb, strokeArgb, strokeW);
+}
+
 void emitTris(
     VectorImage& img,
     const std::vector<Tri3>& tris,
@@ -192,7 +280,17 @@ const char* rankGlyphPath(Rank rank) {
     return "";
 }
 
-void addRankGlyphShape(VectorImage& img, Rank rank, float cx, float cy, float h, uint32_t argb, bool rotate180) {
+void addRankGlyphShape(
+    VectorImage& img,
+    Rank rank,
+    float cx,
+    float cy,
+    float h,
+    uint32_t argb,
+    bool rotate180,
+    uint32_t outlineArgb = 0,
+    float outlineW = 0.0f
+) {
     const char* p = rankGlyphPath(rank);
     if (!p || !*p) return;
 
@@ -264,6 +362,14 @@ void addRankGlyphShape(VectorImage& img, Rank rank, float cx, float cy, float h,
         shape.paths.push_back(std::move(curPath));
     }
     if (!shape.paths.empty()) {
+        if (outlineArgb != 0 && outlineW > 0.0f) {
+            VectorShape outline = shape;
+            outline.fillColor = 0;
+            outline.strokeColor = outlineArgb;
+            outline.strokeWidth = outlineW;
+            outline.flags = static_cast<uint8_t>(kVectorHasStroke | (1u << 3) | (1u << 5));
+            img.shapes.push_back(std::move(outline));
+        }
         img.shapes.push_back(std::move(shape));
     }
 }
@@ -304,6 +410,18 @@ void addCornerSuit(VectorImage& img, Suit suit, float cx, float cy, float size, 
     }
 }
 
+void addClassicSuitShape(
+    VectorImage& img,
+    Suit suit,
+    float cx,
+    float cy,
+    float radius,
+    float rotDeg,
+    uint32_t fillArgb,
+    uint32_t outlineArgb = 0,
+    float outlineW = 0.0f
+);
+
 void addCornerIndices(VectorImage& img, Rank rank, Suit suit, const LowPolyDeckOptions& opts) {
     const bool darkBg = (opts.bg == LowPolyBg::Dark);
     const bool isRed = (suit == Suit::Hearts || suit == Suit::Diamonds);
@@ -311,11 +429,32 @@ void addCornerIndices(VectorImage& img, Rank rank, Suit suit, const LowPolyDeckO
         ? (darkBg ? 0xFFF2D8D5u : 0xFF9E1B24u)
         : (darkBg ? 0xFFE8DFD1u : 0xFF1A1733u);
 
-    addRankGlyphShape(img, rank, 11.0f, 14.0f, 10.5f, col, false);
-    addCornerSuit(img, suit, 11.0f, 26.0f, 8.2f, darkBg, false);
-    if (!opts.clearBottomRight) {
-        addRankGlyphShape(img, rank, 11.0f, 14.0f, 10.5f, col, true);
-        addCornerSuit(img, suit, 11.0f, 26.0f, 8.2f, darkBg, true);
+    const bool isMobile = (opts.style == LowPolyStyle::Mobile);
+    const float rx = isMobile ? 12.5f : 11.0f;
+    const float ry = isMobile ? 15.0f : 14.0f;
+    const float rSize = isMobile ? 13.2f : 10.5f;
+    const float sy = isMobile ? 29.5f : 26.0f;
+    const float sSize = isMobile ? 10.0f : 8.2f;
+
+    if (isMobile) {
+        const uint32_t whiteCol = 0xFFFFFFFFu;
+        const uint32_t pipCol = isRed ? (darkBg ? 0xFFF2D8D5u : 0xFFCC1D24u) : (darkBg ? 0xFFE8DFD1u : 0xFF14161Eu);
+        const uint32_t topCol = (suit == Suit::Hearts) ? whiteCol : pipCol;
+        const uint32_t botCol = (suit == Suit::Clubs || suit == Suit::Spades) ? whiteCol : pipCol;
+
+        addRankGlyphShape(img, rank, rx, ry, rSize, topCol, false);
+        addClassicSuitShape(img, suit, rx, sy, sSize * 0.56f, 0.0f, topCol);
+        if (!opts.clearBottomRight) {
+            addRankGlyphShape(img, rank, rx, ry, rSize, botCol, true);
+            addClassicSuitShape(img, suit, 100.0f - rx, 140.0f - sy, sSize * 0.56f, 180.0f, botCol);
+        }
+    } else {
+        addRankGlyphShape(img, rank, rx, ry, rSize, col, false);
+        addCornerSuit(img, suit, rx, sy, sSize, darkBg, false);
+        if (!opts.clearBottomRight) {
+            addRankGlyphShape(img, rank, rx, ry, rSize, col, true);
+            addCornerSuit(img, suit, rx, sy, sSize, darkBg, true);
+        }
     }
 }
 
@@ -630,6 +769,437 @@ void emitScoundrelMonster(VectorImage& img, Suit suit, int rnum, std::mt19937& r
     emitTris(img, tris, 50.0f, 73.0f);
 }
 
+struct ClockworkPalette {
+    uint32_t dark;
+    uint32_t primary;
+    uint32_t mid;
+    uint32_t accent;
+    uint32_t accentHi;
+    uint32_t accentLo;
+    uint32_t ink;
+    uint32_t skinHi;
+    uint32_t skinLo;
+    uint32_t ivory;
+};
+
+ClockworkPalette getClockworkPalette(Suit suit) {
+    switch (suit) {
+        case Suit::Spades:
+            return {0xFF18181Bu, 0xFF27272Au, 0xFF3F3F46u, 0xFFD49B35u, 0xFFF3C969u, 0xFF9A6B1Au, 0xFF09090Bu, 0xFFF4DCCBu, 0xFFDFB8A0u, 0xFFF5EFE6u};
+        case Suit::Hearts:
+            return {0xFF450A0Au, 0xFF7F1D1Du, 0xFF991B1Bu, 0xFFD98A36u, 0xFFF4C062u, 0xFF9C521Bu, 0xFF240606u, 0xFFF6DFD0u, 0xFFE2BBA3u, 0xFFF7F0E8u};
+        case Suit::Clubs:
+            return {0xFF52525Bu, 0xFF71717Au, 0xFFA1A1AAu, 0xFFC88D32u, 0xFFEAB854u, 0xFF8C5C19u, 0xFF18181Bu, 0xFFF2DAC9u, 0xFFDDB59Du, 0xFFF3EFE6u};
+        case Suit::Diamonds:
+            return {0xFF6B1229u, 0xFFC81E3Au, 0xFFE84558u, 0xFFD99126u, 0xFFFBCF58u, 0xFF9A5D12u, 0xFF291016u, 0xFFF6DFD0u, 0xFFE2BBA3u, 0xFFF8F1E7u};
+    }
+    return {0xFF18181Bu, 0xFF27272Au, 0xFF3F3F46u, 0xFFD49B35u, 0xFFF3C969u, 0xFF9A6B1Au, 0xFF09090Bu, 0xFFF4DCCBu, 0xFFDFB8A0u, 0xFFF5EFE6u};
+}
+
+std::vector<std::pair<float, float>> makeGearPts(
+    float cx,
+    float cy,
+    float rOuter,
+    float rInner,
+    int teeth,
+    float phaseDeg
+) {
+    std::vector<std::pair<float, float>> pts;
+    pts.reserve(static_cast<size_t>(teeth * 4));
+    const float step = 360.0f / static_cast<float>(teeth);
+    const float deg2rad = kPi / 180.0f;
+    for (int i = 0; i < teeth; ++i) {
+        const float base = phaseDeg + static_cast<float>(i) * step;
+        const float angles[4] = {
+            base * deg2rad,
+            (base + step * 0.22f) * deg2rad,
+            (base + step * 0.50f) * deg2rad,
+            (base + step * 0.72f) * deg2rad,
+        };
+        const float radii[4] = {rInner, rOuter, rOuter, rInner};
+        for (int k = 0; k < 4; ++k) {
+            pts.emplace_back(cx + radii[k] * std::cos(angles[k]), cy + radii[k] * std::sin(angles[k]));
+        }
+    }
+    return pts;
+}
+
+void emitClockworkCourt(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng, const LowPolyDeckOptions& /*opts*/) {
+    const ClockworkPalette p = getClockworkPalette(suit);
+
+    // Map 252x388 court space into 100x140 card space centered at (50, 70)
+    constexpr float kScale = 0.295f;
+    auto mapPt = [&](float x, float y, bool flip) -> std::pair<float, float> {
+        if (flip) {
+            x = 252.0f - x;
+            y = 388.0f - y;
+        }
+        return {50.0f + (x - 126.0f) * kScale, 70.0f + (y - 194.0f) * kScale};
+    };
+
+    auto poly = [&](const std::vector<std::pair<float, float>>& pts, bool flip, uint32_t fill, uint32_t stroke = 0, float sw = 0.0f) {
+        std::vector<std::pair<float, float>> out;
+        out.reserve(pts.size());
+        for (const auto& pt : pts) out.push_back(mapPt(pt.first, pt.second, flip));
+        addPolyEx(img, out, fill, stroke, sw * kScale);
+    };
+    auto line = [&](float x1, float y1, float x2, float y2, bool flip, uint32_t stroke, float sw) {
+        const auto a = mapPt(x1, y1, flip);
+        const auto b = mapPt(x2, y2, flip);
+        addLineShape(img, a.first, a.second, b.first, b.second, stroke, std::max(0.25f, sw * kScale));
+    };
+    auto circle = [&](float cx, float cy, float r, bool flip, uint32_t fill, uint32_t stroke = 0, float sw = 0.0f) {
+        const auto c = mapPt(cx, cy, flip);
+        addCircleApprox(img, c.first, c.second, r * kScale, fill, stroke, sw * kScale);
+    };
+
+    // Seeded mechanical parameters (preserving crisp symmetry & linework)
+    static constexpr int kToothChoices[3] = {6, 8, 10};
+    const int hubTeeth = kToothChoices[randInt(rng, 0, 2)];
+    const float hubPhase = (randInt(rng, 0, 1) == 0) ? 0.0f : (180.0f / static_cast<float>(hubTeeth));
+    const float facetShift = randRange(rng, -5.0f, 5.0f);
+    const int monocleDiag = randInt(rng, 0, 1);
+    const int roseTeeth = kToothChoices[randInt(rng, 0, 2)];
+    const float hourAng = randRange(rng, 0.0f, 2.0f * kPi);
+    const float minAng = hourAng + randRange(rng, 0.9f, 2.4f);
+
+    // Central horizon belt
+    line(24.0f, 194.0f, 228.0f, 194.0f, false, p.ink, 2.0f);
+    line(34.0f, 194.0f, 218.0f, 194.0f, false, p.accent, 1.0f);
+
+    // Emit top half then 180-deg mirrored bottom half
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool flip = (pass == 1);
+        if (rank == Rank::Jack) {
+            poly({{46, 194}, {56, 134}, {98, 112}, {112 + facetShift, 194}}, flip, p.primary);
+            poly({{98, 112}, {154, 112}, {138 + facetShift, 194}, {112 + facetShift, 194}}, flip, p.dark);
+            poly({{154, 112}, {194, 132}, {204, 194}, {138 + facetShift, 194}}, flip, p.mid);
+
+            poly({{72, 124}, {92, 114}, {176, 194}, {148, 194}}, flip, p.accent);
+            poly({{92, 114}, {104, 116}, {176, 194}, {162, 194}}, flip, p.accentHi);
+            circle(116, 146, 3.2f, flip, p.dark, p.ivory, 1.0f);
+            circle(136, 166, 3.2f, flip, p.dark, p.ivory, 1.0f);
+
+            poly({{96, 108}, {126, 98}, {156, 108}, {126, 124}}, flip, p.ivory);
+            poly({{114, 92}, {138, 92}, {134, 110}, {118, 110}}, flip, p.skinLo);
+            poly({{106, 52}, {130, 52}, {126, 96}, {108, 86}}, flip, p.skinHi);
+            poly({{130, 52}, {148, 58}, {144, 86}, {126, 96}}, flip, p.skinLo);
+
+            poly({{98, 54}, {110, 30}, {148, 34}, {152, 54}}, flip, p.dark);
+            poly({{96, 54}, {154, 50}, {150, 58}, {100, 60}}, flip, p.accent);
+
+            circle(134, 68, 8.5f, flip, p.ivory, p.accentHi, 2.0f);
+            circle(134, 68, 4.5f, flip, p.primary, p.ink, 1.0f);
+            if (monocleDiag) {
+                line(128, 62, 140, 74, flip, p.ink, 0.9f);
+                line(128, 74, 140, 62, flip, p.ink, 0.9f);
+            } else {
+                line(126, 68, 142, 68, flip, p.ink, 0.9f);
+                line(134, 60, 134, 76, flip, p.ink, 0.9f);
+            }
+
+            line(202, 50, 202, 194, flip, p.accentLo, 3.5f);
+            line(202, 50, 202, 194, flip, p.accentHi, 1.4f);
+            poly({{202, 34}, {218, 52}, {202, 74}, {190, 56}}, flip, p.mid);
+            circle(202, 54, 5.0f, flip, p.accentHi, p.ink, 1.2f);
+        } else if (rank == Rank::Queen) {
+            poly({{62, 194}, {74, 140}, {106, 126}, {114 + facetShift * 0.5f, 194}}, flip, p.primary);
+            poly({{190, 194}, {178, 140}, {146, 126}, {138 + facetShift * 0.5f, 194}}, flip, p.primary);
+            poly({{106, 126}, {126, 126}, {126, 194}, {114 + facetShift * 0.5f, 194}}, flip, p.dark);
+            poly({{126, 126}, {146, 126}, {138 + facetShift * 0.5f, 194}, {126, 194}}, flip, p.mid);
+
+            poly({{92, 126}, {106, 112}, {146, 112}, {160, 126}, {126, 140}}, flip, p.ivory);
+            line(109, 114, 119, 134, flip, p.accentLo, 1.1f);
+            line(126, 113, 126, 138, flip, p.accentLo, 1.1f);
+            line(143, 114, 133, 134, flip, p.accentLo, 1.1f);
+
+            poly({{126, 148}, {136, 162}, {126, 176}, {116, 162}}, flip, p.accentHi);
+            circle(126, 162, 3.8f, flip, p.primary, p.ink, 1.0f);
+
+            poly({{98, 114}, {105, 70}, {117, 70}, {110, 114}}, flip, p.dark);
+            poly({{154, 114}, {147, 70}, {135, 70}, {142, 114}}, flip, p.dark);
+            poly({{109, 70}, {126, 70}, {126, 110}, {112, 99}}, flip, p.skinHi);
+            poly({{143, 70}, {126, 70}, {126, 110}, {140, 99}}, flip, p.skinLo);
+
+            poly({{102, 70}, {99, 51}, {114, 61}, {126, 44}, {138, 61}, {153, 51}, {150, 70}}, flip, p.accentHi);
+            poly({{104, 70}, {148, 70}, {145, 63}, {107, 63}}, flip, p.accent);
+            circle(126, 58, 3.5f, flip, p.primary, p.ink, 1.0f);
+
+            line(182, 114, 162, 194, flip, p.accentHi, 2.2f);
+            poly(makeGearPts(185, 104, 14, 9.5f, roseTeeth, 0.0f), flip, p.primary);
+            circle(185, 104, 5.5f, flip, p.accentHi, p.ink, 1.1f);
+        } else {
+            poly({{40, 194}, {48, 122}, {92, 108}, {106 + facetShift * 0.6f, 194}}, flip, p.primary);
+            poly({{212, 194}, {204, 122}, {160, 108}, {146 + facetShift * 0.6f, 194}}, flip, p.mid);
+            poly({{92, 108}, {160, 108}, {146 + facetShift * 0.6f, 194}, {106 + facetShift * 0.6f, 194}}, flip, p.dark);
+
+            poly({{48, 122}, {92, 108}, {86, 126}, {52, 138}}, flip, p.accent);
+            poly({{204, 122}, {160, 108}, {166, 126}, {200, 138}}, flip, p.accentHi);
+
+            circle(126, 152, 18.0f, flip, p.ivory, p.accentHi, 2.2f);
+            circle(126, 152, 14.0f, flip, 0, p.ink, 1.1f);
+            line(126, 152, 126 + 11.0f * std::cos(hourAng), 152 + 11.0f * std::sin(hourAng), flip, p.ink, 1.8f);
+            line(126, 152, 126 + 9.0f * std::cos(minAng), 152 + 9.0f * std::sin(minAng), flip, p.primary, 1.8f);
+            circle(126, 152, 2.5f, flip, p.accentLo, p.ink, 1.0f);
+
+            poly({{104, 52}, {126, 52}, {126, 86}, {106, 82}}, flip, p.skinHi);
+            poly({{148, 52}, {126, 52}, {126, 86}, {146, 82}}, flip, p.skinLo);
+            poly({{102, 78}, {126, 84}, {126, 114}, {106, 102}}, flip, p.dark);
+            poly({{150, 78}, {126, 84}, {126, 114}, {146, 102}}, flip, p.primary);
+            line(108, 64, 122, 66, flip, p.ink, 2.0f);
+            line(144, 64, 130, 66, flip, p.ink, 2.0f);
+
+            poly({{94, 52}, {92, 28}, {104, 28}, {108, 40}, {118, 24}, {134, 24}, {144, 40}, {148, 28}, {160, 28}, {158, 52}}, flip, p.accentHi);
+            poly({{95, 44}, {157, 44}, {157, 52}, {95, 52}}, flip, p.accent);
+            poly({{126, 28}, {132, 36}, {126, 44}, {120, 36}}, flip, p.primary);
+
+            poly({{204, 30}, {210, 44}, {210, 194}, {198, 194}, {198, 44}}, flip, p.ivory, p.ink, 1.2f);
+            line(204, 34, 204, 194, flip, p.mid, 1.3f);
+        }
+    }
+
+    // Central interlocking clockwork medallion at (126, 194)
+    poly(makeGearPts(126, 194, 15, 11, hubTeeth, hubPhase), false, p.accent);
+    circle(126, 194, 7.5f, false, p.dark, p.accentHi, 1.2f);
+    poly({{126, 188}, {131, 194}, {126, 200}, {121, 194}}, false, p.ivory);
+}
+
+void addClassicSuitShape(
+    VectorImage& img,
+    Suit suit,
+    float cx,
+    float cy,
+    float radius,
+    float rotDeg,
+    uint32_t fillArgb,
+    uint32_t outlineArgb,
+    float outlineW
+) {
+    std::string_view d;
+    switch (suit) {
+        case Suit::Spades:   d = kClassicSuitPathSpades; break;
+        case Suit::Hearts:   d = kClassicSuitPathHearts; break;
+        case Suit::Clubs:    d = kClassicSuitPathClubs; break;
+        case Suit::Diamonds: d = kClassicSuitPathDiamonds; break;
+    }
+
+    const float rad = rotDeg * (kPi / 180.0f);
+    const float cs = std::cos(rad);
+    const float sn = std::sin(rad);
+    auto xform = [&](float x, float y) -> std::pair<float, float> {
+        return {
+            cx + (x * cs - y * sn) * radius,
+            cy + (x * sn + y * cs) * radius
+        };
+    };
+
+    VectorShape shape{};
+    shape.fillColor = fillArgb;
+    shape.flags = kVectorHasFill | kVectorEvenOddFill;
+    shape.minX = 1e9f; shape.minY = 1e9f;
+    shape.maxX = -1e9f; shape.maxY = -1e9f;
+
+    auto expand = [&](float px, float py) {
+        shape.minX = std::min(shape.minX, px);
+        shape.maxX = std::max(shape.maxX, px);
+        shape.minY = std::min(shape.minY, py);
+        shape.maxY = std::max(shape.maxY, py);
+    };
+
+    const char* p = d.data();
+    const char* end = p + d.size();
+    auto skipSep = [&]() {
+        while (p < end && (*p == ' ' || *p == ',' || *p == '\t' || *p == '\n' || *p == '\r')) ++p;
+    };
+    auto readFloat = [&](float& out) -> bool {
+        skipSep();
+        if (p >= end) return false;
+        char* next = nullptr;
+        out = std::strtof(p, &next);
+        if (next == p) return false;
+        p = next;
+        return true;
+    };
+
+    VectorPath curPath{};
+    bool hasPath = false;
+    char cmd = 0;
+
+    while (p < end) {
+        skipSep();
+        if (p >= end) break;
+        if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')) {
+            cmd = *p++;
+            if (cmd == 'Z' || cmd == 'z') {
+                if (hasPath && !curPath.verbs.empty()) {
+                    curPath.closed = true;
+                    shape.paths.push_back(std::move(curPath));
+                    curPath = VectorPath{};
+                    hasPath = false;
+                }
+                continue;
+            }
+        }
+        if (cmd == 'M') {
+            float x, y;
+            if (!readFloat(x) || !readFloat(y)) break;
+            if (hasPath && !curPath.verbs.empty()) {
+                shape.paths.push_back(std::move(curPath));
+                curPath = VectorPath{};
+            }
+            const auto pt = xform(x, y);
+            expand(pt.first, pt.second);
+            curPath.verbs.push_back({VectorVerbType::MoveTo, pt.first, pt.second, 0, 0, 0, 0});
+            hasPath = true;
+            cmd = 'L';
+        } else if (cmd == 'L') {
+            float x, y;
+            if (!readFloat(x) || !readFloat(y)) break;
+            const auto pt = xform(x, y);
+            expand(pt.first, pt.second);
+            curPath.verbs.push_back({VectorVerbType::LineTo, pt.first, pt.second, 0, 0, 0, 0});
+        } else if (cmd == 'C') {
+            float x1, y1, x2, y2, x, y;
+            if (!readFloat(x1) || !readFloat(y1) || !readFloat(x2) || !readFloat(y2) || !readFloat(x) || !readFloat(y)) break;
+            const auto p1 = xform(x1, y1);
+            const auto p2 = xform(x2, y2);
+            const auto p3 = xform(x, y);
+            expand(p1.first, p1.second);
+            expand(p2.first, p2.second);
+            expand(p3.first, p3.second);
+            curPath.verbs.push_back({VectorVerbType::CubicTo, p1.first, p1.second, p2.first, p2.second, p3.first, p3.second});
+        } else {
+            ++p;
+        }
+    }
+    if (hasPath && !curPath.verbs.empty()) {
+        shape.paths.push_back(std::move(curPath));
+    }
+    if (!shape.paths.empty()) {
+        if (outlineArgb != 0 && outlineW > 0.0f) {
+            VectorShape outline = shape;
+            outline.fillColor = 0;
+            outline.strokeColor = outlineArgb;
+            outline.strokeWidth = outlineW;
+            outline.flags = static_cast<uint8_t>(kVectorHasStroke | (1u << 3) | (1u << 5));
+            img.shapes.push_back(std::move(outline));
+        }
+        img.shapes.push_back(std::move(shape));
+    }
+}
+
+void emitMobileSuitBg(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng, LowPolyBg /*bg*/) {
+    const bool isAce = (rank == Rank::Ace);
+    const bool isRed = (suit == Suit::Hearts || suit == Suit::Diamonds);
+    const uint32_t suitCol = isRed ? 0xFFCC1D24u : 0xFF14161Eu;
+
+    float tiltDeg = 0.0f;
+    if (!isAce) {
+        tiltDeg = randRange(rng, 5.0f, 12.0f);
+        if (randInt(rng, 0, 1) == 0) tiltDeg = -tiltDeg;
+    }
+
+    float bgCx = 50.0f;
+    float bgCy = 70.0f;
+    float bgRadius = isAce ? 58.0f : (72.0f + randRange(rng, -2.5f, 2.5f));
+    if (suit == Suit::Hearts) {
+        // Position Hearts toward top-left so top-left index sits cleanly inside the heart lobe
+        bgCx = 40.0f;
+        bgCy = 58.0f;
+        bgRadius = isAce ? 64.0f : (74.0f + randRange(rng, -2.0f, 2.0f));
+    } else if (suit == Suit::Clubs || suit == Suit::Spades) {
+        // Position Clubs & Spades toward bottom-right so stems stay offscreen and bottom-right index sits inside
+        bgCx = 58.0f;
+        bgCy = 84.0f;
+        bgRadius = isAce ? 68.0f : (78.0f + randRange(rng, -2.0f, 2.0f));
+    }
+
+    addClassicSuitShape(img, suit, bgCx, bgCy, bgRadius, tiltDeg, suitCol);
+}
+
+void emitMobileCourtBust(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng) {
+    // High-contrast monochrome silver/slate low-poly cameo bust sitting in front of the massive suit
+    const Ramp4 silverHi  = {0xFF94A3B8u, 0xFFCBD5E1u, 0xFFE2E8F0u, 0xFFF8FAFCu};
+    const Ramp4 silverMid = {0xFF475569u, 0xFF64748Bu, 0xFF94A3B8u, 0xFFCBD5E1u};
+    const Ramp4 slateDark = {0xFF1E293Bu, 0xFF334155u, 0xFF475569u, 0xFF64748Bu};
+    const Ramp4 faceLight = {0xFFCBD5E1u, 0xFFE2E8F0u, 0xFFF1F5F9u, 0xFFFFFFFFu};
+
+    const float yaw = randRange(rng, -8.0f, 8.0f);
+    std::vector<Tri3> tris;
+    auto pushT = [&](Vec3 a, Vec3 b, Vec3 c, const Ramp4& r) {
+        tris.push_back({rotY(a, yaw), rotY(b, yaw), rotY(c, yaw), r});
+    };
+    auto sym = [&](Vec3 a, Vec3 b, Vec3 c, const Ramp4& r) {
+        pushT(a, b, c, r);
+        pushT({-a.x, a.y, a.z}, {-c.x, c.y, c.z}, {-b.x, b.y, b.z}, r);
+    };
+
+    if (rank == Rank::Jack) {
+        // Knight / Page bust with visor helmet & upright sword
+        sym({0, 10, 10}, {13, 18, 6}, {0, 32, 8}, silverMid);
+        sym({13, 18, 6}, {25, 24, 3}, {23, 38, 2}, silverHi);
+        sym({13, 18, 6}, {23, 38, 2}, {0, 32, 8}, slateDark);
+        // Collar / gorget
+        sym({0, 4, 11}, {10, 10, 8}, {13, 18, 6}, silverHi);
+        sym({0, 4, 11}, {13, 18, 6}, {0, 12, 10}, silverMid);
+        // Faceplate
+        sym({0, -14, 10}, {9, -10, 6}, {7, 2, 5}, faceLight);
+        sym({0, -14, 10}, {7, 2, 5}, {0, 6, 9}, faceLight);
+        // Visor helmet dome & crest
+        sym({0, -28, 8}, {12, -20, 4}, {9, -10, 6}, silverMid);
+        sym({0, -28, 8}, {9, -10, 6}, {0, -15, 11}, silverHi);
+        pushT({0, -34, 6}, {-4, -26, 8}, {4, -26, 8}, slateDark);
+        // Upright sword on left
+        pushT({-26, -24, 9}, {-29, 24, 8}, {-23, 24, 8}, silverHi);
+        pushT({-32, 24, 9}, {-20, 24, 9}, {-26, 28, 9}, slateDark);
+        pushT({-27, 28, 8}, {-25, 28, 8}, {-26, 36, 8}, silverMid);
+    } else if (rank == Rank::Queen) {
+        // Faceted Queen with 3-point crown, veil, and V-neck gown
+        sym({0, 14, 10}, {12, 16, 7}, {0, 34, 8}, silverMid);
+        sym({12, 16, 7}, {24, 24, 3}, {22, 38, 2}, slateDark);
+        sym({12, 16, 7}, {22, 38, 2}, {0, 34, 8}, silverHi);
+        // V-neck collar
+        sym({0, 16, 11}, {9, 8, 8}, {13, 16, 7}, faceLight);
+        // Hair / veil framing face
+        sym({9, -16, 5}, {15, -8, 3}, {14, 10, 4}, slateDark);
+        sym({9, -16, 5}, {14, 10, 4}, {7, 4, 5}, silverMid);
+        // Face
+        sym({0, -16, 10}, {9, -12, 6}, {7, 2, 5}, faceLight);
+        sym({0, -16, 10}, {7, 2, 5}, {0, 7, 9}, faceLight);
+        // 3-point crown
+        pushT({0, -31, 8}, {-5, -18, 9}, {5, -18, 9}, silverHi);
+        sym({5, -18, 9}, {12, -26, 7}, {10, -16, 7}, silverMid);
+        sym({0, -18, 10}, {10, -16, 7}, {0, -14, 10}, silverHi);
+    } else {
+        // King with heavy 5-point crown, sculpted beard, and royal mantle
+        sym({0, 12, 10}, {14, 16, 7}, {0, 34, 8}, slateDark);
+        sym({14, 16, 7}, {26, 22, 3}, {24, 38, 2}, silverMid);
+        sym({14, 16, 7}, {24, 38, 2}, {0, 34, 8}, silverHi);
+        // Mantle lapels
+        sym({0, 14, 11}, {10, 6, 9}, {15, 16, 7}, silverHi);
+        // Sculpted low-poly beard
+        sym({0, 0, 11}, {9, -4, 7}, {8, 8, 6}, silverMid);
+        sym({0, 0, 11}, {8, 8, 6}, {0, 14, 10}, slateDark);
+        // Face
+        sym({0, -16, 10}, {9, -12, 6}, {8, -2, 6}, faceLight);
+        sym({0, -16, 10}, {8, -2, 6}, {0, 2, 11}, faceLight);
+        // Heavy crown
+        pushT({0, -31, 8}, {-6, -18, 9}, {6, -18, 9}, silverHi);
+        sym({6, -18, 9}, {13, -27, 7}, {11, -16, 7}, silverHi);
+        sym({0, -18, 10}, {11, -16, 7}, {0, -14, 10}, silverMid);
+    }
+
+    // Simple two-tone gray trapezoid body extending from behind the bust down to the bottom edge
+    addPolyShape(img, {{30.0f, 94.0f}, {50.0f, 94.0f}, {50.0f, 140.0f}, {19.0f, 140.0f}}, 0xFF94A3B8u);
+    addPolyShape(img, {{50.0f, 94.0f}, {70.0f, 94.0f}, {81.0f, 140.0f}, {50.0f, 140.0f}}, 0xFF64748Bu);
+
+    emitTris(img, tris, 50.0f, 75.0f, 1.04f);
+
+    // Small suit-colored chest crest so rank/suit identity is unmistakable
+    const uint32_t crestCol = (suit == Suit::Hearts || suit == Suit::Diamonds) ? 0xFFCC1D24u : 0xFF14161Eu;
+    addClassicSuitShape(img, suit, 50.0f, 99.0f, 5.2f, 0.0f, crestCol);
+}
+
 int rankToInt(Rank r) {
     return (r == Rank::Ace) ? 14 : static_cast<int>(r);
 }
@@ -673,10 +1243,19 @@ VectorImage buildCardFaceVector(Suit suit, Rank rank, const LowPolyDeckOptions& 
         const Ramp4 redRamp = {0xFF7F1D1Du, 0xFF9E1B24u, 0xFFC8202Au, 0xFFEF4444u};
         const Ramp4& suitRamp = (suit == Suit::Hearts || suit == Suit::Diamonds) ? redRamp : blackRamp;
 
-        if (rank == Rank::Ace) {
+        if (opts.style == LowPolyStyle::Mobile) {
+            emitMobileSuitBg(img, suit, rank, rng, opts.bg);
+            if (rank == Rank::Jack || rank == Rank::Queen || rank == Rank::King) {
+                emitMobileCourtBust(img, suit, rank, rng);
+            }
+        } else if (rank == Rank::Ace) {
             emitTris(img, buildSuitTris(suit, suitRamp), 50.0f, 70.0f, 1.18f);
         } else if (rank == Rank::Jack || rank == Rank::Queen || rank == Rank::King) {
-            emitClassicCourt(img, suit, rank, rng, opts);
+            if (opts.style == LowPolyStyle::Clockwork) {
+                emitClockworkCourt(img, suit, rank, rng, opts);
+            } else {
+                emitClassicCourt(img, suit, rank, rng, opts);
+            }
         } else {
             struct PipPos { float x, y; bool flip; };
             static const std::vector<PipPos> kLayouts[9] = {
@@ -738,11 +1317,12 @@ VectorImage buildCardBackVector(const LowPolyDeckOptions& opts) {
     img.width = 100.0f;
     img.height = 140.0f;
 
-    const bool isScoundrel = (opts.style == LowPolyStyle::Scoundrel);
-    const uint32_t gemBright = isScoundrel ? 0xFFFBBF24u : 0xFF38BDF8u;
-    const uint32_t gemMid    = isScoundrel ? 0xFFD97706u : 0xFF0284C7u;
-    const uint32_t gemLight  = isScoundrel ? 0xFFFDE68Au : 0xFF7DD3FCu;
-    const uint32_t gemDark   = isScoundrel ? 0xFF92400Eu : 0xFF0369A1u;
+    const bool isWarmGem = (opts.style == LowPolyStyle::Scoundrel || opts.style == LowPolyStyle::Clockwork);
+    const bool isMobile = (opts.style == LowPolyStyle::Mobile);
+    const uint32_t gemBright = isWarmGem ? 0xFFFBBF24u : (isMobile ? 0xFFEF4444u : 0xFF38BDF8u);
+    const uint32_t gemMid    = isWarmGem ? 0xFFD97706u : (isMobile ? 0xFFC8202Au : 0xFF0284C7u);
+    const uint32_t gemLight  = isWarmGem ? 0xFFFDE68Au : (isMobile ? 0xFFFCA5A5u : 0xFF7DD3FCu);
+    const uint32_t gemDark   = isWarmGem ? 0xFF92400Eu : (isMobile ? 0xFF7F1D1Du : 0xFF0369A1u);
 
     addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFF1E2430u);
     addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, 0xFF171C26u);

@@ -100,9 +100,11 @@ ScriptRuleEngine::ScriptRuleEngine(const ScriptRuleEngine& other)
     , hasOnCardClick_(other.hasOnCardClick_)
     , hasOnStockClick_(other.hasOnStockClick_)
     , hasOnTurnEnd_(other.hasOnTurnEnd_)
+    , hasOnVictory_(other.hasOnVictory_)
     , hasGetStatus_(other.hasGetStatus_)
     , hasEvalHeuristic_(other.hasEvalHeuristic_)
-    , docManifest_(other.docManifest_) {
+    , docManifest_(other.docManifest_)
+    , victoryChoreography_(other.victoryChoreography_) {
     if (loaded_) {
         registerHostApi();
     }
@@ -123,9 +125,11 @@ ScriptRuleEngine& ScriptRuleEngine::operator=(const ScriptRuleEngine& other) {
     hasOnCardClick_ = other.hasOnCardClick_;
     hasOnStockClick_ = other.hasOnStockClick_;
     hasOnTurnEnd_ = other.hasOnTurnEnd_;
+    hasOnVictory_ = other.hasOnVictory_;
     hasGetStatus_ = other.hasGetStatus_;
     hasEvalHeuristic_ = other.hasEvalHeuristic_;
     docManifest_ = other.docManifest_;
+    victoryChoreography_ = other.victoryChoreography_;
     if (loaded_) {
         registerHostApi();
     }
@@ -146,9 +150,11 @@ ScriptRuleEngine::ScriptRuleEngine(ScriptRuleEngine&& other) noexcept
     , hasOnCardClick_(other.hasOnCardClick_)
     , hasOnStockClick_(other.hasOnStockClick_)
     , hasOnTurnEnd_(other.hasOnTurnEnd_)
+    , hasOnVictory_(other.hasOnVictory_)
     , hasGetStatus_(other.hasGetStatus_)
     , hasEvalHeuristic_(other.hasEvalHeuristic_)
-    , docManifest_(std::move(other.docManifest_)) {
+    , docManifest_(std::move(other.docManifest_))
+    , victoryChoreography_(std::move(other.victoryChoreography_)) {
     other.boundCtx_ = nullptr;
     if (loaded_) {
         registerHostApi();
@@ -171,9 +177,11 @@ ScriptRuleEngine& ScriptRuleEngine::operator=(ScriptRuleEngine&& other) noexcept
     hasOnCardClick_ = other.hasOnCardClick_;
     hasOnStockClick_ = other.hasOnStockClick_;
     hasOnTurnEnd_ = other.hasOnTurnEnd_;
+    hasOnVictory_ = other.hasOnVictory_;
     hasGetStatus_ = other.hasGetStatus_;
     hasEvalHeuristic_ = other.hasEvalHeuristic_;
     docManifest_ = std::move(other.docManifest_);
+    victoryChoreography_ = std::move(other.victoryChoreography_);
     if (loaded_) {
         registerHostApi();
     }
@@ -194,9 +202,11 @@ void ScriptRuleEngine::reset() noexcept {
     hasOnCardClick_ = false;
     hasOnStockClick_ = false;
     hasOnTurnEnd_ = false;
+    hasOnVictory_ = false;
     hasGetStatus_ = false;
     hasEvalHeuristic_ = false;
     docManifest_.clear();
+    victoryChoreography_.clear();
 }
 
 bool ScriptRuleEngine::hasAnyHooks() const noexcept {
@@ -234,8 +244,16 @@ bool ScriptRuleEngine::loadScript(const std::string& source) {
     hasOnCardClick_ = evaluator_.hasFunction("on_card_click");
     hasOnStockClick_= evaluator_.hasFunction("on_stock_click");
     hasOnTurnEnd_   = evaluator_.hasFunction("on_turn_end");
+    hasOnVictory_   = evaluator_.hasFunction("on_victory");
     hasGetStatus_   = evaluator_.hasFunction("get_status");
     hasEvalHeuristic_ = evaluator_.hasFunction("eval_heuristic");
+
+    if (docManifest_.victoryTitle.empty() && evaluator_.hasVariable("victory_message")) {
+        docManifest_.victoryTitle = evaluator_.getVariable("victory_message").asString();
+    }
+    if (docManifest_.victorySubtitle.empty() && evaluator_.hasVariable("victory_subtitle")) {
+        docManifest_.victorySubtitle = evaluator_.getVariable("victory_subtitle").asString();
+    }
 
     loaded_ = true;
     return true;
@@ -483,6 +501,66 @@ void ScriptRuleEngine::registerHostApi() {
         return Value(true);
     });
 
+    evaluator_.registerFunction("doc_victory", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() >= 1) docManifest_.victoryTitle = args[0].asString();
+        if (args.size() >= 2) docManifest_.victorySubtitle = args[1].asString();
+        return Value(true);
+    });
+
+    auto parseVictoryStage = [](const std::vector<Value>& args, const std::map<std::string, Value>& kwargs) -> VictoryStageSpec {
+        VictoryStageSpec spec{};
+        const std::string typeStr = eatsbits::eatscript::resolveArg(args, kwargs, 0, "type", Value("cascade_bounce")).asString();
+        if (typeStr == "figure_eight" || typeStr == "figure8") {
+            spec.type = VictoryAnimType::FigureEight;
+        } else if (typeStr == "spiral_vortex" || typeStr == "spiral") {
+            spec.type = VictoryAnimType::SpiralVortex;
+        } else if (typeStr == "orbit_ring" || typeStr == "orbit") {
+            spec.type = VictoryAnimType::OrbitRing;
+        } else if (typeStr == "fireworks" || typeStr == "firework_burst") {
+            spec.type = VictoryAnimType::Fireworks;
+        } else {
+            spec.type = VictoryAnimType::CascadeBounce;
+        }
+
+        const std::string srcStr = eatsbits::eatscript::resolveArg(args, kwargs, 1, "source", Value("foundation")).asString();
+        if (srcStr == "all_piles" || srcStr == "all") {
+            spec.source = VictoryCardSource::AllPiles;
+        } else if (srcStr == "synthetic_deck" || srcStr == "deck" || srcStr == "synthetic") {
+            spec.source = VictoryCardSource::SyntheticDeck;
+        } else {
+            spec.source = VictoryCardSource::Foundation;
+        }
+
+        spec.delay = std::max(0.0f, eatsbits::eatscript::resolveArg(args, kwargs, 2, "delay", Value(0.0)).asFloat(0.0f));
+        spec.duration = std::max(0.0f, eatsbits::eatscript::resolveArg(args, kwargs, 3, "duration", Value(0.0)).asFloat(0.0f));
+        spec.stagger = std::max(0.0f, eatsbits::eatscript::resolveArg(args, kwargs, 4, "stagger", Value(0.08)).asFloat(0.08f));
+        spec.speed = std::max(0.05f, eatsbits::eatscript::resolveArg(args, kwargs, 5, "speed", Value(1.0)).asFloat(1.0f));
+        spec.ampX = std::max(0.01f, eatsbits::eatscript::resolveArg(args, kwargs, 6, "amp_x", Value(0.34)).asFloat(0.34f));
+        spec.ampY = std::max(0.01f, eatsbits::eatscript::resolveArg(args, kwargs, 7, "amp_y", Value(0.26)).asFloat(0.26f));
+        spec.gravity = std::max(0.0f, eatsbits::eatscript::resolveArg(args, kwargs, 8, "gravity", Value(680.0)).asFloat(680.0f));
+        spec.spin = eatsbits::eatscript::resolveArg(args, kwargs, 9, "spin", Value(1.0)).asFloat(1.0f);
+        spec.count = std::max(0, eatsbits::eatscript::resolveArg(args, kwargs, 10, "count", Value(0)).asInt(0));
+        spec.burstCount = std::clamp(eatsbits::eatscript::resolveArg(args, kwargs, 11, "burst_count", Value(13)).asInt(13), 1, 52);
+        spec.loop = eatsbits::eatscript::resolveArg(args, kwargs, 12, "loop", Value(true)).asBoolean(true);
+        return spec;
+    };
+
+    evaluator_.registerFunction("victory_clear_stages", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        victoryChoreography_.clear();
+        return Value(true);
+    });
+
+    evaluator_.registerFunction("victory_add_stage", [this, parseVictoryStage](const std::vector<Value>& args, const std::map<std::string, Value>& kwargs) -> Value {
+        victoryChoreography_.stages.push_back(parseVictoryStage(args, kwargs));
+        return Value(true);
+    });
+
+    evaluator_.registerFunction("doc_victory_anim", [this, parseVictoryStage](const std::vector<Value>& args, const std::map<std::string, Value>& kwargs) -> Value {
+        victoryChoreography_.clear();
+        victoryChoreography_.stages.push_back(parseVictoryStage(args, kwargs));
+        return Value(true);
+    });
+
     evaluator_.registerFunction("doc_zone", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
         if (args.size() < 3) return Value(false);
         ZoneDoc zd{};
@@ -705,6 +783,14 @@ bool ScriptRuleEngine::invokeOnTurnEnd(ScriptBoardContext& ctx) {
     if (!hasOnTurnEnd_) return false;
     bindContext(&ctx);
     Value res = evaluator_.callFunction("on_turn_end");
+    bindContext(nullptr);
+    return res.asBoolean(true);
+}
+
+bool ScriptRuleEngine::invokeOnVictory(ScriptBoardContext& ctx) {
+    if (!hasOnVictory_) return false;
+    bindContext(&ctx);
+    Value res = evaluator_.callFunction("on_victory");
     bindContext(nullptr);
     return res.asBoolean(true);
 }

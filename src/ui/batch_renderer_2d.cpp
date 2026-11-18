@@ -10,6 +10,7 @@
 #include <iostream>
 #include <fstream>
 #include <mutex>
+#include <thread>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -2420,6 +2421,38 @@ public:
             return false;
         }
 
+        {
+            WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
+            const WGPUStatus infoOk = wgpuAdapterGetInfo(adapter_, &info);
+            WGPULimits limits{};
+            const WGPUStatus limOk = wgpuAdapterGetLimits(adapter_, &limits);
+            const unsigned int cores = std::thread::hardware_concurrency();
+
+            bool lowCap = false;
+            if (cores > 0 && cores <= 2) {
+                lowCap = true;
+            }
+            if (infoOk == WGPUStatus_Success) {
+                if (info.adapterType == WGPUAdapterType_CPU) {
+                    lowCap = true;
+                } else if (info.adapterType == WGPUAdapterType_IntegratedGPU) {
+                    if ((cores > 0 && cores <= 4) ||
+                        (limOk == WGPUStatus_Success && limits.maxTextureDimension2D < 8192)) {
+                        lowCap = true;
+                    }
+                }
+                const char* devName = (info.device.data && info.device.length > 0) ? info.device.data : "Unknown";
+                std::cout << "[WebGPU] Adapter: " << devName
+                          << " | Type=" << static_cast<int>(info.adapterType)
+                          << " | Cores=" << cores
+                          << " | LowCap=" << (lowCap ? "yes" : "no") << "\n";
+                wgpuAdapterInfoFreeMembers(info);
+            } else if (limOk == WGPUStatus_Success && limits.maxTextureDimension2D < 4096) {
+                lowCap = true;
+            }
+            lowCapabilityHardware_ = lowCap;
+        }
+
         WGPUDeviceDescriptor dDesc{};
         WGPURequestDeviceCallbackInfo dCb{};
         dCb.mode = WGPUCallbackMode_AllowProcessEvents;
@@ -2500,6 +2533,10 @@ public:
             wgpuRenderPipelineRelease(postFxPipeline_);
             postFxPipeline_ = nullptr;
         }
+        if (passthroughPostFxPipeline_) {
+            wgpuRenderPipelineRelease(passthroughPostFxPipeline_);
+            passthroughPostFxPipeline_ = nullptr;
+        }
         if (postFxBindGroup_) {
             wgpuBindGroupRelease(postFxBindGroup_);
             postFxBindGroup_ = nullptr;
@@ -2519,6 +2556,10 @@ public:
         if (postFxSampler_) {
             wgpuSamplerRelease(postFxSampler_);
             postFxSampler_ = nullptr;
+        }
+        if (postFxNearestSampler_) {
+            wgpuSamplerRelease(postFxNearestSampler_);
+            postFxNearestSampler_ = nullptr;
         }
         if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
@@ -2673,6 +2714,10 @@ public:
             wgpuRenderPipelineRelease(postFxPipeline_);
             postFxPipeline_ = nullptr;
         }
+        if (passthroughPostFxPipeline_) {
+            wgpuRenderPipelineRelease(passthroughPostFxPipeline_);
+            passthroughPostFxPipeline_ = nullptr;
+        }
         if (postFxBindGroup_) {
             wgpuBindGroupRelease(postFxBindGroup_);
             postFxBindGroup_ = nullptr;
@@ -2692,6 +2737,10 @@ public:
         if (postFxSampler_) {
             wgpuSamplerRelease(postFxSampler_);
             postFxSampler_ = nullptr;
+        }
+        if (postFxNearestSampler_) {
+            wgpuSamplerRelease(postFxNearestSampler_);
+            postFxNearestSampler_ = nullptr;
         }
         if (sampleCount_ <= 1 || !device_ || width == 0 || height == 0) {
             return;
@@ -2834,7 +2883,7 @@ public:
             return;
         }
 
-        const bool renderToPostFxScene = (postFxActive_ && postFxPipeline_ != nullptr &&
+        const bool renderToPostFxScene = (isOffscreenSceneActive() &&
                                           !postFxAppliedThisFrame_ && !customTargetView_);
         WGPUTextureView targetView = nullptr;
         if (renderToPostFxScene) {
@@ -2897,9 +2946,12 @@ public:
         }
 
         WGPURenderPassColorAttachment colorAttachment{};
-        const bool useMsaa = (sampleCount_ > 1 && msaaTextureView_ != nullptr);
+        const bool scaledScenePass = (renderToPostFxScene && postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
+                                      (postFxSceneW_ != width_ || postFxSceneH_ != height_));
+        WGPUTextureView activeMsaaView = scaledScenePass ? postFxMsaaTextureView_ : msaaTextureView_;
+        const bool useMsaa = (sampleCount_ > 1 && activeMsaaView != nullptr);
         if (useMsaa) {
-            colorAttachment.view = msaaTextureView_;
+            colorAttachment.view = activeMsaaView;
             colorAttachment.resolveTarget = targetView;
         } else {
             colorAttachment.view = targetView;
@@ -2924,12 +2976,25 @@ public:
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, bufferSize);
 
         bool curScissorActive = false;
-        uint32_t curSx = 0, curSy = 0, curSw = width_, curSh = height_;
+        const uint32_t targetW = (renderToPostFxScene && postFxSceneW_ > 0) ? postFxSceneW_ : width_;
+        const uint32_t targetH = (renderToPostFxScene && postFxSceneH_ > 0) ? postFxSceneH_ : height_;
+        const float scissorScaleX = (scaledScenePass && width_ > 0) ? (static_cast<float>(targetW) / static_cast<float>(width_)) : 1.0f;
+        const float scissorScaleY = (scaledScenePass && height_ > 0) ? (static_cast<float>(targetH) / static_cast<float>(height_)) : 1.0f;
+        uint32_t curSx = 0, curSy = 0, curSw = targetW, curSh = targetH;
         for (const auto& d : frameDraws_) {
-            const uint32_t targetSx = d.hasScissor ? d.scissorX : 0;
-            const uint32_t targetSy = d.hasScissor ? d.scissorY : 0;
-            const uint32_t targetSw = d.hasScissor ? d.scissorW : width_;
-            const uint32_t targetSh = d.hasScissor ? d.scissorH : height_;
+            uint32_t targetSx = d.hasScissor ? d.scissorX : 0;
+            uint32_t targetSy = d.hasScissor ? d.scissorY : 0;
+            uint32_t targetSw = d.hasScissor ? d.scissorW : targetW;
+            uint32_t targetSh = d.hasScissor ? d.scissorH : targetH;
+            if (d.hasScissor && scaledScenePass) {
+                targetSx = static_cast<uint32_t>(std::floor(static_cast<float>(targetSx) * scissorScaleX));
+                targetSy = static_cast<uint32_t>(std::floor(static_cast<float>(targetSy) * scissorScaleY));
+                targetSw = static_cast<uint32_t>(std::ceil(static_cast<float>(targetSw) * scissorScaleX));
+                targetSh = static_cast<uint32_t>(std::ceil(static_cast<float>(targetSh) * scissorScaleY));
+                if (targetSx >= targetW || targetSy >= targetH) continue;
+                targetSw = std::min(targetSw, targetW - targetSx);
+                targetSh = std::min(targetSh, targetH - targetSy);
+            }
             if (targetSw == 0 || targetSh == 0) {
                 continue;
             }
@@ -3104,7 +3169,7 @@ public:
     }
 
     void endPass() override {
-        if (postFxActive_ && postFxPipeline_ && !postFxAppliedThisFrame_ && !customTargetView_) {
+        if (isOffscreenSceneActive() && !postFxAppliedThisFrame_ && !customTargetView_) {
             applyPostFxPass();
         }
         if (!frameDraws_.empty()) {
@@ -3222,11 +3287,26 @@ public:
         postFxActive_ = active;
     }
 
+    void setInternalMaxResolution(uint32_t maxW, uint32_t maxH) override {
+        maxRenderW_ = maxW;
+        maxRenderH_ = maxH;
+    }
+
+    bool isLowCapabilityHardware() const override {
+        return lowCapabilityHardware_;
+    }
+
     void applyPostFxPass() override {
-        if (!device_ || !queue_ || !postFxActive_ || !postFxPipeline_ ||
+        if (!device_ || !queue_ || !isOffscreenSceneActive() ||
             postFxAppliedThisFrame_ || customTargetView_ || !postFxSceneView_) {
             return;
         }
+        ensurePostFxResources();
+        WGPURenderPipeline activePipeline = (postFxActive_ && postFxPipeline_)
+            ? postFxPipeline_
+            : passthroughPostFxPipeline_;
+        if (!activePipeline || !postFxBindGroup_) return;
+
         if (!currentBackBufferView_) {
             if (!surface_) return;
             wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
@@ -3246,9 +3326,6 @@ public:
             if (!currentBackBufferView_) return;
         }
 
-        ensurePostFxResources();
-        if (!postFxBindGroup_) return;
-
         struct PostFxUniforms {
             float u0, u1, u2, u3;
             float intensity, param1, param2, time;
@@ -3262,10 +3339,12 @@ public:
         ubo.param1 = postFxParam1_;
         ubo.param2 = postFxParam2_;
         ubo.time = shaderTime_;
-        ubo.width = static_cast<float>(width_);
-        ubo.height = static_cast<float>(height_);
-        ubo.texelX = (width_ > 0) ? (1.0f / static_cast<float>(width_)) : 0.0f;
-        ubo.texelY = (height_ > 0) ? (1.0f / static_cast<float>(height_)) : 0.0f;
+        const uint32_t fxW = (postFxSceneW_ > 0) ? postFxSceneW_ : width_;
+        const uint32_t fxH = (postFxSceneH_ > 0) ? postFxSceneH_ : height_;
+        ubo.width = static_cast<float>(fxW);
+        ubo.height = static_cast<float>(fxH);
+        ubo.texelX = (fxW > 0) ? (1.0f / static_cast<float>(fxW)) : 0.0f;
+        ubo.texelY = (fxH > 0) ? (1.0f / static_cast<float>(fxH)) : 0.0f;
         wgpuQueueWriteBuffer(queue_, postFxUniformBuffer_, 0, &ubo, sizeof(ubo));
 
         WGPUCommandEncoderDescriptor encDesc{};
@@ -3288,7 +3367,7 @@ public:
         passDesc.colorAttachments = &colorAttachment;
 
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
-        wgpuRenderPassEncoderSetPipeline(pass, postFxPipeline_);
+        wgpuRenderPassEncoderSetPipeline(pass, activePipeline);
         wgpuRenderPassEncoderSetBindGroup(pass, 0, postFxBindGroup_, 0, nullptr);
         wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(pass);
@@ -4048,10 +4127,40 @@ private:
     std::vector<uint8_t> bgAlignedUploadBuf_;
 
     // Post-FX GPU state
+    void computeSceneSize(uint32_t& outW, uint32_t& outH) const {
+        if (maxRenderW_ > 0 && maxRenderH_ > 0 && (width_ > maxRenderW_ || height_ > maxRenderH_)) {
+            const float s = std::min(static_cast<float>(maxRenderW_) / static_cast<float>(width_),
+                                     static_cast<float>(maxRenderH_) / static_cast<float>(height_));
+            outW = std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(width_) * s)));
+            outH = std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(height_) * s)));
+        } else {
+            outW = width_;
+            outH = height_;
+        }
+    }
+
+    bool isScaledScene() const {
+        if (width_ == 0 || height_ == 0 || maxRenderW_ == 0 || maxRenderH_ == 0) return false;
+        return (width_ > maxRenderW_ || height_ > maxRenderH_);
+    }
+
+    bool isOffscreenSceneActive() const {
+        return (postFxActive_ && postFxPipeline_ != nullptr) || isScaledScene();
+    }
+
     void releasePostFxSceneTexture() {
         if (postFxBindGroup_) {
             wgpuBindGroupRelease(postFxBindGroup_);
             postFxBindGroup_ = nullptr;
+        }
+        if (postFxMsaaTextureView_) {
+            wgpuTextureViewRelease(postFxMsaaTextureView_);
+            postFxMsaaTextureView_ = nullptr;
+        }
+        if (postFxMsaaTexture_) {
+            wgpuTextureDestroy(postFxMsaaTexture_);
+            wgpuTextureRelease(postFxMsaaTexture_);
+            postFxMsaaTexture_ = nullptr;
         }
         if (postFxSceneView_) {
             wgpuTextureViewRelease(postFxSceneView_);
@@ -4068,12 +4177,19 @@ private:
 
     void ensurePostFxSceneTexture() {
         if (!device_ || width_ == 0 || height_ == 0) return;
-        if (postFxSceneTexture_ && postFxSceneW_ == width_ && postFxSceneH_ == height_) return;
+        uint32_t targetW = width_;
+        uint32_t targetH = height_;
+        computeSceneSize(targetW, targetH);
+        const bool needScaledMsaa = (sampleCount_ > 1) && (targetW != width_ || targetH != height_);
+        if (postFxSceneTexture_ && postFxSceneW_ == targetW && postFxSceneH_ == targetH &&
+            (!needScaledMsaa || postFxMsaaTextureView_ != nullptr)) {
+            return;
+        }
         releasePostFxSceneTexture();
 
         WGPUTextureDescriptor desc{};
         desc.dimension = WGPUTextureDimension_2D;
-        desc.size = WGPUExtent3D{ width_, height_, 1 };
+        desc.size = WGPUExtent3D{ targetW, targetH, 1 };
         desc.format = surfaceFormat_;
         desc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
         desc.mipLevelCount = 1;
@@ -4089,8 +4205,30 @@ private:
             vdesc.arrayLayerCount = 1;
             vdesc.aspect = WGPUTextureAspect_All;
             postFxSceneView_ = wgpuTextureCreateView(postFxSceneTexture_, &vdesc);
-            postFxSceneW_ = width_;
-            postFxSceneH_ = height_;
+            postFxSceneW_ = targetW;
+            postFxSceneH_ = targetH;
+        }
+
+        if (needScaledMsaa && postFxSceneTexture_) {
+            WGPUTextureDescriptor msaaDesc{};
+            msaaDesc.dimension = WGPUTextureDimension_2D;
+            msaaDesc.size = WGPUExtent3D{ targetW, targetH, 1 };
+            msaaDesc.format = surfaceFormat_;
+            msaaDesc.usage = WGPUTextureUsage_RenderAttachment;
+            msaaDesc.mipLevelCount = 1;
+            msaaDesc.sampleCount = sampleCount_;
+            postFxMsaaTexture_ = wgpuDeviceCreateTexture(device_, &msaaDesc);
+            if (postFxMsaaTexture_) {
+                WGPUTextureViewDescriptor msaaViewDesc{};
+                msaaViewDesc.format = surfaceFormat_;
+                msaaViewDesc.dimension = WGPUTextureViewDimension_2D;
+                msaaViewDesc.baseMipLevel = 0;
+                msaaViewDesc.mipLevelCount = 1;
+                msaaViewDesc.baseArrayLayer = 0;
+                msaaViewDesc.arrayLayerCount = 1;
+                msaaViewDesc.aspect = WGPUTextureAspect_All;
+                postFxMsaaTextureView_ = wgpuTextureCreateView(postFxMsaaTexture_, &msaaViewDesc);
+            }
         }
     }
 
@@ -4112,6 +4250,17 @@ private:
             sDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
             sDesc.maxAnisotropy = 1;
             postFxSampler_ = wgpuDeviceCreateSampler(device_, &sDesc);
+        }
+        if (!postFxNearestSampler_) {
+            WGPUSamplerDescriptor sDesc{};
+            sDesc.addressModeU = WGPUAddressMode_ClampToEdge;
+            sDesc.addressModeV = WGPUAddressMode_ClampToEdge;
+            sDesc.addressModeW = WGPUAddressMode_ClampToEdge;
+            sDesc.magFilter = WGPUFilterMode_Nearest;
+            sDesc.minFilter = WGPUFilterMode_Nearest;
+            sDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+            sDesc.maxAnisotropy = 1;
+            postFxNearestSampler_ = wgpuDeviceCreateSampler(device_, &sDesc);
         }
         if (!postFxBindGroupLayout_) {
             WGPUBindGroupLayoutEntry entries[3]{};
@@ -4139,7 +4288,60 @@ private:
             plDesc.bindGroupLayouts = &postFxBindGroupLayout_;
             postFxPipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
         }
-        if (!postFxBindGroup_ && postFxBindGroupLayout_ && postFxUniformBuffer_ && postFxSceneView_ && postFxSampler_) {
+        if (!passthroughPostFxPipeline_ && postFxPipelineLayout_) {
+            static const char* kPassthroughWgsl = R"(
+@group(0) @binding(1) var sceneTex: texture_2d<f32>;
+@group(0) @binding(2) var sceneSampler: sampler;
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
+@vertex fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
+    var out: VsOut;
+    let x = f32((vid << 1u) & 2u) * 2.0 - 1.0;
+    let y = f32(vid & 2u) * 2.0 - 1.0;
+    out.pos = vec4<f32>(x, -y, 0.0, 1.0);
+    out.uv = vec2<f32>(x * 0.5 + 0.5, y * 0.5 + 0.5);
+    return out;
+}
+@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return textureSample(sceneTex, sceneSampler, in.uv);
+}
+)";
+            WGPUShaderSourceWGSL wgslDesc{};
+            wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
+            wgslDesc.code = makeWgpuStringView(kPassthroughWgsl);
+            WGPUShaderModuleDescriptor smDesc{};
+            smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
+            if (WGPUShaderModule sm = wgpuDeviceCreateShaderModule(device_, &smDesc)) {
+                WGPUColorTargetState colorTarget{};
+                colorTarget.format = surfaceFormat_;
+                colorTarget.blend = nullptr;
+                colorTarget.writeMask = WGPUColorWriteMask_All;
+                WGPUFragmentState fragState{};
+                fragState.module = sm;
+                fragState.entryPoint = makeWgpuStringView("fs_main");
+                fragState.targetCount = 1;
+                fragState.targets = &colorTarget;
+                WGPURenderPipelineDescriptor pipeDesc{};
+                pipeDesc.layout = postFxPipelineLayout_;
+                pipeDesc.vertex.module = sm;
+                pipeDesc.vertex.entryPoint = makeWgpuStringView("vs_main");
+                pipeDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+                pipeDesc.primitive.frontFace = WGPUFrontFace_CCW;
+                pipeDesc.primitive.cullMode = WGPUCullMode_None;
+                pipeDesc.multisample.count = 1;
+                pipeDesc.multisample.mask = 0xFFFFFFFF;
+                pipeDesc.fragment = &fragState;
+                passthroughPostFxPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &pipeDesc);
+                wgpuShaderModuleRelease(sm);
+            }
+        }
+        const bool wantNearest = (postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
+                                  (postFxSceneW_ != width_ || postFxSceneH_ != height_));
+        if (postFxBindGroup_ && postFxBindGroupNearest_ != wantNearest) {
+            wgpuBindGroupRelease(postFxBindGroup_);
+            postFxBindGroup_ = nullptr;
+        }
+        WGPUSampler activeSampler = wantNearest ? postFxNearestSampler_ : postFxSampler_;
+        if (!postFxBindGroup_ && postFxBindGroupLayout_ && postFxUniformBuffer_ && postFxSceneView_ && activeSampler) {
             WGPUBindGroupEntry bgEntries[3]{};
             bgEntries[0].binding = 0;
             bgEntries[0].buffer = postFxUniformBuffer_;
@@ -4150,26 +4352,35 @@ private:
             bgEntries[1].textureView = postFxSceneView_;
 
             bgEntries[2].binding = 2;
-            bgEntries[2].sampler = postFxSampler_;
+            bgEntries[2].sampler = activeSampler;
 
             WGPUBindGroupDescriptor bgDesc{};
             bgDesc.layout = postFxBindGroupLayout_;
             bgDesc.entryCount = 3;
             bgDesc.entries = bgEntries;
             postFxBindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+            postFxBindGroupNearest_ = wantNearest;
         }
     }
 
     WGPUTexture postFxSceneTexture_{nullptr};
     WGPUTextureView postFxSceneView_{nullptr};
+    WGPUTexture postFxMsaaTexture_{nullptr};
+    WGPUTextureView postFxMsaaTextureView_{nullptr};
     uint32_t postFxSceneW_{0};
     uint32_t postFxSceneH_{0};
+    uint32_t maxRenderW_{0};
+    uint32_t maxRenderH_{0};
+    bool lowCapabilityHardware_{false};
     WGPUBuffer postFxUniformBuffer_{nullptr};
     WGPUSampler postFxSampler_{nullptr};
+    WGPUSampler postFxNearestSampler_{nullptr};
     WGPUBindGroupLayout postFxBindGroupLayout_{nullptr};
     WGPUPipelineLayout postFxPipelineLayout_{nullptr};
     WGPUBindGroup postFxBindGroup_{nullptr};
+    bool postFxBindGroupNearest_{false};
     WGPURenderPipeline postFxPipeline_{nullptr};
+    WGPURenderPipeline passthroughPostFxPipeline_{nullptr};
     std::string cachedPostFxWgsl_;
     const char* cachedPostFxPtr_{nullptr};
     size_t cachedPostFxLen_{0};
@@ -4423,6 +4634,16 @@ void BatchRenderer2D::applyPostFxPass() {
     if (!inFrame_ || !backend_) return;
     flush();
     backend_->applyPostFxPass();
+}
+
+void BatchRenderer2D::setInternalMaxResolution(uint32_t maxW, uint32_t maxH) {
+    if (backend_) {
+        backend_->setInternalMaxResolution(maxW, maxH);
+    }
+}
+
+bool BatchRenderer2D::isLowCapabilityHardware() const {
+    return backend_ ? backend_->isLowCapabilityHardware() : false;
 }
 
 void BatchRenderer2D::setTableSurfaceLighting(float lacquerStrength, float bumpStrength) noexcept {

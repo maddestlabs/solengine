@@ -144,6 +144,8 @@ public:
     virtual void setPostFxActive(bool /*active*/) {}
     virtual void applyPostFxPass() {}
     virtual void beginPostFxFrame() {}
+    virtual void setInternalMaxResolution(uint32_t /*maxW*/, uint32_t /*maxH*/) {}
+    virtual bool isLowCapabilityHardware() const { return false; }
 };
 
 class BatchRenderer2D;
@@ -233,6 +235,8 @@ public:
     void setPostFxParams(float intensity, float u0, float u1, float u2, float u3, float param1, float param2);
     void setPostFxActive(bool active);
     void applyPostFxPass();
+    void setInternalMaxResolution(uint32_t maxW, uint32_t maxH);
+    [[nodiscard]] bool isLowCapabilityHardware() const;
 
     // --- Blend Modes ---
     void setBlendMode(BlendMode mode);

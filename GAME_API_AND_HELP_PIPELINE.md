@@ -39,6 +39,8 @@ alternate_names = ["Alias 1", "Alias 2"]
 ### B. Help & Introspection Manifest (`doc_*`)
 Call these at top-level in the `.eats` file so `GameDocManifest` is populated immediately on load:
 * `doc_goal(win_text, lose_text)` — Describes victory and defeat conditions.
+* `doc_victory(title[, subtitle])` — Optional custom victory dialog title (defaults to `"Victory!"`) and subtitle. Games can also set `victory_message` / `victory_subtitle` at top-level or override them dynamically via `set_str("victory_message", ...)` / `set_str("victory_subtitle", ...)`.
+* `doc_victory_anim(type, ...)` — Configures a C++-compiled 3D victory animation (`"cascade_bounce"`, `"figure_eight"`, `"spiral_vortex"`, `"orbit_ring"`, `"fireworks"`), with optional keyword args: `source` (`"foundation"`, `"all_piles"`, `"synthetic_deck"`), `delay`, `duration`, `stagger`, `speed`, `amp_x`, `amp_y`, `gravity`, `spin`, `count`, `burst_count`, `loop`.
 * `doc_zone(zone_idx, title, description)` — Documents a specific pile/zone index (`0..N-1`) for live table outline highlighting.
 * `doc_stat(key, title, description)` — Documents a global `BoardBlackboard` stat (e.g., `"HP"`, `"WEAPON"`, `"MANA"`).
 * `doc_tag(tag, title, description)` — Documents a card tag/role (e.g., `"monster"`, `"weapon"`, `"potion"`).
@@ -50,6 +52,7 @@ Call these at top-level in the `.eats` file so `GameDocManifest` is populated im
 * `on_card_click(z, i)` — Single-click activation (potions, abilities, room encounters).
 * `on_stock_click()` — Custom stock draw or room refill.
 * `on_turn_end()` — Post-action triggers (room refill, enemy retaliation, status ticks).
+* `on_victory()` — Optional hook invoked once when the game enters `Victory` (can call `victory_clear_stages()`, `victory_add_stage(...)`, `set_str("victory_message", ...)`).
 * `get_status()` — Returns `"playing"`, `"victory"`, or `"defeat"`.
 
 ### D. Solver Heuristic (`eval_heuristic()`)

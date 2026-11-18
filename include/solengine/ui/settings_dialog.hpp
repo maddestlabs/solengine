@@ -26,6 +26,7 @@ public:
     void close();
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
     [[nodiscard]] bool isPeekingPostFx() const noexcept { return peekingPostFx_; }
+    void setLowCapabilityHardware(bool lowCap) noexcept { lowCapabilityHardware_ = lowCap; }
     [[nodiscard]] const AppSettings& previewSettings() const noexcept { return tempSettings_; }
 
     void render(
@@ -92,6 +93,7 @@ private:
     bool draggingDeviation_{false};
     bool draggingPostFxIntensity_{false};
     bool peekingPostFx_{false};
+    bool lowCapabilityHardware_{false};
     bool draggingDarkness_{false};
     bool draggingLightStrength_{false};
     bool draggingGoboSoftness_{false};
