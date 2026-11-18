@@ -6,14 +6,14 @@
 name = "TriPeaks"
 family = "Golf"
 category = "GOLF"
-layout = "columns"
+layout = "tripeaks"
 description = "Fast-paced peak elimination. Stack cards +-1 rank onto foundation waste; King-Ace wrapping allowed."
 decks = 1
-tableaus = 7
+tableaus = 28
 foundations = 1
 freecells = 0
 
-tableau_deal_counts = [4, 4, 4, 4, 4, 4, 4]
+tableau_deal_counts = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 tableau_all_face_up = False
 foundation_starter_card = True
 
@@ -26,15 +26,15 @@ demo_seeds = [1, 9, 13, 21, 25, 29, 33, 2026]
 # --- Unified Help & Introspection Manifest ---
 doc_meta(1, "Fast", 4, "High Luck", 2, "Casual")
 doc_aliases(["Three Peaks", "Tri Towers"])
-doc_goal("Clear all 7 tableau columns onto the Foundation.", "No playable cards remain and Stock is empty.")
+doc_goal("Clear all 28 cards from the 3 overlapping peaks onto the Foundation.", "No playable cards remain and Stock is empty.")
 doc_zone(0, "Stock", "Remaining face-down cards. Click to deal a new card onto the Foundation.")
 doc_zone(1, "Foundation", "Build +-1 in rank regardless of suit, wrapping King <-> Ace.", ["KH", "AS", "2D"])
-doc_zone(2, "Tableau Columns (1-7)", "Click or drag exposed top cards that are +-1 rank from the Foundation.")
+doc_zone(2, "Three Peaks (28 Cards)", "Click or drag uncovered cards that are +-1 rank from the Foundation.")
 
 def eval_heuristic():
     rem = 0
     z = 2
-    while z <= 8:
+    while z <= 29:
         rem = rem + zone_size(z)
         z = z + 1
     return (28 - rem) * 100 + zone_size(0) * 10
@@ -48,13 +48,12 @@ def on_deal():
 
 def can_pick(z, i):
     sz = zone_size(z)
-    return z >= 2 and z <= 8 and sz > 0 and i == sz - 1 and card_face_up(z, i)
+    return z >= 2 and z <= 29 and sz > 0 and i == sz - 1 and card_face_up(z, i) and not is_card_blocked(z, i)
 
 def can_drop(from_z, i, to_z):
-    if to_z != 1 or from_z < 2 or from_z > 8:
+    if to_z != 1 or from_z < 2 or from_z > 29:
         return False
-    sz = zone_size(from_z)
-    if sz == 0 or i != sz - 1 or not card_face_up(from_z, i):
+    if not can_pick(from_z, i):
         return False
     fsz = zone_size(1)
     if fsz == 0:
@@ -84,9 +83,9 @@ def on_stock_click():
 
 def on_turn_end():
     z = 2
-    while z <= 8:
+    while z <= 29:
         sz = zone_size(z)
-        if sz > 0 and not card_face_up(z, sz - 1):
+        if sz > 0 and not card_face_up(z, sz - 1) and not is_card_blocked(z, sz - 1):
             flip_card(z, sz - 1, True)
         z = z + 1
     return True
@@ -94,7 +93,7 @@ def on_turn_end():
 def get_status():
     rem = 0
     z = 2
-    while z <= 8:
+    while z <= 29:
         rem = rem + zone_size(z)
         z = z + 1
     if rem == 0:

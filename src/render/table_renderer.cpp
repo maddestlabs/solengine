@@ -4027,7 +4027,11 @@ struct InteractiveContext {
 
     void startAsyncDeckDef(const CardTextureCache::DeckDef& def, CardWearLevel wear, CardStock stock) {
 #if defined(__EMSCRIPTEN__)
-        if (def.filePath.empty() && def.legacyId != DeckThemeId::SolEnshade) {
+        const bool isProceduralBuiltin = (def.legacyId == DeckThemeId::SolEnshade ||
+                                          def.legacyId == DeckThemeId::SolPolyWhite ||
+                                          def.legacyId == DeckThemeId::SolPolyDark ||
+                                          def.legacyId == DeckThemeId::ScoundrelLowPoly);
+        if (def.filePath.empty() && !isProceduralBuiltin) {
             std::string jsName = def.id;
             EM_ASM({
                 if (window.loadDeckByName) {
