@@ -1484,7 +1484,10 @@ void drawStaticTableChrome(
     r.drawRoundedRectOutline(0.0f, 0.0f, width, height, 0.0f, pal.trimR, pal.trimG, pal.trimB, 0.35f, 1.5f, 0);
 
     // 2. Recessed Empty Pile Wells & Foundation Runes
-    const bool showMarkings = SettingsManager::instance().settings().showTableMarkings;
+    const auto* profMark = SettingsManager::instance().getGameProfile(board.activeGameDef().id);
+    const bool showMarkings = (profMark && profMark->showTableMarkings)
+        ? *profMark->showTableMarkings
+        : SettingsManager::instance().settings().showTableMarkings;
     if (showMarkings) {
         const float cw = board.cardWidth();
         const float ch = board.cardHeight();
@@ -2467,7 +2470,11 @@ bool buildVictoryOverrideStage(VictoryAnimOverride mode, VictoryStageSpec& outSp
 bool shouldHideVictoryPileCard(const SolitaireBoard& board, const Pile& p, size_t cIdx) noexcept {
     const float vTime = board.victorySeconds();
     VictoryStageSpec overrideSpec{};
-    if (buildVictoryOverrideStage(SettingsManager::instance().settings().victoryAnimOverride, overrideSpec)) {
+    const auto* profVic = SettingsManager::instance().getGameProfile(board.activeGameDef().id);
+    const VictoryAnimOverride vicOverride = (profVic && profVic->victoryAnimOverride)
+        ? *profVic->victoryAnimOverride
+        : SettingsManager::instance().settings().victoryAnimOverride;
+    if (buildVictoryOverrideStage(vicOverride, overrideSpec)) {
         if (overrideSpec.source == VictoryCardSource::SyntheticDeck) return false;
         if (overrideSpec.source == VictoryCardSource::AllPiles) return vTime >= overrideSpec.delay;
         if (p.type != PileType::Foundation) return false;
@@ -2786,7 +2793,10 @@ void TableRenderer::renderBoard(
     static float s_cachedH = 0.0f;
     static bool s_cachedMarkings = true;
 
-    const bool showMarkings = SettingsManager::instance().settings().showTableMarkings;
+    const auto* profMark = SettingsManager::instance().getGameProfile(board.activeGameDef().id);
+    const bool showMarkings = (profMark && profMark->showTableMarkings)
+        ? *profMark->showTableMarkings
+        : SettingsManager::instance().settings().showTableMarkings;
 
     const bool themeOrSizeChanged =
         (s_cachedTheme != board.tableTheme() ||
@@ -3020,7 +3030,11 @@ void TableRenderer::renderBoard(
 
         const float vTime = board.victorySeconds();
         VictoryStageSpec overrideSpec{};
-        if (buildVictoryOverrideStage(SettingsManager::instance().settings().victoryAnimOverride, overrideSpec)) {
+        const auto* profVic = SettingsManager::instance().getGameProfile(board.activeGameDef().id);
+    const VictoryAnimOverride vicOverride = (profVic && profVic->victoryAnimOverride)
+        ? *profVic->victoryAnimOverride
+        : SettingsManager::instance().settings().victoryAnimOverride;
+    if (buildVictoryOverrideStage(vicOverride, overrideSpec)) {
             evaluateVictoryStage(overrideSpec, board, vTime, width, height, cw, ch, airborne);
         } else {
             const auto& stages = board.victoryChoreography().stages;
@@ -4995,7 +5009,10 @@ struct InteractiveContext {
 
         GameRegistry::instance().initialize();
 
-        const auto& startupSettings = SettingsManager::instance().settings();
+        SettingsManager::instance().applyToGame(board, foley, false);
+        effectiveSettings_ = SettingsManager::instance().resolveForGame(activeGameId());
+        const AppSettings& startupSettings = effectiveSettings_;
+        lightController.setPreset(startupSettings.lightingPreset);
         if (startupSettings.tableTint != TableTintPreset::Auto) {
             ProceduralBackgroundSystem::instance().setTableTint(startupSettings.tableTint);
         }
@@ -5038,6 +5055,7 @@ struct InteractiveContext {
                 SettingsManager::instance().settings().variant = def.nativeVariant;
                 SettingsManager::instance().settings().lastSeed = s;
                 SettingsManager::instance().save();
+                applyEffectiveSettings(true);
                 SessionManager::instance().clearSession();
                 foley.triggerSound(FoleySound::Deal, 0.85f);
             }
@@ -5066,94 +5084,119 @@ struct InteractiveContext {
         };
 
         settingsDialog.onSettingsChanged = [this]() {
-            const auto& s = SettingsManager::instance().settings();
-            menuAnchor = s.menuAnchor;
-            menuFlowVertical = s.menuFlowVertical;
-            renderer.setAntiAliasingMode(4);
-            lightController.setPreset(s.lightingPreset);
-
-            bool variantChanged = (s.variant != board.variant());
+            const auto& g = SettingsManager::instance().settings();
+            bool variantChanged = (g.variant != board.variant());
             if (variantChanged) {
-                board.newDeal(s.lastSeed, s.variant);
+                board.newDeal(g.lastSeed, g.variant);
                 board.computeLayout(static_cast<float>(width), static_cast<float>(height));
                 SessionManager::instance().clearSession();
                 foley.triggerSound(FoleySound::Deal, 0.85f);
             }
-
-            board.setCardDeviation(s.cardDeviation);
-            board.setLayoutMode(s.layoutMode);
-            board.setStockPosition(s.stockPosition);
-            foley.setMasterVolume(s.masterVolume);
-            foley.setMuted(s.muted);
-            foley.setShufflePreference(s.shuffleStyle);
-            CardTextureCache::instance().setCornerStyle(s.cardCorners);
-
-            auto& cache = CardTextureCache::instance();
-            bool themeChanged = (s.tableTheme != board.tableTheme() || s.tableThemeSlug != board.tableThemeSlug());
-            bool tintChanged = (s.tableTint != ProceduralBackgroundSystem::instance().tableTint());
-            if (tintChanged) {
-                ProceduralBackgroundSystem::instance().setTableTint(s.tableTint);
-                ProceduralBackgroundSystem::instance().invalidateCache();
-            }
-            const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
-                                    s.deckTheme == DeckThemeId::SolPolyDark ||
-                                    s.deckTheme == DeckThemeId::ScoundrelLowPoly ||
-                                    s.deckTheme == DeckThemeId::SolPolyClassic ||
-                                    s.deckTheme == DeckThemeId::SolPolyMobile);
-            bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
-            if (seedChanged) {
-                cache.setLowPolySeed(s.lowPolySeed);
-            }
-            bool deckChanged = seedChanged || ((!s.deckSlug.empty())
-                ? (s.deckSlug != cache.currentDeckId())
-                : (s.deckTheme != cache.currentDeckTheme()));
-            bool wearChanged = (s.cardWear != cache.cardWearLevel());
-            bool stockChanged = (s.cardStock != cache.cardStock());
-            bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
-
-            if (deckChanged) {
-                if (themeChanged) {
-                    ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
-                    board.setTableTheme(s.tableTheme);
-                    board.setTableThemeSlug(s.tableThemeSlug);
-                    lightController.applyThemeDefault(s.tableTheme);
-                    ProceduralBackgroundSystem::instance().invalidateCache();
-                }
-                const auto& decks = cache.availableDecks();
-                size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
-                if (dIdx < decks.size()) {
-                    startAsyncDeckDef(decks[dIdx], s.cardWear, s.cardStock);
-                } else {
-                    startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
-                }
-            } else if (wearChanged || stockChanged) {
-                if (themeChanged) {
-                    ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
-                    board.setTableTheme(s.tableTheme);
-                    board.setTableThemeSlug(s.tableThemeSlug);
-                    lightController.applyThemeDefault(s.tableTheme);
-                    ProceduralBackgroundSystem::instance().invalidateCache();
-                }
-                startAsyncConditioning(s.cardWear, s.cardStock);
-            } else {
-                if (cardBackChanged) {
-                    cache.setActiveCardBack(s.cardBackId);
-                }
-                if (themeChanged) {
-                    size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
-                    const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
-                    if (def) {
-                        startAsyncTableTheme(*def);
-                    } else {
-                        startAsyncTableTheme(s.tableTheme);
-                    }
-                }
-            }
+            applyEffectiveSettings(true);
         };
     }
 
+    [[nodiscard]] std::string activeGameId() const {
+        if (!board.activeGameDef().id.empty()) return board.activeGameDef().id;
+        if (const auto* def = GameRegistry::instance().findByVariant(board.variant())) return def->id;
+        return "";
+    }
+
+    AppSettings effectiveSettings_{};
+
+    void applyEffectiveSettings(bool applyTexturesAndThemes) {
+        effectiveSettings_ = SettingsManager::instance().resolveForGame(activeGameId());
+        const AppSettings& s = effectiveSettings_;
+        menuAnchor = s.menuAnchor;
+        menuFlowVertical = s.menuFlowVertical;
+        renderer.setAntiAliasingMode(4);
+        lightController.setPreset(s.lightingPreset);
+
+        board.setCardDeviation(s.cardDeviation);
+        board.setLayoutMode(s.layoutMode);
+        board.setStockPosition(s.stockPosition);
+        foley.setMasterVolume(s.masterVolume);
+        foley.setMuted(s.muted);
+        foley.setShufflePreference(s.shuffleStyle);
+        foley.setSoundPackId(s.soundPackId);
+        foley.setAmbienceVolume(s.ambienceVolume);
+        foley.setAmbience(s.ambienceId);
+        CardTextureCache::instance().setCornerStyle(s.cardCorners);
+
+        auto& cache = CardTextureCache::instance();
+        bool themeChanged = (s.tableTheme != board.tableTheme() || s.tableThemeSlug != board.tableThemeSlug());
+        bool tintChanged = (s.tableTint != ProceduralBackgroundSystem::instance().tableTint());
+        if (tintChanged) {
+            ProceduralBackgroundSystem::instance().setTableTint(s.tableTint);
+            ProceduralBackgroundSystem::instance().invalidateCache();
+        }
+        if (s.tableThemeOption != ProceduralBackgroundSystem::instance().themeOption()) {
+            board.setTableThemeOption(s.tableThemeOption);
+            ProceduralBackgroundSystem::instance().setThemeOption(s.tableThemeOption);
+            ProceduralBackgroundSystem::instance().invalidateCache();
+        }
+
+        if (!applyTexturesAndThemes) return;
+
+        const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
+                                s.deckTheme == DeckThemeId::SolPolyDark ||
+                                s.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                s.deckTheme == DeckThemeId::SolPolyClassic ||
+                                s.deckTheme == DeckThemeId::SolPolyMobile);
+        bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
+        if (seedChanged) {
+            cache.setLowPolySeed(s.lowPolySeed);
+        }
+        bool deckChanged = seedChanged || ((!s.deckSlug.empty())
+            ? (s.deckSlug != cache.currentDeckId())
+            : (s.deckTheme != cache.currentDeckTheme()));
+        bool wearChanged = (s.cardWear != cache.cardWearLevel());
+        bool stockChanged = (s.cardStock != cache.cardStock());
+        bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
+
+        if (deckChanged) {
+            if (themeChanged) {
+                ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
+                board.setTableTheme(s.tableTheme);
+                board.setTableThemeSlug(s.tableThemeSlug);
+                lightController.applyThemeDefault(s.tableTheme);
+                ProceduralBackgroundSystem::instance().invalidateCache();
+            }
+            const auto& decks = cache.availableDecks();
+            size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
+            if (dIdx < decks.size()) {
+                startAsyncDeckDef(decks[dIdx], s.cardWear, s.cardStock);
+            } else {
+                startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
+            }
+        } else if (wearChanged || stockChanged) {
+            if (themeChanged) {
+                ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
+                board.setTableTheme(s.tableTheme);
+                board.setTableThemeSlug(s.tableThemeSlug);
+                lightController.applyThemeDefault(s.tableTheme);
+                ProceduralBackgroundSystem::instance().invalidateCache();
+            }
+            startAsyncConditioning(s.cardWear, s.cardStock);
+        } else {
+            if (cardBackChanged) {
+                cache.setActiveCardBack(s.cardBackId);
+            }
+            if (themeChanged) {
+                size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+                const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
+                if (def) {
+                    startAsyncTableTheme(*def);
+                } else {
+                    startAsyncTableTheme(s.tableTheme);
+                }
+            }
+        }
+    }
+
     void checkStartupSettingsLoad() {
-        const auto& s = SettingsManager::instance().settings();
+        effectiveSettings_ = SettingsManager::instance().resolveForGame(activeGameId());
+        const AppSettings& s = effectiveSettings_;
         auto& cache = CardTextureCache::instance();
 
         const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
@@ -5356,6 +5399,7 @@ struct InteractiveContext {
                         board.newDeal(board.seed(), *targetDef);
                         board.computeLayout(static_cast<float>(width), static_cast<float>(height));
                         SettingsManager::instance().settings().variant = targetDef->nativeVariant;
+                        applyEffectiveSettings(true);
                         SessionManager::instance().clearSession();
                         foley.triggerSound(FoleySound::Deal, 0.85f);
                     }
@@ -5381,6 +5425,7 @@ struct InteractiveContext {
                         board.newDeal(board.seed(), *targetDef);
                         board.computeLayout(static_cast<float>(width), static_cast<float>(height));
                         SettingsManager::instance().settings().variant = targetDef->nativeVariant;
+                        applyEffectiveSettings(true);
                         SessionManager::instance().clearSession();
                         foley.triggerSound(FoleySound::Deal, 0.85f);
                     }
@@ -5515,7 +5560,7 @@ struct InteractiveContext {
                 break;
             case BtnMenuToggle:
                 SettingsManager::instance().syncFromGame(board, foley);
-                settingsDialog.open();
+                settingsDialog.open(activeGameId(), board.activeGameDef().name);
                 foley.triggerSound(FoleySound::Flip, 0.8f);
                 break;
             case BtnSeedDialog:
@@ -5563,7 +5608,7 @@ struct InteractiveContext {
             }
             case BtnSettings:
                 SettingsManager::instance().syncFromGame(board, foley);
-                settingsDialog.open();
+                settingsDialog.open(activeGameId(), board.activeGameDef().name);
                 foley.triggerSound(FoleySound::Flip, 0.8f);
                 break;
             case BtnHelp:
@@ -5640,6 +5685,7 @@ struct InteractiveContext {
                         SettingsManager::instance().settings().lastSeed = asyncManager.solvableSeed;
                         SettingsManager::instance().settings().variant = asyncManager.solvableDef.nativeVariant;
                         SettingsManager::instance().save();
+                        applyEffectiveSettings(true);
                         SessionManager::instance().clearSession();
                     }
                     if (loadingDialog.isOpen()) {
@@ -5656,9 +5702,11 @@ struct InteractiveContext {
                     board.setTableTheme(asyncManager.targetTheme);
                     board.setTableThemeSlug(asyncManager.targetThemeSlug);
                     lightController.applyThemeDefault(asyncManager.targetTheme);
-                    SettingsManager::instance().settings().tableTheme = asyncManager.targetTheme;
-                    SettingsManager::instance().settings().tableThemeSlug = asyncManager.targetThemeSlug;
-                    SettingsManager::instance().save();
+                    if (!SettingsManager::instance().hasGameProfile(activeGameId())) {
+                        SettingsManager::instance().settings().tableTheme = asyncManager.targetTheme;
+                        SettingsManager::instance().settings().tableThemeSlug = asyncManager.targetThemeSlug;
+                        SettingsManager::instance().save();
+                    }
                     if (loadingDialog.isOpen()) {
                         loadingDialog.close();
                         foley.triggerSound(FoleySound::Shuffle, 0.85f);
@@ -5668,15 +5716,17 @@ struct InteractiveContext {
                 } else if (asyncManager.stagingDeckReady || asyncManager.customBgReady || asyncManager.customAudioReady) {
                     if (asyncManager.stagingDeckReady) {
                         CardTextureCache::instance().commitStagedDeck(std::move(asyncManager.stagingDeck));
-                        CardTextureCache::instance().setActiveCardBack(SettingsManager::instance().settings().cardBackId);
+                        CardTextureCache::instance().setActiveCardBack(effectiveSettings_.cardBackId);
                         if (renderer.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU) {
                             CardTextureCache::instance().buildGpuAtlas(renderer);
                         }
-                        SettingsManager::instance().settings().deckTheme = CardTextureCache::instance().currentDeckTheme();
-                        SettingsManager::instance().settings().deckSlug = CardTextureCache::instance().currentDeckId();
-                        SettingsManager::instance().settings().cardWear = CardTextureCache::instance().cardWearLevel();
-                        SettingsManager::instance().settings().cardStock = CardTextureCache::instance().cardStock();
-                        SettingsManager::instance().save();
+                        if (!SettingsManager::instance().hasGameProfile(activeGameId())) {
+                            SettingsManager::instance().settings().deckTheme = CardTextureCache::instance().currentDeckTheme();
+                            SettingsManager::instance().settings().deckSlug = CardTextureCache::instance().currentDeckId();
+                            SettingsManager::instance().settings().cardWear = CardTextureCache::instance().cardWearLevel();
+                            SettingsManager::instance().settings().cardStock = CardTextureCache::instance().cardStock();
+                            SettingsManager::instance().save();
+                        }
                     }
                     if (asyncManager.customBgReady) {
                         ProceduralBackgroundSystem::instance().invalidateCache();
@@ -5690,10 +5740,12 @@ struct InteractiveContext {
                         loadingDialog.close();
                     }
                     // Load failed; keep active baseline in settings
-                    SettingsManager::instance().settings().deckTheme = CardTextureCache::instance().currentDeckTheme();
-                    SettingsManager::instance().settings().cardWear = CardTextureCache::instance().cardWearLevel();
-                    SettingsManager::instance().settings().cardStock = CardTextureCache::instance().cardStock();
-                    SettingsManager::instance().save();
+                    if (!SettingsManager::instance().hasGameProfile(activeGameId())) {
+                        SettingsManager::instance().settings().deckTheme = CardTextureCache::instance().currentDeckTheme();
+                        SettingsManager::instance().settings().cardWear = CardTextureCache::instance().cardWearLevel();
+                        SettingsManager::instance().settings().cardStock = CardTextureCache::instance().cardStock();
+                        SettingsManager::instance().save();
+                    }
                 }
 
                 asyncManager.resetState();
@@ -5762,7 +5814,7 @@ struct InteractiveContext {
         float fmy = rawFmy;
         const auto& activeMouseCfg = settingsDialog.isOpen()
             ? settingsDialog.previewSettings()
-            : SettingsManager::instance().settings();
+            : effectiveSettings_;
         if (!(settingsDialog.isOpen() && settingsDialog.isPeekingPostFx())) {
             PostFxSystem::instance().warpMouseCoords(
                 activeMouseCfg.postFxId, activeMouseCfg.postFxOption, activeMouseCfg.postFxIntensity,
@@ -6485,7 +6537,7 @@ struct InteractiveContext {
         board.updateAnimations(dt);
         const AppSettings& activeCfg = settingsDialog.isOpen()
             ? settingsDialog.previewSettings()
-            : SettingsManager::instance().settings();
+            : effectiveSettings_;
         if (lightController.getPreset() != activeCfg.lightingPreset) {
             lightController.setPreset(activeCfg.lightingPreset);
         }

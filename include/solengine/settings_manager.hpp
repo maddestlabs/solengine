@@ -8,6 +8,7 @@
 #include "solengine/audio_foley.hpp"
 #include <string>
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 
 namespace solengine {
@@ -21,6 +22,46 @@ enum class RenderResolutionMode : uint8_t {
     Res720p = 3,  // Max 1280x720 (aspect-preserving)
     Res540p = 4,  // Max 960x540 (aspect-preserving)
     Count
+};
+
+struct GameSceneProfile {
+    std::optional<TableThemeId> tableTheme;
+    std::optional<std::string> tableThemeSlug;
+    std::optional<std::string> tableThemeOption;
+    std::optional<TableTintPreset> tableTint;
+    std::optional<std::string> postFxId;
+    std::optional<std::string> postFxOption;
+    std::optional<float> postFxIntensity;
+    std::optional<bool> showTableMarkings;
+
+    std::optional<DeckThemeId> deckTheme;
+    std::optional<std::string> deckSlug;
+    std::optional<uint32_t> lowPolySeed;
+    std::optional<std::string> cardBackId;
+    std::optional<CardWearLevel> cardWear;
+    std::optional<CardStock> cardStock;
+    std::optional<CardCornerStyle> cardCorners;
+    std::optional<float> cardDeviation;
+
+    std::optional<LightingPreset> lightingPreset;
+    std::optional<LightAngle> lightAngle;
+    std::optional<ShadowGobo> shadowGobo;
+    std::optional<float> lightWaver;
+    std::optional<float> lightFlicker;
+    std::optional<float> goboSoftness;
+    std::optional<float> godRaysIntensity;
+    std::optional<float> dustMotesIntensity;
+    std::optional<float> sceneDarkness;
+    std::optional<float> lightStrength;
+
+    std::optional<std::string> soundPackId;
+    std::optional<std::string> ambienceId;
+    std::optional<float> ambienceVolume;
+    std::optional<StockPosition> stockPosition;
+    std::optional<bool> autoFinish;
+    std::optional<VictoryAnimOverride> victoryAnimOverride;
+
+    [[nodiscard]] bool empty() const noexcept;
 };
 
 struct AppSettings {
@@ -85,6 +126,7 @@ struct AppSettings {
         "spiderette",
         "yukon"
     };
+    std::unordered_map<std::string, GameSceneProfile> gameProfiles;
 };
 
 class SettingsManager {
@@ -99,6 +141,13 @@ public:
 
     [[nodiscard]] bool isFavorite(const std::string& gameId) const;
     void toggleFavorite(const std::string& gameId);
+
+    [[nodiscard]] bool hasGameProfile(const std::string& gameId) const;
+    [[nodiscard]] const GameSceneProfile* getGameProfile(const std::string& gameId) const;
+    void setGameProfile(const std::string& gameId, const GameSceneProfile& profile);
+    void clearGameProfile(const std::string& gameId);
+    [[nodiscard]] AppSettings resolveForGame(const std::string& gameId) const;
+    [[nodiscard]] static GameSceneProfile diffFromGlobal(const AppSettings& global, const AppSettings& effective);
 
     void applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley, bool applyTextures = true);
     void syncFromGame(const SolitaireBoard& board, const AudioFoleyEngine& foley);

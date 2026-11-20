@@ -1730,6 +1730,21 @@ void SolitaireBoard::updateAnimations(float dt) {
     }
 }
 
+void SolitaireBoard::finalizeScriptTurn(ScriptBoardContext& ctx, TurnTransaction& tx, bool recordUndo) {
+    if (scriptEngine_.hasOnTurnEnd()) {
+        // Refresh card target poses before on_turn_end so spatial checks like is_card_blocked()
+        // see moved cards at their destination rather than their previous pile coordinates.
+        updateCardTargets();
+        scriptEngine_.invokeOnTurnEnd(ctx);
+    }
+    if (recordUndo && !tx.ops.empty()) {
+        txUndoStack_.push_back(std::move(tx));
+        txRedoStack_.clear();
+    }
+    ++moveCount_;
+    updateCardTargets();
+}
+
 bool SolitaireBoard::drawFromStock() {
     if (scriptEngine_.hasOnStockClick()) {
         clearHint();
@@ -1738,15 +1753,7 @@ bool SolitaireBoard::drawFromStock() {
         if (!scriptEngine_.invokeOnStockClick(ctx)) {
             return false;
         }
-        if (scriptEngine_.hasOnTurnEnd()) {
-            scriptEngine_.invokeOnTurnEnd(ctx);
-        }
-        if (!tx.ops.empty()) {
-            txUndoStack_.push_back(std::move(tx));
-            txRedoStack_.clear();
-        }
-        ++moveCount_;
-        updateCardTargets();
+        finalizeScriptTurn(ctx, tx);
         return true;
     }
 
@@ -2149,15 +2156,7 @@ bool SolitaireBoard::executeMove(uint8_t fromPileIdx, size_t startCardIdx, uint8
                 tx.ops.push_back(std::move(op));
             }
         }
-        if (scriptEngine_.hasOnTurnEnd()) {
-            scriptEngine_.invokeOnTurnEnd(ctx);
-        }
-        if (recordUndo && !tx.ops.empty()) {
-            txUndoStack_.push_back(std::move(tx));
-            txRedoStack_.clear();
-        }
-        ++moveCount_;
-        updateCardTargets();
+        finalizeScriptTurn(ctx, tx, recordUndo);
         return true;
     }
 
@@ -2304,15 +2303,7 @@ bool SolitaireBoard::executeCardTarget(uint8_t fromPileIdx, size_t fromCardIdx, 
     if (!scriptEngine_.invokeOnTarget(ctx, fromPileIdx, fromCardIdx, toPileIdx, toCardIdx)) {
         return false;
     }
-    if (scriptEngine_.hasOnTurnEnd()) {
-        scriptEngine_.invokeOnTurnEnd(ctx);
-    }
-    if (recordUndo && !tx.ops.empty()) {
-        txUndoStack_.push_back(std::move(tx));
-        txRedoStack_.clear();
-    }
-    ++moveCount_;
-    updateCardTargets();
+    finalizeScriptTurn(ctx, tx, recordUndo);
     return true;
 }
 
@@ -2326,15 +2317,7 @@ bool SolitaireBoard::smartMove(uint8_t fromPileIdx, size_t startCardIdx) {
         TurnTransaction tx;
         auto ctx = makeScriptContext(&tx);
         if (scriptEngine_.invokeOnCardClick(ctx, fromPileIdx, startCardIdx)) {
-            if (scriptEngine_.hasOnTurnEnd()) {
-                scriptEngine_.invokeOnTurnEnd(ctx);
-            }
-            if (!tx.ops.empty()) {
-                txUndoStack_.push_back(std::move(tx));
-                txRedoStack_.clear();
-            }
-            ++moveCount_;
-            updateCardTargets();
+            finalizeScriptTurn(ctx, tx);
             return true;
         }
     }

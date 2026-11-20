@@ -522,6 +522,10 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.tableauDealCounts.assign(outDef.tableaus, 5);
         outDef.filePath = filePath;
         outDef.isScripted = true;
+        if (kv.count("default_deck")) outDef.defaultDeckSlug = kv["default_deck"];
+        if (kv.count("default_theme")) outDef.defaultTableThemeSlug = kv["default_theme"];
+        if (kv.count("default_postfx")) outDef.defaultPostFxId = kv["default_postfx"];
+        if (kv.count("default_ambience")) outDef.defaultAmbienceId = kv["default_ambience"];
         if (ev.hasVariable("demo_seed")) {
             outDef.demoSeed = static_cast<uint32_t>(std::max(1, ev.getVariable("demo_seed").asInt(2026)));
         }
@@ -583,6 +587,10 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.maxRedeals = ev.getVariable("max_redeals").asInt(0);
         outDef.filePath = filePath;
         outDef.isScripted = true;
+        if (ev.hasVariable("default_deck")) outDef.defaultDeckSlug = ev.getVariable("default_deck").asString();
+        if (ev.hasVariable("default_theme")) outDef.defaultTableThemeSlug = ev.getVariable("default_theme").asString();
+        if (ev.hasVariable("default_postfx")) outDef.defaultPostFxId = ev.getVariable("default_postfx").asString();
+        if (ev.hasVariable("default_ambience")) outDef.defaultAmbienceId = ev.getVariable("default_ambience").asString();
         if (ev.hasVariable("demo_seed")) {
             outDef.demoSeed = static_cast<uint32_t>(std::max(1, ev.getVariable("demo_seed").asInt(2026)));
         }

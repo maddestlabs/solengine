@@ -22,7 +22,7 @@ public:
     SettingsDialog();
     ~SettingsDialog() = default;
 
-    void open();
+    void open(const std::string& activeGameId = "", const std::string& activeGameName = "");
     void close();
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
     [[nodiscard]] bool isPeekingPostFx() const noexcept { return peekingPostFx_; }
@@ -74,9 +74,13 @@ public:
 private:
     void randomizeSeed();
     void revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley);
+    void commitSettings();
 
     bool isOpen_{false};
     int currentTab_{0}; // 0: Game, 1: Deck, 2: Scene, 3: Display, 4: Audio
+    std::string activeGameId_;
+    std::string activeGameName_;
+    bool perGameScope_{false};
     AppSettings tempSettings_{};
     std::string seedText_{"2026"};
     bool editingSeed_{false};

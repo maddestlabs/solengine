@@ -143,6 +143,7 @@ public:
 private:
     uint32_t nextRandom() noexcept;
     void updateCardTargets();
+    void finalizeScriptTurn(ScriptBoardContext& ctx, TurnTransaction& tx, bool recordUndo = true);
     ScriptBoardContext makeScriptContext(TurnTransaction* tx = nullptr) noexcept;
     ScriptBoardContext makeConstScriptContext() const noexcept;
 

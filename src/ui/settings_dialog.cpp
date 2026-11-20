@@ -38,9 +38,22 @@ void SettingsDialog::randomizeSeed() {
     seedText_ = std::to_string(seed);
 }
 
-void SettingsDialog::open() {
+void SettingsDialog::open(const std::string& activeGameId, const std::string& activeGameName) {
     isOpen_ = true;
-    tempSettings_ = SettingsManager::instance().settings();
+    activeGameId_ = activeGameId;
+    activeGameName_ = activeGameName;
+    if (activeGameId_.empty()) {
+        if (const auto* def = GameRegistry::instance().findByVariant(SettingsManager::instance().settings().variant)) {
+            activeGameId_ = def->id;
+            if (activeGameName_.empty()) activeGameName_ = def->name;
+        }
+    } else if (activeGameName_.empty()) {
+        if (const auto* def = GameRegistry::instance().findById(activeGameId_)) {
+            activeGameName_ = def->name;
+        }
+    }
+    perGameScope_ = !activeGameId_.empty() && SettingsManager::instance().hasGameProfile(activeGameId_);
+    tempSettings_ = SettingsManager::instance().resolveForGame(activeGameId_);
     seedText_ = std::to_string(tempSettings_.lastSeed);
     editingSeed_ = false;
     auto& cache = CardTextureCache::instance();
@@ -73,7 +86,7 @@ void SettingsDialog::close() {
 }
 
 void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley) {
-    const auto& s = SettingsManager::instance().settings();
+    const AppSettings s = SettingsManager::instance().resolveForGame(activeGameId_);
     board.setCardDeviation(s.cardDeviation);
     foley.setMasterVolume(s.masterVolume);
     foley.setMuted(s.muted);
@@ -1348,31 +1361,73 @@ void SettingsDialog::render(
         }
     }
 
-    // 6. Action Footer: [RESET TO DEFAULTS] and [APPLY & CLOSE]
+    // 6. Action Footer: [RESET], [SCOPE: THIS GAME / GLOBAL], and [APPLY & CLOSE]
     const float footerY = dialogY_ + dialogH_ - 44.0f;
-    const float resetBtnW = 150.0f;
+    const float resetBtnW = 136.0f;
     const float resetBtnH = 32.0f;
     const float resetBtnX = dialogX_ + 16.0f;
     bool resetHov = (mouseX >= resetBtnX && mouseX <= resetBtnX + resetBtnW && mouseY >= footerY && mouseY <= footerY + resetBtnH);
+    const char* resetLabel = perGameScope_ ? "RESET GAME" : "RESET DEFAULTS";
 
-    const float applyBtnW = 160.0f;
+    const float applyBtnW = 148.0f;
     const float applyBtnH = 32.0f;
     const float applyBtnX = dialogX_ + dialogW_ - applyBtnW - 16.0f;
     bool applyHov = (mouseX >= applyBtnX && mouseX <= applyBtnX + applyBtnW && mouseY >= footerY && mouseY <= footerY + applyBtnH);
 
+    // Scope pill centered in the remaining footer space
+    const float scopeAvailW = std::max(120.0f, applyBtnX - (resetBtnX + resetBtnW) - 20.0f);
+    const float scopeBtnW = std::min(220.0f, scopeAvailW);
+    const float scopeBtnX = resetBtnX + resetBtnW + (applyBtnX - (resetBtnX + resetBtnW) - scopeBtnW) * 0.5f;
+    bool scopeHov = !activeGameId_.empty() &&
+                    (mouseX >= scopeBtnX && mouseX <= scopeBtnX + scopeBtnW && mouseY >= footerY && mouseY <= footerY + resetBtnH);
+    std::string scopeLabel;
+    if (activeGameId_.empty()) {
+        scopeLabel = "SCOPE: GLOBAL";
+    } else if (perGameScope_) {
+        std::string gLabel = activeGameName_.empty() ? activeGameId_ : activeGameName_;
+        if (gLabel.size() > 14) gLabel = gLabel.substr(0, 12) + "..";
+        scopeLabel = "FOR: " + gLabel;
+    } else {
+        scopeLabel = "FOR: ALL GAMES";
+    }
+
     if (isClockwork) {
-        clockwork_ui::drawPewterButton(r, resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, "RESET DEFAULTS", resetHov, false, 11.0f);
-        clockwork_ui::drawFurnaceButton(r, applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, "APPLY & CLOSE", applyHov, false, 11.5f);
+        clockwork_ui::drawPewterButton(r, resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, resetLabel, resetHov, false, 10.5f);
+        if (!activeGameId_.empty()) {
+            if (perGameScope_) {
+                clockwork_ui::drawBrassButton(r, scopeBtnX, footerY, scopeBtnW, resetBtnH, 4.0f, scopeLabel.c_str(), scopeHov, true, 10.5f);
+            } else {
+                clockwork_ui::drawPewterButton(r, scopeBtnX, footerY, scopeBtnW, resetBtnH, 4.0f, scopeLabel.c_str(), scopeHov, false, 10.5f);
+            }
+        }
+        clockwork_ui::drawFurnaceButton(r, applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, "APPLY & CLOSE", applyHov, false, 11.0f);
     } else {
         r.drawRoundedRect(resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, pal.woodR0 + 0.05f + (resetHov ? 0.07f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
         r.drawRoundedRectOutline(resetBtnX, footerY, resetBtnW, resetBtnH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.1f, 4);
-        float resetTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, "RESET DEFAULTS");
-        eatsbits::ui::glyph::drawVectorText(r, "RESET DEFAULTS", resetBtnX + (resetBtnW - resetTxtW) * 0.5f, footerY + (resetBtnH - 11.0f) * 0.5f, 11.0f, 0.88f, 0.85f, 0.80f, 1.0f);
+        float resetTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, resetLabel);
+        eatsbits::ui::glyph::drawVectorText(r, resetLabel, resetBtnX + (resetBtnW - resetTxtW) * 0.5f, footerY + (resetBtnH - 10.5f) * 0.5f, 10.5f, 0.88f, 0.85f, 0.80f, 1.0f);
+
+        if (!activeGameId_.empty()) {
+            r.drawRoundedRect(scopeBtnX, footerY, scopeBtnW, resetBtnH, 4.0f,
+                              perGameScope_ ? (pal.woodR0 + 0.14f) : (pal.woodR0 + 0.05f + (scopeHov ? 0.07f : 0.0f)),
+                              perGameScope_ ? (pal.woodG0 + 0.12f) : (pal.woodG0 + 0.04f),
+                              perGameScope_ ? (pal.woodB0 + 0.08f) : (pal.woodB0 + 0.03f), 0.96f, 4);
+            r.drawRoundedRectOutline(scopeBtnX, footerY, scopeBtnW, resetBtnH, 4.0f,
+                                     perGameScope_ ? pal.accentR : pal.trimR,
+                                     perGameScope_ ? pal.accentG : pal.trimG,
+                                     perGameScope_ ? pal.accentB : pal.trimB,
+                                     perGameScope_ ? 0.95f : 0.70f, perGameScope_ ? 1.5f : 1.1f, 4);
+            float scopeTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, scopeLabel.c_str());
+            eatsbits::ui::glyph::drawVectorText(r, scopeLabel.c_str(), scopeBtnX + (scopeBtnW - scopeTxtW) * 0.5f, footerY + (resetBtnH - 10.5f) * 0.5f, 10.5f,
+                                                perGameScope_ ? pal.accentR : 0.90f,
+                                                perGameScope_ ? pal.accentG : 0.87f,
+                                                perGameScope_ ? pal.accentB : 0.82f, 1.0f);
+        }
 
         r.drawRoundedRect(applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, pal.woodR0 + 0.12f + (applyHov ? 0.10f : 0.0f), pal.woodG0 + 0.10f, pal.woodB0 + 0.08f, 0.98f, 4);
         r.drawRoundedRectOutline(applyBtnX, footerY, applyBtnW, applyBtnH, 4.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f, 1.6f, 4);
-        float applyTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.5f, "APPLY & CLOSE");
-        eatsbits::ui::glyph::drawVectorText(r, "APPLY & CLOSE", applyBtnX + (applyBtnW - applyTxtW) * 0.5f, footerY + (applyBtnH - 11.5f) * 0.5f, 11.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        float applyTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, "APPLY & CLOSE");
+        eatsbits::ui::glyph::drawVectorText(r, "APPLY & CLOSE", applyBtnX + (applyBtnW - applyTxtW) * 0.5f, footerY + (applyBtnH - 11.0f) * 0.5f, 11.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
     }
 }
 
@@ -2169,11 +2224,43 @@ bool SettingsDialog::handleMouseButton(
 
     // Footer actions
     const float footerY = dialogY_ + dialogH_ - 44.0f;
-    const float resetBtnW = 150.0f;
+    const float resetBtnW = 136.0f;
     const float resetBtnH = 32.0f;
     const float resetBtnX = dialogX_ + 16.0f;
+    const float applyBtnW = 148.0f;
+    const float applyBtnH = 32.0f;
+    const float applyBtnX = dialogX_ + dialogW_ - applyBtnW - 16.0f;
+    const float scopeAvailW = std::max(120.0f, applyBtnX - (resetBtnX + resetBtnW) - 20.0f);
+    const float scopeBtnW = std::min(220.0f, scopeAvailW);
+    const float scopeBtnX = resetBtnX + resetBtnW + (applyBtnX - (resetBtnX + resetBtnW) - scopeBtnW) * 0.5f;
+
+    if (!activeGameId_.empty() &&
+        mouseX >= scopeBtnX && mouseX <= scopeBtnX + scopeBtnW &&
+        mouseY >= footerY && mouseY <= footerY + resetBtnH) {
+        perGameScope_ = !perGameScope_;
+        if (perGameScope_) {
+            if (SettingsManager::instance().hasGameProfile(activeGameId_)) {
+                tempSettings_ = SettingsManager::instance().resolveForGame(activeGameId_);
+            }
+        } else {
+            tempSettings_ = SettingsManager::instance().settings();
+        }
+        seedText_ = std::to_string(tempSettings_.lastSeed);
+        foley.triggerSound(FoleySound::WoodClick, 0.75f);
+        return true;
+    }
+
     if (mouseX >= resetBtnX && mouseX <= resetBtnX + resetBtnW && mouseY >= footerY && mouseY <= footerY + resetBtnH) {
-        tempSettings_ = AppSettings{};
+        if (perGameScope_ && !activeGameId_.empty()) {
+            SettingsManager::instance().clearGameProfile(activeGameId_);
+            tempSettings_ = SettingsManager::instance().resolveForGame(activeGameId_);
+        } else {
+            auto savedProfiles = SettingsManager::instance().settings().gameProfiles;
+            auto savedFavs = SettingsManager::instance().settings().favorites;
+            tempSettings_ = AppSettings{};
+            tempSettings_.gameProfiles = std::move(savedProfiles);
+            tempSettings_.favorites = std::move(savedFavs);
+        }
         seedText_ = std::to_string(tempSettings_.lastSeed);
         board.setCardDeviation(tempSettings_.cardDeviation);
         foley.setMasterVolume(tempSettings_.masterVolume);
@@ -2185,24 +2272,57 @@ bool SettingsDialog::handleMouseButton(
         return true;
     }
 
-    const float applyBtnW = 160.0f;
-    const float applyBtnH = 32.0f;
-    const float applyBtnX = dialogX_ + dialogW_ - applyBtnW - 16.0f;
     if (mouseX >= applyBtnX && mouseX <= applyBtnX + applyBtnW && mouseY >= footerY && mouseY <= footerY + applyBtnH) {
-        try {
-            tempSettings_.lastSeed = static_cast<uint32_t>(std::stoul(seedText_));
-        } catch (...) {
-            tempSettings_.lastSeed = 2026u;
-        }
-        SettingsManager::instance().settings() = tempSettings_;
-        SettingsManager::instance().save();
-        if (onSettingsChanged) onSettingsChanged();
+        commitSettings();
         close();
         foley.triggerSound(FoleySound::Sweep, 0.9f);
         return true;
     }
 
     return true;
+}
+
+void SettingsDialog::commitSettings() {
+    try {
+        tempSettings_.lastSeed = static_cast<uint32_t>(std::stoul(seedText_));
+    } catch (...) {
+        tempSettings_.lastSeed = 2026u;
+    }
+
+    auto& mgr = SettingsManager::instance();
+    if (perGameScope_ && !activeGameId_.empty()) {
+        // Persist global-only preferences to global settings
+        auto& g = mgr.settings();
+        g.variant = tempSettings_.variant;
+        g.randomizeOnNewDeal = tempSettings_.randomizeOnNewDeal;
+        g.guaranteeSolvable = tempSettings_.guaranteeSolvable;
+        g.lastSeed = tempSettings_.lastSeed;
+        g.renderResolution = tempSettings_.renderResolution;
+        g.postFxAffectUi = tempSettings_.postFxAffectUi;
+        g.guiTheme = tempSettings_.guiTheme;
+        g.layoutMode = tempSettings_.layoutMode;
+        g.menuAnchor = tempSettings_.menuAnchor;
+        g.menuFlowVertical = tempSettings_.menuFlowVertical;
+        g.menuDisplayMode = tempSettings_.menuDisplayMode;
+        g.toolbarScale = tempSettings_.toolbarScale;
+        g.toolbarItems = tempSettings_.toolbarItems;
+        g.masterVolume = tempSettings_.masterVolume;
+        g.muted = tempSettings_.muted;
+        g.shuffleStyle = tempSettings_.shuffleStyle;
+        g.tableThemeOptions = tempSettings_.tableThemeOptions;
+        g.postFxOptions = tempSettings_.postFxOptions;
+
+        GameSceneProfile prof = SettingsManager::diffFromGlobal(g, tempSettings_);
+        mgr.setGameProfile(activeGameId_, prof);
+    } else {
+        auto savedProfiles = mgr.settings().gameProfiles;
+        auto savedFavs = mgr.settings().favorites;
+        mgr.settings() = tempSettings_;
+        mgr.settings().gameProfiles = std::move(savedProfiles);
+        mgr.settings().favorites = std::move(savedFavs);
+    }
+    mgr.save();
+    if (onSettingsChanged) onSettingsChanged();
 }
 
 bool SettingsDialog::handleMouseMove(
@@ -2304,12 +2424,7 @@ bool SettingsDialog::handleKey(
     }
 
     if (key == 257 || key == 335) { // GLFW_KEY_ENTER / KP_ENTER
-        try {
-            tempSettings_.lastSeed = static_cast<uint32_t>(std::stoul(seedText_));
-        } catch (...) {}
-        SettingsManager::instance().settings() = tempSettings_;
-        SettingsManager::instance().save();
-        if (onSettingsChanged) onSettingsChanged();
+        commitSettings();
         close();
         foley.triggerSound(FoleySound::Sweep, 0.9f);
         return true;

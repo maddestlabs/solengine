@@ -374,6 +374,17 @@ void GameBrowserDialog::render(
             r.drawRoundedRectOutline(badgeRightX, cy + 7.0f, famBadgeW, 16.0f, 8.0f, pal.trimR, pal.trimG, pal.trimB, 0.60f, 1.0f, 3);
             eatsbits::ui::glyph::drawVectorText(r, g.family.c_str(), badgeRightX + 5.0f, cy + 3.5f + 7.0f, 8.5f, pal.accentR, pal.accentG, pal.accentB, 0.95f);
 
+            // 1b. Per-game custom setup badge
+            if (SettingsManager::instance().hasGameProfile(g.id)) {
+                const char* custLabel = "CUSTOM";
+                float custTxtW = eatsbits::ui::glyph::getVectorTextWidth(8.0f, custLabel);
+                float custBadgeW = custTxtW + 10.0f;
+                badgeRightX -= (custBadgeW + 6.0f);
+                r.drawRoundedRect(badgeRightX, cy + 7.0f, custBadgeW, 16.0f, 8.0f, 0.14f, 0.24f, 0.18f, 0.95f, 3);
+                r.drawRoundedRectOutline(badgeRightX, cy + 7.0f, custBadgeW, 16.0f, 8.0f, 0.38f, 0.85f, 0.55f, 0.80f, 1.0f, 3);
+                eatsbits::ui::glyph::drawVectorText(r, custLabel, badgeRightX + 5.0f, cy + 10.5f, 8.0f, 0.55f, 0.98f, 0.68f, 1.0f);
+            }
+
             // 2. Metadata: Decks & Columns
             std::string metaStr = std::to_string(g.decks) + (g.decks == 1 ? " Deck" : " Decks");
             if (g.deckCards > 0) metaStr += " (" + std::to_string(g.deckCards) + " Cards)";

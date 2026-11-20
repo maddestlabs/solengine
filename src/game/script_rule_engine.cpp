@@ -821,12 +821,15 @@ bool ScriptRuleEngine::applyOp(ScriptBoardContext& ctx, const BoardOp& op) {
         case BoardOpType::MoveCards: {
             if (!validZone(&ctx, op.fromPile) || !validZone(&ctx, op.toPile)) return false;
             auto& src = (*ctx.piles)[op.fromPile].cards;
-            auto& dst = (*ctx.piles)[op.toPile].cards;
+            auto& dstPile = (*ctx.piles)[op.toPile];
+            auto& dst = dstPile.cards;
             if (op.cardIdx > src.size() || op.cardIdx + op.count > src.size()) return false;
-            if (op.nextBool) {
-                dst.insert(dst.begin(), src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
-            } else {
-                dst.insert(dst.end(), src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
+            const size_t insertIdx = op.nextBool ? 0 : dst.size();
+            dst.insert(dst.begin() + insertIdx, src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
+            for (size_t k = 0; k < op.count; ++k) {
+                dst[insertIdx + k].targetX = dstPile.x;
+                dst[insertIdx + k].targetY = dstPile.y;
+                dst[insertIdx + k].targetAngle = dstPile.angle;
             }
             src.erase(src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
             return true;

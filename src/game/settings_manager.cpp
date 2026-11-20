@@ -1,18 +1,31 @@
 #include "solengine/settings_manager.hpp"
 #include "solengine/json_parser.hpp"
 #include "solengine/solitaire_board.hpp"
+#include "solengine/game_definition.hpp"
 #include "solengine/procedural_background.hpp"
 #include <fstream>
 #include <sstream>
 #include <filesystem>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
 #endif
 
 namespace solengine {
+
+bool GameSceneProfile::empty() const noexcept {
+    return !tableTheme && !tableThemeSlug && !tableThemeOption && !tableTint &&
+           !postFxId && !postFxOption && !postFxIntensity && !showTableMarkings &&
+           !deckTheme && !deckSlug && !lowPolySeed && !cardBackId &&
+           !cardWear && !cardStock && !cardCorners && !cardDeviation &&
+           !lightingPreset && !lightAngle && !shadowGobo && !lightWaver &&
+           !lightFlicker && !goboSoftness && !godRaysIntensity && !dustMotesIntensity &&
+           !sceneDarkness && !lightStrength && !soundPackId && !ambienceId &&
+           !ambienceVolume && !stockPosition && !autoFinish && !victoryAnimOverride;
+}
 
 SettingsManager& SettingsManager::instance() {
     static SettingsManager sInstance;
@@ -205,6 +218,85 @@ bool SettingsManager::load() {
             settings_.ambienceVolume = std::clamp(au["ambienceVolume"].asFloat(0.55f), 0.0f, 1.0f);
         }
 
+        if (root.contains("gameProfiles") && root["gameProfiles"].isObject()) {
+            settings_.gameProfiles.clear();
+            for (const auto& [gameId, pVal] : root["gameProfiles"].asObject()) {
+                if (!pVal.isObject() || gameId.empty()) continue;
+                GameSceneProfile prof;
+                if (pVal.contains("tableTheme") && pVal["tableTheme"].isNumber()) {
+                    prof.tableTheme = static_cast<TableThemeId>(std::clamp(pVal["tableTheme"].asInt(0), 0, static_cast<int>(TableThemeId::Count) - 1));
+                }
+                if (pVal.contains("tableThemeSlug") && pVal["tableThemeSlug"].isString()) {
+                    prof.tableThemeSlug = pVal["tableThemeSlug"].asString();
+                }
+                if (pVal.contains("tableThemeOption") && pVal["tableThemeOption"].isString()) {
+                    prof.tableThemeOption = pVal["tableThemeOption"].asString();
+                }
+                if (pVal.contains("tableTint")) {
+                    if (pVal["tableTint"].isString()) prof.tableTint = parseTableTint(pVal["tableTint"].asString());
+                    else if (pVal["tableTint"].isNumber()) {
+                        int tv = pVal["tableTint"].asInt(0);
+                        if (tv >= 0 && tv < static_cast<int>(TableTintPreset::Count)) prof.tableTint = static_cast<TableTintPreset>(tv);
+                    }
+                }
+                if (pVal.contains("postFxId") && pVal["postFxId"].isString()) prof.postFxId = pVal["postFxId"].asString();
+                if (pVal.contains("postFxOption") && pVal["postFxOption"].isString()) prof.postFxOption = pVal["postFxOption"].asString();
+                if (pVal.contains("postFxIntensity") && pVal["postFxIntensity"].isNumber()) {
+                    prof.postFxIntensity = std::clamp(pVal["postFxIntensity"].asFloat(1.0f), 0.0f, 1.0f);
+                }
+                if (pVal.contains("showTableMarkings") && pVal["showTableMarkings"].isBool()) {
+                    prof.showTableMarkings = pVal["showTableMarkings"].asBool(true);
+                }
+                if (pVal.contains("deckTheme") && pVal["deckTheme"].isNumber()) {
+                    prof.deckTheme = static_cast<DeckThemeId>(std::clamp(pVal["deckTheme"].asInt(0), 0, static_cast<int>(DeckThemeId::Count) - 1));
+                }
+                if (pVal.contains("deckSlug") && pVal["deckSlug"].isString()) prof.deckSlug = pVal["deckSlug"].asString();
+                if (pVal.contains("lowPolySeed") && pVal["lowPolySeed"].isNumber()) {
+                    prof.lowPolySeed = static_cast<uint32_t>(std::max(1, pVal["lowPolySeed"].asInt(42)));
+                }
+                if (pVal.contains("cardBackId") && pVal["cardBackId"].isString()) prof.cardBackId = pVal["cardBackId"].asString();
+                if (pVal.contains("cardWear") && pVal["cardWear"].isNumber()) {
+                    prof.cardWear = static_cast<CardWearLevel>(std::clamp(pVal["cardWear"].asInt(0), 0, static_cast<int>(CardWearLevel::Count) - 1));
+                }
+                if (pVal.contains("cardStock") && pVal["cardStock"].isNumber()) {
+                    prof.cardStock = static_cast<CardStock>(std::clamp(pVal["cardStock"].asInt(0), 0, static_cast<int>(CardStock::Count) - 1));
+                }
+                if (pVal.contains("cardCorners") && pVal["cardCorners"].isNumber()) {
+                    prof.cardCorners = static_cast<CardCornerStyle>(std::clamp(pVal["cardCorners"].asInt(0), 0, static_cast<int>(CardCornerStyle::Count) - 1));
+                }
+                if (pVal.contains("cardDeviation") && pVal["cardDeviation"].isNumber()) {
+                    prof.cardDeviation = std::clamp(pVal["cardDeviation"].asFloat(0.5f), 0.0f, 1.0f);
+                }
+                if (pVal.contains("lightingPreset") && pVal["lightingPreset"].isNumber()) {
+                    prof.lightingPreset = static_cast<LightingPreset>(std::clamp(pVal["lightingPreset"].asInt(0), 0, 8));
+                }
+                if (pVal.contains("lightAngle") && pVal["lightAngle"].isNumber()) {
+                    prof.lightAngle = static_cast<LightAngle>(std::clamp(pVal["lightAngle"].asInt(0), 0, 3));
+                }
+                if (pVal.contains("shadowGobo") && pVal["shadowGobo"].isNumber()) {
+                    prof.shadowGobo = static_cast<ShadowGobo>(std::clamp(pVal["shadowGobo"].asInt(0), 0, 3));
+                }
+                if (pVal.contains("lightWaver") && pVal["lightWaver"].isNumber()) prof.lightWaver = std::clamp(pVal["lightWaver"].asFloat(0.5f), 0.0f, 1.0f);
+                if (pVal.contains("lightFlicker") && pVal["lightFlicker"].isNumber()) prof.lightFlicker = std::clamp(pVal["lightFlicker"].asFloat(0.0f), 0.0f, 1.0f);
+                if (pVal.contains("goboSoftness") && pVal["goboSoftness"].isNumber()) prof.goboSoftness = std::clamp(pVal["goboSoftness"].asFloat(0.45f), 0.05f, 1.0f);
+                if (pVal.contains("godRaysIntensity") && pVal["godRaysIntensity"].isNumber()) prof.godRaysIntensity = std::clamp(pVal["godRaysIntensity"].asFloat(0.0f), 0.0f, 1.0f);
+                if (pVal.contains("dustMotesIntensity") && pVal["dustMotesIntensity"].isNumber()) prof.dustMotesIntensity = std::clamp(pVal["dustMotesIntensity"].asFloat(0.0f), 0.0f, 1.0f);
+                if (pVal.contains("sceneDarkness") && pVal["sceneDarkness"].isNumber()) prof.sceneDarkness = std::clamp(pVal["sceneDarkness"].asFloat(0.22f), 0.0f, 0.85f);
+                if (pVal.contains("lightStrength") && pVal["lightStrength"].isNumber()) prof.lightStrength = std::clamp(pVal["lightStrength"].asFloat(1.20f), 0.0f, 2.0f);
+                if (pVal.contains("soundPackId") && pVal["soundPackId"].isString()) prof.soundPackId = pVal["soundPackId"].asString();
+                if (pVal.contains("ambienceId") && pVal["ambienceId"].isString()) prof.ambienceId = pVal["ambienceId"].asString();
+                if (pVal.contains("ambienceVolume") && pVal["ambienceVolume"].isNumber()) prof.ambienceVolume = std::clamp(pVal["ambienceVolume"].asFloat(0.55f), 0.0f, 1.0f);
+                if (pVal.contains("stockPosition") && pVal["stockPosition"].isNumber()) prof.stockPosition = static_cast<StockPosition>(std::clamp(pVal["stockPosition"].asInt(0), 0, 3));
+                if (pVal.contains("autoFinish") && pVal["autoFinish"].isBool()) prof.autoFinish = pVal["autoFinish"].asBool(true);
+                if (pVal.contains("victoryAnimOverride") && pVal["victoryAnimOverride"].isNumber()) {
+                    prof.victoryAnimOverride = static_cast<VictoryAnimOverride>(std::clamp(pVal["victoryAnimOverride"].asInt(0), 0, static_cast<int>(VictoryAnimOverride::Fireworks)));
+                }
+                if (!prof.empty()) {
+                    settings_.gameProfiles[gameId] = std::move(prof);
+                }
+            }
+        }
+
         std::cout << "[SolEngine] Loaded settings successfully.\n";
         return true;
     } catch (...) {
@@ -317,6 +409,53 @@ bool SettingsManager::save() {
     }
     root["favorites"] = favArray;
 
+    if (!settings_.gameProfiles.empty()) {
+        json::Object gpObj;
+        for (const auto& [gameId, prof] : settings_.gameProfiles) {
+            if (gameId.empty() || prof.empty()) continue;
+            json::Object p;
+            if (prof.tableTheme) p["tableTheme"] = static_cast<int>(*prof.tableTheme);
+            if (prof.tableThemeSlug) p["tableThemeSlug"] = *prof.tableThemeSlug;
+            if (prof.tableThemeOption) p["tableThemeOption"] = *prof.tableThemeOption;
+            if (prof.tableTint) {
+                const auto* ti = getTableTintInfo(*prof.tableTint);
+                p["tableTint"] = ti ? ti->id : "auto";
+            }
+            if (prof.postFxId) p["postFxId"] = *prof.postFxId;
+            if (prof.postFxOption) p["postFxOption"] = *prof.postFxOption;
+            if (prof.postFxIntensity) p["postFxIntensity"] = static_cast<double>(*prof.postFxIntensity);
+            if (prof.showTableMarkings) p["showTableMarkings"] = *prof.showTableMarkings;
+            if (prof.deckTheme) p["deckTheme"] = static_cast<int>(*prof.deckTheme);
+            if (prof.deckSlug) p["deckSlug"] = *prof.deckSlug;
+            if (prof.lowPolySeed) p["lowPolySeed"] = static_cast<int>(*prof.lowPolySeed);
+            if (prof.cardBackId) p["cardBackId"] = *prof.cardBackId;
+            if (prof.cardWear) p["cardWear"] = static_cast<int>(*prof.cardWear);
+            if (prof.cardStock) p["cardStock"] = static_cast<int>(*prof.cardStock);
+            if (prof.cardCorners) p["cardCorners"] = static_cast<int>(*prof.cardCorners);
+            if (prof.cardDeviation) p["cardDeviation"] = *prof.cardDeviation;
+            if (prof.lightingPreset) p["lightingPreset"] = static_cast<int>(*prof.lightingPreset);
+            if (prof.lightAngle) p["lightAngle"] = static_cast<int>(*prof.lightAngle);
+            if (prof.shadowGobo) p["shadowGobo"] = static_cast<int>(*prof.shadowGobo);
+            if (prof.lightWaver) p["lightWaver"] = *prof.lightWaver;
+            if (prof.lightFlicker) p["lightFlicker"] = *prof.lightFlicker;
+            if (prof.goboSoftness) p["goboSoftness"] = *prof.goboSoftness;
+            if (prof.godRaysIntensity) p["godRaysIntensity"] = *prof.godRaysIntensity;
+            if (prof.dustMotesIntensity) p["dustMotesIntensity"] = *prof.dustMotesIntensity;
+            if (prof.sceneDarkness) p["sceneDarkness"] = *prof.sceneDarkness;
+            if (prof.lightStrength) p["lightStrength"] = *prof.lightStrength;
+            if (prof.soundPackId) p["soundPackId"] = *prof.soundPackId;
+            if (prof.ambienceId) p["ambienceId"] = *prof.ambienceId;
+            if (prof.ambienceVolume) p["ambienceVolume"] = *prof.ambienceVolume;
+            if (prof.stockPosition) p["stockPosition"] = static_cast<int>(*prof.stockPosition);
+            if (prof.autoFinish) p["autoFinish"] = *prof.autoFinish;
+            if (prof.victoryAnimOverride) p["victoryAnimOverride"] = static_cast<int>(*prof.victoryAnimOverride);
+            gpObj[gameId] = p;
+        }
+        if (!gpObj.empty()) {
+            root["gameProfiles"] = gpObj;
+        }
+    }
+
     std::string jsonStr = json::stringify(json::Value{root});
 
 #if defined(__EMSCRIPTEN__)
@@ -348,33 +487,44 @@ bool SettingsManager::save() {
 }
 
 void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley, bool applyTextures) {
-    board.setTableTheme(settings_.tableTheme);
-    board.setTableThemeSlug(settings_.tableThemeSlug);
-    board.setTableThemeOption(settings_.tableThemeOption);
-    ProceduralBackgroundSystem::instance().setThemeOption(settings_.tableThemeOption);
-    ProceduralBackgroundSystem::instance().setTableTint(settings_.tableTint);
-    board.setCardDeviation(settings_.cardDeviation);
-    board.setLayoutMode(settings_.layoutMode);
-    board.setStockPosition(settings_.stockPosition);
+    const AppSettings eff = resolveForGame(board.activeGameDef().id);
+    board.setTableTheme(eff.tableTheme);
+    board.setTableThemeSlug(eff.tableThemeSlug);
+    board.setTableThemeOption(eff.tableThemeOption);
+    ProceduralBackgroundSystem::instance().setThemeOption(eff.tableThemeOption);
+    ProceduralBackgroundSystem::instance().setTableTint(eff.tableTint);
+    board.setCardDeviation(eff.cardDeviation);
+    board.setLayoutMode(eff.layoutMode);
+    board.setStockPosition(eff.stockPosition);
     auto& cache = CardTextureCache::instance();
-    cache.setCornerStyle(settings_.cardCorners);
-    cache.setActiveCardBack(settings_.cardBackId);
+    cache.setCornerStyle(eff.cardCorners);
+    cache.setActiveCardBack(eff.cardBackId);
     if (applyTextures) {
-        cache.loadDeckTheme(settings_.deckTheme);
-        cache.setActiveCardBack(settings_.cardBackId);
-        cache.applyConditioningAndSync(settings_.cardWear, settings_.cardStock);
+        cache.loadDeckTheme(eff.deckTheme);
+        cache.setActiveCardBack(eff.cardBackId);
+        cache.applyConditioningAndSync(eff.cardWear, eff.cardStock);
     }
 
-    foley.setMasterVolume(settings_.masterVolume);
-    foley.setMuted(settings_.muted);
-    foley.setShufflePreference(settings_.shuffleStyle);
-    foley.setSoundPackId(settings_.soundPackId);
-    foley.setAmbienceVolume(settings_.ambienceVolume);
-    foley.setAmbience(settings_.ambienceId);
+    foley.setMasterVolume(eff.masterVolume);
+    foley.setMuted(eff.muted);
+    foley.setShufflePreference(eff.shuffleStyle);
+    foley.setSoundPackId(eff.soundPackId);
+    foley.setAmbienceVolume(eff.ambienceVolume);
+    foley.setAmbience(eff.ambienceId);
 }
 
 void SettingsManager::syncFromGame(const SolitaireBoard& board, const AudioFoleyEngine& foley) {
     settings_.variant = board.variant();
+    settings_.lastSeed = board.seed();
+    settings_.masterVolume = foley.getMasterVolume();
+    settings_.muted = foley.isMuted();
+    settings_.shuffleStyle = foley.getShufflePreference();
+
+    const std::string& gameId = board.activeGameDef().id;
+    if (!gameId.empty() && hasGameProfile(gameId)) {
+        return; // Keep global defaults isolated from active game-specific profile
+    }
+
     settings_.tableTheme = board.tableTheme();
     settings_.tableThemeSlug = board.tableThemeSlug();
     settings_.tableThemeOption = ProceduralBackgroundSystem::instance().themeOption();
@@ -388,14 +538,136 @@ void SettingsManager::syncFromGame(const SolitaireBoard& board, const AudioFoley
     settings_.cardWear = cache.cardWearLevel();
     settings_.cardStock = cache.cardStock();
     settings_.cardCorners = cache.cornerStyle();
-    settings_.lastSeed = board.seed();
 
-    settings_.masterVolume = foley.getMasterVolume();
-    settings_.muted = foley.isMuted();
-    settings_.shuffleStyle = foley.getShufflePreference();
     settings_.soundPackId = foley.getSoundPackId();
     settings_.ambienceId = foley.getActiveAmbienceId();
     settings_.ambienceVolume = foley.getAmbienceVolume();
+}
+
+bool SettingsManager::hasGameProfile(const std::string& gameId) const {
+    if (gameId.empty()) return false;
+    auto it = settings_.gameProfiles.find(gameId);
+    return it != settings_.gameProfiles.end() && !it->second.empty();
+}
+
+const GameSceneProfile* SettingsManager::getGameProfile(const std::string& gameId) const {
+    if (gameId.empty()) return nullptr;
+    auto it = settings_.gameProfiles.find(gameId);
+    if (it == settings_.gameProfiles.end() || it->second.empty()) return nullptr;
+    return &it->second;
+}
+
+void SettingsManager::setGameProfile(const std::string& gameId, const GameSceneProfile& profile) {
+    if (gameId.empty()) return;
+    if (profile.empty()) {
+        settings_.gameProfiles.erase(gameId);
+    } else {
+        settings_.gameProfiles[gameId] = profile;
+    }
+}
+
+void SettingsManager::clearGameProfile(const std::string& gameId) {
+    if (gameId.empty()) return;
+    settings_.gameProfiles.erase(gameId);
+}
+
+AppSettings SettingsManager::resolveForGame(const std::string& gameId) const {
+    AppSettings resolved = settings_;
+    if (gameId.empty()) return resolved;
+
+    // Layer 2: optional .eats recommended aesthetic defaults
+    if (const auto* def = GameRegistry::instance().findById(gameId)) {
+        if (!def->defaultDeckSlug.empty()) resolved.deckSlug = def->defaultDeckSlug;
+        if (!def->defaultTableThemeSlug.empty()) resolved.tableThemeSlug = def->defaultTableThemeSlug;
+        if (!def->defaultPostFxId.empty()) resolved.postFxId = def->defaultPostFxId;
+        if (!def->defaultAmbienceId.empty()) resolved.ambienceId = def->defaultAmbienceId;
+    }
+
+    // Layer 3: user's explicit per-game overrides
+    auto it = settings_.gameProfiles.find(gameId);
+    if (it == settings_.gameProfiles.end()) return resolved;
+    const auto& p = it->second;
+
+    if (p.tableTheme) resolved.tableTheme = *p.tableTheme;
+    if (p.tableThemeSlug) resolved.tableThemeSlug = *p.tableThemeSlug;
+    if (p.tableThemeOption) resolved.tableThemeOption = *p.tableThemeOption;
+    if (p.tableTint) resolved.tableTint = *p.tableTint;
+    if (p.postFxId) resolved.postFxId = *p.postFxId;
+    if (p.postFxOption) resolved.postFxOption = *p.postFxOption;
+    if (p.postFxIntensity) resolved.postFxIntensity = *p.postFxIntensity;
+    if (p.showTableMarkings) resolved.showTableMarkings = *p.showTableMarkings;
+
+    if (p.deckTheme) resolved.deckTheme = *p.deckTheme;
+    if (p.deckSlug) resolved.deckSlug = *p.deckSlug;
+    if (p.lowPolySeed) resolved.lowPolySeed = *p.lowPolySeed;
+    if (p.cardBackId) resolved.cardBackId = *p.cardBackId;
+    if (p.cardWear) resolved.cardWear = *p.cardWear;
+    if (p.cardStock) resolved.cardStock = *p.cardStock;
+    if (p.cardCorners) resolved.cardCorners = *p.cardCorners;
+    if (p.cardDeviation) resolved.cardDeviation = *p.cardDeviation;
+
+    if (p.lightingPreset) resolved.lightingPreset = *p.lightingPreset;
+    if (p.lightAngle) resolved.lightAngle = *p.lightAngle;
+    if (p.shadowGobo) resolved.shadowGobo = *p.shadowGobo;
+    if (p.lightWaver) resolved.lightWaver = *p.lightWaver;
+    if (p.lightFlicker) resolved.lightFlicker = *p.lightFlicker;
+    if (p.goboSoftness) resolved.goboSoftness = *p.goboSoftness;
+    if (p.godRaysIntensity) resolved.godRaysIntensity = *p.godRaysIntensity;
+    if (p.dustMotesIntensity) resolved.dustMotesIntensity = *p.dustMotesIntensity;
+    if (p.sceneDarkness) resolved.sceneDarkness = *p.sceneDarkness;
+    if (p.lightStrength) resolved.lightStrength = *p.lightStrength;
+
+    if (p.soundPackId) resolved.soundPackId = *p.soundPackId;
+    if (p.ambienceId) resolved.ambienceId = *p.ambienceId;
+    if (p.ambienceVolume) resolved.ambienceVolume = *p.ambienceVolume;
+    if (p.stockPosition) resolved.stockPosition = *p.stockPosition;
+    if (p.autoFinish) resolved.autoFinish = *p.autoFinish;
+    if (p.victoryAnimOverride) resolved.victoryAnimOverride = *p.victoryAnimOverride;
+
+    return resolved;
+}
+
+GameSceneProfile SettingsManager::diffFromGlobal(const AppSettings& global, const AppSettings& effective) {
+    GameSceneProfile p;
+    auto diffF = [](float a, float b) { return std::fabs(a - b) > 0.001f; };
+
+    if (effective.tableTheme != global.tableTheme) p.tableTheme = effective.tableTheme;
+    if (effective.tableThemeSlug != global.tableThemeSlug) p.tableThemeSlug = effective.tableThemeSlug;
+    if (effective.tableThemeOption != global.tableThemeOption) p.tableThemeOption = effective.tableThemeOption;
+    if (effective.tableTint != global.tableTint) p.tableTint = effective.tableTint;
+    if (effective.postFxId != global.postFxId) p.postFxId = effective.postFxId;
+    if (effective.postFxOption != global.postFxOption) p.postFxOption = effective.postFxOption;
+    if (diffF(effective.postFxIntensity, global.postFxIntensity)) p.postFxIntensity = effective.postFxIntensity;
+    if (effective.showTableMarkings != global.showTableMarkings) p.showTableMarkings = effective.showTableMarkings;
+
+    if (effective.deckTheme != global.deckTheme) p.deckTheme = effective.deckTheme;
+    if (effective.deckSlug != global.deckSlug) p.deckSlug = effective.deckSlug;
+    if (effective.lowPolySeed != global.lowPolySeed) p.lowPolySeed = effective.lowPolySeed;
+    if (effective.cardBackId != global.cardBackId) p.cardBackId = effective.cardBackId;
+    if (effective.cardWear != global.cardWear) p.cardWear = effective.cardWear;
+    if (effective.cardStock != global.cardStock) p.cardStock = effective.cardStock;
+    if (effective.cardCorners != global.cardCorners) p.cardCorners = effective.cardCorners;
+    if (diffF(effective.cardDeviation, global.cardDeviation)) p.cardDeviation = effective.cardDeviation;
+
+    if (effective.lightingPreset != global.lightingPreset) p.lightingPreset = effective.lightingPreset;
+    if (effective.lightAngle != global.lightAngle) p.lightAngle = effective.lightAngle;
+    if (effective.shadowGobo != global.shadowGobo) p.shadowGobo = effective.shadowGobo;
+    if (diffF(effective.lightWaver, global.lightWaver)) p.lightWaver = effective.lightWaver;
+    if (diffF(effective.lightFlicker, global.lightFlicker)) p.lightFlicker = effective.lightFlicker;
+    if (diffF(effective.goboSoftness, global.goboSoftness)) p.goboSoftness = effective.goboSoftness;
+    if (diffF(effective.godRaysIntensity, global.godRaysIntensity)) p.godRaysIntensity = effective.godRaysIntensity;
+    if (diffF(effective.dustMotesIntensity, global.dustMotesIntensity)) p.dustMotesIntensity = effective.dustMotesIntensity;
+    if (diffF(effective.sceneDarkness, global.sceneDarkness)) p.sceneDarkness = effective.sceneDarkness;
+    if (diffF(effective.lightStrength, global.lightStrength)) p.lightStrength = effective.lightStrength;
+
+    if (effective.soundPackId != global.soundPackId) p.soundPackId = effective.soundPackId;
+    if (effective.ambienceId != global.ambienceId) p.ambienceId = effective.ambienceId;
+    if (diffF(effective.ambienceVolume, global.ambienceVolume)) p.ambienceVolume = effective.ambienceVolume;
+    if (effective.stockPosition != global.stockPosition) p.stockPosition = effective.stockPosition;
+    if (effective.autoFinish != global.autoFinish) p.autoFinish = effective.autoFinish;
+    if (effective.victoryAnimOverride != global.victoryAnimOverride) p.victoryAnimOverride = effective.victoryAnimOverride;
+
+    return p;
 }
 
 bool SettingsManager::isFavorite(const std::string& gameId) const {
