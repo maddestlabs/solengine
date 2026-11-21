@@ -218,6 +218,19 @@ bool SettingsManager::load() {
             settings_.ambienceVolume = std::clamp(au["ambienceVolume"].asFloat(0.55f), 0.0f, 1.0f);
         }
 
+        if (root.contains("defaultPresetId") && root["defaultPresetId"].isString()) {
+            settings_.defaultPresetId = root["defaultPresetId"].asString();
+        }
+
+        if (root.contains("gamePresets") && root["gamePresets"].isObject()) {
+            settings_.gamePresets.clear();
+            for (const auto& [gameId, pId] : root["gamePresets"].asObject()) {
+                if (!gameId.empty() && pId.isString() && !pId.asString().empty()) {
+                    settings_.gamePresets[gameId] = pId.asString();
+                }
+            }
+        }
+
         if (root.contains("gameProfiles") && root["gameProfiles"].isObject()) {
             settings_.gameProfiles.clear();
             for (const auto& [gameId, pVal] : root["gameProfiles"].asObject()) {
@@ -409,6 +422,22 @@ bool SettingsManager::save() {
     }
     root["favorites"] = favArray;
 
+    if (!settings_.defaultPresetId.empty()) {
+        root["defaultPresetId"] = settings_.defaultPresetId;
+    }
+
+    if (!settings_.gamePresets.empty()) {
+        json::Object gpIds;
+        for (const auto& [gameId, presetId] : settings_.gamePresets) {
+            if (!gameId.empty() && !presetId.empty()) {
+                gpIds[gameId] = presetId;
+            }
+        }
+        if (!gpIds.empty()) {
+            root["gamePresets"] = gpIds;
+        }
+    }
+
     if (!settings_.gameProfiles.empty()) {
         json::Object gpObj;
         for (const auto& [gameId, prof] : settings_.gameProfiles) {
@@ -546,6 +575,8 @@ void SettingsManager::syncFromGame(const SolitaireBoard& board, const AudioFoley
 
 bool SettingsManager::hasGameProfile(const std::string& gameId) const {
     if (gameId.empty()) return false;
+    auto itP = settings_.gamePresets.find(gameId);
+    if (itP != settings_.gamePresets.end() && !itP->second.empty()) return true;
     auto it = settings_.gameProfiles.find(gameId);
     return it != settings_.gameProfiles.end() && !it->second.empty();
 }
@@ -568,26 +599,11 @@ void SettingsManager::setGameProfile(const std::string& gameId, const GameSceneP
 
 void SettingsManager::clearGameProfile(const std::string& gameId) {
     if (gameId.empty()) return;
+    settings_.gamePresets.erase(gameId);
     settings_.gameProfiles.erase(gameId);
 }
 
-AppSettings SettingsManager::resolveForGame(const std::string& gameId) const {
-    AppSettings resolved = settings_;
-    if (gameId.empty()) return resolved;
-
-    // Layer 2: optional .eats recommended aesthetic defaults
-    if (const auto* def = GameRegistry::instance().findById(gameId)) {
-        if (!def->defaultDeckSlug.empty()) resolved.deckSlug = def->defaultDeckSlug;
-        if (!def->defaultTableThemeSlug.empty()) resolved.tableThemeSlug = def->defaultTableThemeSlug;
-        if (!def->defaultPostFxId.empty()) resolved.postFxId = def->defaultPostFxId;
-        if (!def->defaultAmbienceId.empty()) resolved.ambienceId = def->defaultAmbienceId;
-    }
-
-    // Layer 3: user's explicit per-game overrides
-    auto it = settings_.gameProfiles.find(gameId);
-    if (it == settings_.gameProfiles.end()) return resolved;
-    const auto& p = it->second;
-
+void SettingsManager::applyProfileToSettings(const GameSceneProfile& p, AppSettings& resolved) {
     if (p.tableTheme) resolved.tableTheme = *p.tableTheme;
     if (p.tableThemeSlug) resolved.tableThemeSlug = *p.tableThemeSlug;
     if (p.tableThemeOption) resolved.tableThemeOption = *p.tableThemeOption;
@@ -623,6 +639,76 @@ AppSettings SettingsManager::resolveForGame(const std::string& gameId) const {
     if (p.stockPosition) resolved.stockPosition = *p.stockPosition;
     if (p.autoFinish) resolved.autoFinish = *p.autoFinish;
     if (p.victoryAnimOverride) resolved.victoryAnimOverride = *p.victoryAnimOverride;
+}
+
+GameSceneProfile SettingsManager::extractSceneProfile(const AppSettings& s) {
+    GameSceneProfile p;
+    p.tableTheme = s.tableTheme;
+    p.tableThemeSlug = s.tableThemeSlug;
+    p.tableThemeOption = s.tableThemeOption;
+    p.tableTint = s.tableTint;
+    p.postFxId = s.postFxId;
+    p.postFxOption = s.postFxOption;
+    p.postFxIntensity = s.postFxIntensity;
+    p.showTableMarkings = s.showTableMarkings;
+    p.deckTheme = s.deckTheme;
+    p.deckSlug = s.deckSlug;
+    p.lowPolySeed = s.lowPolySeed;
+    p.cardBackId = s.cardBackId;
+    p.cardWear = s.cardWear;
+    p.cardStock = s.cardStock;
+    p.cardCorners = s.cardCorners;
+    p.cardDeviation = s.cardDeviation;
+    p.lightingPreset = s.lightingPreset;
+    p.lightAngle = s.lightAngle;
+    p.shadowGobo = s.shadowGobo;
+    p.lightWaver = s.lightWaver;
+    p.lightFlicker = s.lightFlicker;
+    p.goboSoftness = s.goboSoftness;
+    p.godRaysIntensity = s.godRaysIntensity;
+    p.dustMotesIntensity = s.dustMotesIntensity;
+    p.sceneDarkness = s.sceneDarkness;
+    p.lightStrength = s.lightStrength;
+    p.soundPackId = s.soundPackId;
+    p.ambienceId = s.ambienceId;
+    p.ambienceVolume = s.ambienceVolume;
+    return p;
+}
+
+AppSettings SettingsManager::resolveForGame(const std::string& gameId) const {
+    AppSettings resolved = settings_;
+
+    // Layer 1b: Global Default Preset (applies to all games unless overridden)
+    if (!settings_.defaultPresetId.empty()) {
+        if (const auto* defPreset = findPreset(settings_.defaultPresetId)) {
+            applyProfileToSettings(defPreset->profile, resolved);
+        }
+    }
+
+    if (gameId.empty()) return resolved;
+
+    // Layer 2: optional .eats recommended aesthetic defaults (only when game has no assigned preset)
+    auto gpIt = settings_.gamePresets.find(gameId);
+    const bool hasAssignedPreset = (gpIt != settings_.gamePresets.end() && !gpIt->second.empty());
+    if (!hasAssignedPreset) {
+        if (const auto* def = GameRegistry::instance().findById(gameId)) {
+            if (!def->defaultDeckSlug.empty()) resolved.deckSlug = def->defaultDeckSlug;
+            if (!def->defaultTableThemeSlug.empty()) resolved.tableThemeSlug = def->defaultTableThemeSlug;
+            if (!def->defaultPostFxId.empty()) resolved.postFxId = def->defaultPostFxId;
+            if (!def->defaultAmbienceId.empty()) resolved.ambienceId = def->defaultAmbienceId;
+        }
+    } else {
+        // Layer 2b: Per-game assigned Preset
+        if (const auto* gamePreset = findPreset(gpIt->second)) {
+            applyProfileToSettings(gamePreset->profile, resolved);
+        }
+    }
+
+    // Layer 3: user's explicit per-game tweaks
+    auto it = settings_.gameProfiles.find(gameId);
+    if (it != settings_.gameProfiles.end()) {
+        applyProfileToSettings(it->second, resolved);
+    }
 
     return resolved;
 }
@@ -668,6 +754,282 @@ GameSceneProfile SettingsManager::diffFromGlobal(const AppSettings& global, cons
     if (effective.victoryAnimOverride != global.victoryAnimOverride) p.victoryAnimOverride = effective.victoryAnimOverride;
 
     return p;
+}
+
+namespace {
+bool parseBoolStr(const std::string& v) {
+    return (v == "true" || v == "True" || v == "1");
+}
+
+bool parsePresetEatsFile(const std::string& filePath, bool isBuiltin, ScenePreset& out) {
+    std::ifstream ifs(filePath);
+    if (!ifs.is_open()) return false;
+
+    out = ScenePreset{};
+    out.filePath = filePath;
+    out.isBuiltin = isBuiltin;
+    out.id = std::filesystem::path(filePath).stem().string();
+    out.name = out.id;
+
+    std::string line;
+    while (std::getline(ifs, line)) {
+        size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos || line[start] == '#') continue;
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(start, eq - start);
+        while (!key.empty() && (key.back() == ' ' || key.back() == '\t')) key.pop_back();
+        std::string val = line.substr(eq + 1);
+        size_t vs = val.find_first_not_of(" \t\r\n");
+        val = (vs == std::string::npos) ? "" : val.substr(vs);
+        size_t hash = val.find('#');
+        if (hash != std::string::npos) val = val.substr(0, hash);
+        while (!val.empty() && (val.back() == ' ' || val.back() == '\t' || val.back() == '\r' || val.back() == '\n')) val.pop_back();
+        if (val.size() >= 2 && ((val.front() == '"' && val.back() == '"') || (val.front() == '\'' && val.back() == '\''))) {
+            val = val.substr(1, val.size() - 2);
+        }
+        if (val.empty()) continue;
+
+        try {
+            if (key == "id") out.id = val;
+            else if (key == "name") out.name = val;
+            else if (key == "description") out.description = val;
+            else if (key == "deck_slug") out.profile.deckSlug = val;
+            else if (key == "deck_theme") out.profile.deckTheme = static_cast<DeckThemeId>(std::clamp(std::stoi(val), 0, static_cast<int>(DeckThemeId::Count) - 1));
+            else if (key == "low_poly_seed") out.profile.lowPolySeed = static_cast<uint32_t>(std::max(1, std::stoi(val)));
+            else if (key == "card_back") out.profile.cardBackId = val;
+            else if (key == "card_wear") out.profile.cardWear = static_cast<CardWearLevel>(std::clamp(std::stoi(val), 0, static_cast<int>(CardWearLevel::Count) - 1));
+            else if (key == "card_stock") out.profile.cardStock = static_cast<CardStock>(std::clamp(std::stoi(val), 0, static_cast<int>(CardStock::Count) - 1));
+            else if (key == "card_corners") out.profile.cardCorners = static_cast<CardCornerStyle>(std::clamp(std::stoi(val), 0, static_cast<int>(CardCornerStyle::Count) - 1));
+            else if (key == "card_deviation") out.profile.cardDeviation = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "table_theme") out.profile.tableTheme = static_cast<TableThemeId>(std::clamp(std::stoi(val), 0, static_cast<int>(TableThemeId::Count) - 1));
+            else if (key == "table_theme_slug") out.profile.tableThemeSlug = val;
+            else if (key == "table_theme_option") out.profile.tableThemeOption = val;
+            else if (key == "table_tint") out.profile.tableTint = parseTableTint(val);
+            else if (key == "postfx_id") out.profile.postFxId = val;
+            else if (key == "postfx_option") out.profile.postFxOption = val;
+            else if (key == "postfx_intensity") out.profile.postFxIntensity = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "show_table_markings") out.profile.showTableMarkings = parseBoolStr(val);
+            else if (key == "lighting_preset") out.profile.lightingPreset = static_cast<LightingPreset>(std::clamp(std::stoi(val), 0, 8));
+            else if (key == "light_angle") out.profile.lightAngle = static_cast<LightAngle>(std::clamp(std::stoi(val), 0, 3));
+            else if (key == "shadow_gobo") out.profile.shadowGobo = static_cast<ShadowGobo>(std::clamp(std::stoi(val), 0, 3));
+            else if (key == "light_waver") out.profile.lightWaver = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "light_flicker") out.profile.lightFlicker = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "gobo_softness") out.profile.goboSoftness = std::clamp(std::stof(val), 0.05f, 1.0f);
+            else if (key == "god_rays") out.profile.godRaysIntensity = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "dust_motes") out.profile.dustMotesIntensity = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "scene_darkness") out.profile.sceneDarkness = std::clamp(std::stof(val), 0.0f, 0.85f);
+            else if (key == "light_strength") out.profile.lightStrength = std::clamp(std::stof(val), 0.0f, 2.0f);
+            else if (key == "sound_pack") out.profile.soundPackId = val;
+            else if (key == "ambience") out.profile.ambienceId = val;
+            else if (key == "ambience_volume") out.profile.ambienceVolume = std::clamp(std::stof(val), 0.0f, 1.0f);
+        } catch (...) {}
+    }
+    return !out.id.empty();
+}
+} // namespace
+
+std::string SettingsManager::getUserPresetsDir() const {
+#if defined(_WIN32)
+    const char* appData = std::getenv("APPDATA");
+    if (appData && *appData) {
+        return (std::filesystem::path(appData) / "SolEngine" / "presets").string();
+    }
+#elif !defined(__EMSCRIPTEN__)
+    const char* home = std::getenv("HOME");
+    if (home && *home) {
+        return (std::filesystem::path(home) / ".config" / "solengine" / "presets").string();
+    }
+#endif
+    return "presets";
+}
+
+void SettingsManager::loadPresets(const std::string& presetsDir) {
+    presets_.clear();
+    auto scanDir = [&](const std::string& dir, bool isBuiltin) {
+        std::error_code ec;
+        if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) return;
+        std::vector<std::filesystem::path> files;
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (entry.is_regular_file(ec) && entry.path().extension() == ".eats") {
+                files.push_back(entry.path());
+            }
+        }
+        std::sort(files.begin(), files.end());
+        for (const auto& fp : files) {
+            ScenePreset sp;
+            if (parsePresetEatsFile(fp.string(), isBuiltin, sp)) {
+                auto it = std::find_if(presets_.begin(), presets_.end(), [&](const ScenePreset& x) { return x.id == sp.id; });
+                if (it != presets_.end()) *it = std::move(sp);
+                else presets_.push_back(std::move(sp));
+            }
+        }
+    };
+
+    scanDir(presetsDir, true);
+    if (presets_.empty()) {
+        const std::vector<std::string> searchPaths = {
+            "../" + presetsDir,
+            "../../" + presetsDir,
+            "../../../" + presetsDir,
+            "./" + presetsDir,
+            "/" + presetsDir
+        };
+        for (const auto& sp : searchPaths) {
+            std::error_code ec;
+            if (std::filesystem::exists(sp, ec) && std::filesystem::is_directory(sp, ec)) {
+                scanDir(sp, true);
+                if (!presets_.empty()) break;
+            }
+        }
+    }
+    const std::string userDir = getUserPresetsDir();
+    if (userDir != presetsDir) {
+        scanDir(userDir, false);
+    }
+}
+
+const ScenePreset* SettingsManager::findPreset(const std::string& presetId) const {
+    if (presetId.empty()) return nullptr;
+    for (const auto& p : presets_) {
+        if (p.id == presetId) return &p;
+    }
+    return nullptr;
+}
+
+namespace {
+void writePresetEatsFile(const std::filesystem::path& fp, const ScenePreset& sp) {
+#if !defined(__EMSCRIPTEN__)
+    std::ofstream ofs(fp);
+    if (!ofs.is_open()) return;
+    const auto& profile = sp.profile;
+    ofs << "# SolEngine User Preset (.eats)\n";
+    ofs << "id = \"" << sp.id << "\"\n";
+    ofs << "name = \"" << sp.name << "\"\n";
+    ofs << "description = \"" << sp.description << "\"\n\n";
+    if (profile.deckSlug) ofs << "deck_slug = \"" << *profile.deckSlug << "\"\n";
+    if (profile.deckTheme) ofs << "deck_theme = " << static_cast<int>(*profile.deckTheme) << "\n";
+    if (profile.lowPolySeed) ofs << "low_poly_seed = " << *profile.lowPolySeed << "\n";
+    if (profile.cardBackId) ofs << "card_back = \"" << *profile.cardBackId << "\"\n";
+    if (profile.cardWear) ofs << "card_wear = " << static_cast<int>(*profile.cardWear) << "\n";
+    if (profile.cardStock) ofs << "card_stock = " << static_cast<int>(*profile.cardStock) << "\n";
+    if (profile.cardCorners) ofs << "card_corners = " << static_cast<int>(*profile.cardCorners) << "\n";
+    if (profile.cardDeviation) ofs << "card_deviation = " << *profile.cardDeviation << "\n";
+    if (profile.tableTheme) ofs << "table_theme = " << static_cast<int>(*profile.tableTheme) << "\n";
+    if (profile.tableThemeSlug) ofs << "table_theme_slug = \"" << *profile.tableThemeSlug << "\"\n";
+    if (profile.tableThemeOption) ofs << "table_theme_option = \"" << *profile.tableThemeOption << "\"\n";
+    if (profile.tableTint) {
+        const auto* ti = getTableTintInfo(*profile.tableTint);
+        ofs << "table_tint = \"" << (ti ? ti->id : "auto") << "\"\n";
+    }
+    if (profile.postFxId) ofs << "postfx_id = \"" << *profile.postFxId << "\"\n";
+    if (profile.postFxOption) ofs << "postfx_option = \"" << *profile.postFxOption << "\"\n";
+    if (profile.postFxIntensity) ofs << "postfx_intensity = " << *profile.postFxIntensity << "\n";
+    if (profile.showTableMarkings) ofs << "show_table_markings = " << (*profile.showTableMarkings ? "true" : "false") << "\n";
+    if (profile.lightingPreset) ofs << "lighting_preset = " << static_cast<int>(*profile.lightingPreset) << "\n";
+    if (profile.lightAngle) ofs << "light_angle = " << static_cast<int>(*profile.lightAngle) << "\n";
+    if (profile.shadowGobo) ofs << "shadow_gobo = " << static_cast<int>(*profile.shadowGobo) << "\n";
+    if (profile.lightWaver) ofs << "light_waver = " << *profile.lightWaver << "\n";
+    if (profile.lightFlicker) ofs << "light_flicker = " << *profile.lightFlicker << "\n";
+    if (profile.goboSoftness) ofs << "gobo_softness = " << *profile.goboSoftness << "\n";
+    if (profile.godRaysIntensity) ofs << "god_rays = " << *profile.godRaysIntensity << "\n";
+    if (profile.dustMotesIntensity) ofs << "dust_motes = " << *profile.dustMotesIntensity << "\n";
+    if (profile.sceneDarkness) ofs << "scene_darkness = " << *profile.sceneDarkness << "\n";
+    if (profile.lightStrength) ofs << "light_strength = " << *profile.lightStrength << "\n";
+    if (profile.soundPackId) ofs << "sound_pack = \"" << *profile.soundPackId << "\"\n";
+    if (profile.ambienceId) ofs << "ambience = \"" << *profile.ambienceId << "\"\n";
+    if (profile.ambienceVolume) ofs << "ambience_volume = " << *profile.ambienceVolume << "\n";
+#else
+    (void)fp;
+    (void)sp;
+#endif
+}
+} // namespace
+
+bool SettingsManager::saveUserPreset(const std::string& name, const GameSceneProfile& profile, std::string& outPresetId) {
+    std::string baseSlug;
+    for (char ch : name) {
+        unsigned char c = static_cast<unsigned char>(ch);
+        if (std::isalnum(c)) baseSlug += static_cast<char>(std::tolower(c));
+        else if (ch == ' ' || ch == '-' || ch == '_') {
+            if (baseSlug.empty() || baseSlug.back() != '_') baseSlug += '_';
+        }
+    }
+    while (!baseSlug.empty() && baseSlug.back() == '_') baseSlug.pop_back();
+    if (baseSlug.empty()) baseSlug = "custom_preset";
+
+    std::string slug = baseSlug;
+    int suffix = 2;
+    while (const auto* existing = findPreset(slug)) {
+        if (!existing->isBuiltin) break; // Allow overwriting same user preset if desired
+        slug = baseSlug + "_" + std::to_string(suffix++);
+    }
+    outPresetId = slug;
+
+    ScenePreset sp;
+    sp.id = slug;
+    sp.name = name.empty() ? slug : name;
+    sp.description = "User-saved deck & scene preset.";
+    sp.isBuiltin = false;
+    sp.profile = profile;
+
+#if !defined(__EMSCRIPTEN__)
+    const std::string userDir = getUserPresetsDir();
+    try {
+        std::filesystem::create_directories(userDir);
+        const std::filesystem::path fp = std::filesystem::path(userDir) / (slug + ".eats");
+        sp.filePath = fp.string();
+        writePresetEatsFile(fp, sp);
+    } catch (...) {}
+#endif
+
+    auto it = std::find_if(presets_.begin(), presets_.end(), [&](const ScenePreset& x) { return x.id == sp.id; });
+    if (it != presets_.end()) *it = std::move(sp);
+    else presets_.push_back(std::move(sp));
+    return true;
+}
+
+bool SettingsManager::updateUserPreset(const std::string& presetId, const GameSceneProfile& profile) {
+    if (presetId.empty()) return false;
+    auto it = std::find_if(presets_.begin(), presets_.end(), [&](const ScenePreset& x) { return x.id == presetId; });
+    if (it == presets_.end() || it->isBuiltin) return false;
+
+    it->profile = profile;
+#if !defined(__EMSCRIPTEN__)
+    const std::string userDir = getUserPresetsDir();
+    try {
+        std::filesystem::create_directories(userDir);
+        const std::filesystem::path fp = it->filePath.empty()
+            ? (std::filesystem::path(userDir) / (it->id + ".eats"))
+            : std::filesystem::path(it->filePath);
+        it->filePath = fp.string();
+        writePresetEatsFile(fp, *it);
+    } catch (...) {}
+#endif
+    return true;
+}
+
+std::string SettingsManager::activePresetForGame(const std::string& gameId) const {
+    if (!gameId.empty()) {
+        auto it = settings_.gamePresets.find(gameId);
+        if (it != settings_.gamePresets.end() && !it->second.empty()) {
+            return it->second;
+        }
+    }
+    return settings_.defaultPresetId;
+}
+
+void SettingsManager::setDefaultPreset(const std::string& presetId) {
+    settings_.defaultPresetId = presetId;
+}
+
+void SettingsManager::setGamePreset(const std::string& gameId, const std::string& presetId) {
+    if (gameId.empty()) return;
+    if (presetId.empty()) {
+        settings_.gamePresets.erase(gameId);
+    } else {
+        settings_.gamePresets[gameId] = presetId;
+    }
 }
 
 bool SettingsManager::isFavorite(const std::string& gameId) const {

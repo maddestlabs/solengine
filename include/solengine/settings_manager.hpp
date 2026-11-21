@@ -64,6 +64,15 @@ struct GameSceneProfile {
     [[nodiscard]] bool empty() const noexcept;
 };
 
+struct ScenePreset {
+    std::string id;
+    std::string name;
+    std::string description;
+    std::string filePath;
+    bool isBuiltin{false};
+    GameSceneProfile profile;
+};
+
 struct AppSettings {
     GameVariant variant{GameVariant::KlondikeDraw1};
     TableThemeId tableTheme{TableThemeId::PastelTan};
@@ -126,6 +135,8 @@ struct AppSettings {
         "spiderette",
         "yukon"
     };
+    std::string defaultPresetId;
+    std::unordered_map<std::string, std::string> gamePresets;
     std::unordered_map<std::string, GameSceneProfile> gameProfiles;
 };
 
@@ -148,6 +159,18 @@ public:
     void clearGameProfile(const std::string& gameId);
     [[nodiscard]] AppSettings resolveForGame(const std::string& gameId) const;
     [[nodiscard]] static GameSceneProfile diffFromGlobal(const AppSettings& global, const AppSettings& effective);
+    [[nodiscard]] static GameSceneProfile extractSceneProfile(const AppSettings& s);
+    static void applyProfileToSettings(const GameSceneProfile& p, AppSettings& out);
+
+    void loadPresets(const std::string& presetsDir = "presets");
+    [[nodiscard]] const std::vector<ScenePreset>& presets() const noexcept { return presets_; }
+    [[nodiscard]] const ScenePreset* findPreset(const std::string& presetId) const;
+    bool saveUserPreset(const std::string& name, const GameSceneProfile& profile, std::string& outPresetId);
+    bool updateUserPreset(const std::string& presetId, const GameSceneProfile& profile);
+    [[nodiscard]] std::string activePresetForGame(const std::string& gameId) const;
+    void setDefaultPreset(const std::string& presetId);
+    void setGamePreset(const std::string& gameId, const std::string& presetId);
+    [[nodiscard]] std::string getUserPresetsDir() const;
 
     void applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley, bool applyTextures = true);
     void syncFromGame(const SolitaireBoard& board, const AudioFoleyEngine& foley);
@@ -157,6 +180,7 @@ public:
 private:
     SettingsManager() = default;
     AppSettings settings_{};
+    std::vector<ScenePreset> presets_;
 };
 
 } // namespace solengine

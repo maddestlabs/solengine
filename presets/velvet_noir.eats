@@ -1,0 +1,29 @@
+# SolEngine Scene & Deck Preset: Velvet Noir
+id = "velvet_noir"
+name = "Velvet Noir"
+description = "Dark velvet noir shader with SolPoly Dark cards, high-contrast noir red-pop post-processing, and moonlight."
+
+deck_slug = "solpoly_dark"
+card_back = "classic_obsidian"
+card_wear = 0
+card_stock = 2
+card_corners = 0
+card_deviation = 0.20
+
+table_theme_slug = "shader_velvet_noir"
+table_tint = "auto"
+postfx_id = "noir_red_pop"
+postfx_intensity = 0.85
+show_table_markings = true
+
+lighting_preset = 8
+light_angle = 1
+shadow_gobo = 2
+light_waver = 0.35
+light_flicker = 0.0
+scene_darkness = 0.42
+light_strength = 1.15
+
+sound_pack = "default"
+ambience = "rain"
+ambience_volume = 0.45

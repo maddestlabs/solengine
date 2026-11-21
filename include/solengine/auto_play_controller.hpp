@@ -82,6 +82,12 @@ public:
         }
         return nullptr;
     }
+    [[nodiscard]] const SolverMove* peekCurrentOrNextMove() const noexcept {
+        if ((state_ == AutoPlayState::Playing || state_ == AutoPlayState::Paused) && currentMoveIdx_ < moves_.size()) {
+            return &moves_[currentMoveIdx_];
+        }
+        return nullptr;
+    }
     [[nodiscard]] bool showMoveTrails() const noexcept { return showMoveTrails_; }
     void setShowMoveTrails(bool show) noexcept { showMoveTrails_ = show; }
     [[nodiscard]] const char* speedLabel() const noexcept;

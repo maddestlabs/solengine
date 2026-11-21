@@ -2810,6 +2810,7 @@ public:
         float ambientLight[4];
         float sceneAtmosphere[4]; // x=goboType (0..3), y=goboSoftness, z=godRays, w=dustMotes
         float steadyLight[4];     // x,y,z=steady base light pos, w=lightAngle (0..3)
+        float cameraTransform[4]; // x=invZoom, y=focusX, z=focusY, w=active (0 or 1)
     };
 
     void fillGpuUniforms(GpuUniforms& ubo, float w, float h) const noexcept {
@@ -2826,6 +2827,7 @@ public:
             ubo.ambientLight[i] = ambientLight_[i];
             ubo.sceneAtmosphere[i] = sceneAtmosphere_[i];
             ubo.steadyLight[i] = steadyLight_[i];
+            ubo.cameraTransform[i] = cameraTransform_[i];
         }
     }
 
@@ -2891,7 +2893,9 @@ public:
             targetView = postFxSceneView_;
         }
         if (!targetView) {
-            if (customTargetView_) {
+            if (captureEnabled_ && captureView_) {
+                currentBackBufferView_ = captureView_;
+            } else if (customTargetView_) {
                 currentBackBufferView_ = customTargetView_;
             } else if (!currentBackBufferView_) {
                 wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
@@ -3176,11 +3180,11 @@ public:
             flushPendingDraws();
         }
 #if !defined(__EMSCRIPTEN__)
-        if (surface_) {
+        if (surface_ && !captureEnabled_) {
             wgpuSurfacePresent(surface_);
         }
 #endif
-        if (!customTargetView_ && currentBackBufferView_) {
+        if (!customTargetView_ && !captureEnabled_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
         }
         currentBackBufferView_ = nullptr;
@@ -3207,6 +3211,236 @@ public:
 
     void setCustomRenderTargetView(void* view) override {
         customTargetView_ = static_cast<WGPUTextureView>(view);
+    }
+
+    bool enableOffscreenCapture(uint32_t width, uint32_t height) override {
+#if defined(__EMSCRIPTEN__)
+        (void)width; (void)height;
+        return false;
+#else
+        if (!device_ || width == 0 || height == 0) return false;
+        disableOffscreenCapture();
+
+        WGPUTextureDescriptor desc{};
+        desc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+        desc.dimension = WGPUTextureDimension_2D;
+        desc.size = WGPUExtent3D{ width, height, 1 };
+        desc.format = surfaceFormat_;
+        desc.mipLevelCount = 1;
+        desc.sampleCount = 1;
+        captureTexture_ = wgpuDeviceCreateTexture(device_, &desc);
+        if (!captureTexture_) return false;
+
+        WGPUTextureViewDescriptor vdesc{};
+        vdesc.format = surfaceFormat_;
+        vdesc.dimension = WGPUTextureViewDimension_2D;
+        vdesc.baseMipLevel = 0;
+        vdesc.mipLevelCount = 1;
+        vdesc.baseArrayLayer = 0;
+        vdesc.arrayLayerCount = 1;
+        vdesc.aspect = WGPUTextureAspect_All;
+        captureView_ = wgpuTextureCreateView(captureTexture_, &vdesc);
+        if (!captureView_) {
+            disableOffscreenCapture();
+            return false;
+        }
+
+        captureStride_ = ((width * 4u) + 255u) & ~255u;
+        const uint64_t bufSize = static_cast<uint64_t>(captureStride_) * static_cast<uint64_t>(height);
+        WGPUBufferDescriptor bdesc{};
+        bdesc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+        bdesc.size = bufSize;
+        bdesc.mappedAtCreation = false;
+        captureReadbackBuf_ = wgpuDeviceCreateBuffer(device_, &bdesc);
+        if (!captureReadbackBuf_) {
+            disableOffscreenCapture();
+            return false;
+        }
+
+        captureW_ = width;
+        captureH_ = height;
+        captureEnabled_ = true;
+        reallocateMsaaTexture(width, height);
+        return true;
+#endif
+    }
+
+    void disableOffscreenCapture() override {
+        captureEnabled_ = false;
+        captureW_ = 0;
+        captureH_ = 0;
+        captureStride_ = 0;
+        if (captureReadbackBuf_) {
+            wgpuBufferRelease(captureReadbackBuf_);
+            captureReadbackBuf_ = nullptr;
+        }
+        if (captureView_) {
+            wgpuTextureViewRelease(captureView_);
+            captureView_ = nullptr;
+        }
+        if (captureTexture_) {
+            wgpuTextureRelease(captureTexture_);
+            captureTexture_ = nullptr;
+        }
+    }
+
+    bool readbackCapturedRgba(std::vector<uint8_t>& outRgba) override {
+#if defined(__EMSCRIPTEN__)
+        (void)outRgba;
+        return false;
+#else
+        if (!captureEnabled_ || !device_ || !queue_ || !captureTexture_ || !captureReadbackBuf_) {
+            return false;
+        }
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, nullptr);
+        WGPUTexelCopyTextureInfo src{};
+        src.texture = captureTexture_;
+        src.mipLevel = 0;
+        src.origin = WGPUOrigin3D{0, 0, 0};
+        src.aspect = WGPUTextureAspect_All;
+
+        WGPUTexelCopyBufferInfo dst{};
+        dst.buffer = captureReadbackBuf_;
+        dst.layout.offset = 0;
+        dst.layout.bytesPerRow = captureStride_;
+        dst.layout.rowsPerImage = captureH_;
+
+        WGPUExtent3D copySize{captureW_, captureH_, 1};
+        wgpuCommandEncoderCopyTextureToBuffer(encoder, &src, &dst, &copySize);
+        WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, nullptr);
+        wgpuQueueSubmit(queue_, 1, &cmd);
+        wgpuCommandBufferRelease(cmd);
+        wgpuCommandEncoderRelease(encoder);
+
+        struct MapState {
+            bool done{false};
+            WGPUMapAsyncStatus status{};
+        } mapState;
+
+        WGPUBufferMapCallbackInfo cbInfo = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+        cbInfo.mode = WGPUCallbackMode_AllowSpontaneous;
+        cbInfo.userdata1 = &mapState;
+        cbInfo.callback = [](WGPUMapAsyncStatus status, WGPUStringView /*msg*/, void* u1, void* /*u2*/) {
+            auto* st = static_cast<MapState*>(u1);
+            if (st) {
+                st->status = status;
+                st->done = true;
+            }
+        };
+
+        const size_t totalBytes = static_cast<size_t>(captureStride_) * static_cast<size_t>(captureH_);
+        wgpuBufferMapAsync(captureReadbackBuf_, WGPUMapMode_Read, 0, totalBytes, cbInfo);
+        while (!mapState.done) {
+            wgpuDevicePoll(device_, true, nullptr);
+        }
+        if (mapState.status != WGPUMapAsyncStatus_Success) {
+            return false;
+        }
+
+        const uint8_t* mapped = static_cast<const uint8_t*>(wgpuBufferGetConstMappedRange(captureReadbackBuf_, 0, totalBytes));
+        if (!mapped) {
+            wgpuBufferUnmap(captureReadbackBuf_);
+            return false;
+        }
+
+        outRgba.resize(static_cast<size_t>(captureW_) * static_cast<size_t>(captureH_) * 4u);
+        const bool isBgra = (surfaceFormat_ == WGPUTextureFormat_BGRA8Unorm ||
+                             surfaceFormat_ == WGPUTextureFormat_BGRA8UnormSrgb);
+        const size_t rowBytes = static_cast<size_t>(captureW_) * 4u;
+        for (uint32_t y = 0; y < captureH_; ++y) {
+            const uint8_t* srcRow = mapped + static_cast<size_t>(y) * captureStride_;
+            uint8_t* dstRow = outRgba.data() + static_cast<size_t>(y) * rowBytes;
+            if (!isBgra) {
+                std::memcpy(dstRow, srcRow, rowBytes);
+            } else {
+                for (uint32_t x = 0; x < captureW_; ++x) {
+                    dstRow[x * 4 + 0] = srcRow[x * 4 + 2];
+                    dstRow[x * 4 + 1] = srcRow[x * 4 + 1];
+                    dstRow[x * 4 + 2] = srcRow[x * 4 + 0];
+                    dstRow[x * 4 + 3] = 255;
+                }
+            }
+        }
+        wgpuBufferUnmap(captureReadbackBuf_);
+        return true;
+#endif
+    }
+
+    bool readbackCapturedNative(std::vector<uint8_t>& outPixels, bool& outIsBgra) override {
+#if defined(__EMSCRIPTEN__)
+        (void)outPixels; (void)outIsBgra;
+        return false;
+#else
+        if (!captureEnabled_ || !device_ || !queue_ || !captureTexture_ || !captureReadbackBuf_) {
+            return false;
+        }
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, nullptr);
+        WGPUTexelCopyTextureInfo src{};
+        src.texture = captureTexture_;
+        src.mipLevel = 0;
+        src.origin = WGPUOrigin3D{0, 0, 0};
+        src.aspect = WGPUTextureAspect_All;
+
+        WGPUTexelCopyBufferInfo dst{};
+        dst.buffer = captureReadbackBuf_;
+        dst.layout.offset = 0;
+        dst.layout.bytesPerRow = captureStride_;
+        dst.layout.rowsPerImage = captureH_;
+
+        WGPUExtent3D copySize{captureW_, captureH_, 1};
+        wgpuCommandEncoderCopyTextureToBuffer(encoder, &src, &dst, &copySize);
+        WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, nullptr);
+        wgpuQueueSubmit(queue_, 1, &cmd);
+        wgpuCommandBufferRelease(cmd);
+        wgpuCommandEncoderRelease(encoder);
+
+        struct MapState {
+            bool done{false};
+            WGPUMapAsyncStatus status{};
+        } mapState;
+
+        WGPUBufferMapCallbackInfo cbInfo = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+        cbInfo.mode = WGPUCallbackMode_AllowSpontaneous;
+        cbInfo.userdata1 = &mapState;
+        cbInfo.callback = [](WGPUMapAsyncStatus status, WGPUStringView /*msg*/, void* u1, void* /*u2*/) {
+            auto* st = static_cast<MapState*>(u1);
+            if (st) {
+                st->status = status;
+                st->done = true;
+            }
+        };
+
+        const size_t totalBytes = static_cast<size_t>(captureStride_) * static_cast<size_t>(captureH_);
+        wgpuBufferMapAsync(captureReadbackBuf_, WGPUMapMode_Read, 0, totalBytes, cbInfo);
+        while (!mapState.done) {
+            wgpuDevicePoll(device_, true, nullptr);
+        }
+        if (mapState.status != WGPUMapAsyncStatus_Success) {
+            return false;
+        }
+
+        const uint8_t* mapped = static_cast<const uint8_t*>(wgpuBufferGetConstMappedRange(captureReadbackBuf_, 0, totalBytes));
+        if (!mapped) {
+            wgpuBufferUnmap(captureReadbackBuf_);
+            return false;
+        }
+
+        outIsBgra = (surfaceFormat_ == WGPUTextureFormat_BGRA8Unorm ||
+                     surfaceFormat_ == WGPUTextureFormat_BGRA8UnormSrgb);
+        const size_t rowBytes = static_cast<size_t>(captureW_) * 4u;
+        outPixels.resize(rowBytes * static_cast<size_t>(captureH_));
+        if (captureStride_ == rowBytes) {
+            std::memcpy(outPixels.data(), mapped, outPixels.size());
+        } else {
+            for (uint32_t y = 0; y < captureH_; ++y) {
+                std::memcpy(outPixels.data() + static_cast<size_t>(y) * rowBytes,
+                            mapped + static_cast<size_t>(y) * captureStride_,
+                            rowBytes);
+            }
+        }
+        wgpuBufferUnmap(captureReadbackBuf_);
+        return true;
+#endif
     }
 
     bool setPostFxShader(const std::string& wgslSource) override {
@@ -3308,22 +3542,26 @@ public:
         if (!activePipeline || !postFxBindGroup_) return;
 
         if (!currentBackBufferView_) {
-            if (!surface_) return;
-            wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
-            if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-                currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
-                return;
+            if (captureEnabled_ && captureView_) {
+                currentBackBufferView_ = captureView_;
+            } else {
+                if (!surface_) return;
+                wgpuSurfaceGetCurrentTexture(surface_, &currentSurfaceTexture_);
+                if (currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+                    currentSurfaceTexture_.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+                    return;
+                }
+                WGPUTextureViewDescriptor viewDesc{};
+                viewDesc.format = surfaceFormat_;
+                viewDesc.dimension = WGPUTextureViewDimension_2D;
+                viewDesc.baseMipLevel = 0;
+                viewDesc.mipLevelCount = 1;
+                viewDesc.baseArrayLayer = 0;
+                viewDesc.arrayLayerCount = 1;
+                viewDesc.aspect = WGPUTextureAspect_All;
+                currentBackBufferView_ = wgpuTextureCreateView(currentSurfaceTexture_.texture, &viewDesc);
+                if (!currentBackBufferView_) return;
             }
-            WGPUTextureViewDescriptor viewDesc{};
-            viewDesc.format = surfaceFormat_;
-            viewDesc.dimension = WGPUTextureViewDimension_2D;
-            viewDesc.baseMipLevel = 0;
-            viewDesc.mipLevelCount = 1;
-            viewDesc.baseArrayLayer = 0;
-            viewDesc.arrayLayerCount = 1;
-            viewDesc.aspect = WGPUTextureAspect_All;
-            currentBackBufferView_ = wgpuTextureCreateView(currentSurfaceTexture_.texture, &viewDesc);
-            if (!currentBackBufferView_) return;
         }
 
         struct PostFxUniforms {
@@ -3426,6 +3664,18 @@ public:
         shaderTime_ = timeSeconds;
     }
 
+    void setCameraTransform(float invZoom, float focusX, float focusY, float active) override {
+        cameraTransform_[0] = invZoom;
+        cameraTransform_[1] = focusX;
+        cameraTransform_[2] = focusY;
+        cameraTransform_[3] = active;
+        if (device_ && uniformBuffer_ && width_ > 0 && height_ > 0) {
+            GpuUniforms ubo{};
+            fillGpuUniforms(ubo, static_cast<float>(width_), static_cast<float>(height_));
+            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
+        }
+    }
+
     void setTableSurfaceLighting(float lacquerStrength, float bumpStrength = 2.4f) override {
         tableLacquer_ = lacquerStrength;
         tableBump_ = bumpStrength;
@@ -3448,6 +3698,7 @@ private:
                 ambientLight: vec4<f32>,
                 sceneAtmosphere: vec4<f32>,
                 steadyLight: vec4<f32>,
+                cameraTransform: vec4<f32>,
             };
 
             @group(0) @binding(0) var fontTexture: texture_2d<f32>;
@@ -3511,17 +3762,26 @@ private:
                 return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - baseRad;
             }
 
+            fn toBoardSpace(screenPos: vec2<f32>) -> vec2<f32> {
+                if (uniforms.cameraTransform.w < 0.5) {
+                    return screenPos;
+                }
+                let viewCenter = uniforms.viewport * 0.5;
+                return uniforms.cameraTransform.yz + (screenPos - viewCenter) * uniforms.cameraTransform.x;
+            }
+
             fn evalGoboMask(worldPos: vec2<f32>, zOffset: f32) -> f32 {
                 let goboType = uniforms.sceneAtmosphere.x;
                 if (goboType < 0.5) {
                     return 1.0;
                 }
+                let boardPos = toBoardSpace(worldPos);
                 let vp = max(uniforms.viewport.xy, vec2<f32>(1.0));
-                let toLight = uniforms.steadyLight.xy - worldPos;
+                let toLight = uniforms.steadyLight.xy - boardPos;
                 let lDist = max(length(toLight), 1.0);
                 let rayDir = toLight / lDist;
                 let slope = lDist / max(uniforms.steadyLight.z, 120.0);
-                let proj = (worldPos + rayDir * (zOffset * slope)) / vp;
+                let proj = (boardPos + rayDir * (zOffset * slope)) / vp;
                 let soft = clamp(uniforms.sceneAtmosphere.y, 0.05, 1.0);
 
                 if (goboType < 1.5) {
@@ -4090,6 +4350,7 @@ private:
     float ambientLight_[4]{0.35f, 0.35f, 0.35f, 1.0f};
     float sceneAtmosphere_[4]{0.0f, 0.45f, 0.0f, 0.0f};
     float steadyLight_[4]{640.0f, 200.0f, 550.0f, 0.0f};
+    float cameraTransform_[4]{1.0f, 0.0f, 0.0f, 0.0f};
     float shaderTime_{0.0f};
     float tableLacquer_{0.0f};
     float tableBump_{2.4f};
@@ -4099,6 +4360,13 @@ private:
     WGPUSurfaceTexture currentSurfaceTexture_{};
     WGPUTextureView currentBackBufferView_{nullptr};
     WGPUTextureView customTargetView_{nullptr};
+    bool captureEnabled_{false};
+    uint32_t captureW_{0};
+    uint32_t captureH_{0};
+    uint32_t captureStride_{0};
+    WGPUTexture captureTexture_{nullptr};
+    WGPUTextureView captureView_{nullptr};
+    WGPUBuffer captureReadbackBuf_{nullptr};
     struct PendingDraw {
         uint32_t firstVertex{0};
         uint32_t vertexCount{0};
@@ -5579,7 +5847,14 @@ void BatchRenderer2D::drawRgbaBitmapRegion(float x, float y, float w, float h, c
         vertices_.clear();
     }
     if (backend_) {
-        backend_->renderRgbaRegion(x * renderScaleX_, y * renderScaleY_, w * renderScaleX_, h * renderScaleY_,
+        float rx = x, ry = y, rw = w, rh = h;
+        if (cameraActive_) {
+            rx = cameraViewCenterX_ + (x - cameraFocusX_) * cameraZoom_;
+            ry = cameraViewCenterY_ + (y - cameraFocusY_) * cameraZoom_;
+            rw = w * cameraZoom_;
+            rh = h * cameraZoom_;
+        }
+        backend_->renderRgbaRegion(rx * renderScaleX_, ry * renderScaleY_, rw * renderScaleX_, rh * renderScaleY_,
                                    rgba, imgW, imgH, u0, v0, u1, v1, opacity);
     }
 }

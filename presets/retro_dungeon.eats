@@ -1,0 +1,29 @@
+# SolEngine Scene & Deck Preset: Retro Dungeon
+id = "retro_dungeon"
+name = "Retro Dungeon"
+description = "Low-poly Scoundrel deck on dark painted wood with CRT Trinitron scanlines, candlelight, and 8-bit foley."
+
+deck_slug = "scoundrel_lowpoly"
+card_back = "classic_crimson"
+card_wear = 2
+card_stock = 1
+card_corners = 1
+card_deviation = 0.65
+
+table_theme_slug = "paintedwood"
+table_tint = "auto"
+postfx_id = "crt_trinitron"
+postfx_intensity = 0.70
+show_table_markings = true
+
+lighting_preset = 1
+light_angle = 0
+shadow_gobo = 1
+light_waver = 0.55
+light_flicker = 0.40
+scene_darkness = 0.34
+light_strength = 1.30
+
+sound_pack = "retro_8bit"
+ambience = "fireplace"
+ambience_volume = 0.50

@@ -562,9 +562,19 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
             float flexFreq = std::clamp((pp.cardRigidityFreq * 1.35f) * freqScale * (1.0f + nextNoise() * 0.14f * varScale), 2800.0f, 7800.0f);
             float flexQ = 1.8f + std::abs(nextNoise()) * 0.9f * varScale;
 
+            // Subtle randomized low-pass sweep across the upper cellulose shimmer (up or down) for human nuance
+            float dealLpStart = std::clamp((10200.0f + nextNoise() * 1400.0f * varScale) * freqScale, 6800.0f, 14500.0f);
+            float sweepRand = (nextNoise() + nextNoise()) * 0.5f; // Triangular distribution peaked around 0
+            float sweepRatio = std::clamp(1.0f + sweepRand * 0.48f * varScale, 0.55f, 1.65f);
+            float dealLpEnd = std::clamp(dealLpStart * sweepRatio, 4800.0f, 18000.0f);
+            v.slideFreq = dealLpStart;
+            float sweepTicks = std::max(1.0f, (v.durationSec * sr) / 16.0f);
+            v.slideFreqStep = std::pow(dealLpEnd / std::max(100.0f, dealLpStart), 1.0f / sweepTicks);
+
             v.biquad1.c = makeHighpass(dealHpFreq, 0.707f, sr);
             v.biquad2.c = makeHighshelf(shelfFreq, airBoost + 2.5f, sr);
             v.biquad3.c = makeBandpass(flexFreq, flexQ, sr);
+            v.biquad4.c = makeLowpass(dealLpStart, 0.707f, sr);
         } else {
             // Biquad 1: Felt acoustic damping lowpass
             v.biquad1.c = makeLowpass(feltCutoff, 0.707f, sr);
@@ -1039,6 +1049,7 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
     if (activeCount == 0) {
         std::fill_n(outInterleavedStereo, frameCount * 2, 0.0f);
         mixAmbience(outInterleavedStereo, frameCount, sr, ambVol);
+        mixVoiceWav(outInterleavedStereo, frameCount);
         return;
     }
 
@@ -1326,7 +1337,7 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                         v.lpcHistory[curIdx] = lpcOut;
                         v.lpcIdx = static_cast<uint8_t>((curIdx + 1) & 15);
 
-                        // Felt acoustic damping lowpass + Air presence shelf
+                        // Felt acoustic damping lowpass (or deal HPF) + Air presence shelf
                         float feltFiltered = v.biquad1.process(lpcOut);
                         float airFiltered = v.biquad2.process(feltFiltered);
                         float flexFiltered = v.biquad3.process(inNoise) * 0.25f;
@@ -1355,7 +1366,17 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
                             }
                         }
 
-                        sample = (airFiltered + flexFiltered) * fricGain * v.intensity * 2.2f;
+                        float slideOut = airFiltered + flexFiltered;
+                        if (v.isDealSwell) {
+                            // Control-rate low-pass filter sweep for subtle high-frequency air variation (every 16 samples)
+                            if ((v.subCounter & 15) == 0) {
+                                v.slideFreq = std::clamp(v.slideFreq * v.slideFreqStep, 4800.0f, 18000.0f);
+                                v.biquad4.c = makeLowpass(v.slideFreq, 0.707f, sr);
+                            }
+                            slideOut = v.biquad4.process(slideOut);
+                        }
+
+                        sample = slideOut * fricGain * v.intensity * 2.2f;
 
                         // Sweeping flanger comb modulation for futuristic flare on card slides & deals
                         if (pp.flangerDepth > 0.00001f) {
@@ -1532,6 +1553,69 @@ void AudioFoleyEngine::mixSamples(float* outInterleavedStereo, uint32_t frameCou
     }
 
     mixAmbience(outInterleavedStereo, frameCount, sr, ambVol);
+    mixVoiceWav(outInterleavedStereo, frameCount);
+}
+
+bool AudioFoleyEngine::playVoiceWav(const std::string& wavPath, float gain) {
+    if (wavPath.empty()) return false;
+    ma_decoder_config decCfg = ma_decoder_config_init(ma_format_f32, 2, 48000);
+    ma_decoder decoder{};
+    if (ma_decoder_init_file(wavPath.c_str(), &decCfg, &decoder) != MA_SUCCESS) {
+        return false;
+    }
+
+    ma_uint64 totalFrames = 0;
+    ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
+    std::vector<float> decoded;
+    if (totalFrames > 0) {
+        decoded.resize(static_cast<size_t>(totalFrames) * 2);
+        ma_uint64 framesRead = 0;
+        ma_decoder_read_pcm_frames(&decoder, decoded.data(), totalFrames, &framesRead);
+        decoded.resize(static_cast<size_t>(framesRead) * 2);
+    } else {
+        std::vector<float> chunk(8192 * 2);
+        for (;;) {
+            ma_uint64 framesRead = 0;
+            ma_result res = ma_decoder_read_pcm_frames(&decoder, chunk.data(), 8192, &framesRead);
+            if (framesRead > 0) {
+                decoded.insert(decoded.end(), chunk.begin(), chunk.begin() + static_cast<size_t>(framesRead) * 2);
+            }
+            if (res != MA_SUCCESS || framesRead == 0) break;
+        }
+    }
+    ma_decoder_uninit(&decoder);
+    if (decoded.empty()) return false;
+
+    std::lock_guard<std::mutex> lk(voiceWavMutex_);
+    voiceWavStereo_ = std::move(decoded);
+    voiceWavCursor_ = 0;
+    voiceWavGain_ = std::clamp(gain, 0.0f, 2.0f);
+    voiceWavPlaying_ = true;
+    return true;
+}
+
+void AudioFoleyEngine::stopVoiceWav() {
+    std::lock_guard<std::mutex> lk(voiceWavMutex_);
+    voiceWavPlaying_ = false;
+    voiceWavCursor_ = 0;
+}
+
+void AudioFoleyEngine::mixVoiceWav(float* outInterleavedStereo, uint32_t frameCount) noexcept {
+    std::unique_lock<std::mutex> lk(voiceWavMutex_, std::try_to_lock);
+    if (!lk.owns_lock() || !voiceWavPlaying_ || voiceWavStereo_.empty()) return;
+
+    const size_t totalFrames = voiceWavStereo_.size() / 2;
+    for (uint32_t f = 0; f < frameCount; ++f) {
+        if (voiceWavCursor_ >= totalFrames) {
+            voiceWavPlaying_ = false;
+            break;
+        }
+        const float l = voiceWavStereo_[voiceWavCursor_ * 2 + 0] * voiceWavGain_;
+        const float r = voiceWavStereo_[voiceWavCursor_ * 2 + 1] * voiceWavGain_;
+        outInterleavedStereo[f * 2 + 0] = std::clamp(outInterleavedStereo[f * 2 + 0] + l, -0.96f, 0.96f);
+        outInterleavedStereo[f * 2 + 1] = std::clamp(outInterleavedStereo[f * 2 + 1] + r, -0.96f, 0.96f);
+        ++voiceWavCursor_;
+    }
 }
 
 bool AudioFoleyEngine::loadFromEatsScript(const std::string& script) {

@@ -965,6 +965,13 @@
 
         async function processUrlParameters() {
             const params = new URLSearchParams(window.location.search);
+            if (params.has('game')) {
+                const gameSlug = params.get('game').trim();
+                const seedParam = params.has('seed') ? (parseInt(params.get('seed'), 10) || 0) : 0;
+                if (gameSlug && typeof Module !== 'undefined' && typeof Module.ccall === 'function') {
+                    Module.ccall('solengine_load_game_from_web', 'boolean', ['string', 'number'], [gameSlug, seedParam]);
+                }
+            }
             if (params.has('gist')) {
                 const gist = params.get('gist');
                 await loadFromGist(gist);

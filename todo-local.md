@@ -5,6 +5,7 @@
 - Foley engine: ensure all game sounds are available via api and theme them across existing audio presets
 - Wear option adds a border. Can we have the wear simply applied based on the contents of the card.
 - Scoundrel stats still render with Seed and other overlayed info in bottom center of display
+- Help sidebar, youtube video links
 - Help sidebar additions: Games list, New solvable game
 - help sidebar, use "ⓘ" for section character icon
 - help sidebar, ensure tooltips fit
@@ -19,6 +20,8 @@
 - resolution setting: allow user to configure resolution for game itself (allows for better performance with potentially better results if user wants pixelart or dither aesthetic)
 - slider to control light movement maximum
 - slider to control light max speed
+- should we get solitaireengine.org instead? should we forego solengine entirely and instead refactor as solitaireengine since youtube channel is youtube.com/solitaireengine? Should SolEngine exist in its own Organization on GitHub?
+- do animated cogwheels present a performance issue? Can we animate coghweels in our gui without affecting performance?
 
 ## Language and Accessibility
 

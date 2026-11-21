@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <mutex>
 
 namespace solengine {
 
@@ -251,6 +252,10 @@ public:
 
     void triggerSound(uint16_t soundId, float intensity = 1.0f, float pan = 0.0f);
     void mixSamples(float* outInterleavedStereo, uint32_t frameCount, uint32_t sampleRate = 48000) noexcept;
+
+    // External narration / voice-over WAV playback (mixed cleanly on the audio thread)
+    bool playVoiceWav(const std::string& wavPath, float gain = 1.0f);
+    void stopVoiceWav();
 
     // Eatscript (.eats) sound pack configuration API
     bool loadFromEatsFile(const std::string& filePath);
@@ -602,7 +607,14 @@ private:
     std::array<AmbienceGrain, kMaxAmbienceGrains> ambienceGrains_{};
 
     void mixAmbience(float* outInterleavedStereo, uint32_t frameCount, float sampleRate, float ambVol) noexcept;
+    void mixVoiceWav(float* outInterleavedStereo, uint32_t frameCount) noexcept;
     bool populateBuiltinAmbience(const std::string& envId, AmbienceEnvDef& outDef);
+
+    std::mutex voiceWavMutex_;
+    std::vector<float> voiceWavStereo_;
+    size_t voiceWavCursor_{0};
+    float voiceWavGain_{1.0f};
+    bool voiceWavPlaying_{false};
 
     uint32_t rngState_{0x9E3779B9u};
     uint32_t dealAlternator_{0};

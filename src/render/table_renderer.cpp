@@ -32,6 +32,11 @@
 #include <thread>
 #include <vector>
 #include <random>
+#ifdef _WIN32
+#include <windows.h>
+#include <io.h>
+#include <fcntl.h>
+#endif
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
@@ -1062,7 +1067,8 @@ void drawProceduralCard(
     const eatsbits::ui::LightSource2D& light,
     CardRenderPass pass = CardRenderPass::ShadowAndBody,
     float prevCardX = 99999.0f,
-    float prevCardY = 99999.0f
+    float prevCardY = 99999.0f,
+    float opacity = 1.0f
 ) {
     if (c.flipAngle >= 0.005f) {
         // True 3D In-Game Card Flip (Smoothly eases into target position & angle at both endpoints)
@@ -1132,7 +1138,7 @@ void drawProceduralCard(
         const auto& slot = showBack
             ? CardTextureCache::instance().getBackAtlasSlot(c.id)
             : CardTextureCache::instance().getAtlasSlot(c.suit, c.rank);
-        r.drawTexturedRoundedRectGpu(x, y, w, h, radius, slot.u0, slot.v0, slot.u1, slot.v1, 1.0f, 1.0f, 1.0f, 1.0f, scratchDistort, condParam);
+        r.drawTexturedRoundedRectGpu(x, y, w, h, radius, slot.u0, slot.v0, slot.u1, slot.v1, 1.0f, 1.0f, 1.0f, opacity, scratchDistort, condParam);
 
         // Optional RPG / modern solitaire card stat badges (HP, ATK, Shield, Durability)
     if (!showBack && !c.stats.empty()) {
@@ -1177,7 +1183,7 @@ void drawProceduralCard(
         int mipH = tex->height;
         const uint32_t* mipData = tex->getMipData(w, mipW, mipH);
         if (mipData) {
-            r.drawTexturedRoundedRect(x, y, w, h, radius, mipData, mipW, mipH, 1.0f);
+            r.drawTexturedRoundedRect(x, y, w, h, radius, mipData, mipW, mipH, opacity);
         }
 
         // Optional RPG / modern solitaire card stat badges (HP, ATK, Shield, Durability)
@@ -1613,9 +1619,13 @@ HelpSidebarRect computeHelpSidebarRect(float width, float height) noexcept {
     return r;
 }
 
+std::string toLowerAscii(std::string s) {
+    for (char& ch : s) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return s;
+}
+
 std::string lookupGlossaryTerm(const std::string& term, const SolitaireBoard& board) {
-    std::string lower = term;
-    for (char& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    const std::string lower = toLowerAscii(term);
     if (lower == "build up") return "Building up in rank: A -> 2 -> 3 -> 4 -> 5 ...";
     if (lower == "build down") return "Building down in rank: K -> Q -> J -> 10 -> 9 ...";
     if (lower == "alternating color") return "Red on Black, or Black on Red (e.g. 7H on 8S).";
@@ -1623,16 +1633,74 @@ std::string lookupGlossaryTerm(const std::string& term, const SolitaireBoard& bo
     if (lower == "room") return "The 4 active encounter cards currently in front of you.";
     if (lower == "cap") return "Max monster power your equipped weapon can still block.";
     for (const auto& sd : board.docManifest().stats) {
-        std::string sk = sd.key;
-        for (char& ch : sk) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        if (sk == lower) return sd.title + ": " + sd.description;
+        if (toLowerAscii(sd.key) == lower) return sd.title + ": " + sd.description;
     }
     for (const auto& td : board.docManifest().tags) {
-        std::string tk = td.tag;
-        for (char& ch : tk) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        if (tk == lower) return td.title + ": " + td.description;
+        if (toLowerAscii(td.tag) == lower) return td.title + ": " + td.description;
+    }
+    for (const auto& zd : board.docManifest().zones) {
+        if (toLowerAscii(zd.title) == lower) {
+            const std::string& desc = !zd.description.empty() ? zd.description : (!zd.bullets.empty() ? zd.bullets.front() : "");
+            return desc.empty() ? zd.title : (zd.title + ": " + desc);
+        }
+    }
+    for (const auto& rd : board.docManifest().rules) {
+        const std::string rTitle = toLowerAscii(rd.title);
+        if ((rTitle == lower || rTitle.rfind(lower, 0) == 0) && !rd.bullets.empty()) {
+            return rd.title + ": " + rd.bullets.front();
+        }
     }
     return term + ": Rule element on the table.";
+}
+
+void drawHelpRichLine(
+    eatsbits::ui::BatchRenderer2D& r,
+    const std::string& lineStr,
+    float x,
+    float y,
+    float fontSize,
+    float baseR,
+    float baseG,
+    float baseB,
+    float baseA,
+    const ThemePalette& pal,
+    float mouseX,
+    float mouseY,
+    float viewY,
+    float viewH,
+    std::string& outHoveredGlossaryTerm
+) {
+    float cx = x;
+    size_t pos = 0;
+    while (pos < lineStr.size()) {
+        size_t open = lineStr.find("[[", pos);
+        if (open == std::string::npos) {
+            std::string tail = lineStr.substr(pos);
+            eatsbits::ui::glyph::drawVectorText(r, tail.c_str(), cx, y, fontSize, baseR, baseG, baseB, baseA);
+            break;
+        }
+        if (open > pos) {
+            std::string pre = lineStr.substr(pos, open - pos);
+            eatsbits::ui::glyph::drawVectorText(r, pre.c_str(), cx, y, fontSize, baseR, baseG, baseB, baseA);
+            cx += eatsbits::ui::glyph::getVectorTextWidth(fontSize, pre.c_str());
+        }
+        size_t close = lineStr.find("]]", open + 2);
+        if (close == std::string::npos) {
+            std::string tail = lineStr.substr(open);
+            eatsbits::ui::glyph::drawVectorText(r, tail.c_str(), cx, y, fontSize, baseR, baseG, baseB, baseA);
+            break;
+        }
+        std::string term = lineStr.substr(open + 2, close - (open + 2));
+        float tw = eatsbits::ui::glyph::getVectorTextWidth(fontSize, term.c_str());
+        eatsbits::ui::glyph::drawVectorText(r, term.c_str(), cx, y, fontSize, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        r.drawLine(cx, y + fontSize + 1.3f, cx + tw, y + fontSize + 1.3f, pal.accentR, pal.accentG, pal.accentB, 0.85f, 1.0f);
+        if (mouseX >= cx && mouseX <= cx + tw && mouseY >= y - 2.0f && mouseY <= y + fontSize + 2.8f &&
+            mouseY >= viewY && mouseY <= viewY + viewH) {
+            outHoveredGlossaryTerm = term;
+        }
+        cx += tw;
+        pos = close + 2;
+    }
 }
 
 void drawMiniCardStack(eatsbits::ui::BatchRenderer2D& r, const std::vector<std::string>& cards, float x, float y) {
@@ -1765,12 +1833,19 @@ HelpSidebarLayout buildHelpSidebarLayout(
     out.analyzeH = 20.0f;
     cy += 26.0f;
 
-    // 2. Decks & Wrapped Object
+    // 2. Decks & Wrapped Object / Defeat
     cy += 15.0f; // DECKS
     const std::string& goalText = !manifest.winGoal.empty() ? manifest.winGoal : def.description;
     if (!goalText.empty()) {
         auto objLines = wrapHelpText("OBJECT: " + goalText, maxTextW, 9.5f);
-        cy += static_cast<float>(objLines.size()) * 13.5f + 6.0f;
+        cy += static_cast<float>(objLines.size()) * 13.5f + 4.0f;
+    }
+    if (!manifest.loseGoal.empty()) {
+        auto loseLines = wrapHelpText("DEFEAT: " + manifest.loseGoal, maxTextW, 9.2f);
+        cy += static_cast<float>(loseLines.size()) * 13.0f + 4.0f;
+    }
+    if (!goalText.empty() || !manifest.loseGoal.empty()) {
+        cy += 2.0f;
     }
 
     // 3. Zones
@@ -1793,14 +1868,33 @@ HelpSidebarLayout buildHelpSidebarLayout(
         cy = std::max(cy, miniBottom) + 6.0f;
     }
 
-    // 4. Stats & Card Tags
-    for (const auto& sd : manifest.stats) {
-        auto lines = wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, 9.0f);
-        cy += static_cast<float>(std::max<size_t>(1, lines.size())) * 13.5f;
+    // 4. Rules
+    if (!manifest.rules.empty()) {
+        cy += 17.0f; // RULES: header
+        for (const auto& rd : manifest.rules) {
+            cy += 15.0f; // Rule title
+            for (const auto& bText : rd.bullets) {
+                auto bLines = wrapHelpText(bText, maxTextW - 10.0f, 9.2f);
+                cy += static_cast<float>(std::max<size_t>(1, bLines.size())) * 13.5f;
+            }
+            cy += 4.0f;
+        }
     }
-    for (const auto& td : manifest.tags) {
-        auto lines = wrapHelpText(td.title + ": " + td.description, maxTextW, 9.0f);
-        cy += static_cast<float>(std::max<size_t>(1, lines.size())) * 13.5f;
+
+    // 5. Stats & Card Tags
+    if (!manifest.stats.empty()) {
+        cy += 17.0f; // STATS: header
+        for (const auto& sd : manifest.stats) {
+            auto lines = wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, 9.0f);
+            cy += static_cast<float>(std::max<size_t>(1, lines.size())) * 13.5f;
+        }
+    }
+    if (!manifest.tags.empty()) {
+        cy += 17.0f; // CARD TYPES: header
+        for (const auto& td : manifest.tags) {
+            auto lines = wrapHelpText(td.title + ": " + td.description, maxTextW, 9.0f);
+            cy += static_cast<float>(std::max<size_t>(1, lines.size())) * 13.5f;
+        }
     }
 
     // 5. Alternate Names
@@ -1914,7 +2008,17 @@ void drawHelpSidebar(
                 eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.5f, 0.94f, 0.91f, 0.84f, 0.95f);
                 cy += 13.5f;
             }
-            cy += 6.0f;
+            cy += 4.0f;
+        }
+        if (!manifest.loseGoal.empty()) {
+            for (const auto& line : wrapHelpText("DEFEAT: " + manifest.loseGoal, maxTextW, 9.2f)) {
+                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.2f, 0.95f, 0.68f, 0.62f, 0.95f);
+                cy += 13.0f;
+            }
+            cy += 4.0f;
+        }
+        if (!goalText.empty() || !manifest.loseGoal.empty()) {
+            cy += 2.0f;
         }
 
         // 3. Zones with ◎ outline icon, mini-card previews, and word-wrapped [[term]] bullets
@@ -1944,59 +2048,70 @@ void drawHelpSidebar(
             const auto& bullets = !zd.bullets.empty() ? zd.bullets : std::vector<std::string>{zd.description};
             for (const auto& bText : bullets) {
                 auto bLines = wrapHelpText(bText, textW, 9.2f);
+                if (bLines.empty()) bLines.push_back("");
                 for (size_t li = 0; li < bLines.size(); ++li) {
-                    const std::string& lineStr = bLines[li];
                     if (li == 0) {
                         eatsbits::ui::glyph::drawVectorText(r, "-", textX - 7.0f, cy, 9.2f, 0.85f, 0.82f, 0.74f, 0.9f);
                     }
-                    float cx = textX;
-                    size_t pos = 0;
-                    while (pos < lineStr.size()) {
-                        size_t open = lineStr.find("[[", pos);
-                        if (open == std::string::npos) {
-                            std::string tail = lineStr.substr(pos);
-                            eatsbits::ui::glyph::drawVectorText(r, tail.c_str(), cx, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f);
-                            break;
-                        }
-                        if (open > pos) {
-                            std::string pre = lineStr.substr(pos, open - pos);
-                            eatsbits::ui::glyph::drawVectorText(r, pre.c_str(), cx, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f);
-                            cx += eatsbits::ui::glyph::getVectorTextWidth(9.2f, pre.c_str());
-                        }
-                        size_t close = lineStr.find("]]", open + 2);
-                        if (close == std::string::npos) {
-                            std::string tail = lineStr.substr(open);
-                            eatsbits::ui::glyph::drawVectorText(r, tail.c_str(), cx, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f);
-                            break;
-                        }
-                        std::string term = lineStr.substr(open + 2, close - (open + 2));
-                        float tw = eatsbits::ui::glyph::getVectorTextWidth(9.2f, term.c_str());
-                        eatsbits::ui::glyph::drawVectorText(r, term.c_str(), cx, cy, 9.2f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
-                        r.drawLine(cx, cy + 10.5f, cx + tw, cy + 10.5f, pal.accentR, pal.accentG, pal.accentB, 0.85f, 1.0f);
-                        if (mouseX >= cx && mouseX <= cx + tw && mouseY >= cy - 2.0f && mouseY <= cy + 12.0f &&
-                            mouseY >= hl.viewY && mouseY <= hl.viewY + hl.viewH) {
-                            hoveredGlossaryTerm = term;
-                        }
-                        cx += tw;
-                        pos = close + 2;
-                    }
+                    drawHelpRichLine(r, bLines[li], textX, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f,
+                                     pal, mouseX, mouseY, hl.viewY, hl.viewH, hoveredGlossaryTerm);
                     cy += 14.0f;
                 }
             }
             cy = std::max(cy, miniBottom) + 6.0f;
         }
 
-        // 4. Stats & Card Tags
-        for (const auto& sd : manifest.stats) {
-            for (const auto& line : wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, 9.0f)) {
-                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.0f, 0.65f, 0.88f, 0.95f, 0.92f);
-                cy += 13.5f;
+        // 4. Rules (How to Play / Card Resolution)
+        if (!manifest.rules.empty()) {
+            cy += 4.0f;
+            eatsbits::ui::glyph::drawVectorText(r, "RULES:", lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+            cy += 13.0f;
+            for (const auto& rd : manifest.rules) {
+                eatsbits::ui::glyph::drawVectorText(r, rd.title.c_str(), lx, cy, 9.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+                cy += 15.0f;
+                for (const auto& bText : rd.bullets) {
+                    auto bLines = wrapHelpText(bText, maxTextW - 10.0f, 9.2f);
+                    if (bLines.empty()) bLines.push_back("");
+                    for (size_t li = 0; li < bLines.size(); ++li) {
+                        if (li == 0) {
+                            eatsbits::ui::glyph::drawVectorText(r, "-", lx + 3.0f, cy, 9.2f, 0.85f, 0.82f, 0.74f, 0.9f);
+                        }
+                        drawHelpRichLine(r, bLines[li], lx + 10.0f, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f,
+                                         pal, mouseX, mouseY, hl.viewY, hl.viewH, hoveredGlossaryTerm);
+                        cy += 13.5f;
+                    }
+                }
+                cy += 4.0f;
             }
         }
-        for (const auto& td : manifest.tags) {
-            for (const auto& line : wrapHelpText(td.title + ": " + td.description, maxTextW, 9.0f)) {
-                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.0f, 0.95f, 0.78f, 0.62f, 0.92f);
-                cy += 13.5f;
+
+        // 5. Stats & Card Tags
+        if (!manifest.stats.empty()) {
+            cy += 4.0f;
+            eatsbits::ui::glyph::drawVectorText(r, "STATS:", lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+            cy += 13.0f;
+            for (const auto& sd : manifest.stats) {
+                auto lines = wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, 9.0f);
+                if (lines.empty()) lines.push_back("");
+                for (const auto& line : lines) {
+                    drawHelpRichLine(r, line, lx, cy, 9.0f, 0.65f, 0.88f, 0.95f, 0.92f,
+                                     pal, mouseX, mouseY, hl.viewY, hl.viewH, hoveredGlossaryTerm);
+                    cy += 13.5f;
+                }
+            }
+        }
+        if (!manifest.tags.empty()) {
+            cy += 4.0f;
+            eatsbits::ui::glyph::drawVectorText(r, "CARD TYPES:", lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+            cy += 13.0f;
+            for (const auto& td : manifest.tags) {
+                auto lines = wrapHelpText(td.title + ": " + td.description, maxTextW, 9.0f);
+                if (lines.empty()) lines.push_back("");
+                for (const auto& line : lines) {
+                    drawHelpRichLine(r, line, lx, cy, 9.0f, 0.95f, 0.78f, 0.62f, 0.92f,
+                                     pal, mouseX, mouseY, hl.viewY, hl.viewH, hoveredGlossaryTerm);
+                    cy += 13.5f;
+                }
             }
         }
 
@@ -2040,14 +2155,23 @@ void drawHelpSidebar(
 
     // Floating Glossary Tooltip (outside scissor!)
     if (!hoveredGlossaryTerm.empty()) {
-        std::string tip = lookupGlossaryTerm(hoveredGlossaryTerm, board);
-        const float tw = std::min(280.0f, eatsbits::ui::glyph::getVectorTextWidth(9.5f, tip.c_str()) + 18.0f);
-        const float th = 32.0f;
+        const std::string tip = lookupGlossaryTerm(hoveredGlossaryTerm, board);
+        const auto tipLines = wrapHelpText(tip, 260.0f, 9.5f);
+        float maxLineW = 0.0f;
+        for (const auto& tl : tipLines) {
+            maxLineW = std::max(maxLineW, eatsbits::ui::glyph::getVectorTextWidth(9.5f, tl.c_str()));
+        }
+        const float tw = std::min(280.0f, maxLineW + 18.0f);
+        const float th = 16.0f + static_cast<float>(std::max<size_t>(1, tipLines.size())) * 13.5f;
         const float tx = std::clamp(mouseX - tw * 0.5f, 8.0f, width - tw - 8.0f);
         const float ty = std::max(8.0f, mouseY - th - 10.0f);
         r.drawRoundedRectGradient(tx, ty, tw, th, 5.0f, 0.16f, 0.12f, 0.08f, 0.10f, 0.08f, 0.05f, 0.98f, 3);
         r.drawRoundedRectOutline(tx, ty, tw, th, 5.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f, 1.5f, 3);
-        eatsbits::ui::glyph::drawVectorText(r, tip.c_str(), tx + 8.0f, ty + 10.0f, 9.5f, 0.98f, 0.94f, 0.84f, 1.0f);
+        float lineY = ty + 8.0f;
+        for (const auto& tl : tipLines) {
+            eatsbits::ui::glyph::drawVectorText(r, tl.c_str(), tx + 9.0f, lineY, 9.5f, 0.98f, 0.94f, 0.84f, 1.0f);
+            lineY += 13.5f;
+        }
     }
 }
 
@@ -2740,6 +2864,214 @@ void evaluateVictoryStage(
     }
 }
 
+void updateShowcaseCamera(
+    ShowcaseCameraState& cam,
+    const SolitaireBoard& board,
+    const AutoPlayController& autoPlay,
+    int highlightedHelpZone,
+    float width,
+    float height,
+    float dt,
+    int directorFocusZone = -1,
+    int directorMoveFrom = -1,
+    int directorMoveCard = -1,
+    int directorMoveTo = -1
+) noexcept {
+    if (width <= 1.0f || height <= 1.0f) return;
+
+    if (cam.focusX <= 0.0f && cam.focusY <= 0.0f) {
+        cam.focusX = width * 0.5f;
+        cam.focusY = height * 0.5f;
+        cam.targetFocusX = cam.focusX;
+        cam.targetFocusY = cam.focusY;
+    }
+
+    const auto& piles = board.piles();
+    const float cw = board.cardWidth();
+    const float ch = board.cardHeight();
+
+    const SolverMove* activeMove = autoPlay.isPlaying() ? autoPlay.peekNextMove() : nullptr;
+    SolverMove dirSynthMove{};
+    if (!activeMove && directorMoveFrom >= 0 && directorMoveTo >= 0) {
+        dirSynthMove.fromPile = static_cast<uint8_t>(directorMoveFrom);
+        dirSynthMove.cardIndex = static_cast<uint8_t>(std::max(0, directorMoveCard));
+        dirSynthMove.toPile = static_cast<uint8_t>(directorMoveTo);
+        activeMove = &dirSynthMove;
+    }
+
+    if (activeMove) {
+        const SolverMove* mv = activeMove;
+        cam.focusPileA = static_cast<int>(mv->fromPile);
+        cam.focusCardA = static_cast<int>(mv->cardIndex);
+        cam.focusPileB = static_cast<int>(mv->toPile);
+        cam.targetSpotlightAlpha = 0.42f;
+
+        if (mv->fromPile < piles.size() && mv->toPile < piles.size()) {
+            const Pile& sp = piles[mv->fromPile];
+            const Pile& dp = piles[mv->toPile];
+            float sx0 = sp.x, sy0 = sp.y, sx1 = sp.x + cw, sy1 = sp.y + ch;
+            if (!sp.cards.empty()) {
+                const size_t idx = std::min<size_t>(mv->cardIndex, sp.cards.size() - 1);
+                sx0 = sp.cards[idx].x;
+                sy0 = sp.cards[idx].y;
+                sx1 = sx0 + cw;
+                sy1 = sp.cards.back().y + ch;
+            }
+            float dx0 = dp.x, dy0 = dp.y, dx1 = dp.x + cw, dy1 = dp.y + ch;
+            if (!dp.cards.empty()) {
+                dx0 = dp.cards.back().x;
+                dy0 = dp.cards.back().y;
+                dx1 = dx0 + cw;
+                dy1 = dy0 + ch;
+            }
+            const float minX = std::min(sx0, dx0);
+            const float minY = std::min(sy0, dy0);
+            const float maxX = std::max(sx1, dx1);
+            const float maxY = std::max(sy1, dy1);
+            const float spanW = (maxX - minX) + cw * 1.4f;
+            const float spanH = (maxY - minY) + ch * 1.2f;
+            const float fitZoom = std::min(width / std::max(spanW, 1.0f), height / std::max(spanH, 1.0f));
+            cam.targetZoom = std::clamp(fitZoom, 1.0f, 1.26f);
+
+            const float halfW = (width * 0.5f) / cam.targetZoom;
+            const float halfH = (height * 0.5f) / cam.targetZoom;
+            const float cx = (minX + maxX) * 0.5f;
+            const float cy = (minY + maxY) * 0.5f;
+            cam.targetFocusX = (halfW < width * 0.5f) ? std::clamp(cx, halfW, width - halfW) : (width * 0.5f);
+            cam.targetFocusY = (halfH < height * 0.5f) ? std::clamp(cy, halfH, height - halfH) : (height * 0.5f);
+        }
+    } else if (directorFocusZone >= 0 && static_cast<size_t>(directorFocusZone) < piles.size()) {
+        float zx0 = 0.0f, zy0 = 0.0f, zw = 0.0f, zh = 0.0f;
+        computeZoneHighlightBounds(board, directorFocusZone, zx0, zy0, zw, zh);
+        if (zw > 0.0f && zh > 0.0f) {
+            const float spanW = zw + cw * 1.5f;
+            const float spanH = zh + ch * 1.2f;
+            const float fitZoom = std::min(width / std::max(spanW, 1.0f), height / std::max(spanH, 1.0f));
+            cam.targetZoom = std::clamp(fitZoom, 1.0f, 1.22f);
+            const float halfW = (width * 0.5f) / cam.targetZoom;
+            const float halfH = (height * 0.5f) / cam.targetZoom;
+            const float cx = zx0 + zw * 0.5f;
+            const float cy = zy0 + zh * 0.5f;
+            cam.targetFocusX = (halfW < width * 0.5f) ? std::clamp(cx, halfW, width - halfW) : (width * 0.5f);
+            cam.targetFocusY = (halfH < height * 0.5f) ? std::clamp(cy, halfH, height - halfH) : (height * 0.5f);
+        } else {
+            cam.targetZoom = 1.0f;
+            cam.targetFocusX = width * 0.5f;
+            cam.targetFocusY = height * 0.5f;
+        }
+        cam.targetSpotlightAlpha = 0.36f;
+        cam.focusPileA = directorFocusZone;
+        cam.focusCardA = 0;
+        cam.focusPileB = -1;
+    } else if (highlightedHelpZone >= 0 && static_cast<size_t>(highlightedHelpZone) < piles.size()) {
+        cam.targetZoom = 1.0f;
+        cam.targetFocusX = width * 0.5f;
+        cam.targetFocusY = height * 0.5f;
+        cam.targetSpotlightAlpha = 0.34f;
+        cam.focusPileA = highlightedHelpZone;
+        cam.focusCardA = 0;
+        cam.focusPileB = -1;
+    } else {
+        cam.targetZoom = 1.0f;
+        cam.targetFocusX = width * 0.5f;
+        cam.targetFocusY = height * 0.5f;
+        cam.targetSpotlightAlpha = 0.0f;
+        cam.focusPileA = -1;
+        cam.focusCardA = -1;
+        cam.focusPileB = -1;
+    }
+
+    const float k = 1.0f - std::exp(-6.5f * std::clamp(dt, 0.0f, 0.05f));
+    cam.zoom += (cam.targetZoom - cam.zoom) * k;
+    cam.focusX += (cam.targetFocusX - cam.focusX) * k;
+    cam.focusY += (cam.targetFocusY - cam.focusY) * k;
+    cam.spotlightAlpha += (cam.targetSpotlightAlpha - cam.spotlightAlpha) * k;
+}
+
+struct DirectorRuntimeState {
+    bool active{false};
+    bool finished{false};
+    std::vector<DirectorBeat> beats;
+    size_t beatIdx{0};
+    float beatTimer{0.0f};
+    float totalElapsed{0.0f};
+    int movesDoneInBeat{0};
+    float nextMoveAt{0.0f};
+    int highlightZone{-1};
+    int moveFocusFrom{-1};
+    int moveFocusCard{-1};
+    int moveFocusTo{-1};
+    float moveFocusTimer{0.0f};
+};
+
+bool loadDirectorTimeline(const std::string& path, std::vector<DirectorBeat>& outBeats) {
+    outBeats.clear();
+    if (path.empty()) return false;
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::fseek(f, 0, SEEK_END);
+    long sz = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    if (sz <= 0) {
+        std::fclose(f);
+        return false;
+    }
+    std::string content(static_cast<size_t>(sz), '\0');
+    if (std::fread(content.data(), 1, content.size(), f) != content.size()) {
+        std::fclose(f);
+        return false;
+    }
+    std::fclose(f);
+
+    size_t pos = 0;
+    while (pos < content.size()) {
+        size_t eol = content.find('\n', pos);
+        if (eol == std::string::npos) eol = content.size();
+        std::string line = content.substr(pos, eol - pos);
+        pos = eol + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+
+        // Format: BEAT|action|durationSec|targetZone|moveCount|wavPath|caption
+        std::vector<std::string> fields;
+        size_t fStart = 0;
+        while (fStart <= line.size()) {
+            size_t sep = line.find('|', fStart);
+            if (sep == std::string::npos) {
+                fields.push_back(line.substr(fStart));
+                break;
+            }
+            fields.push_back(line.substr(fStart, sep - fStart));
+            fStart = sep + 1;
+        }
+        if (fields.size() < 6 || fields[0] != "BEAT") continue;
+
+        DirectorBeat b;
+        if (fields[1] == "highlight_zone") b.action = DirectorAction::HighlightZone;
+        else if (fields[1] == "play_moves") b.action = DirectorAction::PlayMoves;
+        else if (fields[1] == "reset_camera") b.action = DirectorAction::ResetCamera;
+        else if (fields[1] == "finish_game") b.action = DirectorAction::FinishGame;
+        else if (fields[1] == "move") b.action = DirectorAction::ExplicitMove;
+        else if (fields[1] == "draw_stock") b.action = DirectorAction::DrawStock;
+        else if (fields[1] == "hint") b.action = DirectorAction::Hint;
+        else b.action = DirectorAction::Idle;
+
+        b.durationSec = std::max(0.2f, std::stof(fields[2]));
+        b.targetZone = std::stoi(fields[3]);
+        b.moveCount = std::max(0, std::stoi(fields[4]));
+        b.wavPath = fields[5];
+        if (fields.size() > 6) b.caption = fields[6];
+        if (fields.size() > 7) b.fromPile = std::stoi(fields[7]);
+        if (fields.size() > 8) b.cardIndex = std::stoi(fields[8]);
+        if (fields.size() > 9) b.toPile = std::stoi(fields[9]);
+        if (fields.size() > 10) b.ghostCards = fields[10];
+        if (fields.size() > 11 && !fields[11].empty()) b.ghostDelaySec = std::max(0.0f, std::stof(fields[11]));
+        if (fields.size() > 12 && !fields[12].empty()) b.ghostPile = std::stoi(fields[12]);
+        outBeats.push_back(std::move(b));
+    }
+    return !outBeats.empty();
+}
+
 } // namespace
 
 void TableRenderer::renderBoard(
@@ -2773,7 +3105,15 @@ void TableRenderer::renderBoard(
     const HelpOddsInfo* helpOdds,
     const MagicParticleSystem* magicParticles,
     const HintHighlight* hintHighlight,
-    bool screensaverMode
+    bool screensaverMode,
+    const ShowcaseCameraState* showcaseCamera,
+    bool hideHud,
+    float dragPivotAngle,
+    float dragGrabLocalX,
+    float dragGrabLocalY,
+    const float* dragChainAngles,
+    size_t dragChainCount,
+    const std::vector<GhostCardCue>* ghostCards
 ) {
     const ThemePalette pal = getPalette(board.tableTheme());
     // Overhead table illumination: dynamic swaying light or centered static default
@@ -2785,6 +3125,11 @@ void TableRenderer::renderBoard(
 
     // Activate physical 3D scene illumination & natural light-source vignette for tabletop and cards
     r.setSceneLightingActive(true);
+
+    const bool camZoomed = (showcaseCamera && showcaseCamera->zoom > 1.002f);
+    if (camZoomed) {
+        r.setCameraTransform(showcaseCamera->zoom, showcaseCamera->focusX, showcaseCamera->focusY, width * 0.5f, height * 0.5f);
+    }
 
     // 1. Static Table Chrome (Recorded once into FBO cache and blitted via fast memcpy!)
     static TableThemeId s_cachedTheme = static_cast<TableThemeId>(-1);
@@ -2816,9 +3161,9 @@ void TableRenderer::renderBoard(
         s_cachedH = height;
     }
 
-    if (r.isChromeCacheValid()) {
+    if (!camZoomed && r.isChromeCacheValid()) {
         r.drawCachedChrome(1.0f);
-    } else if (r.beginChromeRecording()) {
+    } else if (!camZoomed && r.beginChromeRecording()) {
         drawStaticTableChrome(r, board, width, height, pal, light);
         r.endChromeRecording();
     } else {
@@ -2826,7 +3171,7 @@ void TableRenderer::renderBoard(
     }
 
     // 2. Bottom-Center Live Telemetry Watermark (Seed, Score, Moves, Timer)
-    if (showMarkings) {
+    if (showMarkings && !hideHud) {
         int mins = static_cast<int>(board.elapsedSeconds()) / 60;
         int secs = static_cast<int>(board.elapsedSeconds()) % 60;
         char botTelemetry[256];
@@ -2970,6 +3315,57 @@ void TableRenderer::renderBoard(
         }
     }
 
+    // 3b. Showcase Spotlight Scrim & Focused Pile Lift
+    if (showcaseCamera && showcaseCamera->spotlightAlpha > 0.01f) {
+        r.drawRect(-width, -height, width * 3.0f, height * 3.0f, 0.0f, 0.0f, 0.0f, showcaseCamera->spotlightAlpha);
+
+        const float effRu = CardTextureCache::instance().effectiveRu();
+        const float cardRad = (effRu <= 0.001f) ? 2.0f : std::max(2.0f, effRu * cw);
+
+        auto drawFocusPile = [&](int pIdx, int fromCardIdx) {
+            if (pIdx < 0 || static_cast<size_t>(pIdx) >= piles.size()) return;
+            const Pile& fp = piles[static_cast<size_t>(pIdx)];
+            if (fp.cards.empty()) {
+                ScopedCardRotation rotGuard(r, fp.angle, fp.x + cw * 0.5f, fp.y + ch * 0.5f);
+                r.drawRoundedRectOutline(fp.x - 2.0f, fp.y - 2.0f, cw + 4.0f, ch + 4.0f, cardRad + 2.0f,
+                                         pal.accentR, pal.accentG, pal.accentB, 0.85f, 2.2f, 4);
+                return;
+            }
+            const bool tightlyStacked = (fp.type == PileType::Stock || fp.type == PileType::Foundation || fp.type == PileType::FreeCell);
+            size_t startIdx = (tightlyStacked || fromCardIdx < 0)
+                ? (fp.cards.size() - 1)
+                : std::min<size_t>(static_cast<size_t>(fromCardIdx), fp.cards.size() - 1);
+
+            for (size_t ci = startIdx; ci < fp.cards.size(); ++ci) {
+                const Card& fc = fp.cards[ci];
+                if (isCardMoving(fc)) continue;
+                drawProceduralCard(r, fc, fc.x, fc.y, cw, ch, pal, light, CardRenderPass::BodyOnly);
+            }
+            const Card& topC = fp.cards.back();
+            const Card& firstC = fp.cards[startIdx];
+            if (std::abs(topC.angle) > 0.001f || std::abs(firstC.angle) > 0.001f) {
+                for (size_t ci = startIdx; ci < fp.cards.size(); ++ci) {
+                    const Card& fc = fp.cards[ci];
+                    ScopedCardRotation rotGuard(r, fc.angle, fc.x + cw * 0.5f, fc.y + ch * 0.5f);
+                    r.drawRoundedRectOutline(fc.x - 2.0f, fc.y - 2.0f, cw + 4.0f, ch + 4.0f, cardRad + 2.0f,
+                                             pal.accentR, pal.accentG, pal.accentB, 0.82f, 2.0f, 4);
+                }
+            } else {
+                const float bx = std::min(firstC.x, topC.x);
+                const float by = std::min(firstC.y, topC.y);
+                const float bw = std::max(firstC.x, topC.x) + cw - bx;
+                const float bh = std::max(firstC.y, topC.y) + ch - by;
+                r.drawRoundedRectOutline(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, cardRad + 2.0f,
+                                         pal.accentR, pal.accentG, pal.accentB, 0.82f, 2.0f, 4);
+            }
+        };
+
+        drawFocusPile(showcaseCamera->focusPileA, showcaseCamera->focusCardA);
+        if (showcaseCamera->focusPileB != showcaseCamera->focusPileA) {
+            drawFocusPile(showcaseCamera->focusPileB, -1);
+        }
+    }
+
     // 4. Spring-Animated & 3D Flipping Cards (Always rendered above all resting cards)
     if (!animatingCards.empty()) {
         std::stable_sort(animatingCards.begin(), animatingCards.end(), [](const AnimatingCardEntry& a, const AnimatingCardEntry& b) noexcept {
@@ -2998,28 +3394,71 @@ void TableRenderer::renderBoard(
         }
     }
 
-    // 5. Dragged Card Sub-Stack (Elevated on top of all piles and animations; unified non-accumulating shadow underneath stack)
+    // 5. Dragged Card Sub-Stack (Elevated on top of all piles and animations; articulated pendulum chain)
     if (draggedPile >= 0 && draggedPile < static_cast<int>(piles.size()) && draggedCardIdx >= 0) {
         const Pile& p = piles[static_cast<size_t>(draggedPile)];
         const size_t firstDrag = static_cast<size_t>(draggedCardIdx);
-        for (size_t cIdx = firstDrag; cIdx < p.cards.size(); ++cIdx) {
-            Card c = p.cards[cIdx];
-            c.elevation = 14.0f;
-            c.angle += std::clamp(dragOffsetX * 0.0006f, -0.045f, 0.045f);
-            const float prevX = (cIdx > firstDrag) ? (p.cards[cIdx - 1].x + dragOffsetX) : 99999.0f;
-            const float prevY = (cIdx > firstDrag) ? (p.cards[cIdx - 1].y + dragOffsetY) : 99999.0f;
-            drawProceduralCard(r, c, c.x + dragOffsetX, c.y + dragOffsetY, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
-        }
-        for (size_t cIdx = firstDrag; cIdx < p.cards.size(); ++cIdx) {
-            Card c = p.cards[cIdx];
-            c.elevation = 14.0f;
-            c.angle += std::clamp(dragOffsetX * 0.0006f, -0.045f, 0.045f);
-            if (cIdx > firstDrag) {
-                const float effRu = CardTextureCache::instance().effectiveRu();
-                const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
-                r.drawRectDropShadow(c.x + dragOffsetX, c.y + dragOffsetY, cw, ch, cardRadius, 1.2f, light, 0.38f);
+        if (firstDrag < p.cards.size()) {
+            const size_t count = p.cards.size() - firstDrag;
+            const Card& lead = p.cards[firstDrag];
+            const float pivotX = lead.x + dragOffsetX + dragGrabLocalX;
+            const float pivotY = lead.y + dragOffsetY + dragGrabLocalY;
+
+            thread_local std::vector<float> chainX;
+            thread_local std::vector<float> chainY;
+            thread_local std::vector<float> chainAng;
+            chainX.resize(count);
+            chainY.resize(count);
+            chainAng.resize(count);
+
+            for (size_t k = 0; k < count; ++k) {
+                const float theta = (dragChainAngles && k < dragChainCount) ? dragChainAngles[k] : dragPivotAngle;
+                chainAng[k] = theta;
+                const Card& baseC = p.cards[firstDrag + k];
+                if (k == 0) {
+                    const float cx = baseC.x + dragOffsetX + cw * 0.5f;
+                    const float cy = baseC.y + dragOffsetY + ch * 0.5f;
+                    const float dx = cx - pivotX;
+                    const float dy = cy - pivotY;
+                    const float cosP = std::cos(theta);
+                    const float sinP = std::sin(theta);
+                    chainX[0] = (pivotX + cosP * dx - sinP * dy) - cw * 0.5f;
+                    chainY[0] = (pivotY + sinP * dx + cosP * dy) - ch * 0.5f;
+                } else {
+                    const Card& prevBase = p.cards[firstDrag + k - 1];
+                    const float offX = baseC.x - prevBase.x;
+                    const float offY = baseC.y - prevBase.y;
+                    const float parentTheta = chainAng[k - 1];
+                    const float cosP = std::cos(parentTheta);
+                    const float sinP = std::sin(parentTheta);
+                    const float parentCx = chainX[k - 1] + cw * 0.5f;
+                    const float parentCy = chainY[k - 1] + ch * 0.5f;
+                    chainX[k] = (parentCx + cosP * offX - sinP * offY) - cw * 0.5f;
+                    chainY[k] = (parentCy + sinP * offX + cosP * offY) - ch * 0.5f;
+                }
             }
-            drawProceduralCard(r, c, c.x + dragOffsetX, c.y + dragOffsetY, cw, ch, pal, light, CardRenderPass::BodyOnly);
+
+            float prevX = 99999.0f, prevY = 99999.0f;
+            for (size_t k = 0; k < count; ++k) {
+                Card c = p.cards[firstDrag + k];
+                c.elevation = 14.0f;
+                c.angle += chainAng[k];
+                drawProceduralCard(r, c, chainX[k], chainY[k], cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
+                prevX = chainX[k];
+                prevY = chainY[k];
+            }
+            for (size_t k = 0; k < count; ++k) {
+                Card c = p.cards[firstDrag + k];
+                c.elevation = 14.0f;
+                c.angle += chainAng[k];
+                if (k > 0) {
+                    const float effRu = CardTextureCache::instance().effectiveRu();
+                    const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
+                    ScopedCardRotation contactRotGuard(r, c.angle, chainX[k] + cw * 0.5f, chainY[k] + ch * 0.5f);
+                    r.drawRectDropShadow(chainX[k], chainY[k], cw, ch, cardRadius, 1.2f, light, 0.38f);
+                }
+                drawProceduralCard(r, c, chainX[k], chainY[k], cw, ch, pal, light, CardRenderPass::BodyOnly);
+            }
         }
     }
 
@@ -3187,6 +3626,55 @@ void TableRenderer::renderBoard(
         }
     }
 
+    static float sAnimTime = 0.0f;
+    sAnimTime += 0.016f;
+
+    if (highlightedHelpZone >= 0 && static_cast<size_t>(highlightedHelpZone) < piles.size()) {
+        float zx = 0.0f, zy = 0.0f, zw = 0.0f, zh = 0.0f;
+        computeZoneHighlightBounds(board, highlightedHelpZone, zx, zy, zw, zh);
+        if (zw > 0.0f && zh > 0.0f) {
+            const float pulse = 0.78f + 0.22f * std::sin(sAnimTime * 4.5f);
+            r.drawRoundedRect(zx, zy, zw, zh, 8.0f, pal.accentR, pal.accentG, pal.accentB, 0.08f * pulse, 4);
+            r.drawRoundedRectOutline(zx - 1.5f, zy - 1.5f, zw + 3.0f, zh + 3.0f, 9.5f,
+                                     0.04f, 0.02f, 0.01f, 0.70f * pulse, 3.6f, 4);
+            r.drawRoundedRectOutline(zx, zy, zw, zh, 8.0f,
+                                     pal.accentR, pal.accentG, pal.accentB, 0.92f * pulse, 2.0f, 4);
+        }
+    }
+    if (ghostCards && !ghostCards->empty()) {
+        const float effRu = CardTextureCache::instance().effectiveRu();
+        const float cardRad = (effRu <= 0.001f) ? 2.0f : std::max(2.0f, effRu * cw);
+        for (const auto& gc : *ghostCards) {
+            if (gc.ageSec < gc.delaySec) continue;
+            const float localAge = gc.ageSec - gc.delaySec;
+            if (localAge >= gc.durationSec) continue;
+
+            const float fadeIn = std::clamp(localAge / 0.24f, 0.0f, 1.0f);
+            const float fadeOut = std::clamp((gc.durationSec - localAge) / 0.45f, 0.0f, 1.0f);
+            const float alpha = gc.maxOpacity * fadeIn * fadeOut;
+            if (alpha <= 0.01f) continue;
+
+            const float moveT = std::clamp(localAge / 0.30f, 0.0f, 1.0f);
+            const float ease = 1.0f - (1.0f - moveT) * (1.0f - moveT) * (1.0f - moveT);
+            const float gx = gc.startX + (gc.targetX - gc.startX) * ease;
+            const float gy = gc.startY + (gc.targetY - gc.startY) * ease;
+
+            Card renderC = gc.card;
+            renderC.faceUp = true;
+            renderC.elevation = 6.0f + (1.0f - ease) * 14.0f;
+            drawProceduralCard(r, renderC, gx, gy, cw, ch, pal, light, CardRenderPass::BodyOnly, 99999.0f, 99999.0f, alpha);
+            r.drawRoundedRectOutline(gx - 1.5f, gy - 1.5f, cw + 3.0f, ch + 3.0f, cardRad + 1.5f,
+                                     pal.accentR, pal.accentG, pal.accentB, alpha * 0.90f, 2.0f, 4);
+        }
+    }
+
+    if (magicParticles) {
+        magicParticles->render(r);
+    }
+    if (camZoomed) {
+        r.clearCameraTransform();
+    }
+
     // 8. Always-on-Top Floating Clockwork Medallion Bar
     const auto layout = computeClockworkBarLayout(width, height, board, menuAnchor, menuFlowVertical);
 
@@ -3290,11 +3778,8 @@ void TableRenderer::renderBoard(
             }
         }
     }
-    static float sAnimTime = 0.0f;
-    sAnimTime += 0.016f;
-
-    // Medallions & Transport Bar (hidden in Screensaver Mode)
-    if (!screensaverMode) {
+    // Medallions & Transport Bar (hidden in Screensaver Mode or --hide-hud)
+    if (!screensaverMode && !hideHud) {
     int hoveredIdx = -1;
     for (size_t i = 0; i < layout.buttons.size(); ++i) {
         const auto& b = layout.buttons[i];
@@ -3424,7 +3909,7 @@ void TableRenderer::renderBoard(
         auto tBtns = buildTransportButtons(width, height, *autoPlay);
         drawTransportBar(r, width, height, *autoPlay, tBtns, hoveredButtonId, pal, light);
     }
-    } else {
+    } else if (screensaverMode) {
         // Subtle Screensaver Mode watermark
         const char* ssLabel = "SCREENSAVER  |  TAP ANYWHERE TO EXIT";
         const float fontSz = 10.0f;
@@ -3440,22 +3925,7 @@ void TableRenderer::renderBoard(
                                             0.92f, 0.90f, 0.85f, 0.65f);
     }
 
-    // 10. Responsive Help Sidebar + Zone Outline + Magic Particles
-    if (helpOpen && highlightedHelpZone >= 0 && static_cast<size_t>(highlightedHelpZone) < piles.size()) {
-        float zx = 0.0f, zy = 0.0f, zw = 0.0f, zh = 0.0f;
-        computeZoneHighlightBounds(board, highlightedHelpZone, zx, zy, zw, zh);
-        if (zw > 0.0f && zh > 0.0f) {
-            const float pulse = 0.78f + 0.22f * std::sin(sAnimTime * 4.5f);
-            r.drawRoundedRect(zx, zy, zw, zh, 8.0f, pal.accentR, pal.accentG, pal.accentB, 0.08f * pulse, 4);
-            r.drawRoundedRectOutline(zx - 1.5f, zy - 1.5f, zw + 3.0f, zh + 3.0f, 9.5f,
-                                     0.04f, 0.02f, 0.01f, 0.70f * pulse, 3.6f, 4);
-            r.drawRoundedRectOutline(zx, zy, zw, zh, 8.0f,
-                                     pal.accentR, pal.accentG, pal.accentB, 0.92f * pulse, 2.0f, 4);
-        }
-    }
-    if (magicParticles) {
-        magicParticles->render(r);
-    }
+    // 10. Responsive Help Sidebar
     if (helpOpen) {
         drawHelpSidebar(r, board, width, height, pal, highlightedHelpZone, helpScrollY, helpMouseX, helpMouseY, helpOdds);
     }
@@ -3929,6 +4399,15 @@ struct InteractiveContext {
     double dragStartMouseY = 0.0;
     float dragOffsetX = 0.0f;
     float dragOffsetY = 0.0f;
+    float dragGrabLocalX = 0.0f;
+    float dragGrabLocalY = 0.0f;
+    float dragPivotAngle = 0.0f;
+    float dragPivotVel = 0.0f;
+    float prevDragOffsetX = 0.0f;
+    float prevDragOffsetY = 0.0f;
+    std::array<float, 52> dragChainAngles{};
+    std::array<float, 52> dragChainVels{};
+    size_t dragChainCount = 0;
     float dragSoundAccumulator = 0.0f;
     double lastDragMouseX = 0.0;
     double lastDragMouseY = 0.0;
@@ -3965,6 +4444,17 @@ struct InteractiveContext {
     std::string lastOddsGameId;
     size_t lastTrailedMoveIdx = SIZE_MAX;
     int magicSoundAccum = 0;
+    ShowcaseCameraState showcaseCam;
+    DirectorRuntimeState directorState;
+    bool directorHideHud = false;
+    bool directorAutoExit = false;
+    std::string recordMovesPath;
+    std::vector<DirectorBeat> recordedBeats;
+    size_t lastRecordedUndoDepth = 0;
+    bool lastRecordedSolvable = true;
+    std::string recordStatusBanner;
+    float recordStatusTimer = 0.0f;
+    std::vector<GhostCardCue> activeGhostCards;
     MagicParticleSystem magicParticles;
     HintHighlight hintHighlight{};
     uint32_t hintMoveCount = 0;
@@ -4000,15 +4490,24 @@ struct InteractiveContext {
 #if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
         oddsThread = std::thread([this, baseSeed, defCopy]() {
             uint32_t solved = 0;
-            uint64_t statesSum = 0;
+            uint32_t timedOutCount = 0;
+            std::vector<uint32_t> solvedStates;
+            std::vector<uint32_t> solvedMoves;
+            solvedStates.reserve(12);
+            solvedMoves.reserve(12);
             SolitaireSolver solver;
             for (uint32_t i = 0; i < 12; ++i) {
                 if (oddsCancel.load(std::memory_order_relaxed)) break;
                 SolitaireBoard probe;
                 probe.newDeal(baseSeed + 1 + i, defCopy);
                 SolveResult res = solver.solve(probe, 20000, 220.0f, &oddsCancel);
-                if (res.solved) ++solved;
-                statesSum += res.statesExplored;
+                if (res.solved) {
+                    ++solved;
+                    solvedStates.push_back(res.statesExplored);
+                    solvedMoves.push_back(static_cast<uint32_t>(res.moves.size()));
+                } else if (res.timedOut) {
+                    ++timedOutCount;
+                }
                 std::lock_guard<std::mutex> lk(oddsMutex);
                 helpOdds.completedSeeds = i + 1;
             }
@@ -4020,15 +4519,52 @@ struct InteractiveContext {
             std::snprintf(oBuf, sizeof(oBuf), "%u%% (%u/%u)", pct, solved, done);
             helpOdds.oddsLabel = oBuf;
 
-            const uint64_t avgStates = statesSum / done;
-            if (avgStates < 300) { helpOdds.skillRating = 1; helpOdds.skillLabel = "Easy"; }
-            else if (avgStates < 1500) { helpOdds.skillRating = 2; helpOdds.skillLabel = "Casual"; }
-            else if (avgStates < 5000) { helpOdds.skillRating = 3; helpOdds.skillLabel = "Moderate"; }
-            else if (avgStates < 12000) { helpOdds.skillRating = 4; helpOdds.skillLabel = "Hard"; }
-            else { helpOdds.skillRating = 5; helpOdds.skillLabel = "Expert"; }
+            auto medianOf = [](std::vector<uint32_t>& v) -> uint32_t {
+                if (v.empty()) return 0;
+                std::sort(v.begin(), v.end());
+                return v[v.size() / 2];
+            };
+            const uint32_t medSolvedStates = medianOf(solvedStates);
+            const uint32_t medSolvedMoves = medianOf(solvedMoves);
+            const float solveRate = static_cast<float>(solved) / static_cast<float>(done);
 
-            helpOdds.timeRating = (defCopy.decks > 1) ? 4 : 3;
-            helpOdds.timeLabel = (defCopy.decks > 1) ? "Long" : "Average";
+            // Calibrate skill/difficulty primarily by empirical win rate, adjusted by
+            // planning depth on solved deals (avoiding dead-end search-cap bias).
+            int skill = 3;
+            if (solveRate >= 0.90f) {
+                skill = 1;
+                if (medSolvedStates >= 400 || medSolvedMoves >= 80) skill = 3;
+                else if (medSolvedStates >= 150 || medSolvedMoves >= 55) skill = 2;
+            } else if (solveRate >= 0.70f) {
+                skill = 2;
+                if (medSolvedStates >= 1200 || medSolvedMoves >= 130) skill = 3;
+            } else if (solveRate >= 0.35f) {
+                skill = 3;
+                if (medSolvedStates >= 2000) skill = 4;
+            } else if (solveRate >= 0.15f) {
+                skill = 4;
+                if (medSolvedStates >= 3000) skill = 5;
+            } else {
+                skill = (timedOutCount > done / 2) ? 4 : 5;
+            }
+            helpOdds.skillRating = static_cast<uint8_t>(std::clamp(skill, 1, 5));
+            static constexpr const char* kSkillLabels[5] = { "Easy", "Casual", "Moderate", "Hard", "Expert" };
+            helpOdds.skillLabel = kSkillLabels[helpOdds.skillRating - 1];
+
+            if (solved > 0) {
+                if (medSolvedMoves < 45) { helpOdds.timeRating = 1; helpOdds.timeLabel = "Fast"; }
+                else if (medSolvedMoves < 85) { helpOdds.timeRating = 2; helpOdds.timeLabel = "Quick"; }
+                else if (medSolvedMoves < 140) { helpOdds.timeRating = 3; helpOdds.timeLabel = "Medium"; }
+                else if (medSolvedMoves < 220) { helpOdds.timeRating = 4; helpOdds.timeLabel = "Long"; }
+                else { helpOdds.timeRating = 5; helpOdds.timeLabel = "Marathon"; }
+            } else {
+                const uint32_t cards = (defCopy.deckCards > 0)
+                    ? defCopy.deckCards
+                    : static_cast<uint32_t>(std::max<uint8_t>(1, defCopy.decks)) * 52u;
+                if (cards < 45) { helpOdds.timeRating = 2; helpOdds.timeLabel = "Quick"; }
+                else if (cards <= 52) { helpOdds.timeRating = 3; helpOdds.timeLabel = "Medium"; }
+                else { helpOdds.timeRating = 4; helpOdds.timeLabel = "Long"; }
+            }
             helpOdds.hasResults = !oddsCancel.load(std::memory_order_relaxed);
             helpOdds.running = false;
         });
@@ -4994,16 +5530,17 @@ struct InteractiveContext {
         }
     }
 
-    InteractiveContext(SolitaireBoard& b, AudioFoleyEngine& f, uint32_t w, uint32_t h)
+    InteractiveContext(SolitaireBoard& b, AudioFoleyEngine& f, uint32_t w, uint32_t h, bool skipSessionRestore = false)
         : board(b), foley(f), width(w), height(h) {
         SettingsManager::instance().load();
+        SettingsManager::instance().loadPresets();
         // Defer texture loading and conditioning to async startup flow to keep cold boot instantaneous
         SettingsManager::instance().applyToGame(board, foley, false);
         lightController.setPreset(SettingsManager::instance().settings().lightingPreset);
         menuAnchor = SettingsManager::instance().settings().menuAnchor;
         menuFlowVertical = SettingsManager::instance().settings().menuFlowVertical;
 
-        if (SessionManager::instance().hasSavedSession()) {
+        if (!skipSessionRestore && SessionManager::instance().hasSavedSession()) {
             SessionManager::instance().loadSession(board);
         }
 
@@ -5154,14 +5691,24 @@ struct InteractiveContext {
         bool stockChanged = (s.cardStock != cache.cardStock());
         bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
 
-        if (deckChanged) {
-            if (themeChanged) {
-                ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
+        auto applyThemeNow = [&]() {
+            if (!themeChanged) return;
+            ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
+            size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+            const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
+            if (def && !def->filePath.empty()) {
+                ProceduralBackgroundSystem::instance().loadCustomEatsTheme(def->filePath);
+                board.setTableTheme(def->legacyId);
+                board.setTableThemeSlug(def->id);
+            } else {
                 board.setTableTheme(s.tableTheme);
                 board.setTableThemeSlug(s.tableThemeSlug);
-                lightController.applyThemeDefault(s.tableTheme);
-                ProceduralBackgroundSystem::instance().invalidateCache();
             }
+            ProceduralBackgroundSystem::instance().invalidateCache();
+        };
+
+        if (deckChanged) {
+            applyThemeNow();
             const auto& decks = cache.availableDecks();
             size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
             if (dIdx < decks.size()) {
@@ -5170,13 +5717,7 @@ struct InteractiveContext {
                 startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
             }
         } else if (wearChanged || stockChanged) {
-            if (themeChanged) {
-                ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
-                board.setTableTheme(s.tableTheme);
-                board.setTableThemeSlug(s.tableThemeSlug);
-                lightController.applyThemeDefault(s.tableTheme);
-                ProceduralBackgroundSystem::instance().invalidateCache();
-            }
+            applyThemeNow();
             startAsyncConditioning(s.cardWear, s.cardStock);
         } else {
             if (cardBackChanged) {
@@ -5627,11 +6168,20 @@ struct InteractiveContext {
         }
     }
 
-    void updateAndRender() {
+    void updateAndRender(float fixedDt = 0.0f) {
         glfwPollEvents();
-        double now = glfwGetTime();
-        float dt = static_cast<float>(now - lastTime);
-        lastTime = now;
+        double now = 0.0;
+        float dt = 0.0f;
+        if (fixedDt > 0.0f) {
+            static double sFixedClock = 0.0;
+            sFixedClock += static_cast<double>(fixedDt);
+            now = sFixedClock;
+            dt = fixedDt;
+        } else {
+            now = glfwGetTime();
+            dt = static_cast<float>(now - lastTime);
+            lastTime = now;
+        }
 
         auto screenPan = [&](float x) noexcept -> float {
             return (width > 0) ? std::clamp(((x / static_cast<float>(width)) * 2.0f - 1.0f) * 0.30f, -0.30f, 0.30f) : 0.0f;
@@ -5796,13 +6346,15 @@ struct InteractiveContext {
             }
         }
 #else
-        int winW = 0, winH = 0;
-        glfwGetWindowSize(window, &winW, &winH);
-        if (winW > 0 && winH > 0 && (static_cast<uint32_t>(winW) != width || static_cast<uint32_t>(winH) != height)) {
-            width = static_cast<uint32_t>(winW);
-            height = static_cast<uint32_t>(winH);
-            renderer.resize(width, height);
-            board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+        if (fixedDt <= 0.0f) {
+            int winW = 0, winH = 0;
+            glfwGetWindowSize(window, &winW, &winH);
+            if (winW > 0 && winH > 0 && (static_cast<uint32_t>(winW) != width || static_cast<uint32_t>(winH) != height)) {
+                width = static_cast<uint32_t>(winW);
+                height = static_cast<uint32_t>(winH);
+                renderer.resize(width, height);
+                board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+            }
         }
 #endif
 
@@ -6085,6 +6637,21 @@ struct InteractiveContext {
                         dragSoundAccumulator = 0.0f;
                         dragOffsetX = 0.0f;
                         dragOffsetY = 0.0f;
+                        prevDragOffsetX = 0.0f;
+                        prevDragOffsetY = 0.0f;
+                        dragPivotAngle = 0.0f;
+                        dragPivotVel = 0.0f;
+                        dragChainAngles.fill(0.0f);
+                        dragChainVels.fill(0.0f);
+                        dragChainCount = 0;
+                        const auto& hitP = board.piles()[static_cast<size_t>(hitPile)];
+                        if (hitCard >= 0 && static_cast<size_t>(hitCard) < hitP.cards.size()) {
+                            dragGrabLocalX = fmx - hitP.cards[static_cast<size_t>(hitCard)].x;
+                            dragGrabLocalY = fmy - hitP.cards[static_cast<size_t>(hitCard)].y;
+                        } else {
+                            dragGrabLocalX = board.cardWidth() * 0.5f;
+                            dragGrabLocalY = board.cardHeight() * 0.5f;
+                        }
                         foley.triggerSound(FoleySound::Snap, 0.75f, screenPan(fmx));
                     }
                 } else {
@@ -6661,15 +7228,348 @@ struct InteractiveContext {
                 }
             }
 
+            if (draggedPile >= 0 && draggedPile < static_cast<int>(board.piles().size()) && draggedCardIdx >= 0) {
+            const float safeDt = std::clamp(dt, 0.001f, 0.05f);
+            const float vx = (dragOffsetX - prevDragOffsetX) / safeDt;
+            const float vy = (dragOffsetY - prevDragOffsetY) / safeDt;
+            prevDragOffsetX = dragOffsetX;
+            prevDragOffsetY = dragOffsetY;
+
+            const auto& dp = board.piles()[static_cast<size_t>(draggedPile)];
+            const size_t firstIdx = static_cast<size_t>(draggedCardIdx);
+            if (firstIdx < dp.cards.size()) {
+                const size_t count = std::min<size_t>(dp.cards.size() - firstIdx, dragChainAngles.size());
+                dragChainCount = count;
+                const float cmX = board.cardWidth() * 0.5f;
+                const float cmY = board.cardHeight() * 0.5f;
+                const float rx = cmX - dragGrabLocalX;
+                const float ry = cmY - dragGrabLocalY;
+                const float torque0 = (-vx * ry + vy * rx) * 0.00018f;
+                dragChainVels[0] += (torque0 - 150.0f * dragChainAngles[0] - 13.5f * dragChainVels[0]) * safeDt;
+                dragChainAngles[0] = std::clamp(dragChainAngles[0] + dragChainVels[0] * safeDt, -0.30f, 0.30f);
+                dragPivotAngle = dragChainAngles[0];
+
+                for (size_t k = 1; k < count; ++k) {
+                    const float offY = dp.cards[firstIdx + k].y - dp.cards[firstIdx + k - 1].y;
+                    const float linkTorque = -vx * std::max(8.0f, offY) * 0.00014f;
+                    const float couple = 105.0f * (dragChainAngles[k - 1] - dragChainAngles[k]);
+                    const float restore = -45.0f * dragChainAngles[k];
+                    dragChainVels[k] += (linkTorque + couple + restore - 12.0f * dragChainVels[k]) * safeDt;
+                    dragChainAngles[k] = std::clamp(dragChainAngles[k] + dragChainVels[k] * safeDt, -0.36f, 0.36f);
+                }
+            }
+        } else {
+            dragPivotAngle = 0.0f;
+            dragPivotVel = 0.0f;
+            dragChainCount = 0;
+        }
+
+        for (size_t gi = 0; gi < activeGhostCards.size();) {
+            activeGhostCards[gi].ageSec += dt;
+            if (activeGhostCards[gi].ageSec >= activeGhostCards[gi].delaySec + activeGhostCards[gi].durationSec) {
+                activeGhostCards.erase(activeGhostCards.begin() + static_cast<ptrdiff_t>(gi));
+            } else {
+                ++gi;
+            }
+        }
+
+        if (!recordMovesPath.empty()) {
+            const size_t curDepth = board.undoStack().size();
+            if (curDepth > lastRecordedUndoDepth) {
+                const auto& cmd = board.undoStack().back();
+                DirectorBeat rb;
+                if (cmd.fromPile == 0 && cmd.toPile == 1 && !board.piles().empty() && board.piles()[0].type == PileType::Stock) {
+                    rb.action = DirectorAction::DrawStock;
+                    rb.caption = "Draw from Stock";
+                } else {
+                    rb.action = DirectorAction::ExplicitMove;
+                    rb.fromPile = static_cast<int>(cmd.fromPile);
+                    rb.toPile = static_cast<int>(cmd.toPile);
+                    const size_t fpSize = (cmd.fromPile < board.piles().size()) ? board.piles()[cmd.fromPile].cards.size() : 0;
+                    rb.cardIndex = static_cast<int>(fpSize);
+                    rb.caption = "Move pile " + std::to_string(rb.fromPile) + " -> " + std::to_string(rb.toPile);
+                }
+                recordedBeats.push_back(std::move(rb));
+                lastRecordedUndoDepth = curDepth;
+
+                SolitaireSolver checkSolver;
+                auto checkRes = checkSolver.solve(board, 60000, 1000.0f);
+                lastRecordedSolvable = checkRes.solved;
+                recordStatusBanner = checkRes.solved
+                    ? ("REC #" + std::to_string(recordedBeats.size()) + " | SOLVABLE (" + std::to_string(checkRes.moves.size()) + " left)")
+                    : ("REC #" + std::to_string(recordedBeats.size()) + " | WARNING: UNSOLVABLE - PRESS [Z] TO UNDO!");
+                recordStatusTimer = 4.0f;
+            } else if (curDepth < lastRecordedUndoDepth) {
+                while (recordedBeats.size() > curDepth && !recordedBeats.empty()) {
+                    recordedBeats.pop_back();
+                }
+                lastRecordedUndoDepth = curDepth;
+                recordStatusBanner = "REC #" + std::to_string(recordedBeats.size()) + " (Undid move)";
+                recordStatusTimer = 2.5f;
+            }
+            if (recordStatusTimer > 0.0f) {
+                recordStatusTimer = std::max(0.0f, recordStatusTimer - dt);
+            }
+        }
+
+        if (directorState.active && !directorState.finished && !directorState.beats.empty() && !asyncManager.isBusy.load()) {
+                auto startBeat = [&](size_t idx) {
+                    directorState.beatIdx = idx;
+                    directorState.beatTimer = 0.0f;
+                    directorState.movesDoneInBeat = 0;
+                    const DirectorBeat& b = directorState.beats[idx];
+                    if (!b.wavPath.empty()) {
+                        foley.playVoiceWav(b.wavPath, 1.0f);
+                    }
+                    if (b.action == DirectorAction::HighlightZone) {
+                        directorState.highlightZone = b.targetZone;
+                        if (autoPlayController.isPlaying()) autoPlayController.pause();
+                        float zx = 0.0f, zy = 0.0f, zw = 0.0f, zh = 0.0f;
+                        computeZoneHighlightBounds(board, b.targetZone, zx, zy, zw, zh);
+                        if (zw > 0.0f && zh > 0.0f) {
+                            ThemePalette hpal = getPalette(board.tableTheme());
+                            magicParticles.spawnZoneBurst(zx, zy, zw, zh, hpal.accentR, hpal.accentG, hpal.accentB);
+                            foley.triggerSound(FoleySound::MagicTine, 0.35f);
+                        }
+                        if (!b.ghostCards.empty() && b.targetZone >= 0 && static_cast<size_t>(b.targetZone) < board.piles().size()) {
+                            activeGhostCards.clear();
+                            std::vector<std::string> tokens;
+                            std::stringstream gss(b.ghostCards);
+                            std::string tok;
+                            while (std::getline(gss, tok, ',')) {
+                                if (!tok.empty()) tokens.push_back(tok);
+                            }
+                            const auto& piles = board.piles();
+                            const size_t basePileIdx = (b.ghostPile >= 0 && static_cast<size_t>(b.ghostPile) < piles.size())
+                                ? static_cast<size_t>(b.ghostPile)
+                                : static_cast<size_t>(b.targetZone);
+                            const Pile& basePile = piles[basePileIdx];
+                            const bool isFound = (basePile.type == PileType::Foundation);
+                            const float fanStep = std::max(18.0f, board.cardHeight() * 0.24f);
+                            float anchorX = basePile.x;
+                            float anchorY = basePile.y;
+                            if (!isFound && !basePile.cards.empty()) {
+                                anchorX = basePile.cards.back().x;
+                                anchorY = basePile.cards.back().y;
+                            }
+                            for (size_t gi = 0; gi < tokens.size(); ++gi) {
+                                const std::string& code = tokens[gi];
+                                if (code.size() < 2) continue;
+                                const char sCh = static_cast<char>(std::toupper(static_cast<unsigned char>(code.back())));
+                                const std::string rStr = code.substr(0, code.size() - 1);
+                                Suit gs = Suit::Spades;
+                                if (sCh == 'H') gs = Suit::Hearts;
+                                else if (sCh == 'D') gs = Suit::Diamonds;
+                                else if (sCh == 'C') gs = Suit::Clubs;
+                                int rVal = 1;
+                                if (rStr == "A") rVal = 1;
+                                else if (rStr == "J") rVal = 11;
+                                else if (rStr == "Q") rVal = 12;
+                                else if (rStr == "K") rVal = 13;
+                                else rVal = std::clamp(std::stoi(rStr), 1, 13);
+
+                                // If Foundation, pick the matching suit Foundation pile if available
+                                float destX = anchorX;
+                                float destY = anchorY;
+                                if (isFound) {
+                                    size_t foundOrd = 0;
+                                    for (const auto& fp : piles) {
+                                        if (fp.type == PileType::Foundation) {
+                                            if ((foundOrd % 4) == static_cast<size_t>(gs)) {
+                                                destX = fp.x;
+                                                destY = fp.y;
+                                                break;
+                                            }
+                                            ++foundOrd;
+                                        }
+                                    }
+                                } else {
+                                    destY = anchorY + static_cast<float>(gi + 1) * fanStep;
+                                }
+
+                                GhostCardCue cue;
+                                cue.card.suit = gs;
+                                cue.card.rank = static_cast<Rank>(rVal);
+                                cue.card.faceUp = true;
+                                cue.startX = destX;
+                                cue.startY = destY + board.cardHeight() * 0.45f;
+                                cue.targetX = destX;
+                                cue.targetY = destY;
+                                cue.delaySec = b.ghostDelaySec + static_cast<float>(gi) * 0.55f;
+                                cue.ageSec = 0.0f;
+                                cue.durationSec = std::max(2.0f, b.durationSec - cue.delaySec - 0.15f);
+                                cue.maxOpacity = 0.72f;
+                                activeGhostCards.push_back(cue);
+                            }
+                        }
+                    } else if (b.action == DirectorAction::PlayMoves) {
+                        directorState.highlightZone = -1;
+                        if (!autoPlayController.isActive()) {
+                            autoPlayController.startDemo(board);
+                            autoPlayController.pause();
+                        }
+                        const int mc = std::max(1, b.moveCount);
+                        directorState.nextMoveAt = b.durationSec / static_cast<float>(mc + 1);
+                    } else if (b.action == DirectorAction::ResetCamera) {
+                        directorState.highlightZone = -1;
+                        if (autoPlayController.isPlaying()) autoPlayController.pause();
+                    } else if (b.action == DirectorAction::FinishGame) {
+                        directorState.highlightZone = -1;
+                        autoPlayController.start(board);
+                        autoPlayController.setSpeed(AutoPlaySpeed::Hyper);
+                        autoPlayController.play();
+                    } else if (b.action == DirectorAction::ExplicitMove) {
+                        directorState.highlightZone = -1;
+                        if (autoPlayController.isPlaying()) autoPlayController.pause();
+                        if (b.fromPile >= 0 && b.toPile >= 0) {
+                            const auto& piles = board.piles();
+                            const size_t fp = static_cast<size_t>(b.fromPile);
+                            const size_t tp = static_cast<size_t>(b.toPile);
+                            if (fp < piles.size() && tp < piles.size() && !piles[fp].cards.empty()) {
+                                const size_t ci = (b.cardIndex >= 0 && static_cast<size_t>(b.cardIndex) < piles[fp].cards.size())
+                                    ? static_cast<size_t>(b.cardIndex)
+                                    : (piles[fp].cards.size() - 1);
+                                directorState.moveFocusFrom = b.fromPile;
+                                directorState.moveFocusCard = static_cast<int>(ci);
+                                directorState.moveFocusTo = b.toPile;
+                                directorState.moveFocusTimer = std::min(b.durationSec, 2.2f);
+                                const float sx = piles[fp].cards[ci].x + board.cardWidth() * 0.5f;
+                                const float sy = piles[fp].cards[ci].y + board.cardHeight() * 0.5f;
+                                const float dx = (piles[tp].cards.empty() ? piles[tp].x : piles[tp].cards.back().x) + board.cardWidth() * 0.5f;
+                                const float dy = (piles[tp].cards.empty() ? piles[tp].y : piles[tp].cards.back().y) + board.cardHeight() * 0.5f;
+                                ThemePalette apal = getPalette(board.tableTheme());
+                                magicParticles.spawnArcTrail(sx, sy, dx, dy, apal.accentR, apal.accentG, apal.accentB, board.cardWidth(), 0.0f, true);
+                                if (board.executeMove(static_cast<uint8_t>(fp), ci, static_cast<uint8_t>(tp))) {
+                                    foley.triggerSound(FoleySound::Place, 0.85f);
+                                }
+                            }
+                        }
+                    } else if (b.action == DirectorAction::DrawStock) {
+                        directorState.highlightZone = -1;
+                        if (autoPlayController.isPlaying()) autoPlayController.pause();
+                        directorState.moveFocusFrom = 0;
+                        directorState.moveFocusCard = -1;
+                        directorState.moveFocusTo = 1;
+                        directorState.moveFocusTimer = std::min(b.durationSec, 1.6f);
+                        if (board.drawFromStock()) {
+                            foley.triggerSound(FoleySound::Deal, 0.85f);
+                        }
+                    } else if (b.action == DirectorAction::Hint) {
+                        directorState.highlightZone = -1;
+                        HintMove hm = board.findBestHint();
+                        if (hm.valid) {
+                            hintHighlight.active = true;
+                            hintHighlight.fromPile = hm.fromPile;
+                            hintHighlight.cardIndex = hm.cardIndex;
+                            hintHighlight.toPile = hm.toPile;
+                            hintHighlight.age = 0.0f;
+                            hintHighlight.duration = std::max(1.2f, std::min(b.durationSec, 2.5f));
+                            hintMoveCount = board.moveCount();
+                            directorState.moveFocusFrom = hm.fromPile;
+                            directorState.moveFocusCard = hm.cardIndex;
+                            directorState.moveFocusTo = hm.toPile;
+                            directorState.moveFocusTimer = hintHighlight.duration;
+                        }
+                    } else {
+                        directorState.highlightZone = -1;
+                    }
+                };
+
+                directorState.totalElapsed += dt;
+                if (directorState.moveFocusTimer > 0.0f) {
+                    directorState.moveFocusTimer = std::max(0.0f, directorState.moveFocusTimer - dt);
+                    if (directorState.moveFocusTimer <= 0.0f) {
+                        directorState.moveFocusFrom = -1;
+                        directorState.moveFocusCard = -1;
+                        directorState.moveFocusTo = -1;
+                    }
+                }
+                const DirectorBeat& cur = directorState.beats[directorState.beatIdx];
+                if (cur.action != DirectorAction::FinishGame && autoPlayController.isPlaying()) {
+                    autoPlayController.pause();
+                }
+                if (directorState.beatTimer < 0.0f) {
+                    startBeat(directorState.beatIdx);
+                } else {
+                    directorState.beatTimer += dt;
+                    if (cur.action == DirectorAction::PlayMoves && cur.moveCount > 0 && !autoPlayController.isSolving()) {
+                        if (!autoPlayController.isActive()) {
+                            autoPlayController.startDemo(board);
+                            autoPlayController.pause();
+                        } else if (directorState.movesDoneInBeat < cur.moveCount && directorState.beatTimer >= directorState.nextMoveAt) {
+                            if (const SolverMove* mv = autoPlayController.peekCurrentOrNextMove()) {
+                                directorState.moveFocusFrom = static_cast<int>(mv->fromPile);
+                                directorState.moveFocusCard = static_cast<int>(mv->cardIndex);
+                                directorState.moveFocusTo = static_cast<int>(mv->toPile);
+                                directorState.moveFocusTimer = 1.65f;
+                                const auto& piles = board.piles();
+                                if (mv->fromPile < piles.size() && mv->toPile < piles.size()) {
+                                    const auto& sp = piles[mv->fromPile];
+                                    const auto& dp = piles[mv->toPile];
+                                    float sx = sp.x + board.cardWidth() * 0.5f;
+                                    float sy = sp.y + board.cardHeight() * 0.5f;
+                                    if (mv->cardIndex < sp.cards.size()) {
+                                        sx = sp.cards[mv->cardIndex].x + board.cardWidth() * 0.5f;
+                                        sy = sp.cards[mv->cardIndex].y + board.cardHeight() * 0.5f;
+                                    }
+                                    float dx = dp.x + board.cardWidth() * 0.5f;
+                                    float dy = dp.y + board.cardHeight() * 0.5f;
+                                    if (!dp.cards.empty()) {
+                                        dx = dp.cards.back().x + board.cardWidth() * 0.5f;
+                                        dy = dp.cards.back().y + board.cardHeight() * 0.5f;
+                                    }
+                                    ThemePalette apal = getPalette(board.tableTheme());
+                                    magicParticles.spawnArcTrail(sx, sy, dx, dy, apal.accentR, apal.accentG, apal.accentB,
+                                                                 board.cardWidth(), 0.0f, true);
+                                }
+                            }
+                            autoPlayController.stepForward(board, &foley);
+                            ++directorState.movesDoneInBeat;
+                            const float stepGap = cur.durationSec / static_cast<float>(cur.moveCount + 1);
+                            directorState.nextMoveAt += stepGap;
+                        }
+                    }
+                    const bool isFinishBeat = (cur.action == DirectorAction::FinishGame);
+                    const bool finishReady = !isFinishBeat ||
+                                             board.isVictory() ||
+                                             autoPlayController.state() == AutoPlayState::Completed ||
+                                             autoPlayController.state() == AutoPlayState::Failed;
+                    if (directorState.beatTimer >= cur.durationSec && finishReady) {
+                        if (directorState.beatIdx + 1 < directorState.beats.size()) {
+                            startBeat(directorState.beatIdx + 1);
+                        } else {
+                            directorState.finished = true;
+                            directorState.highlightZone = -1;
+                            if (directorAutoExit) {
+                                glfwSetWindowShouldClose(window, GLFW_TRUE);
+                            }
+                        }
+                    }
+                }
+            }
+
             HelpOddsInfo oddsSnap;
             { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
+            const int activeHighlightZone = helpOpen
+                ? highlightedHelpZone
+                : (directorState.active ? directorState.highlightZone : -1);
+            updateShowcaseCamera(showcaseCam, board, autoPlayController,
+                                 activeHighlightZone,
+                                 static_cast<float>(width), static_cast<float>(height), dt,
+                                 directorState.active ? directorState.highlightZone : -1,
+                                 directorState.active ? directorState.moveFocusFrom : -1,
+                                 directorState.active ? directorState.moveFocusCard : -1,
+                                 directorState.active ? directorState.moveFocusTo : -1);
             TableRenderer::renderBoard(renderer, board, static_cast<float>(width), static_cast<float>(height),
                                        draggedPile, draggedCardIdx, dragOffsetX, dragOffsetY, hoveredBtn,
                                        menuOpen, menuAnchor, menuFlowVertical, isDraggingMenu, dragPreviewAnchor, dragPreviewFlowVertical,
                                        isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
                                        &dynamicLight, &autoPlayController,
-                                       helpOpen, highlightedHelpZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles, &hintHighlight,
-                                       screensaverActive);
+                                       helpOpen, activeHighlightZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles, &hintHighlight,
+                                       screensaverActive, &showcaseCam, directorHideHud,
+                                       dragPivotAngle, dragGrabLocalX, dragGrabLocalY,
+                                       dragChainCount > 0 ? dragChainAngles.data() : nullptr, dragChainCount,
+                                       activeGhostCards.empty() ? nullptr : &activeGhostCards);
             if (activeCfg.godRaysIntensity > 0.005f || activeCfg.dustMotesIntensity > 0.005f) {
                 renderer.drawSceneAtmospherePass(static_cast<float>(width), static_cast<float>(height));
             }
@@ -6688,9 +7588,57 @@ struct InteractiveContext {
                 ThemePalette pal = getPalette(board.tableTheme());
                 gameBrowserDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal);
             }
-            if (loadingDialog.isOpen()) {
+            if (loadingDialog.isOpen() && !directorState.active) {
                 ThemePalette pal = getPalette(board.tableTheme());
                 loadingDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal, now);
+            }
+
+            // Opening Animated Title Card for Director Mode (2x scale, eased fly-in from left -> fly-out to right)
+            if (directorState.active && !asyncManager.isBusy.load() && directorState.totalElapsed < 4.2f) {
+                const float t = directorState.totalElapsed;
+                const float fw = static_cast<float>(width);
+                const float fh = static_cast<float>(height);
+                const float cxBase = fw * 0.5f;
+                const float cy = fh * 0.5f;
+                const auto& cpal = clockwork_ui::palette();
+
+                float scrimAlpha = 0.78f;
+                float slideX = 0.0f;
+                if (t < 0.65f) {
+                    const float p = std::clamp(t / 0.65f, 0.0f, 1.0f);
+                    const float easeOut = 1.0f - (1.0f - p) * (1.0f - p) * (1.0f - p);
+                    slideX = -fw * 0.75f * (1.0f - easeOut);
+                    scrimAlpha = 0.78f * easeOut;
+                } else if (t > 3.45f) {
+                    const float p = std::clamp((t - 3.45f) / 0.75f, 0.0f, 1.0f);
+                    const float easeIn = p * p * p;
+                    slideX = fw * 0.75f * easeIn;
+                    scrimAlpha = 0.78f * (1.0f - easeIn);
+                }
+
+                renderer.drawRect(0.0f, 0.0f, fw, fh, 0.04f, 0.03f, 0.025f, scrimAlpha);
+
+                const float cx = cxBase + slideX;
+                if (cx > -150.0f && cx < fw + 150.0f) {
+                    clockwork_ui::drawClockworkMenuOrb(renderer, cx, cy - 84.0f, 92.0f, true, false, static_cast<float>(now));
+
+                    const char* brandTxt = "SolEngine";
+                    const float brandSz = 76.0f;
+                    const float brandW = eatsbits::ui::glyph::getVectorTextWidth(brandSz, brandTxt);
+                    eatsbits::ui::glyph::drawVectorText(renderer, brandTxt, cx - brandW * 0.5f + 3.0f, cy + 38.0f, brandSz,
+                                                        0.0f, 0.0f, 0.0f, 0.70f);
+                    eatsbits::ui::glyph::drawVectorText(renderer, brandTxt, cx - brandW * 0.5f, cy + 34.0f, brandSz,
+                                                        cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB, 1.0f);
+
+                    std::string gName = board.activeGameDef().name;
+                    if (gName.empty()) gName = SolitaireBoard::variantName(board.variant());
+                    const float subSz = 38.0f;
+                    const float subW = eatsbits::ui::glyph::getVectorTextWidth(subSz, gName.c_str());
+                    eatsbits::ui::glyph::drawVectorText(renderer, gName.c_str(), cx - subW * 0.5f + 2.0f, cy + 126.0f, subSz,
+                                                        0.0f, 0.0f, 0.0f, 0.65f);
+                    eatsbits::ui::glyph::drawVectorText(renderer, gName.c_str(), cx - subW * 0.5f, cy + 124.0f, subSz,
+                                                        0.94f, 0.90f, 0.82f, 0.96f);
+                }
             }
 
             // Draw hold progress ring on active button
@@ -6722,7 +7670,22 @@ struct InteractiveContext {
                                       SettingsManager::instance().settings(),
                                       dummyScale, dummyToggle, dummyClose);
             }
+            if (!recordMovesPath.empty() && !recordStatusBanner.empty() && recordStatusTimer > 0.0f) {
+                const float fw = static_cast<float>(width);
+                const float bw = eatsbits::ui::glyph::getVectorTextWidth(13.0f, recordStatusBanner.c_str()) + 28.0f;
+                const float bx = (fw - bw) * 0.5f;
+                renderer.drawRoundedRect(bx, 12.0f, bw, 28.0f, 6.0f,
+                                         lastRecordedSolvable ? 0.06f : 0.35f,
+                                         lastRecordedSolvable ? 0.14f : 0.06f,
+                                         0.06f, 0.90f, 4);
+                eatsbits::ui::glyph::drawVectorText(renderer, recordStatusBanner.c_str(), bx + 14.0f, 19.0f, 13.0f,
+                                                    lastRecordedSolvable ? 0.55f : 1.0f,
+                                                    lastRecordedSolvable ? 0.95f : 0.45f,
+                                                    lastRecordedSolvable ? 0.60f : 0.45f, 1.0f);
+            }
+
             renderer.endFrame();
+            renderer.clearSceneCamera();
         }
     }
 };
@@ -6735,7 +7698,8 @@ int TableRenderer::runInteractiveWindow(
     uint32_t width,
     uint32_t height,
     [[maybe_unused]] int initialAaMode,
-    bool startScreensaver
+    bool startScreensaver,
+    const DirectorOptions& directorOptions
 ) {
 #if defined(__EMSCRIPTEN__)
     double initCssW = EM_ASM_DOUBLE({
@@ -6765,7 +7729,13 @@ int TableRenderer::runInteractiveWindow(
         return 1;
     }
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(static_cast<int>(width), static_cast<int>(height),
+    const bool isOfflineExport = !directorOptions.exportVideoDir.empty();
+    if (isOfflineExport) {
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    }
+    const int winCreateW = isOfflineExport ? 640 : static_cast<int>(width);
+    const int winCreateH = isOfflineExport ? 360 : static_cast<int>(height);
+    GLFWwindow* window = glfwCreateWindow(winCreateW, winCreateH,
                                           "Solitaire Engine", nullptr, nullptr);
     if (!window) {
 #if !defined(__EMSCRIPTEN__)
@@ -6809,9 +7779,24 @@ int TableRenderer::runInteractiveWindow(
     }, initFbW, initFbH, width, height);
 #endif
 
-    s_activeContext = std::make_unique<InteractiveContext>(board, foley, width, height);
+    s_activeContext = std::make_unique<InteractiveContext>(board, foley, width, height, directorOptions.skipSessionRestore);
     InteractiveContext& ctx = *s_activeContext;
     ctx.window = window;
+    ctx.directorHideHud = directorOptions.hideHud;
+    ctx.directorAutoExit = directorOptions.autoExit;
+    ctx.recordMovesPath = directorOptions.recordMovesPath;
+    ctx.lastRecordedUndoDepth = board.undoStack().size();
+    if (!directorOptions.timelinePath.empty()) {
+        if (loadDirectorTimeline(directorOptions.timelinePath, ctx.directorState.beats)) {
+            ctx.directorState.active = true;
+            ctx.directorState.beatIdx = 0;
+            ctx.directorState.beatTimer = -1.0f; // Triggers startBeat(0) on first frame
+            std::cout << "[SolEngine Director] Loaded " << ctx.directorState.beats.size()
+                      << " beat(s) from " << directorOptions.timelinePath << "\n";
+        } else {
+            std::cerr << "[SolEngine Director] Failed to load timeline: " << directorOptions.timelinePath << "\n";
+        }
+    }
 
     glfwSetCharCallback(window, [](GLFWwindow* /*win*/, unsigned int codepoint) {
         if (s_activeContext && s_activeContext->gameBrowserDialog.isOpen()) {
@@ -6931,17 +7916,246 @@ int TableRenderer::runInteractiveWindow(
     }, &ctx, 0, 0);
     return 0;
 #else
-    while (!glfwWindowShouldClose(window)) {
-        ctx.updateAndRender();
+    if (!directorOptions.exportVideoDir.empty()) {
+        const uint32_t exportFps = std::clamp(directorOptions.exportFps, 15u, 120u);
+        const float fixedDt = 1.0f / static_cast<float>(exportFps);
+        const uint32_t samplesPerFrame = 48000u / exportFps;
+
+        const std::string logPath = directorOptions.exportVideoDir + "/export.log";
+        FILE* fLog = std::fopen(logPath.c_str(), "w");
+        auto logMsg = [&](const char* msg) {
+            std::fprintf(stderr, "%s\n", msg);
+            std::fflush(stderr);
+            if (fLog) {
+                std::fprintf(fLog, "%s\n", msg);
+                std::fflush(fLog);
+            }
+        };
+
+        if (!ctx.renderer.enableOffscreenCapture(width, height)) {
+            logMsg("[SolEngine Export] Failed to initialize offscreen capture.");
+        } else {
+            ctx.renderer.resize(width, height);
+            ctx.board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+
+            logMsg("[SolEngine Export] Waiting for initial deck/texture load...");
+            int warmupTicks = 0;
+            while (ctx.asyncManager.isBusy.load() && !glfwWindowShouldClose(window) && warmupTicks < 1800) {
+                ctx.updateAndRender(fixedDt);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                ++warmupTicks;
+            }
+            logMsg("[SolEngine Export] Assets ready. Starting capture...");
+
+            const std::string rawPath = directorOptions.exportVideoDir + "/frames.raw";
+            const std::string videoOnlyPath = directorOptions.exportVideoDir + "/video_only.mp4";
+            const std::string wavPath = directorOptions.exportVideoDir + "/audio.wav";
+
+            // Render 1 warmup frame to detect native pixel format (BGRA vs RGBA)
+            std::vector<uint8_t> rawFrame;
+            bool isBgra = true;
+            FILE* fPipe = nullptr;
+            FILE* fRaw = nullptr;
+            bool usingPipe = false;
+
+            if (!directorOptions.ffmpegBin.empty()) {
+                ctx.updateAndRender(fixedDt);
+                ctx.renderer.readbackCapturedNative(rawFrame, isBgra);
+                const char* pixFmt = isBgra ? "bgra" : "rgba";
+#if defined(_WIN32)
+                std::string ffCmd = "\"" + directorOptions.ffmpegBin + "\" -y -loglevel error "
+                                    "-f rawvideo -pix_fmt " + pixFmt + " -s " +
+                                    std::to_string(width) + "x" + std::to_string(height) +
+                                    " -r " + std::to_string(exportFps) +
+                                    " -i - -c:v libx264 -preset veryfast -crf 15 -x264-params rc-lookahead=10 -pix_fmt yuv420p \"" +
+                                    videoOnlyPath + "\"";
+                HANDLE hRead = nullptr, hWrite = nullptr;
+                SECURITY_ATTRIBUTES sa{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+                if (CreatePipe(&hRead, &hWrite, &sa, 0)) {
+                    SetHandleInformation(hWrite, HANDLE_FLAG_INHERIT, 0);
+                    STARTUPINFOA si{};
+                    si.cb = sizeof(si);
+                    si.dwFlags = STARTF_USESTDHANDLES;
+                    si.hStdInput = hRead;
+                    si.hStdOutput = INVALID_HANDLE_VALUE;
+                    si.hStdError = INVALID_HANDLE_VALUE;
+                    PROCESS_INFORMATION pi{};
+                    std::vector<char> cmdBuf(ffCmd.begin(), ffCmd.end());
+                    cmdBuf.push_back('\0');
+                    if (CreateProcessA(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                        CloseHandle(hRead);
+                        CloseHandle(pi.hThread);
+                        CloseHandle(pi.hProcess);
+                        int fd = _open_osfhandle(reinterpret_cast<intptr_t>(hWrite), _O_WRONLY | _O_BINARY);
+                        if (fd != -1) {
+                            fPipe = _fdopen(fd, "wb");
+                        } else {
+                            CloseHandle(hWrite);
+                        }
+                    } else {
+                        CloseHandle(hRead);
+                        CloseHandle(hWrite);
+                    }
+                }
+#else
+                std::string ffCmd = "\"" + directorOptions.ffmpegBin + "\" -y -loglevel warning "
+                                    "-f rawvideo -pix_fmt " + pixFmt + " -s " +
+                                    std::to_string(width) + "x" + std::to_string(height) +
+                                    " -r " + std::to_string(exportFps) +
+                                    " -i - -c:v libx264 -preset fast -crf 14 -pix_fmt yuv420p \"" +
+                                    videoOnlyPath + "\"";
+                fPipe = popen(ffCmd.c_str(), "w");
+#endif
+                usingPipe = (fPipe != nullptr);
+                logMsg(usingPipe ? "[SolEngine Export] ffmpeg pipe connected." : "[SolEngine Export] ffmpeg pipe failed, falling back to frames.raw.");
+            }
+            if (!usingPipe) {
+                fRaw = std::fopen(rawPath.c_str(), "wb");
+            }
+            FILE* fWav = std::fopen(wavPath.c_str(), "wb");
+            if ((fPipe || fRaw) && fWav) {
+                uint8_t wavHdr[44]{
+                    'R','I','F','F', 0,0,0,0, 'W','A','V','E',
+                    'f','m','t',' ', 16,0,0,0, 1,0, 2,0,
+                    0x80,0xBB,0x00,0x00, // 48000 Hz
+                    0x00,0xEE,0x02,0x00, // 48000 * 4 bytes/sec
+                    4,0, 16,0,
+                    'd','a','t','a', 0,0,0,0
+                };
+                std::fwrite(wavHdr, 1, 44, fWav);
+
+                std::vector<float> audioFloat(samplesPerFrame * 2u);
+                std::vector<int16_t> audioPcm(samplesPerFrame * 2u);
+                uint64_t totalAudioBytes = 0;
+                uint64_t frameCount = 0;
+
+                std::fprintf(stderr, "[SolEngine Export] Streaming %ux%u @ %ufps (%s)...\n",
+                             width, height, exportFps, usingPipe ? "direct ffmpeg pipe" : "frames.raw");
+                std::fflush(stderr);
+
+                // Write the warmup frame 0 if we already rendered it for pixel-format detection
+                if (usingPipe && !rawFrame.empty()) {
+                    std::fwrite(rawFrame.data(), 1, rawFrame.size(), fPipe);
+                    ctx.foley.mixSamples(audioFloat.data(), samplesPerFrame, 48000u);
+                    for (size_t s = 0; s < audioFloat.size(); ++s) {
+                        float v = std::clamp(audioFloat[s], -1.0f, 1.0f);
+                        audioPcm[s] = static_cast<int16_t>(std::lrint(v * 32767.0f));
+                    }
+                    std::fwrite(audioPcm.data(), sizeof(int16_t), audioPcm.size(), fWav);
+                    totalAudioBytes += audioPcm.size() * sizeof(int16_t);
+                    ++frameCount;
+                }
+
+                while (!glfwWindowShouldClose(window) && !ctx.directorState.finished) {
+                    ctx.updateAndRender(fixedDt);
+                    if (ctx.renderer.readbackCapturedNative(rawFrame, isBgra)) {
+                        std::fwrite(rawFrame.data(), 1, rawFrame.size(), usingPipe ? fPipe : fRaw);
+                    }
+                    ctx.foley.mixSamples(audioFloat.data(), samplesPerFrame, 48000u);
+                    for (size_t s = 0; s < audioFloat.size(); ++s) {
+                        float v = std::clamp(audioFloat[s], -1.0f, 1.0f);
+                        audioPcm[s] = static_cast<int16_t>(std::lrint(v * 32767.0f));
+                    }
+                    std::fwrite(audioPcm.data(), sizeof(int16_t), audioPcm.size(), fWav);
+                    totalAudioBytes += audioPcm.size() * sizeof(int16_t);
+                    ++frameCount;
+                    if ((frameCount % 15) == 0) {
+                        char buf[128];
+                        std::snprintf(buf, sizeof(buf), "[SolEngine Export] Rendered %.2fs (%llu frames)",
+                                      static_cast<double>(frameCount) / static_cast<double>(exportFps),
+                                      static_cast<unsigned long long>(frameCount));
+                        logMsg(buf);
+                    }
+                }
+
+                // Finalize WAV header sizes
+                auto writeLe32 = [](FILE* fp, long offset, uint32_t val) {
+                    uint8_t b[4]{
+                        static_cast<uint8_t>(val & 0xFF),
+                        static_cast<uint8_t>((val >> 8) & 0xFF),
+                        static_cast<uint8_t>((val >> 16) & 0xFF),
+                        static_cast<uint8_t>((val >> 24) & 0xFF)
+                    };
+                    std::fseek(fp, offset, SEEK_SET);
+                    std::fwrite(b, 1, 4, fp);
+                };
+                uint32_t dataSz = static_cast<uint32_t>(std::min<uint64_t>(totalAudioBytes, 0xFFFFFF00ULL));
+                writeLe32(fWav, 4, dataSz + 36u);
+                writeLe32(fWav, 40, dataSz);
+                std::fprintf(stderr, "[SolEngine Export] Finished %llu frames.\n",
+                             static_cast<unsigned long long>(frameCount));
+                std::fflush(stderr);
+            }
+            if (fPipe) {
+#if defined(_WIN32)
+                std::fclose(fPipe);
+#else
+                pclose(fPipe);
+#endif
+            }
+            if (fRaw) std::fclose(fRaw);
+            if (fWav) std::fclose(fWav);
+            if (fLog) std::fclose(fLog);
+            ctx.renderer.disableOffscreenCapture();
+        }
+    } else {
+        while (!glfwWindowShouldClose(window)) {
+            ctx.updateAndRender();
+        }
     }
 
-    if (!ctx.board.isVictory()) {
-        SessionManager::instance().saveSession(ctx.board);
-    } else {
-        SessionManager::instance().clearSession();
+    if (!ctx.recordMovesPath.empty() && !ctx.recordedBeats.empty()) {
+        std::ofstream out(ctx.recordMovesPath);
+        if (out.is_open()) {
+            std::string gSlug = ctx.board.activeGameDef().id;
+            if (gSlug.empty()) gSlug = "klondike_draw_1";
+            out << "{\n"
+                << "  \"game_slug\": \"" << gSlug << "\",\n"
+                << "  \"game_name\": \"" << ctx.board.activeGameDef().name << "\",\n"
+                << "  \"seed\": " << ctx.board.seed() << ",\n"
+                << "  \"voice_id\": \"aSt3B90XH7ZfdtFvSTFg\",\n"
+                << "  \"model_id\": \"eleven_multilingual_v2\",\n"
+                << "  \"beats\": [\n";
+            for (size_t i = 0; i < ctx.recordedBeats.size(); ++i) {
+                const auto& rb = ctx.recordedBeats[i];
+                out << "    {\n";
+                if (rb.action == DirectorAction::DrawStock) {
+                    out << "      \"action\": \"draw_stock\",\n";
+                } else {
+                    out << "      \"action\": \"move\",\n"
+                        << "      \"from\": " << rb.fromPile << ",\n"
+                        << "      \"card_index\": " << rb.cardIndex << ",\n"
+                        << "      \"to\": " << rb.toPile << ",\n";
+                }
+                out << "      \"text\": \"TODO: " << rb.caption << "\",\n"
+                    << "      \"pad_sec\": 0.4\n"
+                    << "    },\n";
+            }
+            out << "    {\n"
+                << "      \"action\": \"finish_game\",\n"
+                << "      \"text\": \"From here, let's kick the clockwork into four-times speed to watch the rest of the deal play out!\",\n"
+                << "      \"pad_sec\": 0.6\n"
+                << "    },\n"
+                << "    {\n"
+                << "      \"action\": \"reset_camera\",\n"
+                << "      \"text\": \"And there you have it! Now it's your turn at the table—enjoy a round of " << ctx.board.activeGameDef().name << "!\",\n"
+                << "      \"pad_sec\": 3.0\n"
+                << "    }\n"
+                << "  ]\n}\n";
+            std::cout << "[SolEngine Recorder] Saved " << ctx.recordedBeats.size()
+                      << " guided move(s) to " << ctx.recordMovesPath << "\n";
+        }
     }
-    SettingsManager::instance().syncFromGame(ctx.board, ctx.foley);
-    SettingsManager::instance().save();
+
+    if (!directorOptions.skipSessionRestore) {
+        if (!ctx.board.isVictory()) {
+            SessionManager::instance().saveSession(ctx.board);
+        } else {
+            SessionManager::instance().clearSession();
+        }
+        SettingsManager::instance().syncFromGame(ctx.board, ctx.foley);
+        SettingsManager::instance().save();
+    }
 
     ctx.cancelOddsAnalysis();
     ctx.renderer.shutdown();
@@ -6975,6 +8189,29 @@ EMSCRIPTEN_KEEPALIVE
 void solengine_set_search_query(const char* text) {
     if (!text || !solengine::s_activeContext) return;
     solengine::s_activeContext->gameBrowserDialog.setSearchQuery(text);
+}
+
+EMSCRIPTEN_KEEPALIVE
+bool solengine_load_game_from_web(const char* gameSlug, uint32_t seed) {
+    if (!gameSlug || !*gameSlug || !solengine::s_activeContext) return false;
+    auto& ctx = *solengine::s_activeContext;
+    auto& reg = solengine::GameRegistry::instance();
+    reg.scanDirectory("/games");
+    const solengine::SolitaireGameDef* gdef = reg.findById(gameSlug);
+    if (!gdef) gdef = reg.findByName(gameSlug);
+    solengine::SolitaireGameDef loadedDef;
+    if (!gdef) {
+        std::string path = std::string("/games/") + gameSlug + ".eats";
+        if (reg.loadGameFile(path, loadedDef)) {
+            gdef = &loadedDef;
+        }
+    }
+    if (!gdef) return false;
+    uint32_t effSeed = (seed > 0) ? seed : (gdef->demoSeed > 0 ? gdef->demoSeed : ctx.board.seed());
+    ctx.autoPlayController.stop();
+    ctx.board.newDeal(effSeed, *gdef);
+    ctx.board.computeLayout(static_cast<float>(ctx.width), static_cast<float>(ctx.height));
+    return true;
 }
 
 EMSCRIPTEN_KEEPALIVE

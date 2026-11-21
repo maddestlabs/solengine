@@ -86,6 +86,67 @@ struct HintHighlight {
     float duration{1.45f};
 };
 
+struct ShowcaseCameraState {
+    float zoom{1.0f};
+    float targetZoom{1.0f};
+    float focusX{0.0f};
+    float focusY{0.0f};
+    float targetFocusX{0.0f};
+    float targetFocusY{0.0f};
+    float spotlightAlpha{0.0f};
+    float targetSpotlightAlpha{0.0f};
+    int focusPileA{-1};
+    int focusCardA{-1};
+    int focusPileB{-1};
+};
+
+enum class DirectorAction : uint8_t {
+    Idle = 0,
+    HighlightZone = 1,
+    PlayMoves = 2,
+    ResetCamera = 3,
+    FinishGame = 4,
+    ExplicitMove = 5,
+    DrawStock = 6,
+    Hint = 7
+};
+
+struct GhostCardCue {
+    Card card{};
+    float startX{0.0f}, startY{0.0f};
+    float targetX{0.0f}, targetY{0.0f};
+    float delaySec{0.0f};
+    float ageSec{0.0f};
+    float durationSec{3.2f};
+    float maxOpacity{0.68f};
+};
+
+struct DirectorBeat {
+    DirectorAction action{DirectorAction::Idle};
+    float durationSec{3.0f};
+    int targetZone{-1};
+    int moveCount{1};
+    int fromPile{-1};
+    int cardIndex{-1};
+    int toPile{-1};
+    std::string wavPath;
+    std::string caption;
+    std::string ghostCards;
+    float ghostDelaySec{0.25f};
+    int ghostPile{-1};
+};
+
+struct DirectorOptions {
+    std::string timelinePath;
+    bool hideHud{false};
+    bool autoExit{false};
+    bool skipSessionRestore{false};
+    std::string exportVideoDir;
+    uint32_t exportFps{60};
+    std::string ffmpegBin;
+    std::string recordMovesPath;
+};
+
 class MagicParticleSystem {
 public:
     void clear() noexcept {
@@ -141,7 +202,15 @@ public:
         const HelpOddsInfo* helpOdds = nullptr,
         const MagicParticleSystem* magicParticles = nullptr,
         const HintHighlight* hintHighlight = nullptr,
-        bool screensaverMode = false
+        bool screensaverMode = false,
+        const ShowcaseCameraState* showcaseCamera = nullptr,
+        bool hideHud = false,
+        float dragPivotAngle = 0.0f,
+        float dragGrabLocalX = 0.0f,
+        float dragGrabLocalY = 0.0f,
+        const float* dragChainAngles = nullptr,
+        size_t dragChainCount = 0,
+        const std::vector<GhostCardCue>* ghostCards = nullptr
     );
 
     static bool renderToPng(
@@ -158,7 +227,8 @@ public:
         uint32_t width = 1280,
         uint32_t height = 720,
         int initialAaMode = 4,
-        bool startScreensaver = false
+        bool startScreensaver = false,
+        const DirectorOptions& directorOptions = {}
     );
 
     static bool writePngFile(

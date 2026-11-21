@@ -472,6 +472,7 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
     ev.registerFunction("doc_zone", noop);
     ev.registerFunction("doc_stat", noop);
     ev.registerFunction("doc_tag", noop);
+    ev.registerFunction("doc_rule", noop);
     ev.registerFunction("doc_meta", noop);
     ev.registerFunction("doc_aliases", noop);
     ev.evaluateSource(source);

@@ -1,0 +1,29 @@
+# SolEngine Scene & Deck Preset: Classic Parlor
+id = "classic_parlor"
+name = "Classic Parlor"
+description = "Traditional felt tabletop with classic cards, warm golden-hour lighting, and subtle wear."
+
+deck_slug = "classic"
+card_back = "classic_sapphire"
+card_wear = 1
+card_stock = 1
+card_corners = 0
+card_deviation = 0.35
+
+table_theme_slug = "shader_royal_velvet"
+table_tint = "auto"
+postfx_id = "none"
+postfx_intensity = 1.0
+show_table_markings = true
+
+lighting_preset = 6
+light_angle = 0
+shadow_gobo = 1
+light_waver = 0.45
+light_flicker = 0.0
+scene_darkness = 0.22
+light_strength = 1.20
+
+sound_pack = "vintage_bicycle"
+ambience = "off"
+ambience_volume = 0.55

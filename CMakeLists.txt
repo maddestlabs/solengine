@@ -148,7 +148,7 @@ if(EMSCRIPTEN)
     # Auto-discover all *.eats assets across content directories for Emscripten preloading.
     # CONFIGURE_DEPENDS re-runs CMake when .eats files are added/removed/renamed;
     # LINK_DEPENDS re-links solengine_web (regenerating solengine.data) when any .eats file is edited.
-    set(SOLENGINE_ASSET_DIRS decks themes postfx games sounds ambience)
+    set(SOLENGINE_ASSET_DIRS decks themes postfx games sounds ambience presets)
     set(SOLENGINE_PRELOAD_DEPS "")
     set(SOLENGINE_PRELOAD_FLAGS "")
     set(SOLENGINE_TOTAL_ASSET_BYTES 0)
@@ -178,7 +178,7 @@ if(EMSCRIPTEN)
     set_target_properties(solengine_web PROPERTIES
         OUTPUT_NAME "solengine"
         SUFFIX ".html"
-        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=4 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] ${SOLENGINE_PRELOAD_FLAGS_STR} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=4 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_load_game_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] ${SOLENGINE_PRELOAD_FLAGS_STR} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
         LINK_DEPENDS "${SOLENGINE_PRELOAD_DEPS};${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
     )
     add_custom_command(TARGET solengine_web POST_BUILD

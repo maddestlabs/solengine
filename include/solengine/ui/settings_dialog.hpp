@@ -80,6 +80,7 @@ private:
     int currentTab_{0}; // 0: Game, 1: Deck, 2: Scene, 3: Display, 4: Audio
     std::string activeGameId_;
     std::string activeGameName_;
+    std::string selectedPresetId_;
     bool perGameScope_{false};
     AppSettings tempSettings_{};
     std::string seedText_{"2026"};

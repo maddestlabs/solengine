@@ -1813,6 +1813,23 @@ SolveResult SolitaireSolver::solve(
         } else {
             bool foundDominant = false;
 
+            auto findBestFoundation = [&](size_t srcPile, size_t topCardIdx) -> int {
+                const Suit cardSuit = currentBoard.piles[srcPile].cards[topCardIdx].suit();
+                int fallback = -1;
+                size_t foundOrd = 0;
+                for (size_t d = 0; d < currentBoard.numPiles; ++d) {
+                    if (currentBoard.piles[d].type != PileType::Foundation) continue;
+                    if (canMoveCards(currentBoard, static_cast<uint8_t>(srcPile), topCardIdx, static_cast<uint8_t>(d), rules)) {
+                        if ((foundOrd % 4) == static_cast<size_t>(cardSuit)) {
+                            return static_cast<int>(d);
+                        }
+                        if (fallback < 0) fallback = static_cast<int>(d);
+                    }
+                    ++foundOrd;
+                }
+                return fallback;
+            };
+
             // 1. Dominant Safe Moves (Ace or 2 to Foundation - not in Spider/Scorpion/Canfield)
             if (!rules.isSpider && !rules.isScorpion && !rules.isCanfield) {
                 for (size_t s = 0; s < currentBoard.numPiles; ++s) {
@@ -1823,17 +1840,15 @@ SolveResult SolitaireSolver::solve(
                     if (!card.faceUp()) continue;
 
                     if (card.rank() == Rank::Ace || card.rank() == Rank::Two || ((rules.isFan || rules.isFortyThieves) && rules.isSameSuitTableau)) {
-                        for (size_t d = 0; d < currentBoard.numPiles; ++d) {
-                            if (currentBoard.piles[d].type == PileType::Foundation && canMoveCards(currentBoard, static_cast<uint8_t>(s), topIdx, static_cast<uint8_t>(d), rules)) {
-                                CompactMove cm{SolverMove::Action::MoveCards, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(d)};
-                                candidates.clear();
-                                candidates.push_back(cm);
-                                foundDominant = true;
-                                break;
-                            }
+                        int bestF = findBestFoundation(s, topIdx);
+                        if (bestF >= 0) {
+                            CompactMove cm{SolverMove::Action::MoveCards, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(bestF)};
+                            candidates.clear();
+                            candidates.push_back(cm);
+                            foundDominant = true;
+                            break;
                         }
                     }
-                    if (foundDominant) break;
                 }
             }
 
@@ -1846,12 +1861,10 @@ SolveResult SolitaireSolver::solve(
                         size_t topIdx = src.count - 1;
                         if (!src.cards[topIdx].faceUp()) continue;
 
-                        for (size_t d = 0; d < currentBoard.numPiles; ++d) {
-                            if (currentBoard.piles[d].type == PileType::Foundation && canMoveCards(currentBoard, static_cast<uint8_t>(s), topIdx, static_cast<uint8_t>(d), rules)) {
-                                CompactMove cm{SolverMove::Action::MoveCards, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(d)};
-                                candidates.push_back(cm);
-                                break;
-                            }
+                        int bestF = findBestFoundation(s, topIdx);
+                        if (bestF >= 0) {
+                            CompactMove cm{SolverMove::Action::MoveCards, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(bestF)};
+                            candidates.push_back(cm);
                         }
                     }
                 }

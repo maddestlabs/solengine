@@ -53,6 +53,9 @@ void SettingsDialog::open(const std::string& activeGameId, const std::string& ac
         }
     }
     perGameScope_ = !activeGameId_.empty() && SettingsManager::instance().hasGameProfile(activeGameId_);
+    selectedPresetId_ = perGameScope_
+        ? SettingsManager::instance().activePresetForGame(activeGameId_)
+        : SettingsManager::instance().settings().defaultPresetId;
     tempSettings_ = SettingsManager::instance().resolveForGame(activeGameId_);
     seedText_ = std::to_string(tempSettings_.lastSeed);
     editingSeed_ = false;
@@ -317,9 +320,51 @@ void SettingsDialog::render(
 
     // 5. Main Tab Content Area
     const float contentX = dialogX_ + 16.0f;
-    const float contentY = tabY + tabH + 12.0f;
+    float contentY = tabY + tabH + 12.0f;
     const float contentW = dialogW_ - 32.0f;
-    const float contentH = dialogH_ - (headerH + tabH + 74.0f);
+    float contentH = dialogH_ - (headerH + tabH + 74.0f);
+
+    // 5a. Preset Bar (shown on Deck & Scene tabs)
+    if (currentTab_ == 1 || currentTab_ == 2) {
+        const float pBarY = tabY + tabH + 8.0f;
+        const float pBarH = 28.0f;
+        const float saveBtnW = 112.0f;
+        const float stepW = contentW - saveBtnW - 8.0f;
+        const float stepBtnW = 30.0f;
+        const float nextBtnX = contentX + stepW - stepBtnW;
+
+        const auto* curPreset = SettingsManager::instance().findPreset(selectedPresetId_);
+        std::string pLabel = "PRESET: " + (curPreset ? curPreset->name : std::string("CUSTOM"));
+        const char* actionBtnLabel = (curPreset && curPreset->isBuiltin) ? "FORK PRESET" : "+ NEW PRESET";
+
+        bool pPrevHov = (mouseX >= contentX && mouseX <= contentX + stepBtnW && mouseY >= pBarY && mouseY <= pBarY + pBarH);
+        bool pNextHov = (mouseX >= nextBtnX && mouseX <= nextBtnX + stepBtnW && mouseY >= pBarY && mouseY <= pBarY + pBarH);
+        bool pCenterHov = (mouseX > contentX + stepBtnW && mouseX < nextBtnX && mouseY >= pBarY && mouseY <= pBarY + pBarH);
+
+        const float saveBtnX = contentX + stepW + 8.0f;
+        bool saveHov = (mouseX >= saveBtnX && mouseX <= saveBtnX + saveBtnW && mouseY >= pBarY && mouseY <= pBarY + pBarH);
+
+        if (isClockwork) {
+            clockwork_ui::drawStepperBar(r, contentX, pBarY, stepW, pBarH, pLabel, pPrevHov, pNextHov, pCenterHov);
+            clockwork_ui::drawBrassButton(r, saveBtnX, pBarY, saveBtnW, pBarH, 4.0f, actionBtnLabel, saveHov, false, 10.0f);
+        } else {
+            r.drawRoundedRect(contentX, pBarY, stepW, pBarH, 4.0f, pal.woodR0 + 0.04f, pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.94f, 4);
+            r.drawRoundedRectOutline(contentX, pBarY, stepW, pBarH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.65f, 1.1f, 4);
+            float pTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, pLabel.c_str());
+            eatsbits::ui::glyph::drawVectorText(r, "<", contentX + 10.0f, pBarY + 8.0f, 11.5f, pPrevHov ? pal.accentR : 0.88f, pPrevHov ? pal.accentG : 0.85f, pPrevHov ? pal.accentB : 0.80f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, pLabel.c_str(), contentX + (stepW - pTxtW) * 0.5f, pBarY + 8.5f, 10.5f, curPreset ? pal.accentR : 0.92f, curPreset ? pal.accentG : 0.90f, curPreset ? pal.accentB : 0.85f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, ">", nextBtnX + 10.0f, pBarY + 8.0f, 11.5f, pNextHov ? pal.accentR : 0.88f, pNextHov ? pal.accentG : 0.85f, pNextHov ? pal.accentB : 0.80f, 1.0f);
+
+            r.drawRoundedRect(saveBtnX, pBarY, saveBtnW, pBarH, 4.0f, pal.woodR0 + 0.08f + (saveHov ? 0.08f : 0.0f), pal.woodG0 + 0.06f, pal.woodB0 + 0.04f, 0.96f, 4);
+            r.drawRoundedRectOutline(saveBtnX, pBarY, saveBtnW, pBarH, 4.0f, saveHov ? pal.accentR : pal.trimR, saveHov ? pal.accentG : pal.trimG, saveHov ? pal.accentB : pal.trimB, 0.85f, 1.2f, 4);
+            float sTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.0f, actionBtnLabel);
+            eatsbits::ui::glyph::drawVectorText(r, actionBtnLabel, saveBtnX + (saveBtnW - sTxtW) * 0.5f, pBarY + 9.0f, 10.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+        }
+
+        contentY += 34.0f;
+        contentH -= 34.0f;
+    }
+
     contentRectX_ = contentX;
     contentRectY_ = contentY;
     contentRectW_ = contentW;
@@ -1513,7 +1558,69 @@ bool SettingsDialog::handleMouseButton(
 
     const float contentX = dialogX_ + 16.0f;
     const float contentW = dialogW_ - 32.0f;
-    const float tabContentY = tabY + tabH + 12.0f;
+    const float tabContentY = (currentTab_ == 1 || currentTab_ == 2) ? (tabY + tabH + 46.0f) : (tabY + tabH + 12.0f);
+
+    if (currentTab_ == 1 || currentTab_ == 2) {
+        const float pBarY = tabY + tabH + 8.0f;
+        const float pBarH = 28.0f;
+        const float saveBtnW = 112.0f;
+        const float stepW = contentW - saveBtnW - 8.0f;
+        const float stepBtnW = 30.0f;
+        const float nextBtnX = contentX + stepW - stepBtnW;
+        const float saveBtnX = contentX + stepW + 8.0f;
+
+        if (mouseY >= pBarY && mouseY <= pBarY + pBarH && mouseX >= contentX && mouseX <= contentX + contentW) {
+            const auto& presets = SettingsManager::instance().presets();
+            if (mouseX >= saveBtnX && mouseX <= saveBtnX + saveBtnW) {
+                const auto* curPreset = SettingsManager::instance().findPreset(selectedPresetId_);
+                std::string newName;
+                if (curPreset && curPreset->isBuiltin) {
+                    newName = (perGameScope_ && !activeGameName_.empty())
+                        ? (activeGameName_ + " (" + curPreset->name + ")")
+                        : (curPreset->name + " Fork");
+                } else {
+                    newName = (perGameScope_ && !activeGameName_.empty())
+                        ? (activeGameName_ + " Preset")
+                        : ("Custom Preset " + std::to_string(presets.size() + 1));
+                }
+                std::string newId;
+                SettingsManager::instance().saveUserPreset(
+                    newName, SettingsManager::extractSceneProfile(tempSettings_), newId);
+                SettingsManager::instance().save();
+                selectedPresetId_ = newId;
+                foley.triggerSound(FoleySound::Sweep, 0.85f);
+                return true;
+            }
+            if (mouseX >= contentX && mouseX <= nextBtnX + stepBtnW && !presets.empty()) {
+                int delta = (mouseX < contentX + stepBtnW) ? -1 : 1;
+                int curIdx = -1; // -1 = CUSTOM
+                for (int i = 0; i < static_cast<int>(presets.size()); ++i) {
+                    if (presets[i].id == selectedPresetId_) { curIdx = i; break; }
+                }
+                int total = static_cast<int>(presets.size()) + 1;
+                int nextIdx = ((curIdx + 1 + delta + total) % total) - 1;
+                if (nextIdx < 0) {
+                    selectedPresetId_.clear();
+                } else {
+                    selectedPresetId_ = presets[nextIdx].id;
+                    SettingsManager::applyProfileToSettings(presets[nextIdx].profile, tempSettings_);
+                    board.setCardDeviation(tempSettings_.cardDeviation);
+                    foley.setSoundPackId(tempSettings_.soundPackId);
+                    foley.setAmbienceVolume(tempSettings_.ambienceVolume);
+                    foley.setAmbience(tempSettings_.ambienceId);
+                    auto& cache = CardTextureCache::instance();
+                    size_t dIdx = cache.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+                    if (const auto* dDef = cache.getDeckDef(dIdx)) {
+                        tempSettings_.deckTheme = dDef->legacyId;
+                        cache.updatePreviewCardByDef(*dDef, tempSettings_.cardWear, tempSettings_.cardStock);
+                    }
+                    cache.setActiveCardBack(tempSettings_.cardBackId);
+                }
+                foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                return true;
+            }
+        }
+    }
 
     if (currentTab_ == 0) {
         float curY = tabContentY + 16.0f + 24.0f;
@@ -2239,11 +2346,18 @@ bool SettingsDialog::handleMouseButton(
         mouseY >= footerY && mouseY <= footerY + resetBtnH) {
         perGameScope_ = !perGameScope_;
         if (perGameScope_) {
+            selectedPresetId_ = SettingsManager::instance().activePresetForGame(activeGameId_);
             if (SettingsManager::instance().hasGameProfile(activeGameId_)) {
                 tempSettings_ = SettingsManager::instance().resolveForGame(activeGameId_);
             }
         } else {
+            selectedPresetId_ = SettingsManager::instance().settings().defaultPresetId;
             tempSettings_ = SettingsManager::instance().settings();
+            if (!selectedPresetId_.empty()) {
+                if (const auto* p = SettingsManager::instance().findPreset(selectedPresetId_)) {
+                    SettingsManager::applyProfileToSettings(p->profile, tempSettings_);
+                }
+            }
         }
         seedText_ = std::to_string(tempSettings_.lastSeed);
         foley.triggerSound(FoleySound::WoodClick, 0.75f);
@@ -2253,11 +2367,15 @@ bool SettingsDialog::handleMouseButton(
     if (mouseX >= resetBtnX && mouseX <= resetBtnX + resetBtnW && mouseY >= footerY && mouseY <= footerY + resetBtnH) {
         if (perGameScope_ && !activeGameId_.empty()) {
             SettingsManager::instance().clearGameProfile(activeGameId_);
+            selectedPresetId_ = SettingsManager::instance().settings().defaultPresetId;
             tempSettings_ = SettingsManager::instance().resolveForGame(activeGameId_);
         } else {
+            auto savedGamePresets = SettingsManager::instance().settings().gamePresets;
             auto savedProfiles = SettingsManager::instance().settings().gameProfiles;
             auto savedFavs = SettingsManager::instance().settings().favorites;
+            selectedPresetId_.clear();
             tempSettings_ = AppSettings{};
+            tempSettings_.gamePresets = std::move(savedGamePresets);
             tempSettings_.gameProfiles = std::move(savedProfiles);
             tempSettings_.favorites = std::move(savedFavs);
         }
@@ -2290,6 +2408,14 @@ void SettingsDialog::commitSettings() {
     }
 
     auto& mgr = SettingsManager::instance();
+    if (!selectedPresetId_.empty()) {
+        if (const auto* curP = mgr.findPreset(selectedPresetId_)) {
+            if (!curP->isBuiltin) {
+                mgr.updateUserPreset(selectedPresetId_, SettingsManager::extractSceneProfile(tempSettings_));
+            }
+        }
+    }
+
     if (perGameScope_ && !activeGameId_.empty()) {
         // Persist global-only preferences to global settings
         auto& g = mgr.settings();
@@ -2312,12 +2438,26 @@ void SettingsDialog::commitSettings() {
         g.tableThemeOptions = tempSettings_.tableThemeOptions;
         g.postFxOptions = tempSettings_.postFxOptions;
 
-        GameSceneProfile prof = SettingsManager::diffFromGlobal(g, tempSettings_);
+        mgr.setGamePreset(activeGameId_, selectedPresetId_);
+        AppSettings presetBase = g;
+        if (!selectedPresetId_.empty()) {
+            if (const auto* sp = mgr.findPreset(selectedPresetId_)) {
+                SettingsManager::applyProfileToSettings(sp->profile, presetBase);
+            }
+        } else if (!g.defaultPresetId.empty()) {
+            if (const auto* dp = mgr.findPreset(g.defaultPresetId)) {
+                SettingsManager::applyProfileToSettings(dp->profile, presetBase);
+            }
+        }
+        GameSceneProfile prof = SettingsManager::diffFromGlobal(presetBase, tempSettings_);
         mgr.setGameProfile(activeGameId_, prof);
     } else {
+        auto savedGamePresets = mgr.settings().gamePresets;
         auto savedProfiles = mgr.settings().gameProfiles;
         auto savedFavs = mgr.settings().favorites;
         mgr.settings() = tempSettings_;
+        mgr.settings().defaultPresetId = selectedPresetId_;
+        mgr.settings().gamePresets = std::move(savedGamePresets);
         mgr.settings().gameProfiles = std::move(savedProfiles);
         mgr.settings().favorites = std::move(savedFavs);
     }

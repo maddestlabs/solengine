@@ -5,6 +5,8 @@
 #include "solengine/procedural_background.hpp"
 #include "solengine/proctex_api.hpp"
 #include "solengine/settings_manager.hpp"
+#include "solengine/game_definition.hpp"
+#include "solengine/solitaire_solver.hpp"
 #include "eatstextures/png_io.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -26,14 +28,41 @@ int main(int argc, char** argv) {
     float cardDeviation = loadedSettings.cardDeviation;
     std::string bakeScript;
     std::string exportPbrPrefix;
+    std::string gameSlug;
     bool startScreensaver = false;
+    bool dumpMoves = false;
+    solengine::DirectorOptions directorOpts;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if ((arg == "--render-png" || arg == "--snapshot") && i + 1 < argc) {
-            outputPngPath = argv[++i];
+        if (arg == "--game" && i + 1 < argc) {
+            gameSlug = argv[++i];
+            directorOpts.skipSessionRestore = true;
+        } else if (arg == "--director" && i + 1 < argc) {
+            directorOpts.timelinePath = argv[++i];
+            directorOpts.skipSessionRestore = true;
+        } else if (arg == "--hide-hud") {
+            directorOpts.hideHud = true;
+        } else if (arg == "--director-exit") {
+            directorOpts.autoExit = true;
+        } else if (arg == "--export-video" && i + 1 < argc) {
+            directorOpts.exportVideoDir = argv[++i];
+            directorOpts.hideHud = true;
+            directorOpts.autoExit = true;
+            directorOpts.skipSessionRestore = true;
+        } else if (arg == "--fps" && i + 1 < argc) {
+            directorOpts.exportFps = std::clamp<uint32_t>(static_cast<uint32_t>(std::stoul(argv[++i])), 15u, 120u);
+        } else if (arg == "--ffmpeg-bin" && i + 1 < argc) {
+            directorOpts.ffmpegBin = argv[++i];
+        } else if (arg == "--record-moves" && i + 1 < argc) {
+            directorOpts.recordMovesPath = argv[++i];
+            directorOpts.skipSessionRestore = true;
+        } else if (arg == "--dump-moves") {
+            dumpMoves = true;
+            directorOpts.skipSessionRestore = true;
         } else if (arg == "--seed" && i + 1 < argc) {
             seed = static_cast<uint32_t>(std::stoul(argv[++i]));
+            directorOpts.skipSessionRestore = true;
         } else if (arg == "--width" && i + 1 < argc) {
             width = static_cast<uint32_t>(std::stoul(argv[++i]));
         } else if (arg == "--height" && i + 1 < argc) {
@@ -148,13 +177,45 @@ int main(int argc, char** argv) {
     board->setCardDeviation(cardDeviation);
     board->setLayoutMode(loadedSettings.layoutMode);
     board->setStockPosition(loadedSettings.stockPosition);
-    board->newDeal(seed, variant);
+    if (!gameSlug.empty()) {
+        auto& reg = solengine::GameRegistry::instance();
+        reg.scanDirectory("games");
+        const solengine::SolitaireGameDef* gdef = reg.findById(gameSlug);
+        if (!gdef) gdef = reg.findByName(gameSlug);
+        solengine::SolitaireGameDef loadedDef;
+        if (!gdef && reg.loadGameFile(gameSlug, loadedDef)) {
+            gdef = &loadedDef;
+        }
+        if (gdef) {
+            uint32_t effectiveSeed = (seed == loadedSettings.lastSeed && gdef->demoSeed > 0) ? gdef->demoSeed : seed;
+            board->newDeal(effectiveSeed, *gdef);
+        } else {
+            std::cerr << "[SolEngine] Warning: Game '" << gameSlug << "' not found, using default variant.\n";
+            board->newDeal(seed, variant);
+        }
+    } else {
+        board->newDeal(seed, variant);
+    }
     board->computeLayout(static_cast<float>(width), static_cast<float>(height));
 
     std::cout << "[SolEngine] Initialized Deal #" << board->seed()
               << " | Variant: " << solengine::SolitaireBoard::variantName(board->variant())
               << " | Theme: " << solengine::SolitaireBoard::themeName(board->tableTheme())
               << "\n";
+
+    if (dumpMoves) {
+        solengine::SolitaireSolver solver;
+        auto res = solver.solve(*board, 120000, 3000.0f);
+        std::cout << "[SolEngine] Solver " << (res.solved ? "SOLVED" : "PARTIAL")
+                  << " (" << res.moves.size() << " moves in " << res.solveTimeMs << " ms):\n";
+        for (size_t i = 0; i < res.moves.size(); ++i) {
+            const auto& m = res.moves[i];
+            std::cout << "  " << i << ": " << m.notation
+                      << " (pile " << static_cast<int>(m.fromPile)
+                      << " -> " << static_cast<int>(m.toPile) << ")\n";
+        }
+        return 0;
+    }
 
     if (!outputPngPath.empty()) {
         std::cout << "[SolEngine] Rendering procedural table snapshot (" << width << "x" << height
@@ -180,13 +241,13 @@ int main(int argc, char** argv) {
     }
 
     auto foley = std::make_unique<solengine::AudioFoleyEngine>();
-    foley->init(true);
+    foley->init(directorOpts.exportVideoDir.empty());
 #if defined(__EMSCRIPTEN__)
     // Keep board and foley alive after main() returns to the browser event loop
     auto* rawBoard = board.release();
     auto* rawFoley = foley.release();
-    return solengine::TableRenderer::runInteractiveWindow(*rawBoard, *rawFoley, width, height, effectiveAa, startScreensaver);
+    return solengine::TableRenderer::runInteractiveWindow(*rawBoard, *rawFoley, width, height, effectiveAa, startScreensaver, directorOpts);
 #else
-    return solengine::TableRenderer::runInteractiveWindow(*board, *foley, width, height, effectiveAa, startScreensaver);
+    return solengine::TableRenderer::runInteractiveWindow(*board, *foley, width, height, effectiveAa, startScreensaver, directorOpts);
 #endif
 }

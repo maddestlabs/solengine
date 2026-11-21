@@ -628,6 +628,24 @@ void ScriptRuleEngine::registerHostApi() {
         return Value(true);
     });
 
+    evaluator_.registerFunction("doc_rule", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() < 2) return Value(false);
+        RuleDoc rd{};
+        rd.title = args[0].asString();
+        if (args[1].isList()) {
+            for (const auto& b : args[1].listVal) {
+                if (b.isString() && !b.asString().empty()) rd.bullets.push_back(b.asString());
+            }
+        } else if (args[1].isString() && !args[1].asString().empty()) {
+            rd.bullets.push_back(args[1].asString());
+        }
+        if (!rd.title.empty() && !rd.bullets.empty()) {
+            docManifest_.rules.push_back(std::move(rd));
+            return Value(true);
+        }
+        return Value(false);
+    });
+
     // --- 2D Planar Graph & Spatial Layout Helpers ---
     evaluator_.registerFunction("is_card_blocked", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
         if (args.size() < 2 || !boundCtx_ || !boundCtx_->piles) return Value(false);

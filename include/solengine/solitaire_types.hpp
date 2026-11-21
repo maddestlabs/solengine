@@ -362,6 +362,11 @@ struct TagDoc {
     std::string description;
 };
 
+struct RuleDoc {
+    std::string title;
+    std::vector<std::string> bullets;
+};
+
 /**
  * Unified game documentation manifest populated via Eatscript doc_* calls
  * and auto-discovered board metadata. Powers the Help Sidebar & table callouts.
@@ -380,6 +385,7 @@ struct GameDocManifest {
     bool hasExplicitRatings{false};
     std::vector<std::string> alternateNames;
     std::vector<ZoneDoc> zones;
+    std::vector<RuleDoc> rules;
     std::vector<StatDoc> stats;
     std::vector<TagDoc> tags;
 
@@ -397,6 +403,7 @@ struct GameDocManifest {
         hasExplicitRatings = false;
         alternateNames.clear();
         zones.clear();
+        rules.clear();
         stats.clear();
         tags.clear();
     }

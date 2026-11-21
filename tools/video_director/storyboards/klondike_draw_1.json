@@ -1,0 +1,95 @@
+{
+  "game_slug": "klondike_draw_1",
+  "game_name": "Klondike (Draw 1)",
+  "seed": 26,
+  "voice_id": "aSt3B90XH7ZfdtFvSTFg",
+  "model_id": "eleven_multilingual_v2",
+  "beats": [
+    {
+      "action": "reset_camera",
+      "text": "Ah, welcome back to the table! Today we're winding up the granddaddy of them all—Klondike, the classic Patience game that's been testing travelers' wits since the gold-rush days.",
+      "pad_sec": 0.4
+    },
+    {
+      "action": "highlight_zone",
+      "target_zone": 2,
+      "ghost_cards": "AD,2D,3D,4D",
+      "ghost_delay": 2.8,
+      "text": "The objective is straightforward: build all four Foundations up by suit, from Ace to King.",
+      "pad_sec": 0.4
+    },
+    {
+      "action": "highlight_zone",
+      "target_zone": 6,
+      "ghost_cards": "6H,5S,4D",
+      "ghost_pile": 8,
+      "ghost_delay": 1.6,
+      "text": "Below, across the seven Tableau columns, you'll build down in alternating colors—red onto black, black onto red—while uncovering the face-down cards beneath.",
+      "pad_sec": 0.4
+    },
+    {
+      "action": "highlight_zone",
+      "target_zone": 0,
+      "text": "And up in the corner sits the Stock pile. In Draw One, we turn a single card at a time, with unlimited redeals.",
+      "pad_sec": 0.45
+    },
+    {
+      "action": "play_moves",
+      "move_count": 1,
+      "text": "Before touching the Stock, always scan the Tableau for Aces. Right away we spot the Ace of Spades—so let's send it straight up to its Spades Foundation.",
+      "pad_sec": 0.4
+    },
+    {
+      "action": "play_moves",
+      "move_count": 2,
+      "text": "Next, look for moves that uncover hidden cards. Placing the Seven of Spades onto the Eight of Hearts, and the Two of Clubs onto the Three of Diamonds, flips two fresh cards face-up!",
+      "pad_sec": 0.45
+    },
+    {
+      "action": "play_moves",
+      "move_count": 1,
+      "text": "When you're out of immediate Tableau moves, click the Stock to draw into the Waste pile.",
+      "pad_sec": 0.3
+    },
+    {
+      "action": "play_moves",
+      "move_count": 1,
+      "text": "There's a Seven of Diamonds—we can play it straight from the Waste onto the Eight of Spades.",
+      "pad_sec": 0.4
+    },
+    {
+      "action": "play_moves",
+      "move_count": 3,
+      "text": "Let's turn a few more cards from the Stock until we spot another helpful play.",
+      "pad_sec": 0.3
+    },
+    {
+      "action": "play_moves",
+      "move_count": 1,
+      "text": "Ah, the Four of Spades! That drops nicely onto the Five of Hearts.",
+      "pad_sec": 0.35
+    },
+    {
+      "action": "play_moves",
+      "move_count": 1,
+      "text": "Now watch how ordered runs move as a unit: we can pick up the Three of Diamonds and Two of Clubs together onto the Four of Spades—clearing Column One completely empty, ready for a King!",
+      "pad_sec": 0.45
+    },
+    {
+      "action": "play_moves",
+      "move_count": 33,
+      "text": "As we continue building our runs and cycling through the Stock to recycle the Waste pile, it's fun to remember Klondike's roots. Prospectors during the eighteen-nineties Klondike Gold Rush popularized this layout in Yukon saloons, before Windows three-point-oh turned it into the most widely played card game on Earth.",
+      "pad_sec": 0.45
+    },
+    {
+      "action": "finish_game",
+      "text": "From here, let's kick the clockwork into four-times speed so you can watch the rest of this deal cascade to victory!",
+      "pad_sec": 0.6
+    },
+    {
+      "action": "reset_camera",
+      "text": "And there you have it! Now it's your turn at the table—deal yourself a hand and enjoy a round of Klondike.",
+      "pad_sec": 3.0
+    }
+  ]
+}

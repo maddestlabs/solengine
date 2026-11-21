@@ -103,11 +103,16 @@ public:
     virtual void setTableSurfaceLighting(float /*lacquerStrength*/, float /*bumpStrength*/ = 2.4f) {}
     virtual void invalidateBgTexture() {}
     virtual void setShaderTime(float /*timeSeconds*/) {}
+    virtual void setCameraTransform(float /*invZoom*/, float /*focusX*/, float /*focusY*/, float /*active*/) {}
     virtual void setScissorRect(float /*x*/, float /*y*/, float /*w*/, float /*h*/) {}
     virtual void clearScissorRect() {}
     virtual void* getNativeDevice() const noexcept { return nullptr; }
     virtual void* getNativeSurface() const noexcept { return nullptr; }
     virtual void setCustomRenderTargetView(void* /*view*/) {}
+    virtual bool enableOffscreenCapture(uint32_t /*width*/, uint32_t /*height*/) { return false; }
+    virtual void disableOffscreenCapture() {}
+    virtual bool readbackCapturedRgba(std::vector<uint8_t>& /*outRgba*/) { return false; }
+    virtual bool readbackCapturedNative(std::vector<uint8_t>& /*outPixels*/, bool& /*outIsBgra*/) { return false; }
     virtual void snapshotFramebuffer(std::vector<uint32_t>& outPixels, uint32_t& outW, uint32_t& outH) const {
         const uint32_t* fb = getFramebuffer();
         if (fb && outW > 0 && outH > 0) {
@@ -417,6 +422,47 @@ public:
     void resetRotation() noexcept;
     [[nodiscard]] bool isTransformActive() const noexcept { return transformActive_; }
 
+    // --- 2D Camera Zoom/Pan Transform ---
+    void setCameraTransform(float zoom, float focusX, float focusY, float viewCenterX, float viewCenterY) noexcept {
+        cameraZoom_ = (zoom > 0.01f) ? zoom : 1.0f;
+        cameraFocusX_ = focusX;
+        cameraFocusY_ = focusY;
+        cameraViewCenterX_ = viewCenterX;
+        cameraViewCenterY_ = viewCenterY;
+        cameraActive_ = (std::abs(cameraZoom_ - 1.0f) > 0.001f ||
+                         std::abs(cameraFocusX_ - cameraViewCenterX_) > 0.1f ||
+                         std::abs(cameraFocusY_ - cameraViewCenterY_) > 0.1f);
+        if (backend_) {
+            backend_->setCameraTransform(1.0f / cameraZoom_,
+                                         cameraFocusX_ * renderScaleX_,
+                                         cameraFocusY_ * renderScaleY_,
+                                         cameraActive_ ? 1.0f : 0.0f);
+        }
+    }
+    void clearCameraTransform() noexcept {
+        cameraActive_ = false;
+        cameraZoom_ = 1.0f;
+    }
+    void clearSceneCamera() noexcept {
+        clearCameraTransform();
+        if (backend_) {
+            backend_->setCameraTransform(1.0f, 0.0f, 0.0f, 0.0f);
+        }
+    }
+    bool enableOffscreenCapture(uint32_t w, uint32_t h) {
+        return backend_ ? backend_->enableOffscreenCapture(w, h) : false;
+    }
+    void disableOffscreenCapture() {
+        if (backend_) backend_->disableOffscreenCapture();
+    }
+    bool readbackCapturedRgba(std::vector<uint8_t>& outRgba) {
+        return backend_ ? backend_->readbackCapturedRgba(outRgba) : false;
+    }
+    bool readbackCapturedNative(std::vector<uint8_t>& outPixels, bool& outIsBgra) {
+        return backend_ ? backend_->readbackCapturedNative(outPixels, outIsBgra) : false;
+    }
+    [[nodiscard]] bool isCameraActive() const noexcept { return cameraActive_; }
+
     // --- Scissor / Viewport Clipping ---
     void pushScissor(float x, float y, float w, float h);
     void popScissor() noexcept;
@@ -590,6 +636,14 @@ private:
     float transformOriginX_{0.0f};
     float transformOriginY_{0.0f};
 
+    // 2D Camera Zoom/Pan State
+    bool cameraActive_{false};
+    float cameraZoom_{1.0f};
+    float cameraFocusX_{0.0f};
+    float cameraFocusY_{0.0f};
+    float cameraViewCenterX_{0.0f};
+    float cameraViewCenterY_{0.0f};
+
     std::vector<Rect2D> scissorStack_{};
     MonospaceGlyphHook monospaceGlyphHook_{nullptr};
 
@@ -620,6 +674,10 @@ private:
             float dy = y - transformOriginY_;
             x = transformOriginX_ + transformCos_ * dx - transformSin_ * dy;
             y = transformOriginY_ + transformSin_ * dx + transformCos_ * dy;
+        }
+        if (cameraActive_) {
+            x = cameraViewCenterX_ + (x - cameraFocusX_) * cameraZoom_;
+            y = cameraViewCenterY_ + (y - cameraFocusY_) * cameraZoom_;
         }
     }
 };
