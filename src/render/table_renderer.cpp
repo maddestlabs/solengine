@@ -3224,7 +3224,14 @@ void TableRenderer::renderBoard(
     };
     thread_local std::vector<AnimatingCardEntry> animatingCards;
     animatingCards.clear();
-    thread_local std::vector<size_t> restingIndices;
+    struct RestingPileRenderData {
+        size_t pIdx{0};
+        size_t stackCount{0};
+        bool isTightlyStacked{false};
+        std::vector<size_t> restingIndices;
+    };
+    thread_local std::vector<RestingPileRenderData> restingPiles;
+    restingPiles.clear();
     thread_local std::vector<size_t> drawOrder;
     drawOrder.resize(piles.size());
     for (size_t i = 0; i < piles.size(); ++i) drawOrder[i] = i;
@@ -3250,7 +3257,9 @@ void TableRenderer::renderBoard(
             startIdx = (p.cards.size() > 4) ? (p.cards.size() - 4) : 0;
         }
 
-        restingIndices.clear();
+        RestingPileRenderData rp{};
+        rp.pIdx = pIdx;
+        rp.isTightlyStacked = (p.type == PileType::Stock || p.type == PileType::Foundation || p.type == PileType::FreeCell);
         size_t totalRestingCount = 0;
         bool pileHasMovingBelow = false;
         for (size_t cIdx = 0; cIdx < p.cards.size(); ++cIdx) {
@@ -3269,30 +3278,32 @@ void TableRenderer::renderBoard(
             } else {
                 ++totalRestingCount;
                 if (cIdx >= startIdx) {
-                    restingIndices.push_back(cIdx);
+                    rp.restingIndices.push_back(cIdx);
                 }
             }
         }
+        rp.stackCount = totalRestingCount;
+        if (!rp.restingIndices.empty()) {
+            restingPiles.push_back(std::move(rp));
+        }
+    }
 
-        // Render table drop shadows under the entire resting pile first inside a unified Max-blend
-        // shadow layer (eliminating overlap compounding and inter-card subtraction seams), then card bodies bottom-to-top
-        const bool isTightlyStacked = (p.type == PileType::Stock || p.type == PileType::Foundation || p.type == PileType::FreeCell);
-        const size_t stackCount = totalRestingCount;
-
-        if (!restingIndices.empty()) {
-            r.beginShadowLayer();
-            for (size_t i = 0; i < restingIndices.size(); ++i) {
-                if (i > 0 && isTightlyStacked) {
+    // Pass A: Render ALL resting pile table drop shadows in a single unified Max-blend shadow layer
+    if (!restingPiles.empty()) {
+        r.beginShadowLayer();
+        for (const auto& rp : restingPiles) {
+            const Pile& p = piles[rp.pIdx];
+            for (size_t i = 0; i < rp.restingIndices.size(); ++i) {
+                if (i > 0 && rp.isTightlyStacked) {
                     continue; // Tightly stacked deck/foundation piles emit unified table shadows
                 }
-                const Card& c = p.cards[restingIndices[i]];
-
-                if (isTightlyStacked && stackCount > 1) {
+                const Card& c = p.cards[rp.restingIndices[i]];
+                if (rp.isTightlyStacked && rp.stackCount > 1) {
                     // Dual-component stack shadow:
                     // 1. Crisp, dark grounding contact shadow at base elevation
                     drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
                     // 2. Elevated soft penumbra shadow matching full physical deck height
-                    const float stackElevation = std::min(18.0f, static_cast<float>(stackCount) * 0.38f);
+                    const float stackElevation = std::min(18.0f, static_cast<float>(rp.stackCount) * 0.38f);
                     Card tallCard = c;
                     tallCard.elevation = c.elevation + stackElevation;
                     drawProceduralCard(r, tallCard, tallCard.x, tallCard.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
@@ -3300,17 +3311,20 @@ void TableRenderer::renderBoard(
                     drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
                 }
             }
-            r.endShadowLayer();
+        }
+        r.endShadowLayer();
+    }
+
+    // Pass B: Render physical deck rims, inter-card contact shadows, and resting card bodies
+    for (const auto& rp : restingPiles) {
+        const Pile& p = piles[rp.pIdx];
+        if (rp.isTightlyStacked && rp.stackCount >= 2 && !rp.restingIndices.empty()) {
+            const Card& topCard = p.cards[rp.restingIndices.back()];
+            drawPhysicalDeckRim(r, topCard, cw, ch, rp.stackCount, light);
         }
 
-        // Draw physical deck edge rim for multi-card stacks before rendering top card body
-        if (isTightlyStacked && stackCount >= 2 && !restingIndices.empty()) {
-            const Card& topCard = p.cards[restingIndices.back()];
-            drawPhysicalDeckRim(r, topCard, cw, ch, stackCount, light);
-        }
-
-        for (size_t i = 0; i < restingIndices.size(); ++i) {
-            const Card& c = p.cards[restingIndices[i]];
+        for (size_t i = 0; i < rp.restingIndices.size(); ++i) {
+            const Card& c = p.cards[rp.restingIndices[i]];
             if (i > 0 && (p.type == PileType::Tableau || p.type == PileType::Waste)) {
                 // Inter-card contact shadow: card i rests physically on top of card i-1,
                 // casting a tight, crisp contact shadow (gap ~0.3mm) across card i-1's face.

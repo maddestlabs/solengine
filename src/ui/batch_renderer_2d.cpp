@@ -2674,6 +2674,10 @@ public:
             shadowCompositeSampler_ = nullptr;
         }
         pipeline_ = nullptr;
+        if (frameEncoder_) {
+            wgpuCommandEncoderRelease(frameEncoder_);
+            frameEncoder_ = nullptr;
+        }
         if (vertexBuffer_) {
             wgpuBufferDestroy(vertexBuffer_);
             wgpuBufferRelease(vertexBuffer_);
@@ -2906,6 +2910,12 @@ public:
         inShadowLayer_ = false;
         shadowLayerFirstBatch_ = false;
         shadowLayerHasDraws_ = false;
+        msaaNeedsSurfaceResolve_ = false;
+        vertexBufferUsed_ = 0;
+        if (frameEncoder_) {
+            wgpuCommandEncoderRelease(frameEncoder_);
+            frameEncoder_ = nullptr;
+        }
     }
 
     void updateFontTexture(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH) override {
@@ -2928,7 +2938,26 @@ public:
         wgpuQueueWriteTexture(queue_, &dst, data, totalDataSize, &layout, &writeSize);
     }
 
-    void flushPendingDraws(WGPUCommandEncoder existingEncoder = nullptr) {
+    WGPUCommandEncoder ensureFrameEncoder() {
+        if (!frameEncoder_ && device_) {
+            WGPUCommandEncoderDescriptor encDesc{};
+            frameEncoder_ = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+        }
+        return frameEncoder_;
+    }
+
+    void submitFrameEncoder() {
+        if (frameEncoder_ && queue_) {
+            WGPUCommandBufferDescriptor cmdBufDesc{};
+            WGPUCommandBuffer commands = wgpuCommandEncoderFinish(frameEncoder_, &cmdBufDesc);
+            wgpuCommandEncoderRelease(frameEncoder_);
+            frameEncoder_ = nullptr;
+            wgpuQueueSubmit(queue_, 1, &commands);
+            wgpuCommandBufferRelease(commands);
+        }
+    }
+
+    void flushPendingDraws(WGPUCommandEncoder existingEncoder = nullptr, bool resolveToTarget = false) {
         if (frameDraws_.empty() || frameVertices_.empty() || !device_ || !pipeline_) {
             frameDraws_.clear();
             frameVertices_.clear();
@@ -2993,12 +3022,13 @@ public:
         }
 
         const uint64_t bufferSize = static_cast<uint64_t>(frameVertices_.size()) * sizeof(Vertex2D);
-        if (bufferSize > vertexBufferSize_ || !vertexBuffer_) {
+        uint64_t writeOffset = (vertexBufferUsed_ + 3ULL) & ~3ULL;
+        if (writeOffset + bufferSize > vertexBufferSize_ || !vertexBuffer_) {
             if (vertexBuffer_) {
                 wgpuBufferRelease(vertexBuffer_);
                 vertexBuffer_ = nullptr;
             }
-            uint64_t newCap = std::max<uint64_t>(bufferSize, 65536ULL);
+            uint64_t newCap = std::max<uint64_t>(bufferSize, 524288ULL);
             if (newCap < vertexBufferSize_ * 2) {
                 newCap = vertexBufferSize_ * 2;
             }
@@ -3007,14 +3037,13 @@ public:
             bufDesc.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
             vertexBuffer_ = wgpuDeviceCreateBuffer(device_, &bufDesc);
             vertexBufferSize_ = newCap;
+            writeOffset = 0;
         }
-        wgpuQueueWriteBuffer(queue_, vertexBuffer_, 0, frameVertices_.data(), bufferSize);
+        wgpuQueueWriteBuffer(queue_, vertexBuffer_, writeOffset, frameVertices_.data(), bufferSize);
+        vertexBufferUsed_ = writeOffset + bufferSize;
 
-        WGPUCommandEncoder encoder = existingEncoder;
-        if (!encoder) {
-            WGPUCommandEncoderDescriptor encDesc{};
-            encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
-        }
+        WGPUCommandEncoder encoder = existingEncoder ? existingEncoder : ensureFrameEncoder();
+        if (!encoder) return;
 
         WGPURenderPassColorAttachment colorAttachment{};
         const bool scaledScenePass = (renderToPostFxScene && postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
@@ -3023,7 +3052,12 @@ public:
         const bool useMsaa = (!inShadowLayer_ && sampleCount_ > 1 && activeMsaaView != nullptr);
         if (useMsaa) {
             colorAttachment.view = activeMsaaView;
-            colorAttachment.resolveTarget = targetView;
+            // Defer surface resolve until endPass() so swapchain texture is resolved only once per frame
+            const bool deferSurfaceResolve = (!renderToPostFxScene && !resolveToTarget);
+            colorAttachment.resolveTarget = deferSurfaceResolve ? nullptr : targetView;
+            if (!renderToPostFxScene) {
+                msaaNeedsSurfaceResolve_ = deferSurfaceResolve;
+            }
         } else {
             colorAttachment.view = targetView;
             colorAttachment.resolveTarget = nullptr;
@@ -3053,7 +3087,7 @@ public:
         if (activeBindGroup) {
             wgpuRenderPassEncoderSetBindGroup(pass, 0, activeBindGroup, 0, nullptr);
         }
-        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, bufferSize);
+        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, writeOffset, bufferSize);
 
         bool curScissorActive = false;
         const float scissorScaleX = (scaledScenePass && width_ > 0) ? (static_cast<float>(targetW) / static_cast<float>(width_)) : 1.0f;
@@ -3094,14 +3128,6 @@ public:
 
         frameDraws_.clear();
         frameVertices_.clear();
-
-        if (!existingEncoder) {
-            WGPUCommandBufferDescriptor cmdBufDesc{};
-            WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
-            wgpuCommandEncoderRelease(encoder);
-            wgpuQueueSubmit(queue_, 1, &commands);
-            wgpuCommandBufferRelease(commands);
-        }
     }
 
     void renderBatch(const std::vector<Vertex2D>& vertices) override {
@@ -3251,8 +3277,25 @@ public:
             applyPostFxPass();
         }
         if (!frameDraws_.empty()) {
-            flushPendingDraws();
+            flushPendingDraws(nullptr, true);
+        } else if (msaaNeedsSurfaceResolve_ && msaaTextureView_ && currentBackBufferView_) {
+            if (WGPUCommandEncoder encoder = ensureFrameEncoder()) {
+                WGPURenderPassColorAttachment colorAttachment{};
+                colorAttachment.view = msaaTextureView_;
+                colorAttachment.resolveTarget = currentBackBufferView_;
+                colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+                colorAttachment.loadOp = WGPULoadOp_Load;
+                colorAttachment.storeOp = WGPUStoreOp_Store;
+                WGPURenderPassDescriptor passDesc{};
+                passDesc.colorAttachmentCount = 1;
+                passDesc.colorAttachments = &colorAttachment;
+                WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+                wgpuRenderPassEncoderEnd(pass);
+                wgpuRenderPassEncoderRelease(pass);
+            }
+            msaaNeedsSurfaceResolve_ = false;
         }
+        submitFrameEncoder();
 #if !defined(__EMSCRIPTEN__)
         if (surface_ && !captureEnabled_) {
             wgpuSurfacePresent(surface_);
@@ -3659,11 +3702,11 @@ public:
         ubo.texelY = (fxH > 0) ? (1.0f / static_cast<float>(fxH)) : 0.0f;
         wgpuQueueWriteBuffer(queue_, postFxUniformBuffer_, 0, &ubo, sizeof(ubo));
 
-        WGPUCommandEncoderDescriptor encDesc{};
-        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+        WGPUCommandEncoder encoder = ensureFrameEncoder();
+        if (!encoder) return;
 
         if (!frameDraws_.empty()) {
-            flushPendingDraws(encoder);
+            flushPendingDraws(encoder, true);
         }
 
         WGPURenderPassColorAttachment colorAttachment{};
@@ -3684,12 +3727,6 @@ public:
         wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
-
-        WGPUCommandBufferDescriptor cmdBufDesc{};
-        WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
-        wgpuCommandEncoderRelease(encoder);
-        wgpuQueueSubmit(queue_, 1, &commands);
-        wgpuCommandBufferRelease(commands);
 
         postFxAppliedThisFrame_ = true;
         isFirstBatchOfFrame_ = false;
@@ -4785,13 +4822,17 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
         WGPURenderPipeline compPipe = useMsaa ? shadowCompositePipeline4x_ : shadowCompositePipeline1x_;
         if (!compPipe) return;
 
-        WGPUCommandEncoderDescriptor encDesc{};
-        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+        WGPUCommandEncoder encoder = ensureFrameEncoder();
+        if (!encoder) return;
 
         WGPURenderPassColorAttachment colorAttachment{};
         if (useMsaa) {
             colorAttachment.view = activeMsaaView;
-            colorAttachment.resolveTarget = targetView;
+            // Only resolve to postFxSceneView_ (offscreen); defer swapchain resolve to endPass()
+            colorAttachment.resolveTarget = renderToPostFxScene ? targetView : nullptr;
+            if (!renderToPostFxScene) {
+                msaaNeedsSurfaceResolve_ = true;
+            }
         } else {
             colorAttachment.view = targetView;
             colorAttachment.resolveTarget = nullptr;
@@ -4810,12 +4851,6 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
         wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
-
-        WGPUCommandBufferDescriptor cmdBufDesc{};
-        WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
-        wgpuCommandEncoderRelease(encoder);
-        wgpuQueueSubmit(queue_, 1, &commands);
-        wgpuCommandBufferRelease(commands);
     }
 
     void releaseShadowTexture() {
@@ -4983,6 +5018,9 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
 
     WGPURenderPipeline shadowPipeline1x_{nullptr};
     WGPUBindGroup shadowBindGroup1x_{nullptr};
+    WGPUCommandEncoder frameEncoder_{nullptr};
+    uint64_t vertexBufferUsed_{0};
+    bool msaaNeedsSurfaceResolve_{false};
     WGPUTexture shadowTexture_{nullptr};
     WGPUTextureView shadowTextureView_{nullptr};
     uint32_t shadowTexW_{0};
