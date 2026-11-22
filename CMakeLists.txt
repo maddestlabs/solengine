@@ -216,7 +216,7 @@ else()
     if(WIN32)
         set(WGPU_NATIVE_LIB "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu/lib/wgpu_native.dll.lib")
         target_link_libraries(solengine_render PUBLIC
-            user32 gdi32 shell32 opengl32 "${WGPU_NATIVE_LIB}"
+            user32 gdi32 shell32 winhttp opengl32 "${WGPU_NATIVE_LIB}"
         )
     endif()
 

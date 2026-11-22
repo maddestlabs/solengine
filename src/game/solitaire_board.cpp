@@ -891,6 +891,13 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
     }
 }
 
+void SolitaireBoard::setSafeAreaInsets(float top, float right, float bottom, float left) noexcept {
+    safeTop_ = std::max(0.0f, top);
+    safeRight_ = std::max(0.0f, right);
+    safeBottom_ = std::max(0.0f, bottom);
+    safeLeft_ = std::max(0.0f, left);
+}
+
 void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
     viewportW_ = std::max(240.0f, viewportWidth);
     viewportH_ = std::max(240.0f, viewportHeight);
@@ -914,18 +921,21 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
 
     // Maximized Full-Felt Responsive Framing:
     // With header cleared and single-line telemetry docked at bottom edge,
-    // we use lean modern margins (4-12px on mobile, 10-28px on desktop) to maximize card scale.
-    const float marginX = isMobile
+    // we use lean modern margins (4-12px on mobile, 10-28px on desktop) to maximize card scale,
+    // plus any hardware safe-area insets (e.g., iOS Dynamic Island / Home Indicator).
+    const float baseMarginX = isMobile
         ? std::clamp(viewportW_ * 0.015f, 4.0f, 12.0f)
         : std::clamp(viewportW_ * 0.018f, 10.0f, 28.0f);
-    const float marginY = isMobile
+    const float baseMarginY = isMobile
         ? std::clamp(viewportH_ * 0.012f, 6.0f, 12.0f)
         : std::clamp(viewportH_ * 0.014f, 8.0f, 18.0f);
-    constexpr float bottomReserved = 24.0f; // Minimal reservation for bottom telemetry watermark
+    const float marginX = baseMarginX + std::max(safeLeft_, safeRight_);
+    const float marginY = baseMarginY + safeTop_;
+    const float bottomReserved = 24.0f + safeBottom_; // Minimal reservation for bottom telemetry + safe area
 
-    const float availW = viewportW_ - 2.0f * marginX;
-    const float playfieldH = viewportH_ - bottomReserved;
-    const float availH = playfieldH - marginY;
+    const float availW = std::max(120.0f, viewportW_ - 2.0f * marginX);
+    const float playfieldH = std::max(120.0f, viewportH_ - bottomReserved);
+    const float availH = std::max(120.0f, playfieldH - marginY);
 
     // Canonical proportions in units of Card Width (w):
     // Card aspect ratio: 1.40 (height = 1.40 * width)
@@ -2539,14 +2549,25 @@ bool SolitaireBoard::canAutoFinish() const noexcept {
 }
 
 HintMove SolitaireBoard::findBestHint() {
+    const HintMove prevHint = activeHint_;
     clearHint();
+
+    std::vector<HintMove> candidates;
+    auto pushUnique = [&](const HintMove& hm) {
+        for (const auto& existing : candidates) {
+            if (existing.fromPile == hm.fromPile &&
+                existing.cardIndex == hm.cardIndex &&
+                existing.toPile == hm.toPile) {
+                return;
+            }
+        }
+        candidates.push_back(hm);
+    };
 
     if (isPyramidGame()) {
         for (size_t i = 0; i < piles_.size(); ++i) {
             if (isCardPlayableInPyramid(i) && piles_[i].cards.back().rank == Rank::King) {
-                activeHint_ = {true, static_cast<uint8_t>(i), static_cast<uint8_t>(piles_[i].cards.size() - 1), 2};
-                piles_[i].cards.back().enshadedGlow = true;
-                return activeHint_;
+                pushUnique({true, static_cast<uint8_t>(i), static_cast<uint8_t>(piles_[i].cards.size() - 1), 2});
             }
         }
         for (size_t a = 0; a < piles_.size(); ++a) {
@@ -2556,22 +2577,14 @@ HintMove SolitaireBoard::findBestHint() {
                 if (!isCardPlayableInPyramid(b)) continue;
                 const int rankB = static_cast<int>(piles_[b].cards.back().rank);
                 if (rankA + rankB == 13) {
-                    activeHint_ = {true, static_cast<uint8_t>(a), static_cast<uint8_t>(piles_[a].cards.size() - 1), static_cast<uint8_t>(b)};
-                    piles_[a].cards.back().enshadedGlow = true;
-                    piles_[b].cards.back().enshadedGlow = true;
-                    return activeHint_;
+                    pushUnique({true, static_cast<uint8_t>(a), static_cast<uint8_t>(piles_[a].cards.size() - 1), static_cast<uint8_t>(b)});
                 }
             }
         }
-        if (!piles_.empty() && !piles_[0].cards.empty()) {
-            activeHint_ = {true, 0, static_cast<uint8_t>(piles_[0].cards.size() - 1), 1};
-            piles_[0].cards.back().enshadedGlow = true;
-            return activeHint_;
+        if (candidates.empty() && !piles_.empty() && !piles_[0].cards.empty()) {
+            pushUnique({true, 0, static_cast<uint8_t>(piles_[0].cards.size() - 1), 1});
         }
-        return activeHint_;
-    }
-
-    if (isGolf()) {
+    } else if (isGolf()) {
         uint8_t foundIdx = 1;
         for (size_t i = 0; i < piles_.size(); ++i) {
             if (piles_[i].type == PileType::Foundation) {
@@ -2584,65 +2597,83 @@ HintMove SolitaireBoard::findBestHint() {
             if (src.type != PileType::Tableau || src.cards.empty()) continue;
             const size_t topIdx = src.cards.size() - 1;
             if (canMoveCards(static_cast<uint8_t>(s), topIdx, foundIdx)) {
-                activeHint_ = {true, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), foundIdx};
-                piles_[s].cards[topIdx].enshadedGlow = true;
-                return activeHint_;
+                pushUnique({true, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), foundIdx});
             }
         }
-        for (size_t i = 0; i < piles_.size(); ++i) {
-            if (piles_[i].type == PileType::Stock && !piles_[i].cards.empty()) {
-                activeHint_ = {true, static_cast<uint8_t>(i), static_cast<uint8_t>(piles_[i].cards.size() - 1), foundIdx};
-                piles_[i].cards.back().enshadedGlow = true;
-                return activeHint_;
+        if (candidates.empty()) {
+            for (size_t i = 0; i < piles_.size(); ++i) {
+                if (piles_[i].type == PileType::Stock && !piles_[i].cards.empty()) {
+                    pushUnique({true, static_cast<uint8_t>(i), static_cast<uint8_t>(piles_[i].cards.size() - 1), foundIdx});
+                    break;
+                }
             }
         }
+    } else {
+        for (size_t s = 0; s < piles_.size(); ++s) {
+            const Pile& src = piles_[s];
+            if (src.type == PileType::Foundation || src.type == PileType::Stock || src.cards.empty()) continue;
+            size_t topIdx = src.cards.size() - 1;
+            const Card& lead = src.cards[topIdx];
+            if (lead.rank == Rank::Ace) {
+                for (size_t d = 0; d < piles_.size(); ++d) {
+                    if (piles_[d].type == PileType::Foundation &&
+                        (piles_[d].index % 4) == static_cast<uint8_t>(lead.suit) &&
+                        canMoveCards(static_cast<uint8_t>(s), topIdx, static_cast<uint8_t>(d))) {
+                        pushUnique({true, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(d)});
+                    }
+                }
+            }
+            for (size_t d = 0; d < piles_.size(); ++d) {
+                if (piles_[d].type == PileType::Foundation &&
+                    canMoveCards(static_cast<uint8_t>(s), topIdx, static_cast<uint8_t>(d))) {
+                    pushUnique({true, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(d)});
+                }
+            }
+        }
+
+        for (size_t s = 0; s < piles_.size(); ++s) {
+            const Pile& src = piles_[s];
+            if (src.type != PileType::Tableau && src.type != PileType::Waste && src.type != PileType::FreeCell) continue;
+            for (size_t cIdx = 0; cIdx < src.cards.size(); ++cIdx) {
+                if (!src.cards[cIdx].faceUp) continue;
+                if (src.type == PileType::Tableau && cIdx == 0 && src.cards[cIdx].rank == Rank::King) continue;
+
+                for (size_t d = 0; d < piles_.size(); ++d) {
+                    if (piles_[d].type == PileType::Tableau &&
+                        canMoveCards(static_cast<uint8_t>(s), cIdx, static_cast<uint8_t>(d))) {
+                        pushUnique({true, static_cast<uint8_t>(s), static_cast<uint8_t>(cIdx), static_cast<uint8_t>(d)});
+                    }
+                }
+            }
+        }
+    }
+
+    if (candidates.empty()) {
         return activeHint_;
     }
 
-    for (size_t s = 0; s < piles_.size(); ++s) {
-        const Pile& src = piles_[s];
-        if (src.type == PileType::Foundation || src.type == PileType::Stock || src.cards.empty()) continue;
-        size_t topIdx = src.cards.size() - 1;
-        const Card& lead = src.cards[topIdx];
-        if (lead.rank == Rank::Ace) {
-            for (size_t d = 0; d < piles_.size(); ++d) {
-                if (piles_[d].type == PileType::Foundation &&
-                    (piles_[d].index % 4) == static_cast<uint8_t>(lead.suit) &&
-                    canMoveCards(static_cast<uint8_t>(s), topIdx, static_cast<uint8_t>(d))) {
-                    activeHint_ = {true, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(d)};
-                    piles_[s].cards[topIdx].enshadedGlow = true;
-                    return activeHint_;
-                }
-            }
-        }
-        for (size_t d = 0; d < piles_.size(); ++d) {
-            if (piles_[d].type == PileType::Foundation &&
-                canMoveCards(static_cast<uint8_t>(s), topIdx, static_cast<uint8_t>(d))) {
-                activeHint_ = {true, static_cast<uint8_t>(s), static_cast<uint8_t>(topIdx), static_cast<uint8_t>(d)};
-                piles_[s].cards[topIdx].enshadedGlow = true;
-                return activeHint_;
+    size_t nextIdx = 0;
+    if (prevHint.valid) {
+        for (size_t i = 0; i < candidates.size(); ++i) {
+            if (candidates[i].fromPile == prevHint.fromPile &&
+                candidates[i].cardIndex == prevHint.cardIndex &&
+                candidates[i].toPile == prevHint.toPile) {
+                nextIdx = (i + 1) % candidates.size();
+                break;
             }
         }
     }
 
-    for (size_t s = 0; s < piles_.size(); ++s) {
-        const Pile& src = piles_[s];
-        if (src.type != PileType::Tableau && src.type != PileType::Waste && src.type != PileType::FreeCell) continue;
-        for (size_t cIdx = 0; cIdx < src.cards.size(); ++cIdx) {
-            if (!src.cards[cIdx].faceUp) continue;
-            if (src.type == PileType::Tableau && cIdx == 0 && src.cards[cIdx].rank == Rank::King) continue;
-
-            for (size_t d = 0; d < piles_.size(); ++d) {
-                if (piles_[d].type == PileType::Tableau &&
-                    canMoveCards(static_cast<uint8_t>(s), cIdx, static_cast<uint8_t>(d))) {
-                    activeHint_ = {true, static_cast<uint8_t>(s), static_cast<uint8_t>(cIdx), static_cast<uint8_t>(d)};
-                    piles_[s].cards[cIdx].enshadedGlow = true;
-                    return activeHint_;
-                }
-            }
-        }
+    activeHint_ = candidates[nextIdx];
+    if (activeHint_.fromPile < piles_.size() && activeHint_.cardIndex < piles_[activeHint_.fromPile].cards.size()) {
+        piles_[activeHint_.fromPile].cards[activeHint_.cardIndex].enshadedGlow = true;
     }
-
+    if (isPyramidGame() && activeHint_.toPile < piles_.size() &&
+        activeHint_.toPile != activeHint_.fromPile && !piles_[activeHint_.toPile].cards.empty() &&
+        piles_[activeHint_.fromPile].cards[activeHint_.cardIndex].rank != Rank::King &&
+        piles_[activeHint_.fromPile].type != PileType::Stock) {
+        piles_[activeHint_.toPile].cards.back().enshadedGlow = true;
+    }
     return activeHint_;
 }
 

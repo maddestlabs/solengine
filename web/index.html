@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Solitaire Engine (WebGPU)</title>
     
     <!-- PWA & Mobile Web App Meta -->
@@ -26,6 +26,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Montserrat:wght@400;500;600&family=Roboto+Mono:wght@400;600&display=swap" rel="stylesheet" crossorigin="anonymous" media="print" onload="this.media='all'">
 
     <style>
+        :root {
+            --sat: env(safe-area-inset-top, 0px);
+            --sab: env(safe-area-inset-bottom, 0px);
+            --sal: env(safe-area-inset-left, 0px);
+            --sar: env(safe-area-inset-right, 0px);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -35,22 +42,26 @@
         }
 
         html, body {
+            position: fixed;
+            inset: 0;
             width: 100%;
             height: 100%;
             background-color: #0b110c;
             color: #e2e8f0;
             font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             overflow: hidden;
+            overscroll-behavior: none;
         }
 
         #canvas-container {
+            position: fixed;
+            inset: 0;
             width: 100%;
             height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
             background: radial-gradient(circle at 50% 40%, #152619 0%, #080d09 100%);
-            position: relative;
             overflow: hidden;
         }
 
@@ -264,7 +275,7 @@
         /* Toast Notification */
         #sol-toast {
             position: fixed;
-            bottom: 24px;
+            bottom: calc(24px + env(safe-area-inset-bottom, 0px));
             left: 50%;
             transform: translateX(-50%) translateY(100px);
             background: #142217;

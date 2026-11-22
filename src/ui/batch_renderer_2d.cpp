@@ -2627,6 +2627,19 @@ public:
             wgpuSamplerRelease(fontSampler_);
             fontSampler_ = nullptr;
         }
+        if (cloudSampler_) {
+            wgpuSamplerRelease(cloudSampler_);
+            cloudSampler_ = nullptr;
+        }
+        if (cloudTextureView_) {
+            wgpuTextureViewRelease(cloudTextureView_);
+            cloudTextureView_ = nullptr;
+        }
+        if (cloudTexture_) {
+            wgpuTextureDestroy(cloudTexture_);
+            wgpuTextureRelease(cloudTexture_);
+            cloudTexture_ = nullptr;
+        }
         if (fontTextureView_) {
             wgpuTextureViewRelease(fontTextureView_);
             fontTextureView_ = nullptr;
@@ -3820,6 +3833,8 @@ private:
             @group(0) @binding(2) var<uniform> uniforms: Uniforms;
             @group(0) @binding(3) var rgbaTexture: texture_2d<f32>;
             @group(0) @binding(4) var bgTexture: texture_2d<f32>;
+            @group(0) @binding(5) var cloudTexture: texture_2d<f32>;
+            @group(0) @binding(6) var cloudSampler: sampler;
 
             struct VertexInput {
                 @location(0) position: vec2<f32>,
@@ -3884,19 +3899,36 @@ private:
                 return uniforms.cameraTransform.yz + (screenPos - viewCenter) * uniforms.cameraTransform.x;
             }
 
-            fn evalGoboMask(worldPos: vec2<f32>, zOffset: f32) -> f32 {
-                let goboType = uniforms.sceneAtmosphere.x;
-                let cloudOpacity = clamp(uniforms.cloudParams.x, 0.0, 1.0);
-                if (goboType < 0.5 && cloudOpacity <= 0.005) {
-                    return 1.0;
-                }
+            fn projectGoboUV(worldPos: vec2<f32>, zOffset: f32) -> vec2<f32> {
                 let boardPos = toBoardSpace(worldPos);
                 let vp = max(uniforms.viewport.xy, vec2<f32>(1.0));
                 let toLight = uniforms.steadyLight.xy - boardPos;
                 let lDist = max(length(toLight), 1.0);
                 let rayDir = toLight / lDist;
                 let slope = lDist / max(uniforms.steadyLight.z, 120.0);
-                let proj = (boardPos + rayDir * (zOffset * slope)) / vp;
+                return (boardPos + rayDir * (zOffset * slope)) / vp;
+            }
+
+            fn evalCloudMaskAtProj(proj: vec2<f32>) -> f32 {
+                let cloudOpacity = clamp(uniforms.cloudParams.x, 0.0, 1.0);
+                if (cloudOpacity <= 0.005) {
+                    return 1.0;
+                }
+                let t = uniforms.time * 0.016;
+                let cuv = proj * vec2<f32>(1.35, 1.05) + vec2<f32>(t * 1.05, t * 0.38);
+                let c1 = textureSampleLevel(cloudTexture, cloudSampler, cuv, 0.0).r;
+                let c2 = textureSampleLevel(cloudTexture, cloudSampler, cuv * 1.85 + vec2<f32>(-t * 0.55, t * 0.32), 0.0).r;
+                let cloudMask = smoothstep(0.26, 0.74, c1 * 0.65 + c2 * 0.35);
+                return mix(1.0, cloudMask, cloudOpacity);
+            }
+
+            fn evalGoboMask(worldPos: vec2<f32>, zOffset: f32, includeClouds: bool) -> f32 {
+                let goboType = uniforms.sceneAtmosphere.x;
+                let cloudOpacity = clamp(uniforms.cloudParams.x, 0.0, 1.0);
+                if (goboType < 0.5 && (!includeClouds || cloudOpacity <= 0.005)) {
+                    return 1.0;
+                }
+                let proj = projectGoboUV(worldPos, zOffset);
                 let soft = clamp(uniforms.sceneAtmosphere.y, 0.05, 1.0);
 
                 var goboMask = 1.0;
@@ -3924,16 +3956,8 @@ private:
                     goboMask = smoothstep(0.18 - pen, 0.18 + pen, slat);
                 }
 
-                if (cloudOpacity > 0.005) {
-                    // Soft drifting clouds beyond the window frame/blinds
-                    let t = uniforms.time * 0.16;
-                    let uv = proj * vec2<f32>(2.8, 2.2) + vec2<f32>(t * 0.45, t * 0.18);
-                    let w1 = sin(uv.x * 1.5 + t * 0.5 + sin(uv.y * 1.2 - t * 0.35)) * 0.5 + 0.5;
-                    let w2 = cos(uv.y * 2.1 - t * 0.4 + cos(uv.x * 1.9 + t * 0.25)) * 0.5 + 0.5;
-                    let w3 = sin((uv.x + uv.y) * 2.7 + t * 0.3) * 0.5 + 0.5;
-                    let cloudRaw = w1 * 0.48 + w2 * 0.34 + w3 * 0.18;
-                    let cloudMask = smoothstep(0.32, 0.72, cloudRaw);
-                    goboMask = goboMask * mix(1.0, cloudMask, cloudOpacity);
+                if (includeClouds && cloudOpacity > 0.005) {
+                    goboMask = goboMask * evalCloudMaskAtProj(proj);
                 }
                 return goboMask;
             }
@@ -4041,79 +4065,67 @@ private:
                     let tex = textureSampleLevel(bgTexture, fontSampler, in.uv, 0.0);
                     col = tex * in.color;
                 } else if (baseMode == 7u) {
-                    // Atmospheric Volumetric God Rays + Floating Dust Motes (anchored to steady architectural light)
+                    // Atmospheric Volumetric God Rays (anchored to steady architectural light)
                     let rayStr = uniforms.sceneAtmosphere.z;
-                    let dustStr = uniforms.sceneAtmosphere.w;
+                    if (rayStr <= 0.005) {
+                        discard;
+                    }
                     let vp = max(uniforms.viewport.xy, vec2<f32>(1.0));
                     let lp = uniforms.steadyLight.xy;
                     let isOverhead = (uniforms.steadyLight.w < 0.5);
                     let rayOrigin = select(lp, vec2<f32>(vp.x * 0.50, -vp.y * 0.42), isOverhead);
                     let toPix = in.worldPos - rayOrigin;
                     let distNorm = length(toPix) / max(vp.x, vp.y);
-                    var rayAccum = 0.0;
-                    if (rayStr > 0.005) {
-                        let angle = atan2(toPix.y, toPix.x);
-                        let tDrift = uniforms.time * 0.12;
-                        // Distinct radial shafts + fine sub-rays fanning downward from architectural origin
-                        let beamA = sin(angle * 15.0 + tDrift) * 0.5 + 0.5;
-                        let beamB = sin(angle * 29.0 - tDrift * 0.7 + 1.1) * 0.5 + 0.5;
-                        let beamC = cos(angle * 47.0 + tDrift * 0.4 + 2.4) * 0.5 + 0.5;
-                        let fineRay = pow(beamA * 0.52 + beamB * 0.32 + beamC * 0.16, 2.6);
-                        let broadRay = pow(sin(angle * 7.0 + 0.4) * 0.5 + 0.5, 1.5);
-                        let shaftPattern = fineRay * 0.78 + broadRay * 0.22;
+                    let angle = atan2(toPix.y, toPix.x);
+                    let tDrift = uniforms.time * 0.12;
+                    let beamA = sin(angle * 15.0 + tDrift) * 0.5 + 0.5;
+                    let beamB = sin(angle * 29.0 - tDrift * 0.7 + 1.1) * 0.5 + 0.5;
+                    let beamC = cos(angle * 47.0 + tDrift * 0.4 + 2.4) * 0.5 + 0.5;
+                    let fineBase = beamA * 0.52 + beamB * 0.32 + beamC * 0.16;
+                    let fineRay = fineBase * fineBase * sqrt(max(fineBase, 0.0001));
+                    let broadBase = sin(angle * 7.0 + 0.4) * 0.5 + 0.5;
+                    let broadRay = broadBase * sqrt(max(broadBase, 0.0001));
+                    let shaftPattern = fineRay * 0.78 + broadRay * 0.22;
 
-                        // Modulate by gobo occlusion along the ray when a window/blind gobo is active
-                        var goboRay = 0.0;
-                        for (var s = 0; s < 5; s = s + 1) {
-                            let f = (f32(s) + 0.5) / 5.0;
-                            let samplePos = mix(rayOrigin, in.worldPos, 0.25 + 0.75 * f);
-                            goboRay = goboRay + evalGoboMask(samplePos, 0.0);
+                    var goboRay = 1.0;
+                    if (uniforms.sceneAtmosphere.x >= 0.5) {
+                        var gSum = 0.0;
+                        for (var s = 0; s < 3; s = s + 1) {
+                            let f = (f32(s) + 0.5) / 3.0;
+                            let samplePos = mix(rayOrigin, in.worldPos, 0.28 + 0.72 * f);
+                            gSum = gSum + evalGoboMask(samplePos, 0.0, false);
                         }
-                        goboRay = goboRay / 5.0;
-                        let radialDecay = select(
-                            exp(-distNorm * 2.15) * smoothstep(0.015, 0.10, distNorm),
-                            exp(-distNorm * 1.45) * smoothstep(0.0, 0.35, in.worldPos.y / vp.y + 0.15),
-                            isOverhead
-                        );
-                        rayAccum = shaftPattern * mix(0.35, 1.0, goboRay) * radialDecay * rayStr * 0.58;
+                        goboRay = gSum / 3.0;
                     }
-                    var dustAccum = 0.0;
-                    if (dustStr > 0.005) {
-                        let dxyDust = in.worldPos - lp;
-                        let refRDust = max(300.0, max(vp.x, vp.y) * 0.62);
-                        let r2Dust = dot(dxyDust, dxyDust) / (refRDust * refRDust);
-                        let lightFalloff = 1.0 / (1.0 + 1.25 * r2Dust);
-                        let goboHere = evalGoboMask(in.worldPos, 4.0);
-                        let litArea = smoothstep(0.35, 0.75, goboHere) * smoothstep(0.22, 0.55, lightFalloff);
-                        if (litArea > 0.01) {
-                            let dCoord = in.worldPos * 0.032 + vec2<f32>(uniforms.time * 0.18, -uniforms.time * 0.11);
-                            let cell = floor(dCoord);
-                            let fuv = fract(dCoord) - vec2<f32>(0.5);
-                            let h1 = fract(sin(dot(cell, vec2<f32>(127.1, 311.7))) * 43758.5453);
-                            let h2 = fract(sin(dot(cell, vec2<f32>(269.5, 183.3))) * 43758.5453);
-                            if (h1 > 0.78) {
-                                let jitter = vec2<f32>(sin(uniforms.time * 0.8 + h2 * 6.28), cos(uniforms.time * 0.65 + h1 * 6.28)) * 0.18;
-                                let d = length(fuv - jitter);
-                                let speck = smoothstep(0.11, 0.015, d);
-                                let flickerA = 0.5 + 0.5 * sin(uniforms.time * (2.2 + h1 * 3.8) + h2 * 18.0);
-                                let flickerB = 0.72 + 0.28 * cos(uniforms.time * 7.5 + h1 * 9.0);
-                                let softTwinkle = 0.28 + 0.52 * flickerA * flickerB;
-                                let strobeWave = max(0.0, sin(uniforms.time * (3.2 + h2 * 4.5) + h1 * 27.3));
-                                let strobePeak = pow(strobeWave, 10.0) * 0.85;
-                                let twinkle = clamp(softTwinkle + strobePeak, 0.0, 1.35);
-                                dustAccum = speck * twinkle * litArea * dustStr * 0.58;
-                            }
-                        }
+                    if (uniforms.cloudParams.x > 0.005) {
+                        goboRay = goboRay * evalCloudMaskAtProj(projectGoboUV(in.worldPos, 0.0));
                     }
-                    let totalAlpha = clamp(rayAccum + dustAccum, 0.0, 0.85);
+                    let radialDecay = select(
+                        exp(-distNorm * 2.15) * smoothstep(0.015, 0.10, distNorm),
+                        exp(-distNorm * 1.45) * smoothstep(0.0, 0.35, in.worldPos.y / vp.y + 0.15),
+                        isOverhead
+                    );
+                    let totalAlpha = clamp(shaftPattern * mix(0.35, 1.0, goboRay) * radialDecay * rayStr * 0.58, 0.0, 0.85);
                     if (totalAlpha <= 0.001) {
                         discard;
                     }
                     let warmLight = max(uniforms.lightColor.rgb, vec3<f32>(0.92, 0.88, 0.80));
                     let rayRGB = clamp(warmLight * vec3<f32>(1.08, 1.02, 0.90), vec3<f32>(0.0), vec3<f32>(1.0));
-                    let dustRGB = vec3<f32>(1.0, 0.98, 0.92);
-                    let shaftCol = mix(rayRGB, dustRGB, clamp(dustAccum / max(totalAlpha, 0.001), 0.0, 1.0));
-                    col = vec4<f32>(clamp(shaftCol, vec3<f32>(0.0), vec3<f32>(1.0)), totalAlpha);
+                    col = vec4<f32>(rayRGB, totalAlpha);
+                } else if (baseMode == 8u) {
+                    // CPU-batched Floating Dust Mote quads
+                    let d = length(in.localPos);
+                    let speck = smoothstep(1.0, 0.12, d);
+                    if (speck <= 0.001) {
+                        discard;
+                    }
+                    let goboHere = evalGoboMask(in.worldPos, 4.0, true);
+                    let lit = smoothstep(0.35, 0.75, goboHere);
+                    let a = speck * lit * in.color.a;
+                    if (a <= 0.001) {
+                        discard;
+                    }
+                    col = vec4<f32>(in.color.rgb, a);
                 }
             )" + R"(
                 if (isSceneLit && !(baseMode == 2u && in.uv.y > 0.5)) {
@@ -4123,7 +4135,7 @@ private:
                     let refR = max(300.0, max(uniforms.viewport.x, uniforms.viewport.y) * 0.62);
                     let r2 = dot(dxy, dxy) / (refR * refR);
                     let falloff = 1.0 / (1.0 + 1.25 * r2);
-                    let gobo = evalGoboMask(in.worldPos, select(0.0, 8.0, baseMode == 3u));
+                    let gobo = evalGoboMask(in.worldPos, select(0.0, 8.0, baseMode == 3u), true);
                     let effFalloff = falloff * mix(0.18, 1.0, gobo);
                     let baseAmb = 1.0 - darkness;
                     let lightPool = (darkness * strength + (strength - 1.0) * 0.24) * effFalloff;
@@ -4393,6 +4405,83 @@ private:
         sampDesc.maxAnisotropy = 1;
         fontSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
 
+        // 4. Create seamless tileable 256x256 R8Unorm cloud noise texture + Repeat sampler
+        {
+            constexpr uint32_t kCloudSize = 256;
+            WGPUTextureDescriptor cDesc{};
+            cDesc.dimension = WGPUTextureDimension_2D;
+            cDesc.size = WGPUExtent3D{ kCloudSize, kCloudSize, 1 };
+            cDesc.format = WGPUTextureFormat_R8Unorm;
+            cDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+            cDesc.mipLevelCount = 1;
+            cDesc.sampleCount = 1;
+            cloudTexture_ = wgpuDeviceCreateTexture(device_, &cDesc);
+
+            WGPUTextureViewDescriptor cViewDesc{};
+            cViewDesc.format = WGPUTextureFormat_R8Unorm;
+            cViewDesc.dimension = WGPUTextureViewDimension_2D;
+            cViewDesc.baseMipLevel = 0;
+            cViewDesc.mipLevelCount = 1;
+            cViewDesc.baseArrayLayer = 0;
+            cViewDesc.arrayLayerCount = 1;
+            cViewDesc.aspect = WGPUTextureAspect_All;
+            cloudTextureView_ = wgpuTextureCreateView(cloudTexture_, &cViewDesc);
+
+            WGPUSamplerDescriptor cSampDesc = sampDesc;
+            cSampDesc.addressModeU = WGPUAddressMode_Repeat;
+            cSampDesc.addressModeV = WGPUAddressMode_Repeat;
+            cSampDesc.addressModeW = WGPUAddressMode_Repeat;
+            cloudSampler_ = wgpuDeviceCreateSampler(device_, &cSampDesc);
+
+            auto hash2 = [](int x, int y, int period) noexcept -> float {
+                int px = ((x % period) + period) % period;
+                int py = ((y % period) + period) % period;
+                uint32_t h = static_cast<uint32_t>(px * 374761393 + py * 668265263);
+                h = (h ^ (h >> 13)) * 1274126177u;
+                return static_cast<float>((h ^ (h >> 16)) & 0xFFFFu) / 65535.0f;
+            };
+            auto tileNoise = [&](float u, float v, int period) noexcept -> float {
+                float fx = u * static_cast<float>(period);
+                float fy = v * static_cast<float>(period);
+                int ix = static_cast<int>(std::floor(fx));
+                int iy = static_cast<int>(std::floor(fy));
+                float tx = fx - static_cast<float>(ix);
+                float ty = fy - static_cast<float>(iy);
+                float sx = tx * tx * (3.0f - 2.0f * tx);
+                float sy = ty * ty * (3.0f - 2.0f * ty);
+                float n00 = hash2(ix, iy, period);
+                float n10 = hash2(ix + 1, iy, period);
+                float n01 = hash2(ix, iy + 1, period);
+                float n11 = hash2(ix + 1, iy + 1, period);
+                float nx0 = n00 + (n10 - n00) * sx;
+                float nx1 = n01 + (n11 - n01) * sx;
+                return nx0 + (nx1 - nx0) * sy;
+            };
+
+            std::vector<uint8_t> cloudBytes(kCloudSize * kCloudSize);
+            for (uint32_t y = 0; y < kCloudSize; ++y) {
+                float v = static_cast<float>(y) / static_cast<float>(kCloudSize);
+                for (uint32_t x = 0; x < kCloudSize; ++x) {
+                    float u = static_cast<float>(x) / static_cast<float>(kCloudSize);
+                    float n = tileNoise(u, v, 4) * 0.50f
+                            + tileNoise(u, v, 8) * 0.28f
+                            + tileNoise(u, v, 16) * 0.14f
+                            + tileNoise(u, v, 32) * 0.08f;
+                    cloudBytes[y * kCloudSize + x] = static_cast<uint8_t>(std::clamp(n * 255.0f, 0.0f, 255.0f));
+                }
+            }
+            WGPUTexelCopyTextureInfo dst{};
+            dst.texture = cloudTexture_;
+            dst.mipLevel = 0;
+            dst.origin = WGPUOrigin3D{ 0, 0, 0 };
+            dst.aspect = WGPUTextureAspect_All;
+            WGPUTexelCopyBufferLayout layout{};
+            layout.bytesPerRow = kCloudSize;
+            layout.rowsPerImage = kCloudSize;
+            WGPUExtent3D writeSize{ kCloudSize, kCloudSize, 1 };
+            wgpuQueueWriteTexture(queue_, &dst, cloudBytes.data(), cloudBytes.size(), &layout, &writeSize);
+        }
+
         wgpuShaderModuleRelease(shaderModule);
 
         // Uniform buffer for viewport, lighting, and time upload
@@ -4404,8 +4493,8 @@ private:
         fillGpuUniforms(initUbo, static_cast<float>(width_), static_cast<float>(height_));
         wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &initUbo, sizeof(initUbo));
 
-        // Bind group matching layout (font texture, sampler, uniforms, rgba card atlas, bg texture)
-        WGPUBindGroupEntry entries[5]{};
+        // Bind group matching layout (font texture, sampler, uniforms, rgba card atlas, bg texture, cloud texture/sampler)
+        WGPUBindGroupEntry entries[7]{};
         entries[0].binding = 0;
         entries[0].textureView = fontTextureView_;
         entries[1].binding = 1;
@@ -4418,12 +4507,16 @@ private:
         entries[3].textureView = rgbaTextureView_;
         entries[4].binding = 4;
         entries[4].textureView = bgTextureView_;
+        entries[5].binding = 5;
+        entries[5].textureView = cloudTextureView_;
+        entries[6].binding = 6;
+        entries[6].sampler = cloudSampler_;
 
         WGPUBindGroupDescriptor bgDesc{};
         if (pipeline1x_) {
             WGPUBindGroupLayout bgLayout1x = wgpuRenderPipelineGetBindGroupLayout(pipeline1x_, 0);
             bgDesc.layout = bgLayout1x;
-            bgDesc.entryCount = 5;
+            bgDesc.entryCount = 7;
             bgDesc.entries = entries;
             bindGroup1x_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
             wgpuBindGroupLayoutRelease(bgLayout1x);
@@ -4432,7 +4525,7 @@ private:
         if (pipeline4x_) {
             WGPUBindGroupLayout bgLayout4x = wgpuRenderPipelineGetBindGroupLayout(pipeline4x_, 0);
             bgDesc.layout = bgLayout4x;
-            bgDesc.entryCount = 5;
+            bgDesc.entryCount = 7;
             bgDesc.entries = entries;
             bindGroup4x_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
             wgpuBindGroupLayoutRelease(bgLayout4x);
@@ -4441,7 +4534,7 @@ private:
         if (shadowPipeline1x_) {
             WGPUBindGroupLayout bgLayoutShadow = wgpuRenderPipelineGetBindGroupLayout(shadowPipeline1x_, 0);
             bgDesc.layout = bgLayoutShadow;
-            bgDesc.entryCount = 5;
+            bgDesc.entryCount = 7;
             bgDesc.entries = entries;
             shadowBindGroup1x_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
             wgpuBindGroupLayoutRelease(bgLayoutShadow);
@@ -4475,6 +4568,9 @@ private:
     WGPUTextureView rgbaTextureView_{nullptr};
     WGPUTexture bgTexture_{nullptr};
     WGPUTextureView bgTextureView_{nullptr};
+    WGPUTexture cloudTexture_{nullptr};
+    WGPUTextureView cloudTextureView_{nullptr};
+    WGPUSampler cloudSampler_{nullptr};
     WGPUBuffer uniformBuffer_{nullptr};
     LightSource2D globalLight_{640.0f, 200.0f, 550.0f, 1.0f};
     float lightColor_[4]{1.04f, 1.00f, 0.94f, 1.0f};
@@ -5249,6 +5345,10 @@ void BatchRenderer2D::setSceneAtmosphere(uint8_t goboType, float goboSoftness,
                                          float steadyX, float steadyY,
                                          float steadyZ, uint8_t lightAngle,
                                          float cloudOpacity) {
+    godRaysIntensity_ = godRaysIntensity;
+    dustMotesIntensity_ = dustMotesIntensity;
+    steadyLightX_ = steadyX;
+    steadyLightY_ = steadyY;
     if (backend_) {
         backend_->setSceneAtmosphere(goboType, goboSoftness, godRaysIntensity, dustMotesIntensity,
                                      steadyX, steadyY, steadyZ, lightAngle, cloudOpacity);
@@ -5257,20 +5357,75 @@ void BatchRenderer2D::setSceneAtmosphere(uint8_t goboType, float goboSoftness,
 
 void BatchRenderer2D::drawSceneAtmospherePass(float width, float height) {
     if (width <= 0.0f || height <= 0.0f) return;
-    uint32_t col = packColor(1.0f, 1.0f, 1.0f, 1.0f);
-    Vertex2D v0{0.0f,  0.0f,   0.0f, 0.0f, col, 7u, {0.0f, 0.0f}};
-    Vertex2D v1{width, 0.0f,   1.0f, 0.0f, col, 7u, {0.0f, 0.0f}};
-    Vertex2D v2{width, height, 1.0f, 1.0f, col, 7u, {0.0f, 0.0f}};
-    Vertex2D v3{0.0f,  height, 0.0f, 1.0f, col, 7u, {0.0f, 0.0f}};
-    vertices_.push_back(v0);
-    vertices_.push_back(v1);
-    vertices_.push_back(v2);
-    vertices_.push_back(v0);
-    vertices_.push_back(v2);
-    vertices_.push_back(v3);
+    if (godRaysIntensity_ > 0.005f) {
+        uint32_t col = packColor(1.0f, 1.0f, 1.0f, 1.0f);
+        Vertex2D v0{0.0f,  0.0f,   0.0f, 0.0f, col, 7u, {0.0f, 0.0f}};
+        Vertex2D v1{width, 0.0f,   1.0f, 0.0f, col, 7u, {0.0f, 0.0f}};
+        Vertex2D v2{width, height, 1.0f, 1.0f, col, 7u, {0.0f, 0.0f}};
+        Vertex2D v3{0.0f,  height, 0.0f, 1.0f, col, 7u, {0.0f, 0.0f}};
+        vertices_.push_back(v0);
+        vertices_.push_back(v1);
+        vertices_.push_back(v2);
+        vertices_.push_back(v0);
+        vertices_.push_back(v2);
+        vertices_.push_back(v3);
+    }
+    if (dustMotesIntensity_ > 0.005f) {
+        // Emit ~96 small drifting dust-mote quads instead of shading a full-screen grid
+        constexpr int kMoteCount = 96;
+        const float refR = std::max(300.0f, std::max(width, height) * 0.62f);
+        const float invRefR2 = 1.0f / (refR * refR);
+        const float t = shaderTime_;
+        for (int i = 0; i < kMoteCount; ++i) {
+            uint32_t h1 = static_cast<uint32_t>(i * 747796405u + 2891336453u);
+            h1 = ((h1 >> ((h1 >> 28u) + 4u)) ^ h1) * 277803737u;
+            h1 ^= (h1 >> 22u);
+            uint32_t h2 = h1 * 1664525u + 1013904223u;
+            const float rx = static_cast<float>(h1 & 0xFFFFu) / 65535.0f;
+            const float ry = static_cast<float>((h1 >> 16) & 0xFFFFu) / 65535.0f;
+            const float rz = static_cast<float>(h2 & 0xFFFFu) / 65535.0f;
+
+            float mx = std::fmod(rx * width + t * (10.0f + rz * 14.0f) + std::sin(t * 0.65f + ry * 6.283f) * 14.0f, width);
+            float my = std::fmod(ry * height - t * (5.0f + rx * 9.0f) + std::cos(t * 0.55f + rx * 6.283f) * 12.0f, height);
+            if (mx < 0.0f) mx += width;
+            if (my < 0.0f) my += height;
+
+            const float dx = mx - steadyLightX_;
+            const float dy = my - steadyLightY_;
+            const float falloff = 1.0f / (1.0f + 1.25f * (dx * dx + dy * dy) * invRefR2);
+            const float falloffSmooth = std::clamp((falloff - 0.22f) / 0.33f, 0.0f, 1.0f);
+            const float lightMask = falloffSmooth * falloffSmooth * (3.0f - 2.0f * falloffSmooth);
+            if (lightMask <= 0.01f) continue;
+
+            const float flickerA = 0.5f + 0.5f * std::sin(t * (2.2f + rx * 3.8f) + ry * 18.0f);
+            const float flickerB = 0.72f + 0.28f * std::cos(t * 7.5f + rx * 9.0f);
+            const float softTwinkle = 0.28f + 0.52f * flickerA * flickerB;
+            const float strobeWave = std::max(0.0f, std::sin(t * (3.2f + ry * 4.5f) + rx * 27.3f));
+            const float s2 = strobeWave * strobeWave;
+            const float s4 = s2 * s2;
+            const float strobePeak = s4 * s4 * s2 * 0.85f;
+            const float twinkle = std::clamp(softTwinkle + strobePeak, 0.0f, 1.35f);
+            const float alpha = std::clamp(twinkle * lightMask * dustMotesIntensity_ * 0.58f, 0.0f, 0.85f);
+            if (alpha <= 0.005f) continue;
+
+            const float rad = 3.0f + rz * 3.5f;
+            const uint32_t col = packColor(1.0f, 0.98f, 0.92f, alpha);
+            Vertex2D m0{mx - rad, my - rad, 0.0f, 0.0f, col, 8u, {-1.0f, -1.0f}};
+            Vertex2D m1{mx + rad, my - rad, 1.0f, 0.0f, col, 8u, { 1.0f, -1.0f}};
+            Vertex2D m2{mx + rad, my + rad, 1.0f, 1.0f, col, 8u, { 1.0f,  1.0f}};
+            Vertex2D m3{mx - rad, my + rad, 0.0f, 1.0f, col, 8u, {-1.0f,  1.0f}};
+            vertices_.push_back(m0);
+            vertices_.push_back(m1);
+            vertices_.push_back(m2);
+            vertices_.push_back(m0);
+            vertices_.push_back(m2);
+            vertices_.push_back(m3);
+        }
+    }
 }
 
 void BatchRenderer2D::setShaderTime(float timeSeconds) {
+    shaderTime_ = timeSeconds;
     if (backend_) {
         backend_->setShaderTime(timeSeconds);
     }

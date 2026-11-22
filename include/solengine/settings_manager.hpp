@@ -103,6 +103,7 @@ struct AppSettings {
     bool menuFlowVertical{false};
     MenuDisplayMode menuDisplayMode{MenuDisplayMode::Auto};
     ToolbarScale toolbarScale{ToolbarScale::Regular};
+    float helpFontScale{1.0f}; // 0.85f to 1.35f scale for Help Sidebar text
     uint32_t toolbarItems{ToolbarItem_Default};
     int aaMode{4}; // Permanently 4x MSAA (supersampled anti-aliasing)
     LightingPreset lightingPreset{LightingPreset::GoldenHour}; // Light mood palette

@@ -378,6 +378,8 @@ struct GameDocManifest {
     std::string loseGoal;
     std::string victoryTitle;
     std::string victorySubtitle;
+    std::string videoId;
+    std::string videoThumbBase64;
     uint8_t timeRating{3};
     std::string timeLabel{"Average"};
     uint8_t chanceRating{3};

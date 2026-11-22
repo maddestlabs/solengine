@@ -634,6 +634,11 @@ private:
     size_t sceneLitStartIdx_{0};
     float tableLacquer_{0.0f};
     float tableBump_{2.4f};
+    float godRaysIntensity_{0.0f};
+    float dustMotesIntensity_{0.0f};
+    float steadyLightX_{640.0f};
+    float steadyLightY_{200.0f};
+    float shaderTime_{0.0f};
 
     // 2D Rotation Transform State
     bool transformActive_{false};

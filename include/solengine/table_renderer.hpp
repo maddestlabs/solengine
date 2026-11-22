@@ -55,6 +55,17 @@ struct HelpOddsInfo {
     std::string skillLabel{"Moderate"};
 };
 
+struct HelpVideoThumb {
+    std::string videoId;
+    int width{0};
+    int height{0};
+    std::vector<uint8_t> rgba;
+    [[nodiscard]] bool ready() const noexcept {
+        return !videoId.empty() && width > 0 && height > 0 &&
+               rgba.size() == static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
+    }
+};
+
 struct MagicParticle {
     float x{0.0f}, y{0.0f};
     float vx{0.0f}, vy{0.0f};
@@ -210,7 +221,8 @@ public:
         float dragGrabLocalY = 0.0f,
         const float* dragChainAngles = nullptr,
         size_t dragChainCount = 0,
-        const std::vector<GhostCardCue>* ghostCards = nullptr
+        const std::vector<GhostCardCue>* ghostCards = nullptr,
+        const HelpVideoThumb* helpVideoThumb = nullptr
     );
 
     static bool renderToPng(

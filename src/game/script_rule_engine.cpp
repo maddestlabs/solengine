@@ -608,6 +608,15 @@ void ScriptRuleEngine::registerHostApi() {
         return Value(true);
     });
 
+    evaluator_.registerFunction("doc_video", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.empty() || !args[0].isString()) return Value(false);
+        docManifest_.videoId = args[0].asString();
+        if (args.size() >= 2 && args[1].isString()) {
+            docManifest_.videoThumbBase64 = args[1].asString();
+        }
+        return Value(true);
+    });
+
     evaluator_.registerFunction("doc_stat", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
         if (args.size() < 3) return Value(false);
         StatDoc sd{};

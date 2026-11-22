@@ -170,6 +170,9 @@ bool SettingsManager::load() {
             settings_.lowPolySeed = static_cast<uint32_t>(std::max(1, a["lowPolySeed"].asInt(42)));
             settings_.cardBackId = (a.contains("cardBackId") && a["cardBackId"].isString()) ? a["cardBackId"].asString() : "auto";
             settings_.guiTheme = static_cast<GuiThemeStyle>(std::clamp(a["guiTheme"].asInt(static_cast<int>(GuiThemeStyle::ClockworkEngine)), 0, 1));
+            if (a.contains("helpFontScale") && a["helpFontScale"].isNumber()) {
+                settings_.helpFontScale = std::clamp(a["helpFontScale"].asFloat(1.0f), 0.85f, 1.35f);
+            }
             settings_.cardWear = static_cast<CardWearLevel>(std::clamp(a["cardWear"].asInt(static_cast<int>(CardWearLevel::Pristine)), 0, static_cast<int>(CardWearLevel::Count) - 1));
             settings_.cardStock = static_cast<CardStock>(std::clamp(a["cardStock"].asInt(static_cast<int>(CardStock::None)), 0, static_cast<int>(CardStock::Count) - 1));
             settings_.cardCorners = static_cast<CardCornerStyle>(std::clamp(a["cardCorners"].asInt(0), 0, static_cast<int>(CardCornerStyle::Count) - 1));
@@ -386,6 +389,7 @@ bool SettingsManager::save() {
     a["lowPolySeed"] = static_cast<int>(settings_.lowPolySeed);
     a["cardBackId"] = settings_.cardBackId;
     a["guiTheme"] = static_cast<int>(settings_.guiTheme);
+    a["helpFontScale"] = static_cast<double>(settings_.helpFontScale);
     a["cardWear"] = static_cast<int>(settings_.cardWear);
     a["cardStock"] = static_cast<int>(settings_.cardStock);
     a["cardCorners"] = static_cast<int>(settings_.cardCorners);

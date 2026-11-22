@@ -138,6 +138,11 @@ public:
     [[nodiscard]] ResponsiveLayoutMode layoutMode() const noexcept { return layoutMode_; }
     void setStockPosition(StockPosition pos) noexcept;
     [[nodiscard]] StockPosition stockPosition() const noexcept { return stockPosition_; }
+    void setSafeAreaInsets(float top, float right, float bottom, float left) noexcept;
+    [[nodiscard]] float safeTop() const noexcept { return safeTop_; }
+    [[nodiscard]] float safeRight() const noexcept { return safeRight_; }
+    [[nodiscard]] float safeBottom() const noexcept { return safeBottom_; }
+    [[nodiscard]] float safeLeft() const noexcept { return safeLeft_; }
     [[nodiscard]] float viewportWidth() const noexcept { return viewportW_; }
     [[nodiscard]] float viewportHeight() const noexcept { return viewportH_; }
     [[nodiscard]] bool isMobileLayout() const noexcept;
@@ -167,6 +172,10 @@ private:
     bool victoryHookFired_{false};
     float viewportW_{1280.0f};
     float viewportH_{720.0f};
+    float safeTop_{0.0f};
+    float safeRight_{0.0f};
+    float safeBottom_{0.0f};
+    float safeLeft_{0.0f};
     float cardW_{96.0f};
     float cardH_{136.0f};
     float cardDeviation_{0.25f};

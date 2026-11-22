@@ -22,6 +22,7 @@ demo_seeds = [6, 7, 10, 14, 26, 33, 35, 46]
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 4, "High Luck", 3, "Tactical")
 doc_aliases(["Las Vegas Solitaire", "Three-Card Klondike"])
+doc_video("Y7oD9qvcFKw")
 doc_goal("Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain.")
 doc_zone(0, "Stock", "Click to turn up to 3 cards into the Waste; click when empty to recycle Waste.")
 doc_zone(1, "Waste", "Top card is available to play onto Foundations or Tableau.")

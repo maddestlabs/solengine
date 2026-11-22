@@ -22,6 +22,7 @@ demo_seeds = [2, 9, 25, 26, 33, 37, 41, 42]
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 3, "Moderate", 2, "Casual")
 doc_aliases(["Classic Solitaire", "Patience"])
+doc_video("Y7oD9qvcFKw")
 doc_goal("Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain.")
 doc_zone(0, "Stock", "Click to turn 1 card into the Waste; click when empty to recycle Waste.")
 doc_zone(1, "Waste", "Top card is available to play onto Foundations or Tableau.")

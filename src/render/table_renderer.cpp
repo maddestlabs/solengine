@@ -18,6 +18,7 @@
 #include "eatsbits/ui/glyph/vector_font.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/ui/base64.hpp"
+#include "stb_image.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -34,6 +35,10 @@
 #include <random>
 #ifdef _WIN32
 #include <windows.h>
+#include <shellapi.h>
+#if !defined(__EMSCRIPTEN__)
+#include <winhttp.h>
+#endif
 #include <io.h>
 #include <fcntl.h>
 #endif
@@ -207,18 +212,23 @@ ClockworkBarLayout computeClockworkBarLayout(
         layout.barH = static_cast<float>(kNumButtons) * orbSize + static_cast<float>(kNumButtons - 1) * orbGap + 2.0f * padY;
     }
 
+    const float marginLeft = margin + board.safeLeft();
+    const float marginRight = margin + board.safeRight();
+    const float marginTop = margin + board.safeTop();
+    const float marginBottom = margin + board.safeBottom();
+
     if (anchor == MenuAnchor::BottomLeft) {
-        layout.barX = margin;
-        layout.barY = height - margin - layout.barH;
+        layout.barX = marginLeft;
+        layout.barY = height - marginBottom - layout.barH;
     } else if (anchor == MenuAnchor::BottomRight) {
-        layout.barX = width - margin - layout.barW;
-        layout.barY = height - margin - layout.barH;
+        layout.barX = width - marginRight - layout.barW;
+        layout.barY = height - marginBottom - layout.barH;
     } else if (anchor == MenuAnchor::TopLeft) {
-        layout.barX = margin;
-        layout.barY = margin;
+        layout.barX = marginLeft;
+        layout.barY = marginTop;
     } else if (anchor == MenuAnchor::TopRight) {
-        layout.barX = width - margin - layout.barW;
-        layout.barY = margin;
+        layout.barX = width - marginRight - layout.barW;
+        layout.barY = marginTop;
     }
 
     // Ergonometric clearance: avoid overlapping bottom stock/waste piles if present
@@ -227,16 +237,20 @@ ClockworkBarLayout computeClockworkBarLayout(
             const bool stockOnRight = (board.piles()[0].x > width * 0.5f);
             if (!isVertical) {
                 if (anchor == MenuAnchor::BottomRight && stockOnRight) {
-                    layout.barY = std::max(6.0f, board.piles()[0].y - layout.barH - 8.0f);
+                    layout.barY = std::max(6.0f + board.safeTop(), board.piles()[0].y - layout.barH - 8.0f);
                 } else if (anchor == MenuAnchor::BottomLeft && !stockOnRight) {
-                    layout.barY = std::max(6.0f, board.piles()[0].y - layout.barH - 8.0f);
+                    layout.barY = std::max(6.0f + board.safeTop(), board.piles()[0].y - layout.barH - 8.0f);
                 }
             }
         }
     }
 
-    layout.barX = std::clamp(layout.barX, 4.0f, std::max(4.0f, width - layout.barW - 4.0f));
-    layout.barY = std::clamp(layout.barY, 4.0f, std::max(4.0f, height - layout.barH - 4.0f));
+    const float minBarX = 4.0f + board.safeLeft();
+    const float maxBarX = std::max(minBarX, width - layout.barW - 4.0f - board.safeRight());
+    const float minBarY = 4.0f + board.safeTop();
+    const float maxBarY = std::max(minBarY, height - layout.barH - 4.0f - board.safeBottom());
+    layout.barX = std::clamp(layout.barX, minBarX, maxBarX);
+    layout.barY = std::clamp(layout.barY, minBarY, maxBarY);
 
     layout.buttons.reserve(kNumButtons);
     for (int i = 0; i < kNumButtons; ++i) {
@@ -308,8 +322,12 @@ ClockworkBarLayout computeClockworkBarLayout(
         float pillX = isRight ? (layout.barX + layout.barW - padX - pillW) : (layout.barX + padX);
         float pillY = isTop ? (layout.barY + layout.barH - padY + gapY) : (layout.barY + padY - gapY - pillH);
 
-        pillX = std::clamp(pillX, 4.0f, std::max(4.0f, width - pillW - 4.0f));
-        pillY = std::clamp(pillY, 4.0f, std::max(4.0f, height - pillH - 4.0f));
+        const float minPillX = 4.0f + board.safeLeft();
+        const float maxPillX = std::max(minPillX, width - pillW - 4.0f - board.safeRight());
+        const float minPillY = 4.0f + board.safeTop();
+        const float maxPillY = std::max(minPillY, height - pillH - 4.0f - board.safeBottom());
+        pillX = std::clamp(pillX, minPillX, maxPillX);
+        pillY = std::clamp(pillY, minPillY, maxPillY);
 
         layout.buttons.push_back(HudButtonRect{
             BtnGameTitlePill,
@@ -340,7 +358,8 @@ std::vector<HudButtonRect> buildHudButtons(
 std::vector<HudButtonRect> buildTransportButtons(
     float width,
     float height,
-    const AutoPlayController& controller
+    const AutoPlayController& controller,
+    float safeBottom = 0.0f
 ) {
     std::vector<HudButtonRect> btns;
     if (!controller.isActive()) {
@@ -353,7 +372,7 @@ std::vector<HudButtonRect> buildTransportButtons(
     const float takeOverW = 90.0f;
     const float totalW = 5.0f * btnW + takeOverW + 5.0f * gap + 24.0f;
     const float barX = (width - totalW) * 0.5f;
-    const float barY = height - 52.0f;
+    const float barY = height - 52.0f - safeBottom;
 
     auto makeBtn = [](HudButtonId id, float x, float y, float w, float h, const char* label, SvgIconId iconId) -> HudButtonRect {
         return HudButtonRect{id, x, y, w, h, label, label, iconId};
@@ -395,10 +414,11 @@ int hitTestTransportButtons(
     float my,
     float width,
     float height,
-    const AutoPlayController& controller
+    const AutoPlayController& controller,
+    float safeBottom = 0.0f
 ) {
     if (!controller.isActive()) return BtnNone;
-    auto btns = buildTransportButtons(width, height, controller);
+    auto btns = buildTransportButtons(width, height, controller, safeBottom);
     for (const auto& b : btns) {
         if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
             return b.id;
@@ -1600,6 +1620,8 @@ struct HelpSidebarRect {
     float x{0.0f}, y{0.0f}, w{0.0f}, h{0.0f};
     float closeX{0.0f}, closeY{0.0f}, closeW{24.0f}, closeH{24.0f};
     float showMeX{0.0f}, showMeY{0.0f}, showMeW{64.0f}, showMeH{22.0f};
+    float fontIncX{0.0f}, fontIncY{0.0f}, fontIncW{24.0f}, fontIncH{22.0f};
+    float fontDecX{0.0f}, fontDecY{0.0f}, fontDecW{24.0f}, fontDecH{22.0f};
     bool isBottomSheet{false};
 };
 
@@ -1613,7 +1635,7 @@ HelpSidebarRect computeHelpSidebarRect(float width, float height) noexcept {
         r.x = 12.0f;
         r.y = height - r.h - 12.0f;
     } else {
-        r.w = std::min(320.0f, width * 0.31f);
+        r.w = std::min(350.0f, width * 0.34f);
         r.h = std::max(220.0f, height - 96.0f);
         r.x = width - r.w - 12.0f;
         r.y = 48.0f;
@@ -1622,6 +1644,10 @@ HelpSidebarRect computeHelpSidebarRect(float width, float height) noexcept {
     r.closeY = r.y + 8.0f;
     r.showMeX = r.closeX - 70.0f;
     r.showMeY = r.y + 9.0f;
+    r.fontIncX = r.showMeX - 28.0f;
+    r.fontIncY = r.y + 9.0f;
+    r.fontDecX = r.fontIncX - 26.0f;
+    r.fontDecY = r.y + 9.0f;
     return r;
 }
 
@@ -1770,10 +1796,11 @@ std::vector<ZoneDoc> resolveHelpZones(const SolitaireBoard& board) {
     return autoZones;
 }
 
-void drawTargetOutlineIcon(eatsbits::ui::BatchRenderer2D& r, float cx, float cy, float radius,
-                           float cr, float cg, float cb, float alpha = 0.95f) {
-    r.drawCircleOutline(cx, cy, radius, cr, cg, cb, alpha, 1.4f, 16);
-    r.drawCircle(cx, cy, radius * 0.40f, cr, cg, cb, alpha, 12);
+void drawInfoCircleIcon(eatsbits::ui::BatchRenderer2D& r, float cx, float cy, float radius,
+                        float cr, float cg, float cb, float alpha = 0.95f) {
+    r.drawCircleOutline(cx, cy, radius, cr, cg, cb, alpha, 1.3f, 16);
+    r.drawCircle(cx, cy - radius * 0.36f, std::max(1.0f, radius * 0.16f), cr, cg, cb, alpha, 10);
+    r.drawLine(cx, cy - radius * 0.08f, cx, cy + radius * 0.45f, cr, cg, cb, alpha, 1.35f);
 }
 
 std::vector<std::string> wrapHelpText(const std::string& text, float maxWidthPx, float fontSize) {
@@ -1795,6 +1822,25 @@ std::vector<std::string> wrapHelpText(const std::string& text, float maxWidthPx,
     return lines;
 }
 
+void openYouTubeVideo(const std::string& videoId) {
+    if (videoId.empty() || videoId.size() > 32) return;
+    for (unsigned char ch : videoId) {
+        if (!std::isalnum(ch) && ch != '-' && ch != '_') return;
+    }
+    const std::string url = "https://www.youtube.com/watch?v=" + videoId;
+#if defined(__EMSCRIPTEN__)
+    EM_ASM({ window.open(UTF8ToString($0), '_blank', 'noopener'); }, url.c_str());
+#elif defined(_WIN32)
+    ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+    std::string cmd = "open \"" + url + "\" &";
+    std::system(cmd.c_str());
+#else
+    std::string cmd = "xdg-open \"" + url + "\" >/dev/null 2>&1 &";
+    std::system(cmd.c_str());
+#endif
+}
+
 struct HelpZoneHit {
     uint8_t zoneIndex{0};
     float x{0.0f}, y{0.0f}, w{0.0f}, h{0.0f};
@@ -1805,8 +1851,11 @@ struct HelpSidebarLayout {
     float viewY{0.0f};
     float viewH{0.0f};
     float contentH{0.0f};
-    float analyzeX{0.0f}, analyzeY{0.0f}, analyzeW{0.0f}, analyzeH{20.0f};
-    float hintX{0.0f}, hintY{0.0f}, hintW{0.0f}, hintH{22.0f};
+    float videoX{0.0f}, videoY{0.0f}, videoW{0.0f}, videoH{0.0f};
+    float analyzeX{0.0f}, analyzeY{0.0f}, analyzeW{0.0f}, analyzeH{24.0f};
+    float hintX{0.0f}, hintY{0.0f}, hintW{0.0f}, hintH{26.0f};
+    float solvableX{0.0f}, solvableY{0.0f}, solvableW{0.0f}, solvableH{26.0f};
+    float gamesX{0.0f}, gamesY{0.0f}, gamesW{0.0f}, gamesH{26.0f};
     std::vector<HelpZoneHit> zoneHits;
 };
 
@@ -1815,12 +1864,19 @@ HelpSidebarLayout buildHelpSidebarLayout(
     float width,
     float height,
     float helpScrollY,
-    const HelpOddsInfo* odds
+    const HelpOddsInfo* odds,
+    bool hasVideoThumb = false
 ) {
     HelpSidebarLayout out{};
     out.sb = computeHelpSidebarRect(width, height);
     out.viewY = out.sb.y + 40.0f;
     out.viewH = std::max(40.0f, out.sb.h - 46.0f);
+
+    const float fs = std::clamp(SettingsManager::instance().settings().helpFontScale, 0.85f, 1.35f);
+    const float bodySize = 11.0f * fs;
+    const float titleSize = 11.5f * fs;
+    const float lineH = 16.0f * fs;
+    const float headerStep = 17.0f * fs;
 
     const auto& def = board.activeGameDef();
     const auto& manifest = board.docManifest();
@@ -1829,26 +1885,35 @@ HelpSidebarLayout buildHelpSidebarLayout(
     float cy = out.viewY + 4.0f - std::max(0.0f, helpScrollY);
     const float startCy = cy;
 
+    // 0. Optional Centered YouTube Thumbnail Card (only shown when thumbnail is ready)
+    if (hasVideoThumb && !manifest.videoId.empty()) {
+        out.videoW = std::min(240.0f, maxTextW);
+        out.videoH = std::round(out.videoW * (9.0f / 16.0f));
+        out.videoX = out.sb.x + (out.sb.w - out.videoW) * 0.5f;
+        out.videoY = cy;
+        cy += out.videoH + 10.0f;
+    }
+
     // 1. Optional Odds/Skill/Time section
     if (odds && odds->hasResults && !odds->running) {
-        cy += 45.0f; // 3 rows (Time, Odds, Skill)
+        cy += 3.0f * (17.0f * fs); // 3 rows (Time, Odds, Skill)
     }
     out.analyzeX = lx;
     out.analyzeY = cy;
-    out.analyzeW = std::min(190.0f, maxTextW);
-    out.analyzeH = 20.0f;
-    cy += 26.0f;
+    out.analyzeW = std::min(210.0f, maxTextW);
+    out.analyzeH = 24.0f;
+    cy += 30.0f;
 
     // 2. Decks & Wrapped Object / Defeat
-    cy += 15.0f; // DECKS
+    cy += headerStep; // DECKS
     const std::string& goalText = !manifest.winGoal.empty() ? manifest.winGoal : def.description;
     if (!goalText.empty()) {
-        auto objLines = wrapHelpText("OBJECT: " + goalText, maxTextW, 9.5f);
-        cy += static_cast<float>(objLines.size()) * 13.5f + 4.0f;
+        auto objLines = wrapHelpText("OBJECT: " + goalText, maxTextW, bodySize);
+        cy += static_cast<float>(objLines.size()) * lineH + 4.0f;
     }
     if (!manifest.loseGoal.empty()) {
-        auto loseLines = wrapHelpText("DEFEAT: " + manifest.loseGoal, maxTextW, 9.2f);
-        cy += static_cast<float>(loseLines.size()) * 13.0f + 4.0f;
+        auto loseLines = wrapHelpText("DEFEAT: " + manifest.loseGoal, maxTextW, bodySize);
+        cy += static_cast<float>(loseLines.size()) * lineH + 4.0f;
     }
     if (!goalText.empty() || !manifest.loseGoal.empty()) {
         cy += 2.0f;
@@ -1857,8 +1922,9 @@ HelpSidebarLayout buildHelpSidebarLayout(
     // 3. Zones
     const auto zones = resolveHelpZones(board);
     for (const auto& zd : zones) {
-        out.zoneHits.push_back({zd.zoneIndex, lx - 4.0f, cy - 2.0f, out.sb.w - 20.0f, 18.0f});
-        cy += 18.0f;
+        const float zRowH = std::max(20.0f, titleSize + 8.0f);
+        out.zoneHits.push_back({zd.zoneIndex, lx - 4.0f, cy - 2.0f, out.sb.w - 20.0f, zRowH});
+        cy += zRowH;
 
         float miniBottom = cy;
         float textW = maxTextW - 10.0f;
@@ -1868,20 +1934,20 @@ HelpSidebarLayout buildHelpSidebarLayout(
         }
         const auto& bullets = !zd.bullets.empty() ? zd.bullets : std::vector<std::string>{zd.description};
         for (const auto& bText : bullets) {
-            auto bLines = wrapHelpText(bText, textW, 9.2f);
-            cy += static_cast<float>(std::max<size_t>(1, bLines.size())) * 14.0f;
+            auto bLines = wrapHelpText(bText, textW, bodySize);
+            cy += static_cast<float>(std::max<size_t>(1, bLines.size())) * lineH;
         }
         cy = std::max(cy, miniBottom) + 6.0f;
     }
 
     // 4. Rules
     if (!manifest.rules.empty()) {
-        cy += 17.0f; // RULES: header
+        cy += 4.0f + headerStep; // RULES: header
         for (const auto& rd : manifest.rules) {
-            cy += 15.0f; // Rule title
+            cy += titleSize + 6.0f; // Rule title
             for (const auto& bText : rd.bullets) {
-                auto bLines = wrapHelpText(bText, maxTextW - 10.0f, 9.2f);
-                cy += static_cast<float>(std::max<size_t>(1, bLines.size())) * 13.5f;
+                auto bLines = wrapHelpText(bText, maxTextW - 10.0f, bodySize);
+                cy += static_cast<float>(std::max<size_t>(1, bLines.size())) * lineH;
             }
             cy += 4.0f;
         }
@@ -1889,40 +1955,53 @@ HelpSidebarLayout buildHelpSidebarLayout(
 
     // 5. Stats & Card Tags
     if (!manifest.stats.empty()) {
-        cy += 17.0f; // STATS: header
+        cy += 4.0f + headerStep; // STATS: header
         for (const auto& sd : manifest.stats) {
-            auto lines = wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, 9.0f);
-            cy += static_cast<float>(std::max<size_t>(1, lines.size())) * 13.5f;
+            auto lines = wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, bodySize);
+            cy += static_cast<float>(std::max<size_t>(1, lines.size())) * lineH;
         }
     }
     if (!manifest.tags.empty()) {
-        cy += 17.0f; // CARD TYPES: header
+        cy += 4.0f + headerStep; // CARD TYPES: header
         for (const auto& td : manifest.tags) {
-            auto lines = wrapHelpText(td.title + ": " + td.description, maxTextW, 9.0f);
-            cy += static_cast<float>(std::max<size_t>(1, lines.size())) * 13.5f;
+            auto lines = wrapHelpText(td.title + ": " + td.description, maxTextW, bodySize);
+            cy += static_cast<float>(std::max<size_t>(1, lines.size())) * lineH;
         }
     }
 
     // 5. Alternate Names
     const auto& alts = !manifest.alternateNames.empty() ? manifest.alternateNames : def.alternateNames;
     if (!alts.empty()) {
-        cy += 19.0f;
+        cy += 6.0f + headerStep;
         std::string joined;
         for (size_t i = 0; i < alts.size(); ++i) {
             if (i > 0) joined += ", ";
             joined += alts[i];
         }
-        auto aLines = wrapHelpText(joined, maxTextW, 9.0f);
-        cy += static_cast<float>(std::max<size_t>(1, aLines.size())) * 13.0f + 6.0f;
+        auto aLines = wrapHelpText(joined, maxTextW, bodySize);
+        cy += static_cast<float>(std::max<size_t>(1, aLines.size())) * lineH + 6.0f;
     }
 
-    // 6. Contextual Hint Button at bottom of Help Sidebar
-    cy += 4.0f;
+    // 6. Action Buttons at bottom of Help Sidebar (Hint, New Solvable, Games Library)
+    cy += 6.0f;
+    const float btnGap = 8.0f;
+    const float halfW = std::max(60.0f, (maxTextW - btnGap) * 0.5f);
     out.hintX = lx;
     out.hintY = cy;
-    out.hintW = std::min(150.0f, maxTextW);
-    out.hintH = 22.0f;
-    cy += 30.0f;
+    out.hintW = halfW;
+    out.hintH = 26.0f;
+
+    out.solvableX = lx + halfW + btnGap;
+    out.solvableY = cy;
+    out.solvableW = halfW;
+    out.solvableH = 26.0f;
+    cy += 32.0f;
+
+    out.gamesX = lx;
+    out.gamesY = cy;
+    out.gamesW = maxTextW;
+    out.gamesH = 26.0f;
+    cy += 34.0f;
 
     out.contentH = cy - startCy;
     return out;
@@ -1938,12 +2017,14 @@ void drawHelpSidebar(
     float helpScrollY,
     float mouseX,
     float mouseY,
-    const HelpOddsInfo* odds
+    const HelpOddsInfo* odds,
+    const HelpVideoThumb* videoThumb
 ) {
-    const HelpSidebarLayout rawHl = buildHelpSidebarLayout(board, width, height, 0.0f, odds);
+    const bool hasVideoThumb = (videoThumb && videoThumb->ready() && videoThumb->videoId == board.docManifest().videoId);
+    const HelpSidebarLayout rawHl = buildHelpSidebarLayout(board, width, height, 0.0f, odds, hasVideoThumb);
     const float maxScrollY = std::max(0.0f, rawHl.contentH - rawHl.viewH);
     const float clampedScrollY = std::clamp(helpScrollY, 0.0f, maxScrollY);
-    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, width, height, clampedScrollY, odds);
+    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, width, height, clampedScrollY, odds, hasVideoThumb);
     const HelpSidebarRect& sb = hl.sb;
     r.drawRoundedRectGradient(sb.x, sb.y, sb.w, sb.h, 8.0f,
                               pal.woodR0 * 0.92f, pal.woodG0 * 0.92f, pal.woodB0 * 0.92f,
@@ -1955,8 +2036,24 @@ void drawHelpSidebar(
     const float lx = sb.x + 12.0f;
     const float maxTextW = std::max(100.0f, sb.w - 28.0f);
 
+    const float fs = std::clamp(SettingsManager::instance().settings().helpFontScale, 0.85f, 1.35f);
+    const float bodySize = 11.0f * fs;
+    const float headerSize = 12.0f * fs;
+    const float titleSize = 11.5f * fs;
+    const float btnFontSize = 10.5f * fs;
+    const float lineH = 16.0f * fs;
+    const float headerStep = 17.0f * fs;
+
     // Header (fixed)
-    eatsbits::ui::glyph::drawVectorText(r, def.name.c_str(), lx, sb.y + 12.0f, 13.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+    eatsbits::ui::glyph::drawVectorText(r, def.name.c_str(), lx, sb.y + 11.0f, 14.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+    // Font size controls: A- / A+
+    r.drawRoundedRect(sb.fontDecX, sb.fontDecY, sb.fontDecW, sb.fontDecH, 4.0f, 0.20f, 0.18f, 0.15f, 0.90f, 2);
+    r.drawRoundedRectOutline(sb.fontDecX, sb.fontDecY, sb.fontDecW, sb.fontDecH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.65f, 1.0f, 2);
+    eatsbits::ui::glyph::drawVectorText(r, "A-", sb.fontDecX + 5.0f, sb.fontDecY + 5.5f, 9.5f, 0.92f, 0.90f, 0.84f, 1.0f);
+    r.drawRoundedRect(sb.fontIncX, sb.fontIncY, sb.fontIncW, sb.fontIncH, 4.0f, 0.20f, 0.18f, 0.15f, 0.90f, 2);
+    r.drawRoundedRectOutline(sb.fontIncX, sb.fontIncY, sb.fontIncW, sb.fontIncH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.65f, 1.0f, 2);
+    eatsbits::ui::glyph::drawVectorText(r, "A+", sb.fontIncX + 5.0f, sb.fontIncY + 5.5f, 9.5f, 0.92f, 0.90f, 0.84f, 1.0f);
+
     r.drawRoundedRect(sb.showMeX, sb.showMeY, sb.showMeW, sb.showMeH, 4.0f, 0.16f, 0.34f, 0.24f, 0.92f, 2);
     r.drawRoundedRectOutline(sb.showMeX, sb.showMeY, sb.showMeW, sb.showMeH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.0f, 2);
     eatsbits::ui::glyph::drawVectorText(r, "SHOW ME", sb.showMeX + 7.0f, sb.showMeY + 5.5f, 9.5f, 0.94f, 0.96f, 0.88f, 1.0f);
@@ -1970,13 +2067,37 @@ void drawHelpSidebar(
         auto scissor = r.makeScissorScope(sb.x + 2.0f, hl.viewY, sb.w - 4.0f, hl.viewH);
         float cy = hl.viewY + 4.0f - clampedScrollY;
 
+        // 0. Optional Centered YouTube Thumbnail Card (only shown when thumbnail is ready)
+        if (hasVideoThumb) {
+            const bool vHov = (mouseX >= hl.videoX && mouseX <= hl.videoX + hl.videoW &&
+                               mouseY >= cy && mouseY <= cy + hl.videoH &&
+                               mouseY >= hl.viewY && mouseY <= hl.viewY + hl.viewH);
+            r.drawRgbaBitmap(hl.videoX, cy, hl.videoW, hl.videoH,
+                             videoThumb->rgba.data(), videoThumb->width, videoThumb->height,
+                             vHov ? 1.0f : 0.94f);
+            r.drawRoundedRectOutline(hl.videoX, cy, hl.videoW, hl.videoH, 4.0f,
+                                     vHov ? pal.accentR : pal.trimR, vHov ? pal.accentG : pal.trimG, vHov ? pal.accentB : pal.trimB,
+                                     vHov ? 0.95f : 0.70f, vHov ? 1.6f : 1.1f, 3);
+            // Centered YouTube play button overlay
+            const float badgeW = 42.0f;
+            const float badgeH = 28.0f;
+            const float badgeX = hl.videoX + (hl.videoW - badgeW) * 0.5f;
+            const float badgeY = cy + (hl.videoH - badgeH) * 0.5f;
+            r.drawRoundedRect(badgeX, badgeY, badgeW, badgeH, 7.0f,
+                              vHov ? 0.92f : 0.80f, 0.12f, 0.12f, vHov ? 0.96f : 0.86f, 2);
+            const float px = badgeX + 16.0f;
+            const float py = badgeY + 7.5f;
+            r.drawTriangle(px, py, px, py + 13.0f, px + 12.0f, py + 6.5f, 0.98f, 0.98f, 0.98f, 1.0f);
+            cy += hl.videoH + 10.0f;
+        }
+
         // 1. On-Demand Solver Odds / Skill / Time
         if (odds && odds->hasResults && !odds->running) {
             auto drawStatRow = [&](const char* lbl, uint8_t rating, const std::string& valTxt) {
-                eatsbits::ui::glyph::drawVectorText(r, lbl, lx, cy + 1.0f, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
-                drawPipMeter(r, lx + 56.0f, cy, rating, pal);
-                eatsbits::ui::glyph::drawVectorText(r, valTxt.c_str(), lx + 118.0f, cy + 1.0f, 9.5f, 0.92f, 0.90f, 0.84f, 0.95f);
-                cy += 15.0f;
+                eatsbits::ui::glyph::drawVectorText(r, lbl, lx, cy + 1.0f, bodySize, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+                drawPipMeter(r, lx + 64.0f * fs, cy + 1.0f, rating, pal);
+                eatsbits::ui::glyph::drawVectorText(r, valTxt.c_str(), lx + 126.0f * fs, cy + 1.0f, bodySize, 0.92f, 0.90f, 0.84f, 0.95f);
+                cy += 17.0f * fs;
             };
             drawStatRow("TIME:", odds->timeRating, odds->timeLabel);
             drawStatRow("ODDS:", odds->oddsRating, odds->oddsLabel);
@@ -1987,14 +2108,14 @@ void drawHelpSidebar(
             r.drawRoundedRectOutline(hl.analyzeX, cy, hl.analyzeW, hl.analyzeH, 4.0f, pal.accentR, pal.accentG, pal.accentB, 0.80f, 1.0f, 2);
             char prog[64];
             std::snprintf(prog, sizeof(prog), "CANCEL (%u/%u)", odds->completedSeeds, odds->totalSeeds);
-            eatsbits::ui::glyph::drawVectorText(r, prog, hl.analyzeX + 8.0f, cy + 5.0f, 9.2f, 0.98f, 0.90f, 0.84f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, prog, hl.analyzeX + 8.0f, cy + 6.0f, btnFontSize, 0.98f, 0.90f, 0.84f, 1.0f);
         } else {
             r.drawRoundedRect(hl.analyzeX, cy, hl.analyzeW, hl.analyzeH, 4.0f, 0.18f, 0.24f, 0.30f, 0.92f, 2);
             r.drawRoundedRectOutline(hl.analyzeX, cy, hl.analyzeW, hl.analyzeH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.65f, 1.0f, 2);
             const char* lbl = (odds && odds->hasResults) ? "RE-ANALYZE ODDS" : "ANALYZE ODDS";
-            eatsbits::ui::glyph::drawVectorText(r, lbl, hl.analyzeX + 8.0f, cy + 5.0f, 9.2f, 0.92f, 0.94f, 0.96f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, lbl, hl.analyzeX + 8.0f, cy + 6.0f, btnFontSize, 0.92f, 0.94f, 0.96f, 1.0f);
         }
-        cy += 26.0f;
+        cy += 30.0f;
 
         // 2. Decks & Word-Wrapped Object
         char deckBuf[48];
@@ -2005,21 +2126,21 @@ void drawHelpSidebar(
         } else {
             std::snprintf(deckBuf, sizeof(deckBuf), "DECKS: %u", static_cast<unsigned>(std::max<uint8_t>(1, def.decks)));
         }
-        eatsbits::ui::glyph::drawVectorText(r, deckBuf, lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
-        cy += 15.0f;
+        eatsbits::ui::glyph::drawVectorText(r, deckBuf, lx, cy, headerSize, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+        cy += headerStep;
 
         const std::string& goalText = !manifest.winGoal.empty() ? manifest.winGoal : def.description;
         if (!goalText.empty()) {
-            for (const auto& line : wrapHelpText("OBJECT: " + goalText, maxTextW, 9.5f)) {
-                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.5f, 0.94f, 0.91f, 0.84f, 0.95f);
-                cy += 13.5f;
+            for (const auto& line : wrapHelpText("OBJECT: " + goalText, maxTextW, bodySize)) {
+                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, bodySize, 0.94f, 0.91f, 0.84f, 0.95f);
+                cy += lineH;
             }
             cy += 4.0f;
         }
         if (!manifest.loseGoal.empty()) {
-            for (const auto& line : wrapHelpText("DEFEAT: " + manifest.loseGoal, maxTextW, 9.2f)) {
-                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.2f, 0.95f, 0.68f, 0.62f, 0.95f);
-                cy += 13.0f;
+            for (const auto& line : wrapHelpText("DEFEAT: " + manifest.loseGoal, maxTextW, bodySize)) {
+                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, bodySize, 0.95f, 0.68f, 0.62f, 0.95f);
+                cy += lineH;
             }
             cy += 4.0f;
         }
@@ -2027,19 +2148,20 @@ void drawHelpSidebar(
             cy += 2.0f;
         }
 
-        // 3. Zones with ◎ outline icon, mini-card previews, and word-wrapped [[term]] bullets
+        // 3. Zones with ⓘ outline icon, mini-card previews, and word-wrapped [[term]] bullets
         const auto zones = resolveHelpZones(board);
         for (size_t i = 0; i < zones.size(); ++i) {
             const auto& zd = zones[i];
+            const float zRowH = std::max(20.0f, titleSize + 8.0f);
             const bool isHi = (highlightedHelpZone == static_cast<int>(zd.zoneIndex));
             if (isHi) {
-                r.drawRoundedRect(lx - 4.0f, cy - 2.0f, sb.w - 20.0f, 18.0f, 3.0f, pal.accentR, pal.accentG, pal.accentB, 0.24f, 2);
+                r.drawRoundedRect(lx - 4.0f, cy - 2.0f, sb.w - 20.0f, zRowH, 3.0f, pal.accentR, pal.accentG, pal.accentB, 0.24f, 2);
             }
-            drawTargetOutlineIcon(r, lx + 5.0f, cy + 6.5f, 4.8f,
-                                  isHi ? 1.0f : pal.accentR, isHi ? 0.96f : pal.accentG, isHi ? 0.72f : pal.accentB);
-            eatsbits::ui::glyph::drawVectorText(r, zd.title.c_str(), lx + 15.0f, cy + 1.5f, 10.0f,
+            drawInfoCircleIcon(r, lx + 6.0f, cy + titleSize * 0.55f + 1.0f, 5.5f,
+                               isHi ? 1.0f : pal.accentR, isHi ? 0.96f : pal.accentG, isHi ? 0.72f : pal.accentB);
+            eatsbits::ui::glyph::drawVectorText(r, zd.title.c_str(), lx + 16.0f, cy + 1.5f, titleSize,
                                                 isHi ? 1.0f : pal.accentR, isHi ? 0.96f : pal.accentG, isHi ? 0.72f : pal.accentB, 1.0f);
-            cy += 18.0f;
+            cy += zRowH;
 
             float textX = lx + 10.0f;
             float textW = maxTextW - 10.0f;
@@ -2053,15 +2175,15 @@ void drawHelpSidebar(
 
             const auto& bullets = !zd.bullets.empty() ? zd.bullets : std::vector<std::string>{zd.description};
             for (const auto& bText : bullets) {
-                auto bLines = wrapHelpText(bText, textW, 9.2f);
+                auto bLines = wrapHelpText(bText, textW, bodySize);
                 if (bLines.empty()) bLines.push_back("");
                 for (size_t li = 0; li < bLines.size(); ++li) {
                     if (li == 0) {
-                        eatsbits::ui::glyph::drawVectorText(r, "-", textX - 7.0f, cy, 9.2f, 0.85f, 0.82f, 0.74f, 0.9f);
+                        eatsbits::ui::glyph::drawVectorText(r, "-", textX - 7.0f, cy, bodySize, 0.85f, 0.82f, 0.74f, 0.9f);
                     }
-                    drawHelpRichLine(r, bLines[li], textX, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f,
+                    drawHelpRichLine(r, bLines[li], textX, cy, bodySize, 0.90f, 0.87f, 0.80f, 0.95f,
                                      pal, mouseX, mouseY, hl.viewY, hl.viewH, hoveredGlossaryTerm);
-                    cy += 14.0f;
+                    cy += lineH;
                 }
             }
             cy = std::max(cy, miniBottom) + 6.0f;
@@ -2070,21 +2192,21 @@ void drawHelpSidebar(
         // 4. Rules (How to Play / Card Resolution)
         if (!manifest.rules.empty()) {
             cy += 4.0f;
-            eatsbits::ui::glyph::drawVectorText(r, "RULES:", lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
-            cy += 13.0f;
+            eatsbits::ui::glyph::drawVectorText(r, "RULES:", lx, cy, headerSize, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+            cy += headerStep;
             for (const auto& rd : manifest.rules) {
-                eatsbits::ui::glyph::drawVectorText(r, rd.title.c_str(), lx, cy, 9.5f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
-                cy += 15.0f;
+                eatsbits::ui::glyph::drawVectorText(r, rd.title.c_str(), lx, cy, titleSize, pal.accentR, pal.accentG, pal.accentB, 1.0f);
+                cy += titleSize + 6.0f;
                 for (const auto& bText : rd.bullets) {
-                    auto bLines = wrapHelpText(bText, maxTextW - 10.0f, 9.2f);
+                    auto bLines = wrapHelpText(bText, maxTextW - 10.0f, bodySize);
                     if (bLines.empty()) bLines.push_back("");
                     for (size_t li = 0; li < bLines.size(); ++li) {
                         if (li == 0) {
-                            eatsbits::ui::glyph::drawVectorText(r, "-", lx + 3.0f, cy, 9.2f, 0.85f, 0.82f, 0.74f, 0.9f);
+                            eatsbits::ui::glyph::drawVectorText(r, "-", lx + 3.0f, cy, bodySize, 0.85f, 0.82f, 0.74f, 0.9f);
                         }
-                        drawHelpRichLine(r, bLines[li], lx + 10.0f, cy, 9.2f, 0.90f, 0.87f, 0.80f, 0.95f,
+                        drawHelpRichLine(r, bLines[li], lx + 10.0f, cy, bodySize, 0.90f, 0.87f, 0.80f, 0.95f,
                                          pal, mouseX, mouseY, hl.viewY, hl.viewH, hoveredGlossaryTerm);
-                        cy += 13.5f;
+                        cy += lineH;
                     }
                 }
                 cy += 4.0f;
@@ -2094,29 +2216,29 @@ void drawHelpSidebar(
         // 5. Stats & Card Tags
         if (!manifest.stats.empty()) {
             cy += 4.0f;
-            eatsbits::ui::glyph::drawVectorText(r, "STATS:", lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
-            cy += 13.0f;
+            eatsbits::ui::glyph::drawVectorText(r, "STATS:", lx, cy, headerSize, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+            cy += headerStep;
             for (const auto& sd : manifest.stats) {
-                auto lines = wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, 9.0f);
+                auto lines = wrapHelpText(sd.title + " (" + sd.key + "): " + sd.description, maxTextW, bodySize);
                 if (lines.empty()) lines.push_back("");
                 for (const auto& line : lines) {
-                    drawHelpRichLine(r, line, lx, cy, 9.0f, 0.65f, 0.88f, 0.95f, 0.92f,
+                    drawHelpRichLine(r, line, lx, cy, bodySize, 0.65f, 0.88f, 0.95f, 0.92f,
                                      pal, mouseX, mouseY, hl.viewY, hl.viewH, hoveredGlossaryTerm);
-                    cy += 13.5f;
+                    cy += lineH;
                 }
             }
         }
         if (!manifest.tags.empty()) {
             cy += 4.0f;
-            eatsbits::ui::glyph::drawVectorText(r, "CARD TYPES:", lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
-            cy += 13.0f;
+            eatsbits::ui::glyph::drawVectorText(r, "CARD TYPES:", lx, cy, headerSize, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+            cy += headerStep;
             for (const auto& td : manifest.tags) {
-                auto lines = wrapHelpText(td.title + ": " + td.description, maxTextW, 9.0f);
+                auto lines = wrapHelpText(td.title + ": " + td.description, maxTextW, bodySize);
                 if (lines.empty()) lines.push_back("");
                 for (const auto& line : lines) {
-                    drawHelpRichLine(r, line, lx, cy, 9.0f, 0.95f, 0.78f, 0.62f, 0.92f,
+                    drawHelpRichLine(r, line, lx, cy, bodySize, 0.95f, 0.78f, 0.62f, 0.92f,
                                      pal, mouseX, mouseY, hl.viewY, hl.viewH, hoveredGlossaryTerm);
-                    cy += 13.5f;
+                    cy += lineH;
                 }
             }
         }
@@ -2125,25 +2247,39 @@ void drawHelpSidebar(
         const auto& alts = !manifest.alternateNames.empty() ? manifest.alternateNames : def.alternateNames;
         if (!alts.empty()) {
             cy += 6.0f;
-            eatsbits::ui::glyph::drawVectorText(r, "ALTERNATE NAMES:", lx, cy, 9.5f, pal.trimR, pal.trimG, pal.trimB, 0.95f);
-            cy += 13.0f;
+            eatsbits::ui::glyph::drawVectorText(r, "ALTERNATE NAMES:", lx, cy, headerSize, pal.trimR, pal.trimG, pal.trimB, 0.95f);
+            cy += headerStep;
             std::string joined;
             for (size_t i = 0; i < alts.size(); ++i) {
                 if (i > 0) joined += ", ";
                 joined += alts[i];
             }
-            for (const auto& line : wrapHelpText(joined, maxTextW, 9.0f)) {
-                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, 9.0f, 0.88f, 0.85f, 0.78f, 0.90f);
-                cy += 13.0f;
+            for (const auto& line : wrapHelpText(joined, maxTextW, bodySize)) {
+                eatsbits::ui::glyph::drawVectorText(r, line.c_str(), lx, cy, bodySize, 0.88f, 0.85f, 0.78f, 0.90f);
+                cy += lineH;
             }
             cy += 6.0f;
         }
 
-        // 6. Contextual Hint Button at bottom of Help Sidebar
-        cy += 4.0f;
-        r.drawRoundedRect(hl.hintX, cy, hl.hintW, hl.hintH, 4.0f, 0.24f, 0.20f, 0.14f, 0.94f, 2);
-        r.drawRoundedRectOutline(hl.hintX, cy, hl.hintW, hl.hintH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.75f, 1.1f, 2);
-        eatsbits::ui::glyph::drawVectorText(r, "HINT [H]", hl.hintX + 12.0f, cy + 6.0f, 10.0f, pal.trimR, pal.trimG, pal.trimB, 1.0f);
+        // 6. Action Buttons at bottom of Help Sidebar (Hint, New Solvable, Games Library)
+        cy += 6.0f;
+        auto drawSidebarBtn = [&](float bx, float by, float bw, float bh, const char* label,
+                                  float bgR, float bgG, float bgB, float txtR, float txtG, float txtB) {
+            bool hov = (mouseX >= bx && mouseX <= bx + bw && mouseY >= by && mouseY <= by + bh &&
+                        mouseY >= hl.viewY && mouseY <= hl.viewY + hl.viewH);
+            r.drawRoundedRect(bx, by, bw, bh, 4.0f, bgR + (hov ? 0.06f : 0.0f), bgG + (hov ? 0.05f : 0.0f), bgB + (hov ? 0.04f : 0.0f), 0.95f, 2);
+            r.drawRoundedRectOutline(bx, by, bw, bh, 4.0f, hov ? pal.accentR : pal.trimR, hov ? pal.accentG : pal.trimG, hov ? pal.accentB : pal.trimB, 0.80f, 1.1f, 2);
+            float tw = eatsbits::ui::glyph::getVectorTextWidth(10.5f, label);
+            eatsbits::ui::glyph::drawVectorText(r, label, bx + (bw - tw) * 0.5f, by + (bh - 10.5f) * 0.5f, 10.5f, txtR, txtG, txtB, 1.0f);
+        };
+
+        drawSidebarBtn(hl.hintX, cy, hl.hintW, hl.hintH, "HINT [H]",
+                       0.24f, 0.20f, 0.14f, pal.trimR, pal.trimG, pal.trimB);
+        drawSidebarBtn(hl.solvableX, cy, hl.solvableW, hl.solvableH, "NEW SOLVABLE",
+                       0.16f, 0.28f, 0.22f, 0.92f, 0.96f, 0.88f);
+        cy += 32.0f;
+        drawSidebarBtn(hl.gamesX, cy, hl.gamesW, hl.gamesH, "GAMES LIBRARY",
+                       0.20f, 0.22f, 0.28f, pal.accentR, pal.accentG, pal.accentB);
     }
 
     // Subtle vertical scrollbar indicator when content overflows
@@ -3119,7 +3255,8 @@ void TableRenderer::renderBoard(
     float dragGrabLocalY,
     const float* dragChainAngles,
     size_t dragChainCount,
-    const std::vector<GhostCardCue>* ghostCards
+    const std::vector<GhostCardCue>* ghostCards,
+    const HelpVideoThumb* helpVideoThumb
 ) {
     const ThemePalette pal = getPalette(board.tableTheme());
     // Overhead table illumination: dynamic swaying light or centered static default
@@ -3200,8 +3337,8 @@ void TableRenderer::renderBoard(
             }
         }
         const float teleLen = static_cast<float>(std::strlen(botTelemetry)) * 6.2f;
-        const float teleX = std::max(12.0f, (width - teleLen) * 0.5f);
-        eatsbits::ui::glyph::drawVectorText(r, botTelemetry, teleX, height - 16.0f, 11.5f,
+        const float teleX = std::max(12.0f + board.safeLeft(), (width - teleLen) * 0.5f);
+        eatsbits::ui::glyph::drawVectorText(r, botTelemetry, teleX, height - 16.0f - board.safeBottom(), 11.5f,
                                             pal.trimR, pal.trimG, pal.trimB, 0.52f);
     }
 
@@ -3924,7 +4061,7 @@ void TableRenderer::renderBoard(
 
     // 9. Floating Auto-Play Transport Bar
     if (autoPlay && autoPlay->isActive()) {
-        auto tBtns = buildTransportButtons(width, height, *autoPlay);
+        auto tBtns = buildTransportButtons(width, height, *autoPlay, board.safeBottom());
         drawTransportBar(r, width, height, *autoPlay, tBtns, hoveredButtonId, pal, light);
     }
     } else if (screensaverMode) {
@@ -3935,7 +4072,7 @@ void TableRenderer::renderBoard(
         const float pillW = txtW + 24.0f;
         const float pillH = 24.0f;
         const float pillX = (width - pillW) * 0.5f;
-        const float pillY = height - pillH - 14.0f;
+        const float pillY = height - pillH - 14.0f - board.safeBottom();
         r.drawRoundedRect(pillX, pillY, pillW, pillH, pillH * 0.5f, 0.05f, 0.04f, 0.03f, 0.45f, 6);
         r.drawRoundedRectOutline(pillX, pillY, pillW, pillH, pillH * 0.5f,
                                  pal.accentR, pal.accentG, pal.accentB, 0.35f, 1.0f, 6);
@@ -3945,7 +4082,7 @@ void TableRenderer::renderBoard(
 
     // 10. Responsive Help Sidebar
     if (helpOpen) {
-        drawHelpSidebar(r, board, width, height, pal, highlightedHelpZone, helpScrollY, helpMouseX, helpMouseY, helpOdds);
+        drawHelpSidebar(r, board, width, height, pal, highlightedHelpZone, helpScrollY, helpMouseX, helpMouseY, helpOdds, helpVideoThumb);
     }
 }
 
@@ -4395,6 +4532,11 @@ static bool s_webResizePending = false;
 static uint32_t s_webPendingCssW = 0;
 static uint32_t s_webPendingCssH = 0;
 static float s_webPendingDpr = 1.0f;
+static bool s_webSafeAreaPending = false;
+static float s_webPendingSafeTop = 0.0f;
+static float s_webPendingSafeRight = 0.0f;
+static float s_webPendingSafeBottom = 0.0f;
+static float s_webPendingSafeLeft = 0.0f;
 #endif
 
 struct InteractiveContext {
@@ -4482,6 +4624,211 @@ struct InteractiveContext {
 #if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
     std::thread oddsThread;
 #endif
+
+    HelpVideoThumb helpVideoThumb{};
+    std::string videoThumbRequestedId;
+    std::mutex videoThumbMutex;
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
+    std::thread videoThumbThread;
+#endif
+
+    static std::string getVideoThumbCachePath(const std::string& videoId) {
+        std::filesystem::path dir;
+#if defined(_WIN32)
+        if (const char* appdata = std::getenv("APPDATA")) {
+            dir = std::filesystem::path(appdata) / "SolEngine" / "cache";
+        }
+#else
+        if (const char* home = std::getenv("HOME")) {
+            dir = std::filesystem::path(home) / ".config" / "solengine" / "cache";
+        }
+#endif
+        if (dir.empty()) {
+            dir = std::filesystem::path("cache");
+        }
+        return (dir / ("yt_" + videoId + ".jpg")).string();
+    }
+
+    static bool isValidYouTubeId(const std::string& videoId) {
+        if (videoId.empty() || videoId.size() > 32) return false;
+        for (unsigned char ch : videoId) {
+            if (!std::isalnum(ch) && ch != '-' && ch != '_') return false;
+        }
+        return true;
+    }
+
+    static bool decodeThumbBytes(const uint8_t* bytes, size_t len, const std::string& videoId, HelpVideoThumb& out) {
+        if (!bytes || len == 0) return false;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* pixels = stbi_load_from_memory(bytes, static_cast<int>(len), &w, &h, &comp, 4);
+        if (!pixels || w <= 0 || h <= 0) {
+            if (pixels) stbi_image_free(pixels);
+            return false;
+        }
+        out.videoId = videoId;
+        out.width = w;
+        out.height = h;
+        out.rgba.assign(pixels, pixels + static_cast<size_t>(w) * static_cast<size_t>(h) * 4u);
+        stbi_image_free(pixels);
+        return true;
+    }
+
+    static bool fetchYouTubeThumbBytes(const std::string& videoId, std::vector<uint8_t>& outBytes) {
+        outBytes.clear();
+#if defined(_WIN32) && !defined(__EMSCRIPTEN__)
+        HINTERNET hSession = WinHttpOpen(L"SolEngine/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (!hSession) return false;
+        WinHttpSetTimeouts(hSession, 3500, 3500, 3500, 4500);
+        HINTERNET hConnect = WinHttpConnect(hSession, L"i.ytimg.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+        if (!hConnect) {
+            WinHttpCloseHandle(hSession);
+            return false;
+        }
+        std::wstring path = L"/vi/";
+        for (char c : videoId) path.push_back(static_cast<wchar_t>(c));
+        path += L"/mqdefault.jpg";
+        HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), nullptr,
+                                                WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                                WINHTTP_FLAG_SECURE);
+        bool ok = false;
+        if (hRequest &&
+            WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+            WinHttpReceiveResponse(hRequest, nullptr)) {
+            DWORD statusCode = 0;
+            DWORD statusLen = sizeof(statusCode);
+            if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                    WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusLen, WINHTTP_NO_HEADER_INDEX) &&
+                statusCode == 200) {
+                constexpr size_t kMaxBytes = 512u * 1024u;
+                DWORD avail = 0;
+                while (WinHttpQueryDataAvailable(hRequest, &avail) && avail > 0) {
+                    if (outBytes.size() + avail > kMaxBytes) {
+                        outBytes.clear();
+                        break;
+                    }
+                    const size_t prevSize = outBytes.size();
+                    outBytes.resize(prevSize + avail);
+                    DWORD read = 0;
+                    if (!WinHttpReadData(hRequest, outBytes.data() + prevSize, avail, &read)) {
+                        outBytes.clear();
+                        break;
+                    }
+                    outBytes.resize(prevSize + read);
+                }
+                ok = !outBytes.empty();
+            }
+        }
+        if (hRequest) WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return ok;
+#elif !defined(__EMSCRIPTEN__)
+        const std::string cmd = "curl -fsSL --max-time 4 \"https://i.ytimg.com/vi/" + videoId + "/mqdefault.jpg\"";
+        FILE* pipe = popen(cmd.c_str(), "r");
+        if (!pipe) return false;
+        uint8_t buf[4096];
+        size_t n = 0;
+        constexpr size_t kMaxBytes = 512u * 1024u;
+        while ((n = std::fread(buf, 1, sizeof(buf), pipe)) > 0) {
+            if (outBytes.size() + n > kMaxBytes) {
+                outBytes.clear();
+                break;
+            }
+            outBytes.insert(outBytes.end(), buf, buf + n);
+        }
+        const int rc = pclose(pipe);
+        return (rc == 0 && !outBytes.empty());
+#else
+        (void)videoId;
+        return false;
+#endif
+    }
+
+    void cancelVideoThumb() {
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
+        if (videoThumbThread.joinable()) {
+            videoThumbThread.join();
+        }
+#endif
+    }
+
+    void ensureHelpVideoThumb(const std::string& videoId, const std::string& base64Fallback) {
+        if (!isValidYouTubeId(videoId)) {
+            if (!videoThumbRequestedId.empty()) {
+                cancelVideoThumb();
+                std::lock_guard<std::mutex> lk(videoThumbMutex);
+                helpVideoThumb = {};
+                videoThumbRequestedId.clear();
+            }
+            return;
+        }
+        if (videoThumbRequestedId == videoId) {
+            return;
+        }
+        cancelVideoThumb();
+        {
+            std::lock_guard<std::mutex> lk(videoThumbMutex);
+            helpVideoThumb = {};
+            videoThumbRequestedId = videoId;
+        }
+        if (!base64Fallback.empty()) {
+            std::vector<uint8_t> raw = eatsbits::ui::base64Decode(base64Fallback);
+            HelpVideoThumb decoded;
+            if (decodeThumbBytes(raw.data(), raw.size(), videoId, decoded)) {
+                std::lock_guard<std::mutex> lk(videoThumbMutex);
+                helpVideoThumb = std::move(decoded);
+                return;
+            }
+        }
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
+        videoThumbThread = std::thread([this, videoId]() {
+            const std::string cachePath = getVideoThumbCachePath(videoId);
+            std::vector<uint8_t> jpgBytes;
+            {
+                std::ifstream ifs(cachePath, std::ios::binary | std::ios::ate);
+                if (ifs.is_open()) {
+                    const std::streamsize sz = ifs.tellg();
+                    if (sz > 0 && sz <= 512 * 1024) {
+                        jpgBytes.resize(static_cast<size_t>(sz));
+                        ifs.seekg(0);
+                        if (!ifs.read(reinterpret_cast<char*>(jpgBytes.data()), sz)) {
+                            jpgBytes.clear();
+                        }
+                    }
+                }
+            }
+            HelpVideoThumb decoded;
+            if (!jpgBytes.empty() && decodeThumbBytes(jpgBytes.data(), jpgBytes.size(), videoId, decoded)) {
+                std::lock_guard<std::mutex> lk(videoThumbMutex);
+                if (videoThumbRequestedId == videoId) {
+                    helpVideoThumb = std::move(decoded);
+                }
+                return;
+            }
+            if (fetchYouTubeThumbBytes(videoId, jpgBytes) &&
+                decodeThumbBytes(jpgBytes.data(), jpgBytes.size(), videoId, decoded)) {
+                try {
+                    std::filesystem::create_directories(std::filesystem::path(cachePath).parent_path());
+                    std::ofstream ofs(cachePath, std::ios::binary);
+                    if (ofs.is_open()) {
+                        ofs.write(reinterpret_cast<const char*>(jpgBytes.data()),
+                                  static_cast<std::streamsize>(jpgBytes.size()));
+                    }
+                } catch (...) {}
+                std::lock_guard<std::mutex> lk(videoThumbMutex);
+                if (videoThumbRequestedId == videoId) {
+                    helpVideoThumb = std::move(decoded);
+                }
+            }
+        });
+#endif
+    }
+
+    bool hasHelpVideoThumb() {
+        std::lock_guard<std::mutex> lk(videoThumbMutex);
+        return helpVideoThumb.ready() && helpVideoThumb.videoId == board.docManifest().videoId;
+    }
 
     void cancelOddsAnalysis() {
         oddsCancel.store(true);
@@ -6339,6 +6686,18 @@ struct InteractiveContext {
         }
 
 #if defined(__EMSCRIPTEN__)
+        bool needsBoardLayout = false;
+        if (s_webSafeAreaPending) {
+            s_webSafeAreaPending = false;
+            if (std::abs(board.safeTop() - s_webPendingSafeTop) > 0.5f ||
+                std::abs(board.safeRight() - s_webPendingSafeRight) > 0.5f ||
+                std::abs(board.safeBottom() - s_webPendingSafeBottom) > 0.5f ||
+                std::abs(board.safeLeft() - s_webPendingSafeLeft) > 0.5f) {
+                board.setSafeAreaInsets(s_webPendingSafeTop, s_webPendingSafeRight,
+                                        s_webPendingSafeBottom, s_webPendingSafeLeft);
+                needsBoardLayout = true;
+            }
+        }
         if (s_webResizePending) {
             s_webResizePending = false;
             int targetW = std::max(320, static_cast<int>(s_webPendingCssW));
@@ -6378,8 +6737,11 @@ struct InteractiveContext {
 
                 renderer.setRenderScale(currentDpr, currentDpr);
                 renderer.resize(fbWidth, fbHeight);
-                board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                needsBoardLayout = true;
             }
+        }
+        if (needsBoardLayout) {
+            board.computeLayout(static_cast<float>(width), static_cast<float>(height));
         }
 #else
         if (fixedDt <= 0.0f) {
@@ -6413,7 +6775,7 @@ struct InteractiveContext {
 
         int hoveredBtn = screensaverActive ? BtnNone : hitTestHudButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), board, menuAnchor, menuFlowVertical);
         if (!screensaverActive && autoPlayController.isActive()) {
-            int tBtn = hitTestTransportButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), autoPlayController);
+            int tBtn = hitTestTransportButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), autoPlayController, board.safeBottom());
             if (tBtn != BtnNone) {
                 hoveredBtn = tBtn;
             }
@@ -6561,7 +6923,7 @@ struct InteractiveContext {
                 prevHelpMouseY = fmy;
                 HelpOddsInfo oddsSnap;
                 { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
-                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap);
+                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasHelpVideoThumb());
                 int hoveredZ = -1;
                 if (fmx >= hl.sb.x && fmx <= hl.sb.x + hl.sb.w && fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
                     for (const auto& zh : hl.zoneHits) {
@@ -6592,7 +6954,7 @@ struct InteractiveContext {
             if (helpOpen && [&]() {
                 HelpOddsInfo oddsSnap;
                 { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
-                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap);
+                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasHelpVideoThumb());
                 const HelpSidebarRect& sb = hl.sb;
                 if (fmx < sb.x || fmx > sb.x + sb.w || fmy < sb.y || fmy > sb.y + sb.h) return false;
                 if (fmx >= sb.closeX && fmx <= sb.closeX + sb.closeW && fmy >= sb.closeY && fmy <= sb.closeY + sb.closeH) {
@@ -6608,6 +6970,20 @@ struct InteractiveContext {
                 if (fmx >= sb.showMeX && fmx <= sb.showMeX + sb.showMeW && fmy >= sb.showMeY && fmy <= sb.showMeY + sb.showMeH) {
                     autoPlayController.startDemo(board);
                     foley.triggerSound(FoleySound::Flip, 0.85f);
+                    return true;
+                }
+                if (fmx >= sb.fontDecX && fmx <= sb.fontDecX + sb.fontDecW && fmy >= sb.fontDecY && fmy <= sb.fontDecY + sb.fontDecH) {
+                    auto& s = SettingsManager::instance().settings();
+                    s.helpFontScale = std::clamp(s.helpFontScale - 0.05f, 0.85f, 1.35f);
+                    SettingsManager::instance().save();
+                    foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                    return true;
+                }
+                if (fmx >= sb.fontIncX && fmx <= sb.fontIncX + sb.fontIncW && fmy >= sb.fontIncY && fmy <= sb.fontIncY + sb.fontIncH) {
+                    auto& s = SettingsManager::instance().settings();
+                    s.helpFontScale = std::clamp(s.helpFontScale + 0.05f, 0.85f, 1.35f);
+                    SettingsManager::instance().save();
+                    foley.triggerSound(FoleySound::WoodClick, 0.75f);
                     return true;
                 }
                 if (fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
@@ -6775,7 +7151,7 @@ struct InteractiveContext {
         } else if (leftDown && helpOpen && (helpPointerDown || helpDraggingScrollbar)) {
             HelpOddsInfo oddsSnap;
             { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
-            const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap);
+            const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasHelpVideoThumb());
             helpMaxScrollY = std::max(0.0f, hl.contentH - hl.viewH);
             if (helpDraggingScrollbar && helpMaxScrollY > 1.0f) {
                 const float trackY = hl.viewY + 4.0f;
@@ -6798,14 +7174,24 @@ struct InteractiveContext {
                 if (helpOpen && !helpDraggingScroll && !helpDraggingScrollbar) {
                     HelpOddsInfo oddsSnap;
                     { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
-                    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap);
+                    const bool hasThumb = hasHelpVideoThumb();
+                    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasThumb);
                     if (fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
-                        if (fmx >= hl.analyzeX && fmx <= hl.analyzeX + hl.analyzeW && fmy >= hl.analyzeY && fmy <= hl.analyzeY + hl.analyzeH) {
+                        if (hasThumb &&
+                            fmx >= hl.videoX && fmx <= hl.videoX + hl.videoW &&
+                            fmy >= hl.videoY && fmy <= hl.videoY + hl.videoH) {
+                            openYouTubeVideo(board.docManifest().videoId);
+                            foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                        } else if (fmx >= hl.analyzeX && fmx <= hl.analyzeX + hl.analyzeW && fmy >= hl.analyzeY && fmy <= hl.analyzeY + hl.analyzeH) {
                             if (oddsSnap.running) cancelOddsAnalysis();
                             else startOddsAnalysis();
                             foley.triggerSound(FoleySound::WoodClick, 0.85f);
                         } else if (fmx >= hl.hintX && fmx <= hl.hintX + hl.hintW && fmy >= hl.hintY && fmy <= hl.hintY + hl.hintH) {
                             triggerAction(BtnHint);
+                        } else if (fmx >= hl.solvableX && fmx <= hl.solvableX + hl.solvableW && fmy >= hl.solvableY && fmy <= hl.solvableY + hl.solvableH) {
+                            triggerAction(BtnSolvableDeal);
+                        } else if (fmx >= hl.gamesX && fmx <= hl.gamesX + hl.gamesW && fmy >= hl.gamesY && fmy <= hl.gamesY + hl.gamesH) {
+                            triggerAction(BtnVariant);
                         } else {
                             for (const auto& zh : hl.zoneHits) {
                                 if (fmx >= zh.x && fmx <= zh.x + zh.w && fmy >= zh.y && fmy <= zh.y + zh.h) {
@@ -7597,6 +7983,12 @@ struct InteractiveContext {
 
             HelpOddsInfo oddsSnap;
             { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
+            HelpVideoThumb videoSnap;
+            if (helpOpen) {
+                ensureHelpVideoThumb(board.docManifest().videoId, board.docManifest().videoThumbBase64);
+                std::lock_guard<std::mutex> lk(videoThumbMutex);
+                videoSnap = helpVideoThumb;
+            }
             const int activeHighlightZone = helpOpen
                 ? highlightedHelpZone
                 : (directorState.active ? directorState.highlightZone : -1);
@@ -7616,7 +8008,8 @@ struct InteractiveContext {
                                        screensaverActive, &showcaseCam, directorHideHud,
                                        dragPivotAngle, dragGrabLocalX, dragGrabLocalY,
                                        dragChainCount > 0 ? dragChainAngles.data() : nullptr, dragChainCount,
-                                       activeGhostCards.empty() ? nullptr : &activeGhostCards);
+                                       activeGhostCards.empty() ? nullptr : &activeGhostCards,
+                                       helpOpen ? &videoSnap : nullptr);
             if (activeCfg.godRaysIntensity > 0.005f || activeCfg.dustMotesIntensity > 0.005f) {
                 renderer.drawSceneAtmospherePass(static_cast<float>(width), static_cast<float>(height));
             }
@@ -7869,7 +8262,8 @@ int TableRenderer::runInteractiveWindow(
                 static_cast<float>(s_activeContext->width),
                 static_cast<float>(s_activeContext->height),
                 0.0f,
-                &oddsSnap
+                &oddsSnap,
+                s_activeContext->hasHelpVideoThumb()
             );
             s_activeContext->helpMaxScrollY = std::max(0.0f, hl.contentH - hl.viewH);
             s_activeContext->helpScrollY = std::clamp(
@@ -7920,6 +8314,30 @@ int TableRenderer::runInteractiveWindow(
         CardTextureCache::instance().buildGpuAtlas(ctx.renderer);
     }
 
+#if defined(__EMSCRIPTEN__)
+    double initSafeTop = EM_ASM_DOUBLE({
+        if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') return 0.0;
+        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 0.0;
+    });
+    double initSafeRight = EM_ASM_DOUBLE({
+        if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') return 0.0;
+        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sar')) || 0.0;
+    });
+    double initSafeBottom = EM_ASM_DOUBLE({
+        if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') return 0.0;
+        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sab')) || 0.0;
+    });
+    double initSafeLeft = EM_ASM_DOUBLE({
+        if (typeof getComputedStyle === 'undefined' || typeof document === 'undefined') return 0.0;
+        return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sal')) || 0.0;
+    });
+    board.setSafeAreaInsets(
+        static_cast<float>(initSafeTop),
+        static_cast<float>(initSafeRight),
+        static_cast<float>(initSafeBottom),
+        static_cast<float>(initSafeLeft)
+    );
+#endif
     board.computeLayout(static_cast<float>(width), static_cast<float>(height));
     ctx.lastTime = glfwGetTime();
 
@@ -7941,8 +8359,18 @@ int TableRenderer::runInteractiveWindow(
                 var w = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 1280);
                 var h = (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 720);
                 var dpr = window.devicePixelRatio || 1.0;
-                if (typeof Module !== 'undefined' && Module._solengine_on_web_resize) {
-                    Module._solengine_on_web_resize(Math.round(w), Math.round(h), dpr);
+                if (typeof Module !== 'undefined') {
+                    if (Module._solengine_on_web_safe_area && typeof getComputedStyle !== 'undefined') {
+                        var cs = getComputedStyle(document.documentElement);
+                        var sat = parseFloat(cs.getPropertyValue('--sat')) || 0.0;
+                        var sar = parseFloat(cs.getPropertyValue('--sar')) || 0.0;
+                        var sab = parseFloat(cs.getPropertyValue('--sab')) || 0.0;
+                        var sal = parseFloat(cs.getPropertyValue('--sal')) || 0.0;
+                        Module._solengine_on_web_safe_area(sat, sar, sab, sal);
+                    }
+                    if (Module._solengine_on_web_resize) {
+                        Module._solengine_on_web_resize(Math.round(w), Math.round(h), dpr);
+                    }
                 }
             };
             if (typeof ResizeObserver !== 'undefined') {
@@ -7952,6 +8380,9 @@ int TableRenderer::runInteractiveWindow(
                 }
             }
             window.addEventListener('resize', notifyResize);
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', notifyResize);
+            }
             notifyResize();
         }
     });
@@ -8205,6 +8636,7 @@ int TableRenderer::runInteractiveWindow(
     }
 
     ctx.cancelOddsAnalysis();
+    ctx.cancelVideoThumb();
     ctx.renderer.shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();
@@ -8269,6 +8701,15 @@ void solengine_on_web_resize(int cssW, int cssH, double dpr) {
         solengine::s_webPendingDpr = (dpr > 0.0) ? static_cast<float>(dpr) : 1.0f;
         solengine::s_webResizePending = true;
     }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void solengine_on_web_safe_area(double top, double right, double bottom, double left) {
+    solengine::s_webPendingSafeTop = std::max(0.0f, static_cast<float>(top));
+    solengine::s_webPendingSafeRight = std::max(0.0f, static_cast<float>(right));
+    solengine::s_webPendingSafeBottom = std::max(0.0f, static_cast<float>(bottom));
+    solengine::s_webPendingSafeLeft = std::max(0.0f, static_cast<float>(left));
+    solengine::s_webSafeAreaPending = true;
 }
 #else
 void solengine_set_search_query(const char* text) {
