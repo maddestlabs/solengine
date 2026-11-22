@@ -1,23 +1,6 @@
 # =============================================================================
 # SolEngine Game Variant: Scorpion (.eats)
 # =============================================================================
-name = "Scorpion"
-family = "Spider"
-category = "SPIDER"
-layout = "columns"
-description = "Yukon-meets-Spider. Build down in suit; any face-up stack moves; Kings only to empty spaces."
-decks = 1
-tableaus = 7
-foundations = 4
-freecells = 0
-tableau_deal_counts = [7, 7, 7, 7, 7, 7, 7]
-tableau_all_face_up = False
-foundation_starter_card = False
-stock_deal_mode = "deal_to_all_columns"
-stock_deal_count = 3
-max_redeals = 0
-demo_seed = 2
-demo_seeds = [2, 28, 33, 36, 37, 42, 77, 89]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 3, "Moderate", 4, "Strategic")
@@ -131,3 +114,31 @@ def get_status():
     if done == 4:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "scorpion",
+    name: "Scorpion",
+    family: "Spider",
+    category: "SPIDER",
+    layout: "columns",
+    description: "Yukon-meets-Spider. Build down in suit; any face-up stack moves; Kings only to empty spaces.",
+    decks: 1,
+    tableaus: 7,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [7, 7, 7, 7, 7, 7, 7],
+    tableau_all_face_up: False,
+    foundation_starter_card: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 3,
+    max_redeals: 0,
+    demo_seed: 2,
+    demo_seeds: [2, 28, 33, 36, 37, 42, 77, 89],
+    eval_heuristic: eval_heuristic,
+    on_deal: on_deal,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    on_stock_click: on_stock_click,
+    on_turn_end: on_turn_end,
+    get_status: get_status
+})

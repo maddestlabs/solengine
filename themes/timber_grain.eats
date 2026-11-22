@@ -1,7 +1,7 @@
 # SolEngine Procedural Background Theme — Timber Grain
 # Pure Eatscript Bytecode Shader: Anisotropic 6-octave hash grain with HSV hue variation (no baked lighting)
 
-sol.set_theme({
+sol.define_theme({
     id: "timber_grain",
     name: "Timber Grain",
     author: "Maddest Labs",

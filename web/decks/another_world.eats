@@ -1,6 +1,6 @@
 # SolEngine Deck Recipe — Another World Low-Poly
 
-sol.set_theme({
+sol.define_deck({
     id: "another_world",
     name: "Another World Low-Poly",
     author: "SolEngine",

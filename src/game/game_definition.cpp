@@ -1,4 +1,5 @@
 #include "solengine/game_definition.hpp"
+#include "solengine/eats_package_loader.hpp"
 #include "solengine/settings_manager.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
 #include <filesystem>
@@ -445,6 +446,10 @@ void GameRegistry::scanDirectory(const std::string& gamesDir) {
         if (!entry.is_regular_file(ec)) continue;
         const auto ext = entry.path().extension().string();
         if (ext == ".eats") {
+            EatsLoadResult pkgRes;
+            if (EatsPackageLoader::loadFile(entry.path().string(), pkgRes) && !pkgRes.gameIds.empty()) {
+                continue;
+            }
             SolitaireGameDef def{};
             if (loadGameFile(entry.path().string(), def)) {
                 registerGame(def);
@@ -660,13 +665,57 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
 }
 
 void GameRegistry::registerGame(const SolitaireGameDef& def) {
+    SolitaireGameDef entry = def;
+    for (const auto& s : series_) {
+        for (size_t idx = 0; idx < s.gameIds.size(); ++idx) {
+            if (s.gameIds[idx] == entry.id) {
+                if (entry.seriesId.empty()) entry.seriesId = s.id;
+                if (entry.seriesName.empty()) entry.seriesName = s.name;
+                if (entry.seriesOrder == 0) entry.seriesOrder = static_cast<int32_t>(idx + 1);
+                if (entry.defaultPresetId.empty() && !s.presetId.empty()) entry.defaultPresetId = s.presetId;
+                break;
+            }
+        }
+    }
     for (auto& g : games_) {
-        if (g.id == def.id || g.name == def.name) {
-            g = def;
+        if ((!entry.id.empty() && g.id == entry.id) || (entry.id.empty() && g.name == entry.name)) {
+            g = entry;
             return;
         }
     }
-    games_.push_back(def);
+    games_.push_back(std::move(entry));
+}
+
+void GameRegistry::registerSeries(const GameSeriesDef& series) {
+    if (series.id.empty()) return;
+    bool updated = false;
+    for (auto& s : series_) {
+        if (s.id == series.id) {
+            s = series;
+            updated = true;
+            break;
+        }
+    }
+    if (!updated) {
+        series_.push_back(series);
+    }
+    for (size_t idx = 0; idx < series.gameIds.size(); ++idx) {
+        for (auto& g : games_) {
+            if (g.id == series.gameIds[idx]) {
+                if (g.seriesId.empty()) g.seriesId = series.id;
+                if (g.seriesName.empty()) g.seriesName = series.name;
+                if (g.seriesOrder == 0) g.seriesOrder = static_cast<int32_t>(idx + 1);
+                if (g.defaultPresetId.empty() && !series.presetId.empty()) g.defaultPresetId = series.presetId;
+            }
+        }
+    }
+}
+
+const GameSeriesDef* GameRegistry::findSeriesById(const std::string& id) const noexcept {
+    for (const auto& s : series_) {
+        if (s.id == id) return &s;
+    }
+    return nullptr;
 }
 
 const SolitaireGameDef* GameRegistry::findById(const std::string& id) const noexcept {
@@ -702,10 +751,13 @@ std::vector<SolitaireGameDef> GameRegistry::search(const std::string& query, con
 #else
             continue;
 #endif
+        } else if (cat == "series") {
+            if (g.seriesId.empty()) continue;
         } else if (cat != "all" && !cat.empty()) {
             std::string gCat = toLowerStr(g.category);
             std::string gFam = toLowerStr(g.family);
-            if (gCat != cat && gFam != cat) continue;
+            std::string gSer = toLowerStr(g.seriesName);
+            if (gCat != cat && gFam != cat && gSer != cat && toLowerStr(g.seriesId) != cat) continue;
         }
         if (q.empty()) {
             results.push_back(g);
@@ -713,6 +765,7 @@ std::vector<SolitaireGameDef> GameRegistry::search(const std::string& query, con
         }
         if (toLowerStr(g.name).find(q) != std::string::npos ||
             toLowerStr(g.family).find(q) != std::string::npos ||
+            toLowerStr(g.seriesName).find(q) != std::string::npos ||
             toLowerStr(g.description).find(q) != std::string::npos) {
             results.push_back(g);
         }
@@ -724,6 +777,9 @@ std::vector<std::string> GameRegistry::categories() const {
     std::vector<std::string> cats;
     cats.push_back("ALL");
     cats.push_back("FAVORITES");
+    if (!series_.empty()) {
+        cats.push_back("SERIES");
+    }
     cats.push_back("POPULAR");
     cats.push_back("SPIDER");
     cats.push_back("GOLF");

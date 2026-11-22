@@ -1,6 +1,6 @@
 # SolEngine Deck Recipe — Classic Victorian
 
-sol.set_theme({
+sol.define_deck({
     id: "classic",
     name: "Classic Victorian",
     author: "Public Domain CC0",

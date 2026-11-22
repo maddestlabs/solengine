@@ -3,7 +3,7 @@
 # Dual LFO-swept resonant wind gusts with low atmospheric pressure bed.
 # ==============================================================================
 
-ambience.define_environment({
+sol.define_ambience({
     id: "wind",
     name: "Wind",
     master_gain: 1.0,

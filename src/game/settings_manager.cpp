@@ -1,4 +1,5 @@
 #include "solengine/settings_manager.hpp"
+#include "solengine/eats_package_loader.hpp"
 #include "solengine/json_parser.hpp"
 #include "solengine/solitaire_board.hpp"
 #include "solengine/game_definition.hpp"
@@ -910,6 +911,10 @@ void SettingsManager::loadPresets(const std::string& presetsDir) {
         }
         std::sort(files.begin(), files.end());
         for (const auto& fp : files) {
+            EatsLoadResult pkgRes;
+            if (EatsPackageLoader::loadFile(fp.string(), pkgRes) && !pkgRes.presetIds.empty()) {
+                continue;
+            }
             ScenePreset sp;
             if (parsePresetEatsFile(fp.string(), isBuiltin, sp)) {
                 auto it = std::find_if(presets_.begin(), presets_.end(), [&](const ScenePreset& x) { return x.id == sp.id; });
@@ -950,50 +955,59 @@ const ScenePreset* SettingsManager::findPreset(const std::string& presetId) cons
     return nullptr;
 }
 
+void SettingsManager::registerPreset(const ScenePreset& preset) {
+    if (preset.id.empty()) return;
+    for (auto& p : presets_) {
+        if (p.id == preset.id) {
+            p = preset;
+            return;
+        }
+    }
+    presets_.push_back(preset);
+}
+
 namespace {
 void writePresetEatsFile(const std::filesystem::path& fp, const ScenePreset& sp) {
 #if !defined(__EMSCRIPTEN__)
     std::ofstream ofs(fp);
     if (!ofs.is_open()) return;
     const auto& profile = sp.profile;
-    ofs << "# SolEngine User Preset (.eats)\n";
-    ofs << "id = \"" << sp.id << "\"\n";
-    ofs << "name = \"" << sp.name << "\"\n";
-    ofs << "description = \"" << sp.description << "\"\n\n";
-    if (profile.deckSlug) ofs << "deck_slug = \"" << *profile.deckSlug << "\"\n";
-    if (profile.deckTheme) ofs << "deck_theme = " << static_cast<int>(*profile.deckTheme) << "\n";
-    if (profile.lowPolySeed) ofs << "low_poly_seed = " << *profile.lowPolySeed << "\n";
-    if (profile.cardBackId) ofs << "card_back = \"" << *profile.cardBackId << "\"\n";
-    if (profile.cardWear) ofs << "card_wear = " << static_cast<int>(*profile.cardWear) << "\n";
-    if (profile.cardStock) ofs << "card_stock = " << static_cast<int>(*profile.cardStock) << "\n";
-    if (profile.cardCorners) ofs << "card_corners = " << static_cast<int>(*profile.cardCorners) << "\n";
-    if (profile.cardDeviation) ofs << "card_deviation = " << *profile.cardDeviation << "\n";
-    if (profile.tableTheme) ofs << "table_theme = " << static_cast<int>(*profile.tableTheme) << "\n";
-    if (profile.tableThemeSlug) ofs << "table_theme_slug = \"" << *profile.tableThemeSlug << "\"\n";
-    if (profile.tableThemeOption) ofs << "table_theme_option = \"" << *profile.tableThemeOption << "\"\n";
+    ofs << "# SolEngine User Preset (.eats)\n\n";
+    ofs << "sol.define_preset({\n";
+    ofs << "    id: \"" << sp.id << "\",\n";
+    ofs << "    name: \"" << sp.name << "\",\n";
+    ofs << "    description: \"" << sp.description << "\"";
+    if (profile.deckSlug) ofs << ",\n    deck: \"" << *profile.deckSlug << "\"";
+    if (profile.cardBackId) ofs << ",\n    card_back: \"" << *profile.cardBackId << "\"";
+    if (profile.cardWear) ofs << ",\n    card_wear: " << static_cast<int>(*profile.cardWear);
+    if (profile.cardStock) ofs << ",\n    card_stock: " << static_cast<int>(*profile.cardStock);
+    if (profile.cardCorners) ofs << ",\n    card_corners: " << static_cast<int>(*profile.cardCorners);
+    if (profile.cardDeviation) ofs << ",\n    card_deviation: " << *profile.cardDeviation;
+    if (profile.tableThemeSlug) ofs << ",\n    theme: \"" << *profile.tableThemeSlug << "\"";
     if (profile.tableTint) {
         const auto* ti = getTableTintInfo(*profile.tableTint);
-        ofs << "table_tint = \"" << (ti ? ti->id : "auto") << "\"\n";
+        ofs << ",\n    table_tint: \"" << (ti ? ti->id : "auto") << "\"";
     }
-    if (profile.postFxId) ofs << "postfx_id = \"" << *profile.postFxId << "\"\n";
-    if (profile.postFxOption) ofs << "postfx_option = \"" << *profile.postFxOption << "\"\n";
-    if (profile.postFxIntensity) ofs << "postfx_intensity = " << *profile.postFxIntensity << "\n";
-    if (profile.showTableMarkings) ofs << "show_table_markings = " << (*profile.showTableMarkings ? "true" : "false") << "\n";
-    if (profile.lightingPreset) ofs << "lighting_preset = " << static_cast<int>(*profile.lightingPreset) << "\n";
-    if (profile.lightAngle) ofs << "light_angle = " << static_cast<int>(*profile.lightAngle) << "\n";
-    if (profile.shadowGobo) ofs << "shadow_gobo = " << static_cast<int>(*profile.shadowGobo) << "\n";
-    if (profile.lightWaver) ofs << "light_waver = " << *profile.lightWaver << "\n";
-    if (profile.lightWaverSpeed) ofs << "light_waver_speed = " << *profile.lightWaverSpeed << "\n";
-    if (profile.lightFlicker) ofs << "light_flicker = " << *profile.lightFlicker << "\n";
-    if (profile.goboSoftness) ofs << "gobo_softness = " << *profile.goboSoftness << "\n";
-    if (profile.cloudOpacity) ofs << "cloud_opacity = " << *profile.cloudOpacity << "\n";
-    if (profile.godRaysIntensity) ofs << "god_rays = " << *profile.godRaysIntensity << "\n";
-    if (profile.dustMotesIntensity) ofs << "dust_motes = " << *profile.dustMotesIntensity << "\n";
-    if (profile.sceneDarkness) ofs << "scene_darkness = " << *profile.sceneDarkness << "\n";
-    if (profile.lightStrength) ofs << "light_strength = " << *profile.lightStrength << "\n";
-    if (profile.soundPackId) ofs << "sound_pack = \"" << *profile.soundPackId << "\"\n";
-    if (profile.ambienceId) ofs << "ambience = \"" << *profile.ambienceId << "\"\n";
-    if (profile.ambienceVolume) ofs << "ambience_volume = " << *profile.ambienceVolume << "\n";
+    if (profile.postFxId) ofs << ",\n    postfx: \"" << *profile.postFxId << "\"";
+    if (profile.postFxIntensity) ofs << ",\n    postfx_intensity: " << *profile.postFxIntensity;
+    if (profile.showTableMarkings) ofs << ",\n    show_table_markings: " << (*profile.showTableMarkings ? "true" : "false");
+    if (profile.soundPackId) ofs << ",\n    sound_pack: \"" << *profile.soundPackId << "\"";
+    if (profile.ambienceId) ofs << ",\n    ambience: \"" << *profile.ambienceId << "\"";
+    if (profile.ambienceVolume) ofs << ",\n    ambience_volume: " << *profile.ambienceVolume;
+    ofs << ",\n    lighting: {\n";
+    ofs << "        preset: " << (profile.lightingPreset ? static_cast<int>(*profile.lightingPreset) : 6);
+    if (profile.lightAngle) ofs << ",\n        angle: " << static_cast<int>(*profile.lightAngle);
+    if (profile.shadowGobo) ofs << ",\n        shadow_gobo: " << static_cast<int>(*profile.shadowGobo);
+    if (profile.lightWaver) ofs << ",\n        waver: " << *profile.lightWaver;
+    if (profile.lightWaverSpeed) ofs << ",\n        waver_speed: " << *profile.lightWaverSpeed;
+    if (profile.lightFlicker) ofs << ",\n        flicker: " << *profile.lightFlicker;
+    if (profile.goboSoftness) ofs << ",\n        gobo_softness: " << *profile.goboSoftness;
+    if (profile.cloudOpacity) ofs << ",\n        cloud_opacity: " << *profile.cloudOpacity;
+    if (profile.godRaysIntensity) ofs << ",\n        god_rays: " << *profile.godRaysIntensity;
+    if (profile.dustMotesIntensity) ofs << ",\n        dust_motes: " << *profile.dustMotesIntensity;
+    if (profile.sceneDarkness) ofs << ",\n        scene_darkness: " << *profile.sceneDarkness;
+    if (profile.lightStrength) ofs << ",\n        light_strength: " << *profile.lightStrength;
+    ofs << "\n    }\n})\n";
 #else
     (void)fp;
     (void)sp;

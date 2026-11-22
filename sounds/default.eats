@@ -4,21 +4,28 @@
 # Zero audio samples, zero .wav files — 100% mathematical physics.
 # ==============================================================================
 
-audio.set_master_volume(0.85)
-audio.set_master_variance(1.0) # 1.0 = organic physical realism, 0.0 = deterministic
+def configure():
+    audio.set_master_volume(0.85)
+    audio.set_master_variance(1.0) # 1.0 = organic physical realism, 0.0 = deterministic
 
-# Physical DSP acoustic synthesis parameters:
-# - velvet_density: discrete micro-fiber collision impulses per second (3500 - 6000)
-# - edge_snap: sub-millisecond Dirac edge transient crispness (0.0 to 1.5)
-# - air_boost: high-shelf acoustic presence boost in dB (8kHz - 14kHz)
-# - comb_delay: card edge aperture comb dispersion phase cancellation in seconds
-# - felt_damping: lowpass absorption window ceiling in Hz
-# - card_rigidity: card flexion resonance in Hz
-audio.set_physical_params({
-    velvet_density: 4400.0,
-    edge_snap:      0.90,
-    air_boost:      5.5,
-    comb_delay:     0.00018,
-    felt_damping:   7500.0,
-    card_rigidity:  3200.0
+    # Physical DSP acoustic synthesis parameters:
+    # - velvet_density: discrete micro-fiber collision impulses per second (3500 - 6000)
+    # - edge_snap: sub-millisecond Dirac edge transient crispness (0.0 to 1.5)
+    # - air_boost: high-shelf acoustic presence boost in dB (8kHz - 14kHz)
+    # - comb_delay: card edge aperture comb dispersion phase cancellation in seconds
+    # - felt_damping: lowpass absorption window ceiling in Hz
+    # - card_rigidity: card flexion resonance in Hz
+    audio.set_physical_params({
+        velvet_density: 4400.0,
+        edge_snap:      0.90,
+        air_boost:      5.5,
+        comb_delay:     0.00018,
+        felt_damping:   7500.0,
+        card_rigidity:  3200.0
+    })
+
+sol.define_sound_pack({
+    id: "default",
+    name: "Default",
+    configure: configure
 })

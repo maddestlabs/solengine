@@ -3,7 +3,7 @@
 # Rustling canopy leaves, forest stillness, and sparse procedural bird chirps.
 # ==============================================================================
 
-ambience.define_environment({
+sol.define_ambience({
     id: "woodlands",
     name: "Woodlands",
     master_gain: 1.0,

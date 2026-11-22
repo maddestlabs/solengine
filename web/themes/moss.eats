@@ -1,7 +1,7 @@
 # SolEngine Procedural Background Theme — Moss
 # Pure Eatscript Bytecode Shader: Coastal velvety cushion moss, lichen, and damp earth terrain
 
-sol.set_theme({
+sol.define_theme({
     id: "moss",
     name: "Moss",
     author: "Maddest Labs",

@@ -1,23 +1,6 @@
 # =============================================================================
 # SolEngine Game Variant: Russian Solitaire (.eats)
 # =============================================================================
-name = "Russian Solitaire"
-family = "Yukon"
-category = "POPULAR"
-layout = "columns"
-description = "Challenging Yukon sibling. Any face-up stack moves, but tableau builds strictly by SAME SUIT."
-decks = 1
-tableaus = 7
-foundations = 4
-freecells = 0
-tableau_deal_counts = [1, 6, 7, 8, 9, 10, 11]
-tableau_all_face_up = False
-foundation_starter_card = False
-stock_deal_mode = "none"
-stock_deal_count = 0
-max_redeals = 0
-demo_seed = 7
-demo_seeds = [7, 43, 55, 58, 71, 85, 106, 144]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 2, "Low Luck", 5, "Master")
@@ -93,3 +76,29 @@ def get_status():
     if total == 52:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "russian_solitaire",
+    name: "Russian Solitaire",
+    family: "Yukon",
+    category: "POPULAR",
+    layout: "columns",
+    description: "Challenging Yukon sibling. Any face-up stack moves, but tableau builds strictly by SAME SUIT.",
+    decks: 1,
+    tableaus: 7,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [1, 6, 7, 8, 9, 10, 11],
+    tableau_all_face_up: False,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 7,
+    demo_seeds: [7, 43, 55, 58, 71, 85, 106, 144],
+    eval_heuristic: eval_heuristic,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    on_turn_end: on_turn_end,
+    get_status: get_status
+})

@@ -3,26 +3,6 @@
 # =============================================================================
 # Fast-paced waste-elimination solitaire with adjacent-rank stacking rules.
 
-name = "Golf"
-family = "Golf"
-category = "GOLF"
-layout = "columns"
-description = "Fast-paced elimination solitaire. Stack cards +-1 rank onto foundation waste; Kings are dead ends."
-decks = 1
-tableaus = 7
-foundations = 1
-freecells = 0
-
-tableau_deal_counts = [5, 5, 5, 5, 5, 5, 5]
-tableau_all_face_up = True
-foundation_starter_card = True
-
-stock_deal_mode = "deal_to_foundation"
-stock_deal_count = 1
-max_redeals = 0
-demo_seed = 16
-demo_seeds = [16, 28, 40, 44, 45, 82, 141, 145]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(1, "Fast", 4, "High Luck", 2, "Casual")
 doc_aliases(["Golf Patience"])
@@ -89,3 +69,31 @@ def get_status():
     if rem == 0:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "golf",
+    name: "Golf",
+    family: "Golf",
+    category: "GOLF",
+    layout: "columns",
+    description: "Fast-paced elimination solitaire. Stack cards +-1 rank onto foundation waste; Kings are dead ends.",
+    decks: 1,
+    tableaus: 7,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [5, 5, 5, 5, 5, 5, 5],
+    tableau_all_face_up: True,
+    foundation_starter_card: True,
+    stock_deal_mode: "deal_to_foundation",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 16,
+    demo_seeds: [16, 28, 40, 44, 45, 82, 141, 145],
+    eval_heuristic: eval_heuristic,
+    on_deal: on_deal,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    on_card_click: on_card_click,
+    on_stock_click: on_stock_click,
+    get_status: get_status
+})

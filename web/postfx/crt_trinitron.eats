@@ -1,5 +1,5 @@
 # SolEngine Post-FX — Trinitron CRT
-sol.set_postfx({
+sol.define_postfx({
     id: "crt_trinitron",
     name: "Trinitron CRT",
     author: "Maddest Labs",

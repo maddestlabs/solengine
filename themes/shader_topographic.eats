@@ -1,7 +1,7 @@
 # SolEngine Custom Background Theme — Topographic Map
 # Cartographic contour elevation isolines over warm explorer parchment with dark ink contour lines
 
-sol.set_theme({
+sol.define_theme({
     id: "shader_topographic",
     name: "Topographic Map",
     author: "SolEngine / Eatscript",

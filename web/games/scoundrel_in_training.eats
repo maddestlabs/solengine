@@ -6,24 +6,6 @@
 # while preserving core Scoundrel rules: 1 potion per Room, <= CAP durability,
 # barehanded vs. armed combat, Room carryover, and Fleeing.
 
-name = "Scoundrel in Training"
-family = "Scoundrel"
-category = "RPG"
-layout = "columns"
-description = "52-card beginner Scoundrel. Includes Red Court weapons & potions (11-14) with standard Scoundrel rules."
-decks = 1
-tableaus = 4
-foundations = 1
-freecells = 0
-tableau_deal_counts = [1, 1, 1, 1]
-tableau_all_face_up = True
-foundation_starter_card = False
-stock_deal_mode = "none"
-stock_deal_count = 1
-max_redeals = 0
-demo_seed = 17
-demo_seeds = [17, 18, 19, 21, 22, 30, 33, 45]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(1, "Quick", 4, "55%-85%", 2, "Tactical")
 doc_aliases(["Scoundrel Easy", "52-Card Scoundrel", "Dungeon Solitaire Easy"])
@@ -227,3 +209,33 @@ def get_status():
     if zone_size(0) == 0 and room_card_count() == 0:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "scoundrel_in_training",
+    name: "Scoundrel in Training",
+    family: "Scoundrel",
+    category: "RPG",
+    layout: "columns",
+    description: "52-card beginner Scoundrel. Includes Red Court weapons & potions (11-14) with standard Scoundrel rules.",
+    decks: 1,
+    tableaus: 4,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 17,
+    demo_seeds: [17, 18, 19, 21, 22, 30, 33, 45],
+    eval_heuristic: eval_heuristic,
+    on_deal: on_deal,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    on_drop: on_drop,
+    on_card_click: on_card_click,
+    on_stock_click: on_stock_click,
+    on_turn_end: on_turn_end,
+    get_status: get_status
+})

@@ -3,7 +3,7 @@
 # 1. Full-canvas procedural vector layout via ctx.fill_rect & table perimeter border
 # 2. Custom Eatscript Bytecode Pixel Shader (ctx.apply_shader) generating rich velvet nap, subtle paper grain, and dark cinematic vignette
 
-sol.set_theme({
+sol.define_theme({
     id: "shader_velvet_noir",
     name: "Velvet Noir",
     author: "SolEngine / Eatscript",

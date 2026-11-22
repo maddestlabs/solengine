@@ -3,26 +3,6 @@
 # =============================================================================
 # Ancient Egypt-inspired adding solitaire. Pair uncovered cards totaling 13.
 
-name = "Pyramid"
-family = "Pyramid"
-category = "ADDING"
-layout = "pyramid"
-description = "Pair uncovered pyramid cards totaling 13 (Ace=1, J=11, Q=12, K=13 alone). 2 redeals."
-decks = 1
-tableaus = 28
-foundations = 1
-freecells = 0
-
-tableau_deal_counts = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-tableau_all_face_up = True
-foundation_starter_card = False
-
-stock_deal_mode = "waste_draw_1"
-stock_deal_count = 1
-max_redeals = 2
-demo_seed = 1
-demo_seeds = [1, 2, 21, 29, 30, 33, 34, 2026]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 4, "High Luck", 2, "Casual")
 doc_aliases(["Tut's Tomb", "Solitaire 13"])
@@ -119,3 +99,33 @@ def get_status():
             return "playing"
         z = z + 1
     return "victory"
+
+sol.define_game({
+    id: "pyramid",
+    name: "Pyramid",
+    family: "Pyramid",
+    category: "ADDING",
+    layout: "pyramid",
+    description: "Pair uncovered pyramid cards totaling 13 (Ace=1, J=11, Q=12, K=13 alone). 2 redeals.",
+    decks: 1,
+    tableaus: 28,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "waste_draw_1",
+    stock_deal_count: 1,
+    max_redeals: 2,
+    demo_seed: 1,
+    demo_seeds: [1, 2, 21, 29, 30, 33, 34, 2026],
+    eval_heuristic: eval_heuristic,
+    on_deal: on_deal,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    can_target: can_target,
+    on_target: on_target,
+    on_card_click: on_card_click,
+    on_stock_click: on_stock_click,
+    get_status: get_status
+})

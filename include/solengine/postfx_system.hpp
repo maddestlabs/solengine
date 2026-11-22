@@ -46,6 +46,7 @@ public:
 
     /// Scans `postfx/` directory for `.eats` files (prepends "None (Off)").
     void scanPostFx(const std::string& dir = "postfx");
+    void registerEffect(const PostFxDef& def);
 
     [[nodiscard]] const std::vector<PostFxDef>& availableEffects();
     [[nodiscard]] size_t findEffectIndex(const std::string& id) const;

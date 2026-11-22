@@ -1,7 +1,7 @@
 # SolEngine Custom Background Theme — Pool Caustics
 # Tropical sunlit pool with overlapping sine wave refraction networks and glowing caustics
 
-sol.set_theme({
+sol.define_theme({
     id: "shader_pool_caustics",
     name: "Pool Caustics",
     author: "SolEngine / Eatscript",

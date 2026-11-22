@@ -1,7 +1,7 @@
 # SolEngine Post-FX — Noir Red Pop
 # Desaturates everything except red tones (ideal for Hearts & Diamonds!)
 
-sol.set_postfx({
+sol.define_postfx({
     id: "noir_red_pop",
     name: "Noir (Red Pop)",
     author: "Maddest Labs",

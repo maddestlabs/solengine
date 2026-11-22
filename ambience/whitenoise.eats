@@ -3,7 +3,7 @@
 # Smooth, gently low-passed white noise bed for calm focus and masking.
 # ==============================================================================
 
-ambience.define_environment({
+sol.define_ambience({
     id: "whitenoise",
     name: "White Noise",
     master_gain: 1.0,

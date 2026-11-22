@@ -3,26 +3,6 @@
 # =============================================================================
 # Radial 12-spoke clock solitaire with outward-fanning rotated cards.
 
-name = "Clockwork Dial"
-family = "Golf"
-category = "GOLF"
-layout = "radial_clock"
-description = "12 radial clock spokes fanning outward around a central dial. Play +-1 rank onto the center Foundation."
-decks = 1
-tableaus = 12
-foundations = 1
-freecells = 0
-
-tableau_deal_counts = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
-tableau_all_face_up = False
-foundation_starter_card = True
-
-stock_deal_mode = "deal_to_foundation"
-stock_deal_count = 1
-max_redeals = 0
-demo_seed = 2026
-demo_seeds = [1, 7, 13, 21, 2026]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 3, "Balanced", 2, "Casual")
 doc_aliases(["Radial Clock", "Sun Dial", "Watch"])
@@ -98,3 +78,32 @@ def get_status():
     if rem == 0:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "clockwork_dial",
+    name: "Clockwork Dial",
+    family: "Golf",
+    category: "GOLF",
+    layout: "radial_clock",
+    description: "12 radial clock spokes fanning outward around a central dial. Play +-1 rank onto the center Foundation.",
+    decks: 1,
+    tableaus: 12,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+    tableau_all_face_up: False,
+    foundation_starter_card: True,
+    stock_deal_mode: "deal_to_foundation",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 2026,
+    demo_seeds: [1, 7, 13, 21, 2026],
+    eval_heuristic: eval_heuristic,
+    on_deal: on_deal,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    on_card_click: on_card_click,
+    on_stock_click: on_stock_click,
+    on_turn_end: on_turn_end,
+    get_status: get_status
+})

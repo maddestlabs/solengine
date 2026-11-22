@@ -1,7 +1,7 @@
 # SolEngine Procedural Background Theme — Leather
 # Pure Eatscript Bytecode Shader: Distressed aniline nubuck suede with velvety nap and oil pull-up
 
-sol.set_theme({
+sol.define_theme({
     id: "leather",
     name: "Leather",
     author: "Maddest Labs",

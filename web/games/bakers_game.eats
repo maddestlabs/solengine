@@ -4,26 +4,6 @@
 # The pure-skill forefather of FreeCell invented by C.L. Baker.
 # Tableau builds strictly by the SAME SUIT instead of alternating colors.
 
-name = "Baker's Game"
-family = "FreeCell"
-category = "FREECELL"
-layout = "columns"
-description = "The historical predecessor to FreeCell. Strict same-suit tableau building; pure intellect."
-decks = 1
-tableaus = 8
-foundations = 4
-freecells = 4
-
-tableau_deal_counts = [7, 7, 7, 7, 6, 6, 6, 6]
-tableau_all_face_up = True
-foundation_starter_card = False
-
-stock_deal_mode = "none"
-stock_deal_count = 0
-max_redeals = 0
-demo_seed = 5
-demo_seeds = [5, 21, 23, 29, 30, 33, 37, 38]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 1, "Pure Skill", 5, "Master")
 doc_aliases(["Baker's FreeCell", "Same-Suit FreeCell"])
@@ -128,3 +108,28 @@ def get_status():
     if total == 52:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "bakers_game",
+    name: "Baker's Game",
+    family: "FreeCell",
+    category: "FREECELL",
+    layout: "columns",
+    description: "The historical predecessor to FreeCell. Strict same-suit tableau building; pure intellect.",
+    decks: 1,
+    tableaus: 8,
+    foundations: 4,
+    freecells: 4,
+    tableau_deal_counts: [7, 7, 7, 7, 6, 6, 6, 6],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 5,
+    demo_seeds: [5, 21, 23, 29, 30, 33, 37, 38],
+    eval_heuristic: eval_heuristic,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    get_status: get_status
+})

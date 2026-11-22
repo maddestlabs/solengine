@@ -1,7 +1,7 @@
 # SolEngine Procedural Background Theme — Striped Jersey
 # Pure Eatscript Bytecode Shader: Ribbed knit jersey textile with soft heather striping
 
-sol.set_theme({
+sol.define_theme({
     id: "ambientcg_fabric079",
     name: "Striped Jersey",
     author: "SolEngine / Eatscript",

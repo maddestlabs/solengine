@@ -4,25 +4,6 @@
 # The premier Fan solitaire. 18 fans (17 of 3 cards, 1 of 1 card) dealt face up.
 # Build down in the same suit; single card movement; empty fans cannot be filled.
 
-name = "La Belle Lucie"
-family = "Fan"
-category = "FREECELL"
-layout = "fan_grid"
-description = "18 fans of cards. Build down in suit; only top cards can move; spaces cannot be filled."
-decks = 1
-tableaus = 18
-foundations = 4
-freecells = 0
-
-tableau_deal_counts = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1]
-tableau_all_face_up = True
-foundation_starter_card = False
-
-stock_deal_mode = "none"
-max_redeals = 2
-demo_seed = 8
-demo_seeds = [8, 10, 11, 65, 94, 97, 152, 175]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 3, "Moderate", 4, "Tactical")
 doc_aliases(["Three Shuffles and a Draw", "Clover Leaf"])
@@ -80,3 +61,27 @@ def get_status():
     if total == 52:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "la_belle_lucie",
+    name: "La Belle Lucie",
+    family: "Fan",
+    category: "FREECELL",
+    layout: "fan_grid",
+    description: "18 fans of cards. Build down in suit; only top cards can move; spaces cannot be filled.",
+    decks: 1,
+    tableaus: 18,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    max_redeals: 2,
+    demo_seed: 8,
+    demo_seeds: [8, 10, 11, 65, 94, 97, 152, 175],
+    eval_heuristic: eval_heuristic,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    get_status: get_status
+})

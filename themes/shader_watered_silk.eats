@@ -1,7 +1,7 @@
 # SolEngine Custom Background Theme — Watered Silk (Silk Moiré)
 # Mathematical wave interference grating generating an undulating wood-grain textile shimmer
 
-sol.set_theme({
+sol.define_theme({
     id: "shader_watered_silk",
     name: "Watered Silk",
     author: "SolEngine / Eatscript",

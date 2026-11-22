@@ -1,7 +1,7 @@
 # SolEngine Custom Background Theme — Royal Velvet
 # Lush plush velvet with organic fiber nap, grazing highlight sheen, and full palette recoloring support
 
-sol.set_theme({
+sol.define_theme({
     id: "shader_royal_velvet",
     name: "Royal Velvet",
     author: "SolEngine / Eatscript",

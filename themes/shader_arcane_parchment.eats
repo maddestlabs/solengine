@@ -1,7 +1,7 @@
 # SolEngine Custom Background Theme — Arcane Parchment
 # Weathered medieval vellum with organic tea-stained foxing spots, fiber grain, and scorched edges
 
-sol.set_theme({
+sol.define_theme({
     id: "shader_arcane_parchment",
     name: "Arcane Parchment",
     author: "SolEngine / Eatscript",

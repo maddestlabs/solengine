@@ -2,7 +2,7 @@
 # Achieves grounded, real-world tonal response via soft highlight roll-off,
 # subtle shadow lift, and split-tone warmth/coolness.
 
-sol.set_postfx({
+sol.define_postfx({
     id: "filmic_grade",
     name: "Filmic Color Grade",
     author: "Maddest Labs",

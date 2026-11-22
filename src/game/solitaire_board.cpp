@@ -142,8 +142,10 @@ bool SolitaireBoard::restoreSessionState(
     txRedoStack_.clear();
     blackboard_ = {};
     scriptEngine_.reset();
-    if (!activeDef_.filePath.empty()) {
-        scriptEngine_.loadScriptFile(activeDef_.filePath);
+    if (!activeDef_.scriptSource.empty()) {
+        scriptEngine_.loadScriptForGame(activeDef_.scriptSource, activeDef_.id);
+    } else if (!activeDef_.filePath.empty()) {
+        scriptEngine_.loadFileForGame(activeDef_.filePath, activeDef_.id);
     }
     computeLayout(viewportW_, viewportH_);
     updateCardTargets();
@@ -193,8 +195,10 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
     txRedoStack_.clear();
     blackboard_ = {};
     scriptEngine_.reset();
-    if (!gameDef.filePath.empty()) {
-        scriptEngine_.loadScriptFile(gameDef.filePath);
+    if (!gameDef.scriptSource.empty()) {
+        scriptEngine_.loadScriptForGame(gameDef.scriptSource, gameDef.id);
+    } else if (!gameDef.filePath.empty()) {
+        scriptEngine_.loadFileForGame(gameDef.filePath, gameDef.id);
     }
     activeHint_ = {};
     piles_.clear();

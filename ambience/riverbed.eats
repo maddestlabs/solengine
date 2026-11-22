@@ -3,7 +3,7 @@
 # Rushing current, surface riffle, upward-sweeping bubbles, and pebble splashes.
 # ==============================================================================
 
-ambience.define_environment({
+sol.define_ambience({
     id: "riverbed",
     name: "Riverbed",
     master_gain: 1.0,

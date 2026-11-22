@@ -391,6 +391,7 @@ bool loadMaterialFromEats(const std::string& filePath, PbrTextureData& outTex, P
     evaluator.setVariable("sol", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
     evaluator.registerMemberFunction("sol", "create_theme", themeDummyFn);
     evaluator.registerMemberFunction("sol", "set_theme", themeDummyFn);
+    evaluator.registerMemberFunction("sol", "define_theme", themeDummyFn);
     evaluator.registerMemberFunction("sol", "set_background", setBgFn);
     evaluator.registerFunction("create_theme", themeDummyFn);
     evaluator.registerFunction("set_theme", themeDummyFn);
@@ -783,6 +784,7 @@ bool bakeCanvasSurface(
     auto dummyFn = [](HostArgs, HostKwargs) -> eatsbits::eatscript::Value { return eatsbits::eatscript::Value(true); };
     evaluator.setVariable("sol", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
     evaluator.registerMemberFunction("sol", "set_theme", setThemeFn);
+    evaluator.registerMemberFunction("sol", "define_theme", setThemeFn);
     evaluator.registerMemberFunction("sol", "create_theme", setThemeFn);
     evaluator.registerMemberFunction("sol", "set_background", dummyFn);
     evaluator.registerMemberFunction("sol", "set_surface_lacquer", setLacquerFn);
@@ -920,7 +922,8 @@ struct ProceduralBackgroundSystem::Impl {
         std::string& outOptionLabel,
         std::vector<ThemeOptionChoice>& outOptions
     ) {
-        size_t callPos = content.find("set_theme");
+        size_t callPos = content.find("define_theme");
+        if (callPos == std::string::npos) callPos = content.find("set_theme");
         if (callPos == std::string::npos) return false;
 
         size_t openParen = content.find('(', callPos);
@@ -1001,6 +1004,7 @@ struct ProceduralBackgroundSystem::Impl {
         };
 
         eval.registerMemberFunction("sol", "set_theme", handler);
+        eval.registerMemberFunction("sol", "define_theme", handler);
         eval.registerMemberFunction("sol", "create_theme", handler);
         eval.registerFunction("set_theme", handler);
         eval.registerFunction("create_theme", handler);
@@ -1361,6 +1365,27 @@ void ProceduralBackgroundSystem::invalidateCache() noexcept {
     if (impl_) {
         impl_->invalidate();
     }
+}
+
+void ProceduralBackgroundSystem::registerTheme(const TableThemeDef& def, const std::string& scriptSource) {
+    if (!impl_ || def.id.empty()) return;
+    std::lock_guard<std::recursive_mutex> lock(impl_->cacheMutex);
+    if (!impl_->themesScanned) {
+        scanThemesFolder("themes");
+    }
+    if (!scriptSource.empty()) {
+        impl_->themeSources[def.id] = scriptSource;
+    }
+    for (auto& t : impl_->scannedThemes) {
+        if (t.id == def.id) {
+            t = def;
+            if (impl_->cachedSlug == def.id) {
+                impl_->invalidate();
+            }
+            return;
+        }
+    }
+    impl_->scannedThemes.push_back(def);
 }
 
 bool ProceduralBackgroundSystem::prebakeTheme(

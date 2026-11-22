@@ -1,7 +1,7 @@
 # SolEngine Custom Background Theme — Workbench
 # Hand-crafted workshop timber tabletops: White Oak, Golden Birch, Artisan Birch, and Honey Oak
 
-sol.set_theme({
+sol.define_theme({
     id: "workbench",
     name: "Workbench",
     author: "SolEngine / Eatscript",

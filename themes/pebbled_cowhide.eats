@@ -1,7 +1,7 @@
 # SolEngine Procedural Background Theme — Pebbled Cowhide
 # Pure Eatscript Bytecode Shader: Embossed pebble grain cowhide leather with warm burnished crests
 
-sol.set_theme({
+sol.define_theme({
     id: "pebbled_cowhide",
     name: "Pebbled Cowhide",
     author: "SolEngine / Eatscript",

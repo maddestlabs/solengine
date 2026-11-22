@@ -1,7 +1,7 @@
 # SolEngine Procedural Background Theme — Denim
 # Pure Eatscript Bytecode Shader: Diagonal twill denim weave with horizontal white weft slubs
 
-sol.set_theme({
+sol.define_theme({
     id: "denim",
     name: "Denim",
     author: "Maddest Labs",

@@ -91,6 +91,7 @@ ScriptRuleEngine::ScriptRuleEngine(const ScriptRuleEngine& other)
     , boundCtx_(nullptr)
     , lastError_(other.lastError_)
     , loaded_(other.loaded_)
+    , boundCallables_(other.boundCallables_)
     , hasOnDeal_(other.hasOnDeal_)
     , hasCanPick_(other.hasCanPick_)
     , hasCanDrop_(other.hasCanDrop_)
@@ -116,6 +117,7 @@ ScriptRuleEngine& ScriptRuleEngine::operator=(const ScriptRuleEngine& other) {
     boundCtx_ = nullptr;
     lastError_ = other.lastError_;
     loaded_ = other.loaded_;
+    boundCallables_ = other.boundCallables_;
     hasOnDeal_ = other.hasOnDeal_;
     hasCanPick_ = other.hasCanPick_;
     hasCanDrop_ = other.hasCanDrop_;
@@ -141,6 +143,7 @@ ScriptRuleEngine::ScriptRuleEngine(ScriptRuleEngine&& other) noexcept
     , boundCtx_(nullptr)
     , lastError_(std::move(other.lastError_))
     , loaded_(other.loaded_)
+    , boundCallables_(std::move(other.boundCallables_))
     , hasOnDeal_(other.hasOnDeal_)
     , hasCanPick_(other.hasCanPick_)
     , hasCanDrop_(other.hasCanDrop_)
@@ -168,6 +171,7 @@ ScriptRuleEngine& ScriptRuleEngine::operator=(ScriptRuleEngine&& other) noexcept
     other.boundCtx_ = nullptr;
     lastError_ = std::move(other.lastError_);
     loaded_ = other.loaded_;
+    boundCallables_ = std::move(other.boundCallables_);
     hasOnDeal_ = other.hasOnDeal_;
     hasCanPick_ = other.hasCanPick_;
     hasCanDrop_ = other.hasCanDrop_;
@@ -193,6 +197,7 @@ void ScriptRuleEngine::reset() noexcept {
     boundCtx_ = nullptr;
     lastError_.clear();
     loaded_ = false;
+    boundCallables_.clear();
     hasOnDeal_ = false;
     hasCanPick_ = false;
     hasCanDrop_ = false;
@@ -216,6 +221,10 @@ bool ScriptRuleEngine::hasAnyHooks() const noexcept {
 }
 
 bool ScriptRuleEngine::loadScriptFile(const std::string& filePath) {
+    return loadFileForGame(filePath, "");
+}
+
+bool ScriptRuleEngine::loadFileForGame(const std::string& filePath, const std::string& targetGameId) {
     std::ifstream ifs(filePath);
     if (!ifs.is_open()) {
         lastError_ = "Failed to open script file: " + filePath;
@@ -223,30 +232,134 @@ bool ScriptRuleEngine::loadScriptFile(const std::string& filePath) {
     }
     std::ostringstream ss;
     ss << ifs.rdbuf();
-    return loadScript(ss.str());
+    return loadScriptForGame(ss.str(), targetGameId);
 }
 
 bool ScriptRuleEngine::loadScript(const std::string& source) {
+    return loadScriptForGame(source, "");
+}
+
+bool ScriptRuleEngine::loadScriptForGame(const std::string& source, const std::string& targetGameId) {
     reset();
     registerHostApi();
+
+    Value matchedGameDef;
+    bool foundDefinedGame = false;
+    auto noopFn = [](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(true);
+    };
+
+    evaluator_.setVariable("sol", Value(std::map<std::string, Value>{}));
+    evaluator_.setVariable("ambience", Value(std::map<std::string, Value>{}));
+    evaluator_.setVariable("audio", Value(std::map<std::string, Value>{}));
+
+    evaluator_.registerMemberFunction("sol", "define_game",
+        [&](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+            if (args.empty() || !args[0].isDict()) return Value(false);
+            const std::string id = args[0].get("id").asString();
+            if (!foundDefinedGame && (targetGameId.empty() || id == targetGameId)) {
+                matchedGameDef = args[0];
+                foundDefinedGame = true;
+            }
+            return Value(true);
+        });
+    for (const char* m : {"define_theme", "set_theme", "create_theme", "define_deck", "set_deck",
+                          "set_background", "set_corner_radius", "define_ambience", "define_sound_pack",
+                          "define_postfx", "set_postfx", "define_preset", "define_series"}) {
+        evaluator_.registerMemberFunction("sol", m, noopFn);
+    }
+    evaluator_.registerMemberFunction("ambience", "define_environment", noopFn);
+    for (const char* m : {"set_master_volume", "set_master_variance", "set_physical_params",
+                          "define_sound", "define_sequence", "apply_preset", "embed_sound",
+                          "embed_sample", "clear_embeds", "clear_embedded"}) {
+        evaluator_.registerMemberFunction("audio", m, noopFn);
+    }
+
     evaluator_.evaluateSource(source);
     if (!evaluator_.getLastError().empty()) {
         lastError_ = evaluator_.getLastError();
         return false;
     }
 
-    hasOnDeal_      = evaluator_.hasFunction("on_deal");
-    hasCanPick_     = evaluator_.hasFunction("can_pick");
-    hasCanDrop_     = evaluator_.hasFunction("can_drop");
-    hasOnDrop_      = evaluator_.hasFunction("on_drop");
-    hasCanTarget_   = evaluator_.hasFunction("can_target");
-    hasOnTarget_    = evaluator_.hasFunction("on_target");
-    hasOnCardClick_ = evaluator_.hasFunction("on_card_click");
-    hasOnStockClick_= evaluator_.hasFunction("on_stock_click");
-    hasOnTurnEnd_   = evaluator_.hasFunction("on_turn_end");
-    hasOnVictory_   = evaluator_.hasFunction("on_victory");
-    hasGetStatus_   = evaluator_.hasFunction("get_status");
-    hasEvalHeuristic_ = evaluator_.hasFunction("eval_heuristic");
+    auto bindFn = [&](const char* key, bool& hasFlag) {
+        if (foundDefinedGame && matchedGameDef.isDict() && matchedGameDef.hasKey(key)) {
+            Value v = matchedGameDef.get(key);
+            if (v.isFunction()) {
+                boundCallables_[key] = std::move(v);
+                hasFlag = true;
+                return;
+            }
+        }
+        hasFlag = evaluator_.hasFunction(key);
+    };
+
+    bindFn("on_deal", hasOnDeal_);
+    bindFn("can_pick", hasCanPick_);
+    bindFn("can_drop", hasCanDrop_);
+    bindFn("on_drop", hasOnDrop_);
+    bindFn("can_target", hasCanTarget_);
+    bindFn("on_target", hasOnTarget_);
+    bindFn("on_card_click", hasOnCardClick_);
+    bindFn("on_stock_click", hasOnStockClick_);
+    bindFn("on_turn_end", hasOnTurnEnd_);
+    bindFn("on_victory", hasOnVictory_);
+    bindFn("get_status", hasGetStatus_);
+    bindFn("eval_heuristic", hasEvalHeuristic_);
+
+    if (foundDefinedGame && matchedGameDef.isDict() && matchedGameDef.hasKey("doc")) {
+        const Value doc = matchedGameDef.get("doc");
+        if (doc.isDict()) {
+            if (doc.hasKey("meta") && doc.get("meta").isList()) {
+                const auto& m = doc.get("meta").listVal;
+                if (m.size() >= 2) {
+                    docManifest_.timeRating = static_cast<uint8_t>(std::clamp(m[0].asInt(3), 1, 5));
+                    docManifest_.timeLabel = m[1].asString();
+                }
+                if (m.size() >= 4) {
+                    docManifest_.chanceRating = static_cast<uint8_t>(std::clamp(m[2].asInt(3), 1, 5));
+                    docManifest_.chanceLabel = m[3].asString();
+                }
+                if (m.size() >= 6) {
+                    docManifest_.skillRating = static_cast<uint8_t>(std::clamp(m[4].asInt(3), 1, 5));
+                    docManifest_.skillLabel = m[5].asString();
+                }
+                docManifest_.hasExplicitRatings = true;
+            }
+            if (doc.hasKey("video") && doc.get("video").isString()) {
+                docManifest_.videoId = doc.get("video").asString();
+            }
+            if (doc.hasKey("aliases") && doc.get("aliases").isList()) {
+                for (const auto& a : doc.get("aliases").listVal) {
+                    if (a.isString() && !a.asString().empty()) docManifest_.alternateNames.push_back(a.asString());
+                }
+            }
+            if (doc.hasKey("goal") && doc.get("goal").isList()) {
+                const auto& g = doc.get("goal").listVal;
+                if (g.size() >= 1) docManifest_.winGoal = g[0].asString();
+                if (g.size() >= 2) docManifest_.loseGoal = g[1].asString();
+            }
+            if (doc.hasKey("victory") && doc.get("victory").isList()) {
+                const auto& v = doc.get("victory").listVal;
+                if (v.size() >= 1) docManifest_.victoryTitle = v[0].asString();
+                if (v.size() >= 2) docManifest_.victorySubtitle = v[1].asString();
+            }
+            if (doc.hasKey("zones") && doc.get("zones").isList()) {
+                for (const auto& z : doc.get("zones").listVal) {
+                    if (!z.isDict()) continue;
+                    ZoneDoc zd{};
+                    zd.zoneIndex = static_cast<uint8_t>(std::clamp(z.get("index").asInt(0), 0, 255));
+                    zd.title = z.get("name").asString();
+                    zd.description = z.get("desc").asString();
+                    if (z.hasKey("examples") && z.get("examples").isList()) {
+                        for (const auto& ex : z.get("examples").listVal) {
+                            if (ex.isString()) zd.previewCards.push_back(ex.asString());
+                        }
+                    }
+                    docManifest_.zones.push_back(std::move(zd));
+                }
+            }
+        }
+    }
 
     if (docManifest_.victoryTitle.empty() && evaluator_.hasVariable("victory_message")) {
         docManifest_.victoryTitle = evaluator_.getVariable("victory_message").asString();
@@ -721,10 +834,18 @@ void ScriptRuleEngine::registerHostApi() {
 
 // --- Hook Invocations ---
 
+Value ScriptRuleEngine::invokeHook(const std::string& name, const std::vector<Value>& args) {
+    auto it = boundCallables_.find(name);
+    if (it != boundCallables_.end() && it->second.isFunction()) {
+        return evaluator_.invokeCallable(it->second, args);
+    }
+    return evaluator_.callFunction(name, args);
+}
+
 bool ScriptRuleEngine::invokeOnDeal(ScriptBoardContext& ctx) {
     if (!hasOnDeal_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("on_deal");
+    Value res = invokeHook("on_deal");
     bindContext(nullptr);
     return res.asBoolean(true);
 }
@@ -732,7 +853,7 @@ bool ScriptRuleEngine::invokeOnDeal(ScriptBoardContext& ctx) {
 bool ScriptRuleEngine::invokeCanPick(ScriptBoardContext& ctx, uint8_t zoneIdx, size_t cardIdx) {
     if (!hasCanPick_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("can_pick", {Value(static_cast<int>(zoneIdx)), Value(static_cast<int>(cardIdx))});
+    Value res = invokeHook("can_pick", {Value(static_cast<int>(zoneIdx)), Value(static_cast<int>(cardIdx))});
     bindContext(nullptr);
     return res.asBoolean(false);
 }
@@ -740,7 +861,7 @@ bool ScriptRuleEngine::invokeCanPick(ScriptBoardContext& ctx, uint8_t zoneIdx, s
 bool ScriptRuleEngine::invokeCanDrop(ScriptBoardContext& ctx, uint8_t fromZone, size_t cardIdx, uint8_t toZone) {
     if (!hasCanDrop_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("can_drop", {
+    Value res = invokeHook("can_drop", {
         Value(static_cast<int>(fromZone)),
         Value(static_cast<int>(cardIdx)),
         Value(static_cast<int>(toZone))
@@ -752,7 +873,7 @@ bool ScriptRuleEngine::invokeCanDrop(ScriptBoardContext& ctx, uint8_t fromZone, 
 bool ScriptRuleEngine::invokeOnDrop(ScriptBoardContext& ctx, uint8_t fromZone, size_t cardIdx, uint8_t toZone) {
     if (!hasOnDrop_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("on_drop", {
+    Value res = invokeHook("on_drop", {
         Value(static_cast<int>(fromZone)),
         Value(static_cast<int>(cardIdx)),
         Value(static_cast<int>(toZone))
@@ -764,7 +885,7 @@ bool ScriptRuleEngine::invokeOnDrop(ScriptBoardContext& ctx, uint8_t fromZone, s
 bool ScriptRuleEngine::invokeCanTarget(ScriptBoardContext& ctx, uint8_t fromZone, size_t fromIdx, uint8_t toZone, size_t toIdx) {
     if (!hasCanTarget_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("can_target", {
+    Value res = invokeHook("can_target", {
         Value(static_cast<int>(fromZone)),
         Value(static_cast<int>(fromIdx)),
         Value(static_cast<int>(toZone)),
@@ -777,7 +898,7 @@ bool ScriptRuleEngine::invokeCanTarget(ScriptBoardContext& ctx, uint8_t fromZone
 bool ScriptRuleEngine::invokeOnTarget(ScriptBoardContext& ctx, uint8_t fromZone, size_t fromIdx, uint8_t toZone, size_t toIdx) {
     if (!hasOnTarget_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("on_target", {
+    Value res = invokeHook("on_target", {
         Value(static_cast<int>(fromZone)),
         Value(static_cast<int>(fromIdx)),
         Value(static_cast<int>(toZone)),
@@ -790,7 +911,7 @@ bool ScriptRuleEngine::invokeOnTarget(ScriptBoardContext& ctx, uint8_t fromZone,
 bool ScriptRuleEngine::invokeOnCardClick(ScriptBoardContext& ctx, uint8_t zoneIdx, size_t cardIdx) {
     if (!hasOnCardClick_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("on_card_click", {
+    Value res = invokeHook("on_card_click", {
         Value(static_cast<int>(zoneIdx)),
         Value(static_cast<int>(cardIdx))
     });
@@ -801,7 +922,7 @@ bool ScriptRuleEngine::invokeOnCardClick(ScriptBoardContext& ctx, uint8_t zoneId
 bool ScriptRuleEngine::invokeOnStockClick(ScriptBoardContext& ctx) {
     if (!hasOnStockClick_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("on_stock_click");
+    Value res = invokeHook("on_stock_click");
     bindContext(nullptr);
     return res.asBoolean(true);
 }
@@ -809,7 +930,7 @@ bool ScriptRuleEngine::invokeOnStockClick(ScriptBoardContext& ctx) {
 bool ScriptRuleEngine::invokeOnTurnEnd(ScriptBoardContext& ctx) {
     if (!hasOnTurnEnd_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("on_turn_end");
+    Value res = invokeHook("on_turn_end");
     bindContext(nullptr);
     return res.asBoolean(true);
 }
@@ -817,7 +938,7 @@ bool ScriptRuleEngine::invokeOnTurnEnd(ScriptBoardContext& ctx) {
 bool ScriptRuleEngine::invokeOnVictory(ScriptBoardContext& ctx) {
     if (!hasOnVictory_) return false;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("on_victory");
+    Value res = invokeHook("on_victory");
     bindContext(nullptr);
     return res.asBoolean(true);
 }
@@ -825,7 +946,7 @@ bool ScriptRuleEngine::invokeOnVictory(ScriptBoardContext& ctx) {
 GameStatus ScriptRuleEngine::invokeGetStatus(ScriptBoardContext& ctx) {
     if (!hasGetStatus_) return GameStatus::Playing;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("get_status");
+    Value res = invokeHook("get_status");
     bindContext(nullptr);
     const std::string& s = res.asString();
     if (s == "victory" || s == "win") return GameStatus::Victory;
@@ -836,7 +957,7 @@ GameStatus ScriptRuleEngine::invokeGetStatus(ScriptBoardContext& ctx) {
 int32_t ScriptRuleEngine::invokeEvalHeuristic(ScriptBoardContext& ctx) {
     if (!hasEvalHeuristic_) return 0;
     bindContext(&ctx);
-    Value res = evaluator_.callFunction("eval_heuristic");
+    Value res = invokeHook("eval_heuristic");
     bindContext(nullptr);
     return res.asInt(0);
 }

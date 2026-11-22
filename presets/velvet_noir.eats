@@ -1,34 +1,35 @@
 # SolEngine Scene & Deck Preset: Velvet Noir
-id = "velvet_noir"
-name = "Velvet Noir"
-description = "Dark velvet noir shader with SolPoly Dark cards, high-contrast noir red-pop post-processing, and moonlight."
 
-deck_slug = "solpoly_dark"
-card_back = "classic_obsidian"
-card_wear = 0
-card_stock = 2
-card_corners = 0
-card_deviation = 0.20
-
-table_theme_slug = "shader_velvet_noir"
-table_tint = "auto"
-postfx_id = "noir_red_pop"
-postfx_intensity = 0.85
-show_table_markings = true
-
-lighting_preset = 8
-light_angle = 1
-shadow_gobo = 2
-light_waver = 0.35
-light_waver_speed = 0.20
-light_flicker = 0.0
-gobo_softness = 0.30
-cloud_opacity = 0.10
-god_rays = 0.15
-dust_motes = 0.10
-scene_darkness = 0.42
-light_strength = 1.15
-
-sound_pack = "default"
-ambience = "rain"
-ambience_volume = 0.45
+sol.define_preset({
+    id: "velvet_noir",
+    name: "Velvet Noir",
+    description: "Dark velvet noir shader with SolPoly Dark cards, high-contrast noir red-pop post-processing, and moonlight.",
+    deck: "solpoly_dark",
+    card_back: "classic_obsidian",
+    card_wear: 0,
+    card_stock: 2,
+    card_corners: 0,
+    card_deviation: 0.20,
+    theme: "shader_velvet_noir",
+    table_tint: "auto",
+    postfx: "noir_red_pop",
+    postfx_intensity: 0.85,
+    show_table_markings: true,
+    sound_pack: "default",
+    ambience: "rain",
+    ambience_volume: 0.45,
+    lighting: {
+        preset: 8,
+        angle: 1,
+        shadow_gobo: 2,
+        waver: 0.35,
+        waver_speed: 0.20,
+        flicker: 0.0,
+        gobo_softness: 0.30,
+        cloud_opacity: 0.10,
+        god_rays: 0.15,
+        dust_motes: 0.10,
+        scene_darkness: 0.42,
+        light_strength: 1.15
+    }
+})

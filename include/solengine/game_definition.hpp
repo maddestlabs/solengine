@@ -41,6 +41,22 @@ struct SolitaireGameDef {
     std::string defaultTableThemeSlug;
     std::string defaultPostFxId;
     std::string defaultAmbienceId;
+    std::string defaultSoundPackId;
+    std::string defaultPresetId;
+    std::string scriptSource;    // Optional in-memory Eatscript source (for bundled/Gist games)
+    std::string seriesId;        // Optional parent series identifier
+    std::string seriesName;      // Optional parent series display name
+    int32_t seriesOrder{0};      // Ordering index within series
+};
+
+struct GameSeriesDef {
+    std::string id;
+    std::string name;
+    std::string author;
+    std::string description;
+    std::string presetId;
+    std::string filePath;
+    std::vector<std::string> gameIds;
 };
 
 /**
@@ -55,11 +71,14 @@ public:
     void scanDirectory(const std::string& gamesDir);
     bool loadGameFile(const std::string& filePath, SolitaireGameDef& outDef);
     void registerGame(const SolitaireGameDef& def);
+    void registerSeries(const GameSeriesDef& series);
 
     [[nodiscard]] const std::vector<SolitaireGameDef>& allGames() const noexcept { return games_; }
+    [[nodiscard]] const std::vector<GameSeriesDef>& allSeries() const noexcept { return series_; }
     [[nodiscard]] const SolitaireGameDef* findById(const std::string& id) const noexcept;
     [[nodiscard]] const SolitaireGameDef* findByName(const std::string& name) const noexcept;
     [[nodiscard]] const SolitaireGameDef* findByVariant(GameVariant v) const noexcept;
+    [[nodiscard]] const GameSeriesDef* findSeriesById(const std::string& id) const noexcept;
 
     [[nodiscard]] std::vector<SolitaireGameDef> search(const std::string& query, const std::string& category = "ALL") const;
     [[nodiscard]] std::vector<std::string> categories() const;
@@ -69,6 +88,7 @@ private:
     void registerBuiltins();
 
     std::vector<SolitaireGameDef> games_;
+    std::vector<GameSeriesDef> series_;
     bool initialized_{false};
 };
 

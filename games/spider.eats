@@ -1,0 +1,297 @@
+# =============================================================================
+# SolEngine Game Family: Spider (.eats)
+# Consolidated variants: Spider (1 Suit), Spider (2 Suits), Spider (4 Suits), Spiderette
+# =============================================================================
+
+# --- Shared Parameterized Spider Rules ---
+
+def spider_eval(f_end, t_start, t_end, f_wt, empty_wt, hidden_pen, suit_wt):
+    score = 0
+    z = 1
+    while z <= f_end:
+        if zone_size(z) > 0:
+            score = score + f_wt
+        z = z + 1
+    z = t_start
+    while z <= t_end:
+        sz = zone_size(z)
+        if sz == 0:
+            score = score + empty_wt
+        i = 0
+        while i < sz:
+            if not card_face_up(z, i):
+                score = score - hidden_pen
+            elif i < sz - 1 and card_face_up(z, i + 1) and card_rank(z, i) == card_rank(z, i + 1) + 1:
+                if card_suit(z, i) == card_suit(z, i + 1):
+                    score = score + suit_wt
+                else:
+                    score = score + 5
+            i = i + 1
+        z = z + 1
+    return score
+
+def spider_can_pick(t_start, t_end, z, i):
+    sz = zone_size(z)
+    if z < t_start or z > t_end or sz == 0 or i < 0 or i >= sz:
+        return False
+    if not card_face_up(z, i):
+        return False
+    k = i
+    while k < sz - 1:
+        if card_suit(z, k) != card_suit(z, k + 1) or card_rank(z, k) != card_rank(z, k + 1) + 1:
+            return False
+        k = k + 1
+    return True
+
+def spider_can_drop(t_start, t_end, from_z, i, to_z):
+    if from_z == to_z or from_z < t_start or from_z > t_end or to_z < t_start or to_z > t_end:
+        return False
+    if zone_size(from_z) == 0:
+        return False
+    tsz = zone_size(to_z)
+    if tsz == 0:
+        return True
+    return card_face_up(to_z, tsz - 1) and card_rank(to_z, tsz - 1) == card_rank(from_z, i) + 1
+
+def spider_on_stock(t_start, t_end):
+    if zone_size(0) == 0:
+        return False
+    z = t_start
+    while z <= t_end:
+        if zone_size(z) == 0:
+            return False
+        z = z + 1
+    z = t_start
+    while z <= t_end and zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, z)
+        flip_card(z, zone_size(z) - 1, True)
+        z = z + 1
+    return True
+
+def spider_on_turn_end(f_end, t_start, t_end):
+    z = t_start
+    while z <= t_end:
+        sz = zone_size(z)
+        if sz >= 13:
+            start = sz - 13
+            ok = True
+            s0 = card_suit(z, start)
+            k = 0
+            while k < 13:
+                idx = start + k
+                if not card_face_up(z, idx) or card_suit(z, idx) != s0 or card_rank(z, idx) != 13 - k:
+                    ok = False
+                k = k + 1
+            if ok:
+                f = 1
+                while f <= f_end:
+                    if zone_size(f) == 0:
+                        move_cards(z, start, f)
+                        add_score(100)
+                        f = 99
+                    f = f + 1
+        z = z + 1
+    z = t_start
+    while z <= t_end:
+        sz = zone_size(z)
+        if sz > 0 and not card_face_up(z, sz - 1):
+            flip_card(z, sz - 1, True)
+        z = z + 1
+    return True
+
+def spider_status(f_end):
+    f = 1
+    done = 0
+    while f <= f_end:
+        if zone_size(f) >= 13:
+            done = done + 1
+        f = f + 1
+    if done == f_end:
+        return "victory"
+    return "playing"
+
+# --- 10-Column Spider Bindings (1, 2, 4 Suits) ---
+def s12_eval():
+    return spider_eval(8, 9, 18, 1000, 40, 15, 25)
+
+def s4_eval():
+    return spider_eval(8, 9, 18, 1500, 80, 25, 45)
+
+def s10_can_pick(z, i):
+    return spider_can_pick(9, 18, z, i)
+
+def s10_can_drop(from_z, i, to_z):
+    return spider_can_drop(9, 18, from_z, i, to_z)
+
+def s10_on_stock():
+    return spider_on_stock(9, 18)
+
+def s10_on_turn_end():
+    return spider_on_turn_end(8, 9, 18)
+
+def s10_status():
+    return spider_status(8)
+
+# --- 7-Column Spiderette Bindings ---
+def sp_eval():
+    return spider_eval(4, 5, 11, 1000, 40, 15, 25)
+
+def sp_can_pick(z, i):
+    return spider_can_pick(5, 11, z, i)
+
+def sp_can_drop(from_z, i, to_z):
+    return spider_can_drop(5, 11, from_z, i, to_z)
+
+def sp_on_stock():
+    return spider_on_stock(5, 11)
+
+def sp_on_turn_end():
+    return spider_on_turn_end(4, 5, 11)
+
+def sp_status():
+    return spider_status(4)
+
+# --- Variant Definitions ---
+
+sol.define_game({
+    id: "spider_1_suit",
+    name: "Spider (1 Suit)",
+    family: "Spider",
+    category: "SPIDER",
+    layout: "columns",
+    description: "Relaxed introductory Spider. All cards are Spades; assemble full King-to-Ace runs.",
+    decks: 2,
+    tableaus: 10,
+    foundations: 8,
+    freecells: 0,
+    tableau_deal_counts: [6, 6, 6, 6, 5, 5, 5, 5, 5, 5],
+    tableau_all_face_up: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 10,
+    demo_seed: 5,
+    demo_seeds: [5, 9, 10, 13, 21, 29, 30, 33],
+    eval_heuristic: s12_eval,
+    can_pick: s10_can_pick,
+    can_drop: s10_can_drop,
+    on_stock_click: s10_on_stock,
+    on_turn_end: s10_on_turn_end,
+    get_status: s10_status,
+    doc: {
+        meta: [3, "Medium", 1, "Low Luck", 2, "Casual"],
+        aliases: ["One-Suit Spider"],
+        goal: ["Assemble 8 complete King-to-Ace runs of Spades to clear the board.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to deal 1 card to each of the 10 Tableau columns (all columns must be non-empty)." },
+            { index: 1, name: "Foundations (1-8)", desc: "Completed King-to-Ace runs automatically move here." },
+            { index: 9, name: "Tableau Columns (1-10)", desc: "Build down in rank; same-suit sequences move together; any card fills empty columns." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "spider_2_suits",
+    name: "Spider (2 Suits)",
+    family: "Spider",
+    category: "SPIDER",
+    layout: "columns",
+    description: "Balanced two-suit Spider (Spades & Hearts). Assemble 8 full King-to-Ace same-suit runs.",
+    decks: 2,
+    tableaus: 10,
+    foundations: 8,
+    freecells: 0,
+    tableau_deal_counts: [6, 6, 6, 6, 5, 5, 5, 5, 5, 5],
+    tableau_all_face_up: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 10,
+    demo_seed: 10,
+    demo_seeds: [10, 13, 19, 25, 29, 34, 37, 162],
+    eval_heuristic: s12_eval,
+    can_pick: s10_can_pick,
+    can_drop: s10_can_drop,
+    on_stock_click: s10_on_stock,
+    on_turn_end: s10_on_turn_end,
+    get_status: s10_status,
+    doc: {
+        meta: [4, "Long", 2, "Low Luck", 4, "Strategic"],
+        aliases: ["Two-Suit Spider"],
+        goal: ["Assemble 8 complete King-to-Ace same-suit runs to clear the board.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to deal 1 card to each of the 10 Tableau columns (all columns must be non-empty)." },
+            { index: 1, name: "Foundations (1-8)", desc: "Completed King-to-Ace same-suit runs automatically move here." },
+            { index: 9, name: "Tableau Columns (1-10)", desc: "Build down in rank; same-suit sequences move together; any card fills empty columns." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "spider_4_suits",
+    name: "Spider (4 Suits)",
+    family: "Spider",
+    category: "SPIDER",
+    layout: "columns",
+    description: "The ultimate test of patience. All 4 suits across 2 decks; build descending same-suit runs.",
+    decks: 2,
+    tableaus: 10,
+    foundations: 8,
+    freecells: 0,
+    tableau_deal_counts: [6, 6, 6, 6, 5, 5, 5, 5, 5, 5],
+    tableau_all_face_up: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 10,
+    demo_seed: 1272,
+    demo_seeds: [1272, 1573, 2060, 4084, 5263, 5832],
+    eval_heuristic: s4_eval,
+    can_pick: s10_can_pick,
+    can_drop: s10_can_drop,
+    on_stock_click: s10_on_stock,
+    on_turn_end: s10_on_turn_end,
+    get_status: s10_status,
+    doc: {
+        meta: [5, "Marathon", 3, "Moderate", 5, "Master"],
+        aliases: ["Classic Spider", "Four-Suit Spider"],
+        goal: ["Assemble 8 complete King-to-Ace same-suit runs to clear the board.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to deal 1 card to each of the 10 Tableau columns (all columns must be non-empty)." },
+            { index: 1, name: "Foundations (1-8)", desc: "Completed King-to-Ace same-suit runs automatically move here." },
+            { index: 9, name: "Tableau Columns (1-10)", desc: "Build down in rank; same-suit sequences move together; any card fills empty columns." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "spiderette",
+    name: "Spiderette",
+    family: "Spider",
+    category: "SPIDER",
+    layout: "columns",
+    description: "Compact 1-deck Spider on a 7-column Klondike deal. Build descending suit runs from King to Ace.",
+    decks: 1,
+    tableaus: 7,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [1, 2, 3, 4, 5, 6, 7],
+    tableau_all_face_up: False,
+    foundation_starter_card: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 7,
+    max_redeals: 0,
+    demo_seed: 71,
+    demo_seeds: [71, 85, 133, 137, 161, 170, 289, 301],
+    eval_heuristic: sp_eval,
+    can_pick: sp_can_pick,
+    can_drop: sp_can_drop,
+    on_stock_click: sp_on_stock,
+    on_turn_end: sp_on_turn_end,
+    get_status: sp_status,
+    doc: {
+        meta: [2, "Quick", 3, "Moderate", 3, "Tactical"],
+        aliases: ["Mini Spider"],
+        goal: ["Assemble 4 complete King-to-Ace same-suit runs to clear the board.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to deal 1 card to each of the 7 Tableau columns (all columns must be non-empty)." },
+            { index: 1, name: "Foundations (1-4)", desc: "Completed King-to-Ace same-suit runs automatically move here." },
+            { index: 5, name: "Tableau Columns (1-7)", desc: "Build down in rank; same-suit sequences move together; any card fills empty columns." }
+        ]
+    }
+})

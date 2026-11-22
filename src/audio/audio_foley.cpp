@@ -2141,6 +2141,21 @@ bool AudioFoleyEngine::loadFromEatsScript(const std::string& script) {
         return eatsbits::eatscript::Value(true);
     };
 
+    evaluator.setVariable("sol", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
+    evaluator.registerMemberFunction("sol", "define_sound_pack",
+        [&](const std::vector<eatsbits::eatscript::Value>& args,
+            const std::map<std::string, eatsbits::eatscript::Value>& kw) -> eatsbits::eatscript::Value {
+            if (args.empty() || !args[0].isDict()) return eatsbits::eatscript::Value(false);
+            const auto& d = args[0];
+            if (d.hasKey("master_volume")) setVolumeFn({d.get("master_volume")}, kw);
+            if (d.hasKey("master_variance")) setVarianceFn({d.get("master_variance")}, kw);
+            if (d.hasKey("physical_params")) setPhysicalParamsFn({d.get("physical_params")}, kw);
+            if (d.hasKey("configure") && d.get("configure").isFunction()) {
+                evaluator.invokeCallable(d.get("configure"));
+            }
+            return eatsbits::eatscript::Value(true);
+        });
+
     evaluator.setVariable("audio", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
     evaluator.registerMemberFunction("audio", "embed_sound", embedNoop);
     evaluator.registerMemberFunction("audio", "embed_sample", embedNoop);
@@ -2208,6 +2223,18 @@ bool AudioFoleyEngine::loadFromEatsFile(const std::string& filePath) {
 
 void AudioFoleyEngine::setSoundPackId(const std::string& packId) {
     std::string target = packId.empty() ? "default" : packId;
+    for (const auto& sp : availableSoundPacks()) {
+        if (sp.id == target) {
+            if (!sp.scriptSource.empty() && loadFromEatsScript(sp.scriptSource)) {
+                activeSoundPackId_ = target;
+                return;
+            }
+            if (!sp.filePath.empty() && loadFromEatsFile(sp.filePath)) {
+                activeSoundPackId_ = target;
+                return;
+            }
+        }
+    }
     if (target == "default") {
         if (!loadFromEatsFile("sounds/default.eats")) {
             resetToDefaults();
@@ -2238,6 +2265,20 @@ bool AudioFoleyEngine::setAmbience(const std::string& envId) {
     if (lower.empty() || lower == "off" || lower == "none") {
         clearAmbience();
         return true;
+    }
+
+    for (const auto& amb : availableAmbiences()) {
+        if (amb.id == lower || amb.id == envId) {
+            if (!amb.layers.empty()) {
+                uint32_t inactiveIdx = 1 - activeAmbienceBankIdx_.load(std::memory_order_relaxed);
+                ambienceBanks_[inactiveIdx] = amb;
+                activeAmbienceBankIdx_.store(inactiveIdx, std::memory_order_release);
+                ambienceGeneration_.fetch_add(1, std::memory_order_release);
+                ambienceEnabled_.store(true, std::memory_order_release);
+                activeAmbienceId_ = amb.id;
+                return true;
+            }
+        }
     }
 
     std::string filename = lower;
@@ -2284,6 +2325,183 @@ bool AudioFoleyEngine::loadAmbienceFromEatsFile(const std::string& filePath) {
     return false;
 }
 
+bool AudioFoleyEngine::parseAmbienceDict(const eatsbits::eatscript::Value& d, AmbienceEnvDef& parsedEnv) {
+    if (!d.isDict()) return false;
+    if (d.hasKey("id") && d.get("id").isString()) parsedEnv.id = d.get("id").asString();
+    if (d.hasKey("name") && d.get("name").isString()) parsedEnv.name = d.get("name").asString();
+    if (d.hasKey("master_gain")) parsedEnv.masterGain = std::clamp(d.get("master_gain").asFloat(1.0f), 0.0f, 2.0f);
+
+    parsedEnv.layers.clear();
+    if (d.hasKey("layers") && d.get("layers").isList()) {
+        const auto& list = d.get("layers").listVal;
+        for (const auto& item : list) {
+            if (!item.isDict() || parsedEnv.layers.size() >= kMaxAmbienceLayers) continue;
+            AmbienceLayerDef layer{};
+
+            std::string typeStr = (item.hasKey("type") && item.get("type").isString()) ? item.get("type").asString() : "noise_bed";
+            for (char& c : typeStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (typeStr == "stochastic_grains" || typeStr == "grains") {
+                layer.type = AmbienceLayerType::StochasticGrains;
+            } else if (typeStr == "chirp_spawner" || typeStr == "chirps") {
+                layer.type = AmbienceLayerType::ChirpSpawner;
+            } else {
+                layer.type = AmbienceLayerType::NoiseBed;
+            }
+
+            std::string colorStr = (item.hasKey("color") && item.get("color").isString()) ? item.get("color").asString() : "pink";
+            for (char& c : colorStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (colorStr == "white") layer.noiseColor = AmbienceNoiseColor::White;
+            else if (colorStr == "brown" || colorStr == "red") layer.noiseColor = AmbienceNoiseColor::Brown;
+            else layer.noiseColor = AmbienceNoiseColor::Pink;
+
+            std::string filtStr = (item.hasKey("filter") && item.get("filter").isString()) ? item.get("filter").asString() : "lowpass";
+            for (char& c : filtStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (filtStr == "none") layer.filterType = FoleyFilter::None;
+            else if (filtStr == "highpass") layer.filterType = FoleyFilter::Highpass;
+            else if (filtStr == "bandpass") layer.filterType = FoleyFilter::Bandpass;
+            else layer.filterType = FoleyFilter::Lowpass;
+
+            if (item.hasKey("gain")) layer.gain = std::clamp(item.get("gain").asFloat(0.35f), 0.0f, 2.0f);
+            if (item.hasKey("cutoff")) layer.cutoff = std::clamp(item.get("cutoff").asFloat(1000.0f), 20.0f, 20000.0f);
+            if (item.hasKey("q")) layer.q = std::clamp(item.get("q").asFloat(0.707f), 0.1f, 20.0f);
+            if (item.hasKey("lfo_rate")) layer.lfoRate = std::clamp(item.get("lfo_rate").asFloat(0.0f), 0.0f, 20.0f);
+            if (item.hasKey("lfo_depth")) layer.lfoDepth = std::max(0.0f, item.get("lfo_depth").asFloat(0.0f));
+            if (item.hasKey("amp_mod")) layer.ampModDepth = std::clamp(item.get("amp_mod").asFloat(0.0f), 0.0f, 0.95f);
+
+            if (item.hasKey("rate")) layer.rate = std::clamp(item.get("rate").asFloat(8.0f), 0.05f, 200.0f);
+            if (item.hasKey("freq_min")) layer.freqMin = std::clamp(item.get("freq_min").asFloat(800.0f), 40.0f, 18000.0f);
+            if (item.hasKey("freq_max")) layer.freqMax = std::clamp(item.get("freq_max").asFloat(4000.0f), layer.freqMin, 19000.0f);
+            if (item.hasKey("freq_sweep")) layer.freqSweep = std::clamp(item.get("freq_sweep").asFloat(1.0f), 0.1f, 4.0f);
+            if (item.hasKey("decay")) layer.decaySec = std::clamp(item.get("decay").asFloat(0.02f), 0.002f, 1.5f);
+            if (item.hasKey("stereo_spread")) layer.stereoSpread = std::clamp(item.get("stereo_spread").asFloat(0.5f), 0.0f, 1.0f);
+            if (item.hasKey("tonal")) layer.tonal = item.get("tonal").asBoolean(false);
+
+            parsedEnv.layers.push_back(layer);
+        }
+    }
+    return !parsedEnv.layers.empty();
+}
+
+namespace {
+std::vector<SoundPackDef>& soundPackRegistryStorage() {
+    static std::vector<SoundPackDef> s_packs;
+    return s_packs;
+}
+bool& soundPacksScannedFlag() {
+    static bool s_scanned = false;
+    return s_scanned;
+}
+std::vector<AmbienceEnvDef>& ambienceRegistryStorage() {
+    static std::vector<AmbienceEnvDef> s_ambiences;
+    return s_ambiences;
+}
+bool& ambiencesScannedFlag() {
+    static bool s_scanned = false;
+    return s_scanned;
+}
+} // namespace
+
+void AudioFoleyEngine::registerSoundPack(const SoundPackDef& def) {
+    if (def.id.empty()) return;
+    if (!soundPacksScannedFlag()) {
+        scanSoundPacks("sounds");
+    }
+    auto& packs = soundPackRegistryStorage();
+    for (auto& sp : packs) {
+        if (sp.id == def.id) {
+            sp = def;
+            return;
+        }
+    }
+    packs.push_back(def);
+}
+
+void AudioFoleyEngine::scanSoundPacks(const std::string& dir) {
+    soundPacksScannedFlag() = true;
+    auto& packs = soundPackRegistryStorage();
+    const std::vector<std::pair<std::string, std::string>> builtins = {
+        {"default", "Default"},
+        {"authentic_place", "Authentic"},
+        {"copag_plastic", "Copag"},
+        {"vintage_bicycle", "Bicycle"},
+        {"vegas_linen", "Linen"},
+        {"bass_heavy", "Bass"},
+        {"glass_crystal", "Crystal"},
+        {"futuristic", "Futuristic"},
+        {"retro_8bit", "8-Bit"}
+    };
+    for (const auto& [id, name] : builtins) {
+        bool exists = false;
+        for (const auto& sp : packs) {
+            if (sp.id == id) { exists = true; break; }
+        }
+        if (!exists) {
+            SoundPackDef def{};
+            def.id = id;
+            def.name = name;
+            def.filePath = dir + "/" + id + ".eats";
+            packs.push_back(std::move(def));
+        }
+    }
+}
+
+const std::vector<SoundPackDef>& AudioFoleyEngine::availableSoundPacks() {
+    if (!soundPacksScannedFlag()) {
+        scanSoundPacks("sounds");
+    }
+    return soundPackRegistryStorage();
+}
+
+void AudioFoleyEngine::registerAmbience(const AmbienceEnvDef& def) {
+    if (def.id.empty()) return;
+    if (!ambiencesScannedFlag()) {
+        scanAmbiences("ambience");
+    }
+    auto& ambiences = ambienceRegistryStorage();
+    for (auto& amb : ambiences) {
+        if (amb.id == def.id) {
+            amb = def;
+            return;
+        }
+    }
+    ambiences.push_back(def);
+}
+
+void AudioFoleyEngine::scanAmbiences(const std::string& dir) {
+    (void)dir;
+    ambiencesScannedFlag() = true;
+    auto& ambiences = ambienceRegistryStorage();
+    const std::vector<std::pair<std::string, std::string>> builtins = {
+        {"off", "Off"},
+        {"rain", "Rain"},
+        {"fireplace", "Fireplace"},
+        {"campfire", "Campfire"},
+        {"wind", "Wind"},
+        {"woodlands", "Woodlands"},
+        {"riverbed", "Riverbed"},
+        {"whitenoise", "White Noise"}
+    };
+    for (const auto& [id, name] : builtins) {
+        bool exists = false;
+        for (const auto& amb : ambiences) {
+            if (amb.id == id) { exists = true; break; }
+        }
+        if (!exists) {
+            AmbienceEnvDef def{};
+            def.id = id;
+            def.name = name;
+            ambiences.push_back(std::move(def));
+        }
+    }
+}
+
+const std::vector<AmbienceEnvDef>& AudioFoleyEngine::availableAmbiences() {
+    if (!ambiencesScannedFlag()) {
+        scanAmbiences("ambience");
+    }
+    return ambienceRegistryStorage();
+}
+
 bool AudioFoleyEngine::loadAmbienceFromEatsScript(const std::string& script) {
     if (script.empty()) return false;
 
@@ -2295,65 +2513,13 @@ bool AudioFoleyEngine::loadAmbienceFromEatsScript(const std::string& script) {
 
     auto defineEnvFn = [&](const std::vector<eatsbits::eatscript::Value>& args,
                            const std::map<std::string, eatsbits::eatscript::Value>&) -> eatsbits::eatscript::Value {
-        if (args.empty() || !args[0].isDict()) return eatsbits::eatscript::Value(false);
-        const auto& d = args[0];
-
-        if (d.hasKey("id") && d.get("id").isString()) parsedEnv.id = d.get("id").asString();
-        if (d.hasKey("name") && d.get("name").isString()) parsedEnv.name = d.get("name").asString();
-        if (d.hasKey("master_gain")) parsedEnv.masterGain = std::clamp(d.get("master_gain").asFloat(1.0f), 0.0f, 2.0f);
-
-        parsedEnv.layers.clear();
-        if (d.hasKey("layers") && d.get("layers").isList()) {
-            const auto& list = d.get("layers").listVal;
-            for (const auto& item : list) {
-                if (!item.isDict() || parsedEnv.layers.size() >= kMaxAmbienceLayers) continue;
-                AmbienceLayerDef layer{};
-
-                std::string typeStr = (item.hasKey("type") && item.get("type").isString()) ? item.get("type").asString() : "noise_bed";
-                for (char& c : typeStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (typeStr == "stochastic_grains" || typeStr == "grains") {
-                    layer.type = AmbienceLayerType::StochasticGrains;
-                } else if (typeStr == "chirp_spawner" || typeStr == "chirps") {
-                    layer.type = AmbienceLayerType::ChirpSpawner;
-                } else {
-                    layer.type = AmbienceLayerType::NoiseBed;
-                }
-
-                std::string colorStr = (item.hasKey("color") && item.get("color").isString()) ? item.get("color").asString() : "pink";
-                for (char& c : colorStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (colorStr == "white") layer.noiseColor = AmbienceNoiseColor::White;
-                else if (colorStr == "brown" || colorStr == "red") layer.noiseColor = AmbienceNoiseColor::Brown;
-                else layer.noiseColor = AmbienceNoiseColor::Pink;
-
-                std::string filtStr = (item.hasKey("filter") && item.get("filter").isString()) ? item.get("filter").asString() : "lowpass";
-                for (char& c : filtStr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (filtStr == "none") layer.filterType = FoleyFilter::None;
-                else if (filtStr == "highpass") layer.filterType = FoleyFilter::Highpass;
-                else if (filtStr == "bandpass") layer.filterType = FoleyFilter::Bandpass;
-                else layer.filterType = FoleyFilter::Lowpass;
-
-                if (item.hasKey("gain")) layer.gain = std::clamp(item.get("gain").asFloat(0.35f), 0.0f, 2.0f);
-                if (item.hasKey("cutoff")) layer.cutoff = std::clamp(item.get("cutoff").asFloat(1000.0f), 20.0f, 20000.0f);
-                if (item.hasKey("q")) layer.q = std::clamp(item.get("q").asFloat(0.707f), 0.1f, 20.0f);
-                if (item.hasKey("lfo_rate")) layer.lfoRate = std::clamp(item.get("lfo_rate").asFloat(0.0f), 0.0f, 20.0f);
-                if (item.hasKey("lfo_depth")) layer.lfoDepth = std::max(0.0f, item.get("lfo_depth").asFloat(0.0f));
-                if (item.hasKey("amp_mod")) layer.ampModDepth = std::clamp(item.get("amp_mod").asFloat(0.0f), 0.0f, 0.95f);
-
-                if (item.hasKey("rate")) layer.rate = std::clamp(item.get("rate").asFloat(8.0f), 0.05f, 200.0f);
-                if (item.hasKey("freq_min")) layer.freqMin = std::clamp(item.get("freq_min").asFloat(800.0f), 40.0f, 18000.0f);
-                if (item.hasKey("freq_max")) layer.freqMax = std::clamp(item.get("freq_max").asFloat(4000.0f), layer.freqMin, 19000.0f);
-                if (item.hasKey("freq_sweep")) layer.freqSweep = std::clamp(item.get("freq_sweep").asFloat(1.0f), 0.1f, 4.0f);
-                if (item.hasKey("decay")) layer.decaySec = std::clamp(item.get("decay").asFloat(0.02f), 0.002f, 1.5f);
-                if (item.hasKey("stereo_spread")) layer.stereoSpread = std::clamp(item.get("stereo_spread").asFloat(0.5f), 0.0f, 1.0f);
-                if (item.hasKey("tonal")) layer.tonal = item.get("tonal").asBoolean(false);
-
-                parsedEnv.layers.push_back(layer);
-            }
-        }
-        hasEnv = !parsedEnv.layers.empty();
+        if (args.empty()) return eatsbits::eatscript::Value(false);
+        hasEnv = parseAmbienceDict(args[0], parsedEnv);
         return eatsbits::eatscript::Value(hasEnv);
     };
 
+    evaluator.setVariable("sol", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
+    evaluator.registerMemberFunction("sol", "define_ambience", defineEnvFn);
     evaluator.setVariable("ambience", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
     evaluator.registerMemberFunction("ambience", "define_environment", defineEnvFn);
     evaluator.registerFunction("define_environment", defineEnvFn);

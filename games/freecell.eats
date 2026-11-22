@@ -3,26 +3,6 @@
 # =============================================================================
 # Open tableau game of pure skill with 4 reserve FreeCells.
 
-name = "FreeCell"
-family = "FreeCell"
-category = "FREECELL"
-layout = "columns"
-description = "Open tableau game of skill. 4 reserve free cells; nearly every deal is winnable."
-decks = 1
-tableaus = 8
-foundations = 4
-freecells = 4
-
-tableau_deal_counts = [7, 7, 7, 7, 6, 6, 6, 6]
-tableau_all_face_up = True
-foundation_starter_card = False
-
-stock_deal_mode = "none"
-stock_deal_count = 0
-max_redeals = 0
-demo_seed = 2
-demo_seeds = [2, 17, 18, 21, 25, 29, 41, 45]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 1, "Pure Skill", 4, "Strategic")
 doc_aliases(["Baker's Alternating", "Eight-Column FreeCell"])
@@ -123,3 +103,28 @@ def get_status():
     if total == 52:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "freecell",
+    name: "FreeCell",
+    family: "FreeCell",
+    category: "FREECELL",
+    layout: "columns",
+    description: "Open tableau game of skill. 4 reserve free cells; nearly every deal is winnable.",
+    decks: 1,
+    tableaus: 8,
+    foundations: 4,
+    freecells: 4,
+    tableau_deal_counts: [7, 7, 7, 7, 6, 6, 6, 6],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 2,
+    demo_seeds: [2, 17, 18, 21, 25, 29, 41, 45],
+    eval_heuristic: eval_heuristic,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    get_status: get_status
+})

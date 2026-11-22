@@ -1,5 +1,5 @@
 # SolEngine Post-FX — Tilt-Shift Miniature Focus
-sol.set_postfx({
+sol.define_postfx({
     id: "tilt_shift",
     name: "Tilt-Shift",
     author: "Maddest Labs",

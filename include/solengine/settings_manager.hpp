@@ -168,6 +168,7 @@ public:
     static void applyProfileToSettings(const GameSceneProfile& p, AppSettings& out);
 
     void loadPresets(const std::string& presetsDir = "presets");
+    void registerPreset(const ScenePreset& preset);
     [[nodiscard]] const std::vector<ScenePreset>& presets() const noexcept { return presets_; }
     [[nodiscard]] const ScenePreset* findPreset(const std::string& presetId) const;
     bool saveUserPreset(const std::string& name, const GameSceneProfile& profile, std::string& outPresetId);

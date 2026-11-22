@@ -1,7 +1,7 @@
 # SolEngine Procedural Background Theme — Painted Wood
 # Pure Eatscript Bytecode Shader: Weathered painted wood timber planks with visible grain, beveled seams, and milk paint finish
 
-sol.set_theme({
+sol.define_theme({
     id: "paintedwood",
     name: "Painted Wood",
     author: "Maddest Labs",

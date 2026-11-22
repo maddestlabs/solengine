@@ -771,23 +771,47 @@
                 const resp = await fetch(`https://api.github.com/gists/${gistId}`);
                 if (!resp.ok) throw new Error(`GitHub Gist API error: ${resp.status}`);
                 const gistData = await resp.json();
-                const files = gistData.files;
-                let targetFile = null;
-                for (const fname in files) {
-                    if (fname.endsWith('.eats')) {
-                        targetFile = files[fname];
-                        break;
-                    }
-                }
-                if (!targetFile) {
+                const files = gistData.files || {};
+                let targetFiles = Object.values(files).filter(f => f && f.filename && f.filename.endsWith('.eats'));
+                if (targetFiles.length === 0) {
                     const firstKey = Object.keys(files)[0];
-                    targetFile = files[firstKey];
+                    if (firstKey && files[firstKey]) targetFiles = [files[firstKey]];
                 }
-                if (targetFile && targetFile.raw_url) {
-                    return await loadEatsFromUrl(targetFile.raw_url, targetFile.filename);
-                } else {
+                if (targetFiles.length === 0) {
                     throw new Error('No valid file found in Gist.');
                 }
+
+                if (targetFiles.length === 1 && targetFiles[0].raw_url) {
+                    return await loadEatsFromUrl(targetFiles[0].raw_url, targetFiles[0].filename);
+                }
+
+                let loadedCount = 0;
+                if (typeof FS !== 'undefined') {
+                    try { FS.mkdir('/user'); } catch (e) {}
+                    try { FS.mkdir('/user/gists'); } catch (e) {}
+                    try { FS.mkdir(`/user/gists/${gistId}`); } catch (e) {}
+                }
+                for (const tf of targetFiles) {
+                    if (!tf.raw_url) continue;
+                    showToast(`Loading ${tf.filename} (${loadedCount + 1}/${targetFiles.length})...`, 4000);
+                    const fResp = await fetch(tf.raw_url);
+                    if (!fResp.ok) continue;
+                    const buf = await fResp.arrayBuffer();
+                    const data = new Uint8Array(buf);
+                    if (typeof FS !== 'undefined') {
+                        const vPath = `/user/gists/${gistId}/${tf.filename}`;
+                        FS.writeFile(vPath, data);
+                        if (typeof Module !== 'undefined' && Module.ccall) {
+                            const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], [vPath]);
+                            if (ok) loadedCount++;
+                        }
+                    }
+                }
+                if (loadedCount > 0) {
+                    showToast(`Loaded ${loadedCount} .eats file(s) from Gist.`, 4000);
+                    return true;
+                }
+                throw new Error('Failed to load any files from Gist.');
             } catch (err) {
                 console.error('[Gist Error]', err);
                 showToast('Error loading Gist: ' + err.message, 5000);

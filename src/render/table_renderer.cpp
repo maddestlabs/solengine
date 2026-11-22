@@ -15,6 +15,7 @@
 #include "solengine/ui/clockwork_theme.hpp"
 #include "solengine/ui/app_icon_data.hpp"
 #include "solengine/game_definition.hpp"
+#include "solengine/eats_package_loader.hpp"
 #include "eatsbits/ui/glyph/vector_font.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/ui/base64.hpp"
@@ -5030,6 +5031,8 @@ struct InteractiveContext {
         bool stagingDeckReady{false};
         bool customBgReady{false};
         bool customAudioReady{false};
+        EatsLoadResult pendingEatsResult;
+        bool pendingEatsReady{false};
         TableThemeId targetTheme{TableThemeId::EmeraldLawn};
         std::string targetThemeSlug;
         bool themeReady{false};
@@ -5069,6 +5072,8 @@ struct InteractiveContext {
             stagingDeck = CardTextureCache::StagingDeck{};
             customBgReady = false;
             customAudioReady = false;
+            pendingEatsResult = EatsLoadResult{};
+            pendingEatsReady = false;
             solvableSeedReady = false;
             silent = false;
             cancelRequested.store(false);
@@ -5391,6 +5396,39 @@ struct InteractiveContext {
 
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         file.close();
+
+        // Try unified .eats v2 package loader first
+        EatsLoadResult pkgRes;
+        if (EatsPackageLoader::loadSource(content, filePath, pkgRes, &foley) && pkgRes.hasAnyAsset()) {
+            if (!pkgRes.deckIds.empty()) {
+                const auto& decks = CardTextureCache::instance().availableDecks();
+                const std::string& targetDeckId = pkgRes.deckIds.front();
+                for (const auto& d : decks) {
+                    if (d.id == targetDeckId) {
+                        if (!d.blobBase64.empty()) {
+                            std::vector<uint8_t> deckBytes = eatsbits::ui::base64Decode(d.blobBase64);
+                            if (!deckBytes.empty()) {
+                                if (d.cornerRadius >= 0.0f) asyncManager.stagingDeck.cornerRadius = d.cornerRadius;
+                                if (CardTextureCache::instance().loadStagedMemoryDeck(
+                                        asyncManager.stagingDeck, deckBytes.data(), deckBytes.size(),
+                                        d.format.empty() ? "evecz" : d.format, DeckThemeId::Custom,
+                                        filePath, wear, stock, cardW, cardH, progressCb)) {
+                                    asyncManager.stagingDeckReady = true;
+                                }
+                            }
+                        } else if (CardTextureCache::instance().loadStagedFileDeck(
+                                       asyncManager.stagingDeck, filePath, wear, stock, cardW, cardH, progressCb)) {
+                            asyncManager.stagingDeckReady = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            asyncManager.pendingEatsResult = std::move(pkgRes);
+            asyncManager.pendingEatsReady = true;
+            if (progressCb) progressCb(1.0f, "Loaded .eats package.");
+            return true;
+        }
 
         std::string scriptPart = content;
         std::string blobPart;
@@ -5960,6 +5998,11 @@ struct InteractiveContext {
                 board.computeLayout(static_cast<float>(width), static_cast<float>(height));
                 SettingsManager::instance().settings().variant = def.nativeVariant;
                 SettingsManager::instance().settings().lastSeed = s;
+                if (!def.defaultPresetId.empty() &&
+                    SettingsManager::instance().activePresetForGame(def.id).empty() &&
+                    SettingsManager::instance().findPreset(def.defaultPresetId)) {
+                    SettingsManager::instance().setGamePreset(def.id, def.defaultPresetId);
+                }
                 SettingsManager::instance().save();
                 applyEffectiveSettings(true);
                 SessionManager::instance().clearSession();
@@ -6646,7 +6689,40 @@ struct InteractiveContext {
                     } else {
                         foley.triggerSound(FoleySound::Flip, 0.80f);
                     }
-                } else if (asyncManager.stagingDeckReady || asyncManager.customBgReady || asyncManager.customAudioReady) {
+                } else if (asyncManager.stagingDeckReady || asyncManager.customBgReady || asyncManager.customAudioReady || asyncManager.pendingEatsReady) {
+                    if (asyncManager.pendingEatsReady) {
+                        const auto& res = asyncManager.pendingEatsResult;
+                        if (!res.presetIds.empty()) {
+                            if (const auto* preset = SettingsManager::instance().findPreset(res.presetIds.front())) {
+                                SettingsManager::applyProfileToSettings(preset->profile, SettingsManager::instance().settings());
+                                SettingsManager::instance().applyToGame(board, foley, false);
+                            }
+                        }
+                        if (!res.themeIds.empty()) {
+                            SettingsManager::instance().settings().tableThemeSlug = res.themeIds.front();
+                            ProceduralBackgroundSystem::instance().invalidateCache();
+                        }
+                        if (!res.postFxIds.empty()) {
+                            SettingsManager::instance().settings().postFxId = res.postFxIds.front();
+                        }
+                        if (!res.ambienceIds.empty()) {
+                            SettingsManager::instance().settings().ambienceId = res.ambienceIds.front();
+                            foley.setAmbience(res.ambienceIds.front());
+                        }
+                        if (!res.soundPackIds.empty()) {
+                            SettingsManager::instance().settings().soundPackId = res.soundPackIds.front();
+                            foley.setSoundPackId(res.soundPackIds.front());
+                        }
+                        if (!res.gameIds.empty()) {
+                            if (const auto* gdef = GameRegistry::instance().findById(res.gameIds.front())) {
+                                autoPlayController.stop();
+                                uint32_t seed = gdef->demoSeed > 0 ? gdef->demoSeed : board.seed();
+                                board.newDeal(seed, *gdef);
+                                board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                            }
+                        }
+                        SettingsManager::instance().save();
+                    }
                     if (asyncManager.stagingDeckReady) {
                         CardTextureCache::instance().commitStagedDeck(std::move(asyncManager.stagingDeck));
                         CardTextureCache::instance().setActiveCardBack(effectiveSettings_.cardBackId);

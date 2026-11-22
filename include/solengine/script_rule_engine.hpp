@@ -5,6 +5,7 @@
 #include "eatsbits/eatscript/evaluator.hpp"
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace solengine {
@@ -38,6 +39,8 @@ public:
 
     bool loadScript(const std::string& source);
     bool loadScriptFile(const std::string& filePath);
+    bool loadScriptForGame(const std::string& source, const std::string& targetGameId);
+    bool loadFileForGame(const std::string& filePath, const std::string& targetGameId);
     void reset() noexcept;
 
     [[nodiscard]] bool isLoaded() const noexcept { return loaded_; }
@@ -84,11 +87,14 @@ public:
 private:
     void registerHostApi();
     void bindContext(ScriptBoardContext* ctx) noexcept { boundCtx_ = ctx; }
+    eatsbits::eatscript::Value invokeHook(const std::string& name,
+                                          const std::vector<eatsbits::eatscript::Value>& args = {});
 
     eatsbits::eatscript::Evaluator evaluator_;
     ScriptBoardContext* boundCtx_{nullptr};
     std::string lastError_;
     bool loaded_{false};
+    std::unordered_map<std::string, eatsbits::eatscript::Value> boundCallables_;
 
     bool hasOnDeal_{false};
     bool hasCanPick_{false};

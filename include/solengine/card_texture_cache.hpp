@@ -166,6 +166,9 @@ public:
         std::string name;
         std::string filePath;
         DeckThemeId legacyId{DeckThemeId::Custom};
+        std::string format;
+        std::string blobBase64;
+        float cornerRadius{-1.0f};
     };
 
     struct StagingDeck {
@@ -263,6 +266,7 @@ public:
     [[nodiscard]] int cardWidth() const noexcept { return cardW_; }
     [[nodiscard]] int cardHeight() const noexcept { return cardH_; }
     void scanDecksFolder(const std::string& decksDir = "decks");
+    void registerDeck(const DeckDef& def);
     [[nodiscard]] const std::vector<DeckDef>& availableDecks();
     [[nodiscard]] size_t findDeckIndex(const std::string& slug, DeckThemeId legacyFallback) const;
     [[nodiscard]] const DeckDef* getDeckDef(size_t index) const;

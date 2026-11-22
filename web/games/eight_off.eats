@@ -4,26 +4,6 @@
 # Classic 8-cell FreeCell variant. 8 columns of 6 cards; 4 cards start in cells.
 # Tableau builds down in same suit; Kings only may fill empty columns.
 
-name = "Eight Off"
-family = "FreeCell"
-category = "FREECELL"
-layout = "columns"
-description = "8 FreeCells (4 pre-filled). Build down in the SAME SUIT; only Kings may fill empty columns."
-decks = 1
-tableaus = 8
-foundations = 4
-freecells = 8
-
-tableau_deal_counts = [6, 6, 6, 6, 6, 6, 6, 6]
-tableau_all_face_up = True
-foundation_starter_card = False
-
-stock_deal_mode = "none"
-stock_deal_count = 0
-max_redeals = 0
-demo_seed = 2
-demo_seeds = [2, 5, 13, 17, 21, 25, 37, 45]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(3, "Medium", 1, "Pure Skill", 4, "Tactical")
 doc_aliases(["Eight Cells"])
@@ -122,3 +102,28 @@ def get_status():
     if total == 52:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "eight_off",
+    name: "Eight Off",
+    family: "FreeCell",
+    category: "FREECELL",
+    layout: "columns",
+    description: "8 FreeCells (4 pre-filled). Build down in the SAME SUIT; only Kings may fill empty columns.",
+    decks: 1,
+    tableaus: 8,
+    foundations: 4,
+    freecells: 8,
+    tableau_deal_counts: [6, 6, 6, 6, 6, 6, 6, 6],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 2,
+    demo_seeds: [2, 5, 13, 17, 21, 25, 37, 45],
+    eval_heuristic: eval_heuristic,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    get_status: get_status
+})

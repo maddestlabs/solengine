@@ -3,7 +3,7 @@
 # 2. Eatscript 3-stop recolor shader cleans compression artifacts across all 8 stone palettes
 # 3. Viewport-wide 4-corner geological gradient (with gentle FBM drift) breaks up tile repetition
 
-sol.set_theme({
+sol.define_theme({
     id: "marble",
     name: "Marble",
     author: "Maddest Labs",

@@ -3,7 +3,7 @@
 # Steady rainfall sheet with distant warmth and stochastic droplet patters.
 # ==============================================================================
 
-ambience.define_environment({
+sol.define_ambience({
     id: "rain",
     name: "Rain",
     master_gain: 1.0,

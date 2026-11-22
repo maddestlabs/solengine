@@ -116,6 +116,7 @@ add_library(solengine_render STATIC
     src/game/settings_manager.cpp
     src/game/session_manager.cpp
     src/game/game_definition.cpp
+    src/game/eats_package_loader.cpp
     src/ui/svg_icon_renderer.cpp
     src/ui/settings_dialog.cpp
     src/ui/seed_dialog.cpp

@@ -2194,6 +2194,7 @@ static bool loadBaseFromEats(
     evaluator.setVariable("sol", eatsbits::eatscript::Value(std::map<std::string, eatsbits::eatscript::Value>{}));
     evaluator.registerMemberFunction("sol", "create_theme", themeFn);
     evaluator.registerMemberFunction("sol", "set_theme", themeFn);
+    evaluator.registerMemberFunction("sol", "define_deck", themeFn);
     evaluator.registerMemberFunction("sol", "set_deck", setDeckFn);
     evaluator.registerMemberFunction("sol", "add_card_back", addCardBackFn);
     evaluator.registerMemberFunction("sol", "set_corner_radius", setCornerRadiusFn);
@@ -3449,6 +3450,20 @@ const std::vector<CardTextureCache::DeckDef>& CardTextureCache::availableDecks()
         scanDecksFolder("decks");
     }
     return scannedDecks_;
+}
+
+void CardTextureCache::registerDeck(const DeckDef& def) {
+    if (def.id.empty()) return;
+    if (!decksScanned_) {
+        scanDecksFolder("decks");
+    }
+    for (auto& d : scannedDecks_) {
+        if (d.id == def.id) {
+            d = def;
+            return;
+        }
+    }
+    scannedDecks_.push_back(def);
 }
 
 size_t CardTextureCache::findDeckIndex(const std::string& slug, DeckThemeId legacyFallback) const {

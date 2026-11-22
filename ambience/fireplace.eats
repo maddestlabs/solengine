@@ -3,7 +3,7 @@
 # Warm hearth rumble, soft flame hiss, sharp ember crackles, and wood pops.
 # ==============================================================================
 
-ambience.define_environment({
+sol.define_ambience({
     id: "fireplace",
     name: "Fireplace Crackle",
     master_gain: 1.0,

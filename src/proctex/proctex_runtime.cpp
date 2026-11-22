@@ -614,14 +614,18 @@ void ProcTexRuntime::registerBindings() {
     std::map<std::string, Value> solMethods;
     HostFunction solNoopFn = [](const auto&, const auto&) -> Value { return Value(true); };
     solMethods["set_theme"] = Value(solNoopFn);
+    solMethods["define_theme"] = Value(solNoopFn);
     solMethods["create_theme"] = Value(solNoopFn);
     solMethods["set_deck"] = Value(solNoopFn);
+    solMethods["define_deck"] = Value(solNoopFn);
     solMethods["set_background"] = Value(solNoopFn);
     solMethods["set_corner_radius"] = Value(solNoopFn);
     evaluator_.setVariable("sol", Value(solMethods));
     evaluator_.registerMemberFunction("sol", "set_theme", solNoopFn);
+    evaluator_.registerMemberFunction("sol", "define_theme", solNoopFn);
     evaluator_.registerMemberFunction("sol", "create_theme", solNoopFn);
     evaluator_.registerMemberFunction("sol", "set_deck", solNoopFn);
+    evaluator_.registerMemberFunction("sol", "define_deck", solNoopFn);
     evaluator_.registerMemberFunction("sol", "set_background", solNoopFn);
     evaluator_.registerMemberFunction("sol", "set_corner_radius", solNoopFn);
     evaluator_.registerFunction("set_theme", solNoopFn);

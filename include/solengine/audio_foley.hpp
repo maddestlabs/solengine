@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <mutex>
 
+namespace eatsbits::eatscript { struct Value; }
+
 namespace solengine {
 
 namespace FoleySound {
@@ -237,6 +239,15 @@ struct AmbienceEnvDef {
     std::vector<AmbienceLayerDef> layers;
 };
 
+struct SoundPackDef {
+    std::string id;
+    std::string name;
+    std::string author;
+    std::string description;
+    std::string filePath;
+    std::string scriptSource;
+};
+
 /**
  * Real-Time Multi-Modal Procedural Card & Solitaire Foley Synthesizer.
  * Built on miniaudio with zero sample dependencies: physically synthesizes
@@ -292,6 +303,16 @@ public:
 
     void setSoundPackId(const std::string& packId);
     [[nodiscard]] std::string getSoundPackId() const { return activeSoundPackId_; }
+
+    // Dynamic Registries for Sound Packs & Ambience Environments
+    static void scanSoundPacks(const std::string& dir = "sounds");
+    static void registerSoundPack(const SoundPackDef& def);
+    [[nodiscard]] static const std::vector<SoundPackDef>& availableSoundPacks();
+
+    static void scanAmbiences(const std::string& dir = "ambience");
+    static void registerAmbience(const AmbienceEnvDef& def);
+    [[nodiscard]] static const std::vector<AmbienceEnvDef>& availableAmbiences();
+    static bool parseAmbienceDict(const eatsbits::eatscript::Value& d, AmbienceEnvDef& outEnv);
 
     struct BiquadCoeffs {
         float b0{1.0f}, b1{0.0f}, b2{0.0f};

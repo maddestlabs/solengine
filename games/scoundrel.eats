@@ -6,26 +6,6 @@
 # Flee Room (bottom of deck, no consecutive flees), <= durability cap,
 # and barehanded vs. armed combat choice.
 
-name = "Scoundrel"
-family = "Scoundrel"
-category = "RPG"
-layout = "columns"
-description = "44-card dungeon-crawl solitaire. Spades/Clubs are monsters, Diamonds are weapons, Hearts are potions. Survive the deck!"
-decks = 1
-deck_cards = 44
-exclude_red_royals = True
-tableaus = 4
-foundations = 1
-freecells = 0
-tableau_deal_counts = [1, 1, 1, 1]
-tableau_all_face_up = True
-foundation_starter_card = False
-stock_deal_mode = "none"
-stock_deal_count = 1
-max_redeals = 0
-demo_seed = 6
-demo_seeds = [6, 13, 53, 79, 142, 179, 237, 238]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 3, "25%-55%", 3, "Tactical")
 doc_aliases(["Dungeon Solitaire", "Scoundrel Card Game"])
@@ -242,3 +222,35 @@ def get_status():
     if zone_size(0) == 0 and room_card_count() == 0:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "scoundrel",
+    name: "Scoundrel",
+    family: "Scoundrel",
+    category: "RPG",
+    layout: "columns",
+    description: "44-card dungeon-crawl solitaire. Spades/Clubs are monsters, Diamonds are weapons, Hearts are potions. Survive the deck!",
+    decks: 1,
+    deck_cards: 44,
+    exclude_red_royals: True,
+    tableaus: 4,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 6,
+    demo_seeds: [6, 13, 53, 79, 142, 179, 237, 238],
+    eval_heuristic: eval_heuristic,
+    on_deal: on_deal,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    on_drop: on_drop,
+    on_card_click: on_card_click,
+    on_stock_click: on_stock_click,
+    on_turn_end: on_turn_end,
+    get_status: get_status
+})

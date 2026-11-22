@@ -2,7 +2,7 @@
 # Softens razor-sharp digital edges with a sub-pixel optical lens blur,
 # tones down oversaturated primaries, and adds gentle filmic roll-off & micro-grain.
 
-sol.set_postfx({
+sol.define_postfx({
     id: "realism",
     name: "Realism",
     author: "Maddest Labs",

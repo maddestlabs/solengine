@@ -28,7 +28,7 @@ Play instantly in your browser:
 SolEngine is built around **Eatscript**: a Pythonic scripting dialect where game logic, layout topology, and card movement are defined:
 - **Classic Solitaries baked in:** *Klondike (Draw 1 & 3)*, *FreeCell*, *Spider (1, 2, & 4 Suits)*, *Yukon*.
 - **Modernized Solitaires baked twice:** *Scoundrel*, *Scoundrel Rookie*.
-- **Custom Variations:** Craft your own game rules via `.eats` scripts. Define tableaux, cell constraints, foundation ranks, reserve cascades, and victory conditions.
+- **Custom Variations & Bundles:** Craft your own game rules, tabletop shaders, decks, sound packs, ambience, post-FX, presets, and multi-game series via unified `.eats` scripts (`sol.define_game`, `sol.define_theme`, `sol.define_deck`, `sol.define_ambience`, `sol.define_sound_pack`, `sol.define_postfx`, `sol.define_preset`, `sol.define_series`). Share a single bundled `.eats` file or a multi-file GitHub Gist live on the web via `?gist=<GIST_ID>`. See [docs/eats-v2-revamp.md](docs/eats-v2-revamp.md) for the full format specification.
 
 ### Procedural API
 Table backgrounds in SolEngine are forged in WebGPU fragment shaders while card faces and card backs can be designed with bitmaps, vector API, rendered via shader code or any combination of these.

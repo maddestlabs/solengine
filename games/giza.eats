@@ -3,26 +3,6 @@
 # =============================================================================
 # Open Pyramid variant: all 24 reserve cards are dealt face up in 8 columns of 3.
 
-name = "Giza"
-family = "Pyramid"
-category = "ADDING"
-layout = "pyramid"
-description = "Open Pyramid variant. All 24 reserve cards are visible in 8 columns of 3; pair uncovered cards totaling 13."
-decks = 1
-tableaus = 28
-foundations = 1
-freecells = 0
-
-tableau_deal_counts = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-tableau_all_face_up = True
-foundation_starter_card = False
-
-stock_deal_mode = "none"
-stock_deal_count = 0
-max_redeals = 0
-demo_seed = 10
-demo_seeds = [10, 14, 17, 18, 29, 42, 45, 2026]
-
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 2, "Low Luck", 4, "Strategic")
 doc_aliases(["Open Pyramid"])
@@ -99,3 +79,31 @@ def get_status():
             return "playing"
         z = z + 1
     return "victory"
+
+sol.define_game({
+    id: "giza",
+    name: "Giza",
+    family: "Pyramid",
+    category: "ADDING",
+    layout: "pyramid",
+    description: "Open Pyramid variant. All 24 reserve cards are visible in 8 columns of 3; pair uncovered cards totaling 13.",
+    decks: 1,
+    tableaus: 28,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 10,
+    demo_seeds: [10, 14, 17, 18, 29, 42, 45, 2026],
+    eval_heuristic: eval_heuristic,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    can_target: can_target,
+    on_target: on_target,
+    on_card_click: on_card_click,
+    get_status: get_status
+})

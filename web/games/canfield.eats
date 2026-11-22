@@ -1,25 +1,6 @@
 # =============================================================================
 # SolEngine Game Variant: Canfield (.eats)
 # =============================================================================
-name = "Canfield"
-family = "Canfield"
-category = "POPULAR"
-layout = "canfield"
-description = "Famous Saratoga casino classic. 13-card reserve, wrapping alternating cascades, and foundation starter card."
-decks = 1
-tableaus = 4
-foundations = 4
-freecells = 1
-
-tableau_deal_counts = [1, 1, 1, 1]
-tableau_all_face_up = True
-foundation_starter_card = True
-
-stock_deal_mode = "waste_draw_3"
-stock_deal_count = 3
-max_redeals = -1
-demo_seed = 19
-demo_seeds = [19, 22, 33, 58, 64, 106, 113, 301]
 
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 4, "High Luck", 3, "Tactical")
@@ -125,3 +106,31 @@ def get_status():
     if total == 52:
         return "victory"
     return "playing"
+
+sol.define_game({
+    id: "canfield",
+    name: "Canfield",
+    family: "Canfield",
+    category: "POPULAR",
+    layout: "canfield",
+    description: "Famous Saratoga casino classic. 13-card reserve, wrapping alternating cascades, and foundation starter card.",
+    decks: 1,
+    tableaus: 4,
+    foundations: 4,
+    freecells: 1,
+    tableau_deal_counts: [1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: True,
+    stock_deal_mode: "waste_draw_3",
+    stock_deal_count: 3,
+    max_redeals: -1,
+    demo_seed: 19,
+    demo_seeds: [19, 22, 33, 58, 64, 106, 113, 301],
+    eval_heuristic: eval_heuristic,
+    on_deal: on_deal,
+    can_pick: can_pick,
+    can_drop: can_drop,
+    on_stock_click: on_stock_click,
+    on_turn_end: on_turn_end,
+    get_status: get_status
+})

@@ -46,6 +46,20 @@ const PostFxDef* PostFxSystem::getEffectById(const std::string& id) const {
     return nullptr;
 }
 
+void PostFxSystem::registerEffect(const PostFxDef& def) {
+    if (def.id.empty()) return;
+    if (!scanned_) {
+        scanPostFx("postfx");
+    }
+    for (auto& e : effects_) {
+        if (e.id == def.id) {
+            e = def;
+            return;
+        }
+    }
+    effects_.push_back(def);
+}
+
 void PostFxSystem::resolveParams(const std::string& effectId,
                                  const std::string& optionId,
                                  float outU[4],
@@ -236,7 +250,9 @@ bool PostFxSystem::loadEatsFile(const std::string& filePath, PostFxDef& outDef, 
     };
 
     eval.registerMemberFunction("sol", "set_postfx", handleMeta);
+    eval.registerMemberFunction("sol", "define_postfx", handleMeta);
     eval.registerFunction("set_postfx", handleMeta);
+    eval.registerFunction("define_postfx", handleMeta);
 
     // No-op ctx stubs in case script has on_post_process
     eval.registerMemberFunction("ctx", "apply_filter", [&](const auto& args, const auto&) {

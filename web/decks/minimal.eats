@@ -1,7 +1,7 @@
 # SolEngine Deck Recipe — SolEnshade Minimalist
 # Ultra-fast monochrome pixel-art face cards with vector typography and pips.
 
-sol.set_theme({
+sol.define_deck({
     id: "solenshade",
     name: "SolEnshade",
     author: "SolEngine Minimalist Engine",

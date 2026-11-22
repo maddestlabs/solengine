@@ -1373,63 +1373,49 @@ void SettingsDialog::render(
 
         // UI Sound Set (/sounds/*.eats)
         drawSectionHeader("UI FOLEY SOUND SET (/SOUNDS)");
-        struct SoundPackOption { const char* id; const char* label; };
-        const SoundPackOption soundPacks[9] = {
-            { "default",         "DEFAULT" },
-            { "authentic_place", "AUTHENTIC" },
-            { "copag_plastic",   "COPAG" },
-            { "vintage_bicycle", "BICYCLE" },
-            { "vegas_linen",     "LINEN" },
-            { "bass_heavy",      "BASS" },
-            { "glass_crystal",   "CRYSTAL" },
-            { "futuristic",      "FUTURISTIC" },
-            { "retro_8bit",      "8-BIT" }
+        auto toUpperStr = [](std::string s) {
+            for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            return s;
         };
+        const auto& soundPacks = AudioFoleyEngine::availableSoundPacks();
         const float packBtnW = (contentW - 64.0f) / 5.0f;
-        for (int i = 0; i < 9; ++i) {
-            int row = i / 5;
-            int col = i % 5;
+        for (size_t i = 0; i < soundPacks.size(); ++i) {
+            int row = static_cast<int>(i) / 5;
+            int col = static_cast<int>(i) % 5;
             float px = contentX + 16.0f + col * (packBtnW + 8.0f);
             float py = curY + row * 27.0f;
             bool isSel = (tempSettings_.soundPackId == soundPacks[i].id);
             bool pHov = (mouseX >= px && mouseX <= px + packBtnW && mouseY >= py && mouseY <= py + 23.0f);
+            std::string label = toUpperStr(soundPacks[i].name.empty() ? soundPacks[i].id : soundPacks[i].name);
             if (isClockwork) {
-                clockwork_ui::drawBrassButton(r, px, py, packBtnW, 23.0f, 4.0f, soundPacks[i].label, pHov, isSel, 9.0f);
+                clockwork_ui::drawBrassButton(r, px, py, packBtnW, 23.0f, 4.0f, label.c_str(), pHov, isSel, 9.0f);
             } else {
                 r.drawRoundedRect(px, py, packBtnW, 23.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (pHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
                 r.drawRoundedRectOutline(px, py, packBtnW, 23.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-                eatsbits::ui::glyph::drawVectorText(r, soundPacks[i].label, px + 8.0f, py + 6.5f, 9.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+                eatsbits::ui::glyph::drawVectorText(r, label.c_str(), px + 8.0f, py + 6.5f, 9.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
             }
         }
-        curY += 58.0f;
+        const int packRows = (std::max)(1, (static_cast<int>(soundPacks.size()) + 4) / 5);
+        curY += static_cast<float>(packRows) * 27.0f + 4.0f;
 
         // Procedural Environmental Ambience (/ambience/*.eats)
         drawSectionHeader("PROCEDURAL AMBIENCE ENVIRONMENT (/AMBIENCE)");
-        struct AmbienceOption { const char* id; const char* label; };
-        const AmbienceOption ambOptions[8] = {
-            { "off",        "OFF" },
-            { "rain",       "RAIN" },
-            { "fireplace",  "FIREPLACE" },
-            { "campfire",   "CAMPFIRE" },
-            { "wind",       "WIND" },
-            { "woodlands",  "WOODLANDS" },
-            { "riverbed",   "RIVERBED" },
-            { "whitenoise", "WHITE NOISE" }
-        };
+        const auto& ambOptions = AudioFoleyEngine::availableAmbiences();
         const float ambBtnW = (contentW - 56.0f) / 4.0f;
-        for (int i = 0; i < 8; ++i) {
-            int row = i / 4;
-            int col = i % 4;
+        for (size_t i = 0; i < ambOptions.size(); ++i) {
+            int row = static_cast<int>(i) / 4;
+            int col = static_cast<int>(i) % 4;
             float ax = contentX + 16.0f + col * (ambBtnW + 8.0f);
             float ay = curY + row * 27.0f;
             bool isSel = (tempSettings_.ambienceId == ambOptions[i].id);
             bool aHov = (mouseX >= ax && mouseX <= ax + ambBtnW && mouseY >= ay && mouseY <= ay + 23.0f);
+            std::string label = toUpperStr(ambOptions[i].name.empty() ? ambOptions[i].id : ambOptions[i].name);
             if (isClockwork) {
-                clockwork_ui::drawBrassButton(r, ax, ay, ambBtnW, 23.0f, 4.0f, ambOptions[i].label, aHov, isSel, 9.0f);
+                clockwork_ui::drawBrassButton(r, ax, ay, ambBtnW, 23.0f, 4.0f, label.c_str(), aHov, isSel, 9.0f);
             } else {
                 r.drawRoundedRect(ax, ay, ambBtnW, 23.0f, 4.0f, isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (aHov ? 0.06f : 0.0f)), pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
                 r.drawRoundedRectOutline(ax, ay, ambBtnW, 23.0f, 4.0f, isSel ? pal.accentR : pal.trimR, isSel ? pal.accentG : pal.trimG, isSel ? pal.accentB : pal.trimB, isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
-                eatsbits::ui::glyph::drawVectorText(r, ambOptions[i].label, ax + 8.0f, ay + 6.5f, 9.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+                eatsbits::ui::glyph::drawVectorText(r, label.c_str(), ax + 8.0f, ay + 6.5f, 9.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
             }
         }
     }
@@ -2323,37 +2309,32 @@ bool SettingsDialog::handleMouseButton(
         }
 
         curY += 32.0f + 24.0f;
-        const char* soundPackIds[9] = {
-            "default", "authentic_place", "copag_plastic", "vintage_bicycle", "vegas_linen",
-            "bass_heavy", "glass_crystal", "futuristic", "retro_8bit"
-        };
+        const auto& soundPacks = AudioFoleyEngine::availableSoundPacks();
         const float packBtnW = (contentW - 64.0f) / 5.0f;
-        for (int i = 0; i < 9; ++i) {
-            int row = i / 5;
-            int col = i % 5;
+        for (size_t i = 0; i < soundPacks.size(); ++i) {
+            int row = static_cast<int>(i) / 5;
+            int col = static_cast<int>(i) % 5;
             float px = contentX + 16.0f + col * (packBtnW + 8.0f);
             float py = curY + row * 27.0f;
             if (mouseX >= px && mouseX <= px + packBtnW && mouseY >= py && mouseY <= py + 23.0f) {
-                tempSettings_.soundPackId = soundPackIds[i];
+                tempSettings_.soundPackId = soundPacks[i].id;
                 foley.setSoundPackId(tempSettings_.soundPackId);
                 foley.triggerSound(FoleySound::Deal, 0.8f);
                 return true;
             }
         }
 
-        curY += 58.0f + 24.0f;
-        const char* ambIds[8] = {
-            "off", "rain", "fireplace", "campfire",
-            "wind", "woodlands", "riverbed", "whitenoise"
-        };
+        const int packRows = (std::max)(1, (static_cast<int>(soundPacks.size()) + 4) / 5);
+        curY += static_cast<float>(packRows) * 27.0f + 4.0f + 24.0f;
+        const auto& ambOptions = AudioFoleyEngine::availableAmbiences();
         const float ambBtnW = (contentW - 56.0f) / 4.0f;
-        for (int i = 0; i < 8; ++i) {
-            int row = i / 4;
-            int col = i % 4;
+        for (size_t i = 0; i < ambOptions.size(); ++i) {
+            int row = static_cast<int>(i) / 4;
+            int col = static_cast<int>(i) % 4;
             float ax = contentX + 16.0f + col * (ambBtnW + 8.0f);
             float ay = curY + row * 27.0f;
             if (mouseX >= ax && mouseX <= ax + ambBtnW && mouseY >= ay && mouseY <= ay + 23.0f) {
-                tempSettings_.ambienceId = ambIds[i];
+                tempSettings_.ambienceId = ambOptions[i].id;
                 foley.setAmbience(tempSettings_.ambienceId);
                 foley.triggerSound(FoleySound::WoodClick, 0.7f);
                 return true;

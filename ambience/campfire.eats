@@ -3,7 +3,7 @@
 # Open-air night breeze, wide stereo ember crackles, and resonant log snaps.
 # ==============================================================================
 
-ambience.define_environment({
+sol.define_ambience({
     id: "campfire",
     name: "Campfire",
     master_gain: 1.0,

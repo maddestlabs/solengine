@@ -122,6 +122,11 @@ public:
     void scanThemesFolder(const std::string& themesDir = "themes");
 
     /**
+     * Register or update a table theme definition (optionally with in-memory Eatscript source).
+     */
+    void registerTheme(const TableThemeDef& def, const std::string& scriptSource = "");
+
+    /**
      * Pre-bake and synthesize surface for a TableThemeDef.
      */
     bool prebakeThemeDef(
