@@ -47,8 +47,10 @@ struct GameSceneProfile {
     std::optional<LightAngle> lightAngle;
     std::optional<ShadowGobo> shadowGobo;
     std::optional<float> lightWaver;
+    std::optional<float> lightWaverSpeed;
     std::optional<float> lightFlicker;
     std::optional<float> goboSoftness;
+    std::optional<float> cloudOpacity;
     std::optional<float> godRaysIntensity;
     std::optional<float> dustMotesIntensity;
     std::optional<float> sceneDarkness;
@@ -106,9 +108,11 @@ struct AppSettings {
     LightingPreset lightingPreset{LightingPreset::GoldenHour}; // Light mood palette
     LightAngle lightAngle{LightAngle::TopLeft};
     ShadowGobo shadowGobo{ShadowGobo::WindowFrame};
-    float lightWaver{0.50f};          // 0.0 = steady, 1.0 = full organic sway
+    float lightWaver{0.50f};          // 0.0 = steady, 1.0 = max sway travel along X/arc
+    float lightWaverSpeed{0.35f};     // 0.0 = very slow drift (0.05 Hz), 1.0 = brisk sway (0.45 Hz)
     float lightFlicker{0.0f};        // 0.0 = steady, 1.0 = dynamic candle/draft flicker
     float goboSoftness{0.45f};       // 0.05 = crisp mullions, 1.0 = soft diffused penumbra
+    float cloudOpacity{0.0f};        // 0.0 = clear sky, 1.0 = full drifting cloud shadows beyond gobo
     float godRaysIntensity{0.0f};     // 0.0 = off, up to 1.0 = dramatic light shafts
     float dustMotesIntensity{0.0f};   // 0.0 = off, up to 1.0 = sunlit floating dust
     float sceneDarkness{0.22f}; // 0.0 = 0% darkening, 0.22 = 22% subtle atmospheric darkening, up to 0.85

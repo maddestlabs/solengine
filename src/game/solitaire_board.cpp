@@ -1705,6 +1705,23 @@ void SolitaireBoard::updateAnimations(float dt) {
     const float flipLerp = 1.0f - std::exp(-10.0f * clampedDt);
     for (auto& p : piles_) {
         for (auto& c : p.cards) {
+            if (c.animDelaySec > 0.0f) {
+                c.animDelaySec -= clampedDt;
+                if (c.animDelaySec > 0.0f) {
+                    continue;
+                }
+                c.animDelaySec = 0.0f;
+                if (c.dealSoundPending) {
+                    c.dealSoundPending = false;
+                    if (pendingDealCount_ < pendingDealPans_.size()) {
+                        const float pan = (viewportW_ > 1.0f)
+                            ? std::clamp(((c.x + cardW_ * 0.5f) / viewportW_) * 2.0f - 1.0f, -0.85f, 0.85f)
+                            : 0.0f;
+                        pendingDealPans_[pendingDealCount_++] = pan;
+                    }
+                }
+            }
+
             float dx = c.targetX - c.x;
             float dy = c.targetY - c.y;
             float dist = std::hypot(dx, dy);
@@ -2271,9 +2288,11 @@ bool SolitaireBoard::collectCompletedSpiderRuns() {
         if (foundIdx < 0) continue;
 
         Pile& found = piles_[static_cast<size_t>(foundIdx)];
-        for (size_t i = n - 13; i < n; ++i) {
-            Card c = tab.cards[i];
-            c.elevation = 14.0f;
+        for (size_t k = 0; k < 13; ++k) {
+            Card c = tab.cards[n - 13 + k];
+            c.elevation = 0.0f;
+            c.animDelaySec = static_cast<float>(k + 1) * 0.045f;
+            c.dealSoundPending = true;
             found.cards.push_back(c);
         }
         tab.cards.erase(tab.cards.begin() + static_cast<std::ptrdiff_t>(n - 13), tab.cards.end());
@@ -2636,7 +2655,23 @@ void SolitaireBoard::clearHint() noexcept {
     }
 }
 
+uint8_t SolitaireBoard::consumePendingDealPans(float* outPans, uint8_t maxCount) noexcept {
+    const uint8_t n = std::min(pendingDealCount_, maxCount);
+    for (uint8_t i = 0; i < n; ++i) {
+        outPans[i] = pendingDealPans_[i];
+    }
+    pendingDealCount_ = 0;
+    return n;
+}
+
 bool SolitaireBoard::undo() {
+    pendingDealCount_ = 0;
+    for (auto& p : piles_) {
+        for (auto& c : p.cards) {
+            c.animDelaySec = 0.0f;
+            c.dealSoundPending = false;
+        }
+    }
     if (!txUndoStack_.empty()) {
         clearHint();
         clearSelection();

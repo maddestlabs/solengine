@@ -116,6 +116,7 @@ void DynamicLightController::setPreset(LightingPreset preset) {
             break;
     }
     setWaver(waverLevel_);
+    setWaverSpeed(waverSpeed_);
     setFlickerLevel(flickerLevel_);
 }
 
@@ -128,10 +129,17 @@ void DynamicLightController::setWaver(float waver) noexcept {
         sway_.speed = 0.0f;
     } else {
         sway_.enabled = true;
-        sway_.amplitudeX = 68.0f * waverLevel_;
-        sway_.amplitudeY = 28.0f * waverLevel_;
-        sway_.speed = 0.28f + 0.45f * waverLevel_;
+        sway_.amplitudeX = 200.0f * waverLevel_;
+        sway_.amplitudeY = 34.0f * waverLevel_;
+        sway_.speed = 0.05f + 0.40f * waverSpeed_;
         sway_.phaseOffset = 0.42f;
+    }
+}
+
+void DynamicLightController::setWaverSpeed(float speed) noexcept {
+    waverSpeed_ = std::clamp(speed, 0.0f, 1.0f);
+    if (waverLevel_ > 0.005f) {
+        sway_.speed = 0.05f + 0.40f * waverSpeed_;
     }
 }
 
@@ -240,12 +248,16 @@ void DynamicLightController::update(float dt) {
     dt = std::min(dt, 0.1f); // Protect against large lag spikes
     elapsedTime_ += dt;
 
-    // 1. Evaluate Pendular Sway
+    // 1. Evaluate Eased Pendular Sway (phase-integrated to avoid jumps when speed changes)
     if (sway_.enabled && sway_.speed > 0.0001f) {
-        const float t = elapsedTime_ * sway_.speed * 6.2831853f;
-        // Dual-harmonic Lissajous curve with irrational ratio (1.618 golden ratio) prevents mechanical loops
-        currentSwayOffsetX_ = sway_.amplitudeX * std::sin(t);
-        currentSwayOffsetY_ = sway_.amplitudeY * std::sin(t * 1.6180339f + sway_.phaseOffset);
+        swayPhase_ += dt * sway_.speed * 6.2831853f;
+        // Gentle slow-breathing envelope gives natural turnaround linger and non-mechanical gusts
+        const float envelope = 0.72f + 0.28f * std::sin(swayPhase_ * 0.37f + sway_.phaseOffset);
+        const float xNorm = std::sin(swayPhase_) * envelope;
+        currentSwayOffsetX_ = sway_.amplitudeX * xNorm;
+        // Pendulum arc lifts Y slightly at horizontal extremes + subtle orthogonal drift
+        const float arcLift = -0.35f * sway_.amplitudeY * (xNorm * xNorm);
+        currentSwayOffsetY_ = arcLift + sway_.amplitudeY * 0.65f * std::sin(swayPhase_ * 1.6180339f + sway_.phaseOffset);
     } else {
         currentSwayOffsetX_ = 0.0f;
         currentSwayOffsetY_ = 0.0f;

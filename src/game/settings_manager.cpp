@@ -21,8 +21,8 @@ bool GameSceneProfile::empty() const noexcept {
            !postFxId && !postFxOption && !postFxIntensity && !showTableMarkings &&
            !deckTheme && !deckSlug && !lowPolySeed && !cardBackId &&
            !cardWear && !cardStock && !cardCorners && !cardDeviation &&
-           !lightingPreset && !lightAngle && !shadowGobo && !lightWaver &&
-           !lightFlicker && !goboSoftness && !godRaysIntensity && !dustMotesIntensity &&
+           !lightingPreset && !lightAngle && !shadowGobo && !lightWaver && !lightWaverSpeed &&
+           !lightFlicker && !goboSoftness && !cloudOpacity && !godRaysIntensity && !dustMotesIntensity &&
            !sceneDarkness && !lightStrength && !soundPackId && !ambienceId &&
            !ambienceVolume && !stockPosition && !autoFinish && !victoryAnimOverride;
 }
@@ -179,10 +179,12 @@ bool SettingsManager::load() {
             settings_.aaMode = 4; // Enforce 4x MSAA permanently
             settings_.lightingPreset = static_cast<LightingPreset>(std::clamp(a["lightingPreset"].asInt(static_cast<int>(LightingPreset::StudioSteady)), 0, 8));
             settings_.lightAngle = static_cast<LightAngle>(std::clamp(a["lightAngle"].asInt(0), 0, 3));
-            settings_.shadowGobo = static_cast<ShadowGobo>(std::clamp(a["shadowGobo"].asInt(0), 0, 3));
+            settings_.shadowGobo = static_cast<ShadowGobo>(std::clamp(a["shadowGobo"].asInt(0), 0, 2));
             settings_.lightWaver = std::clamp(a["lightWaver"].asFloat(0.0f), 0.0f, 1.0f);
+            settings_.lightWaverSpeed = std::clamp(a["lightWaverSpeed"].asFloat(0.35f), 0.0f, 1.0f);
             settings_.lightFlicker = std::clamp(a["lightFlicker"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.goboSoftness = std::clamp(a["goboSoftness"].asFloat(0.45f), 0.05f, 1.0f);
+            settings_.cloudOpacity = std::clamp(a["cloudOpacity"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.godRaysIntensity = std::clamp(a["godRaysIntensity"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.dustMotesIntensity = std::clamp(a["dustMotesIntensity"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.sceneDarkness = std::clamp(a["sceneDarkness"].asFloat(0.22f), 0.0f, 0.85f);
@@ -287,11 +289,13 @@ bool SettingsManager::load() {
                     prof.lightAngle = static_cast<LightAngle>(std::clamp(pVal["lightAngle"].asInt(0), 0, 3));
                 }
                 if (pVal.contains("shadowGobo") && pVal["shadowGobo"].isNumber()) {
-                    prof.shadowGobo = static_cast<ShadowGobo>(std::clamp(pVal["shadowGobo"].asInt(0), 0, 3));
+                    prof.shadowGobo = static_cast<ShadowGobo>(std::clamp(pVal["shadowGobo"].asInt(0), 0, 2));
                 }
                 if (pVal.contains("lightWaver") && pVal["lightWaver"].isNumber()) prof.lightWaver = std::clamp(pVal["lightWaver"].asFloat(0.5f), 0.0f, 1.0f);
+                if (pVal.contains("lightWaverSpeed") && pVal["lightWaverSpeed"].isNumber()) prof.lightWaverSpeed = std::clamp(pVal["lightWaverSpeed"].asFloat(0.35f), 0.0f, 1.0f);
                 if (pVal.contains("lightFlicker") && pVal["lightFlicker"].isNumber()) prof.lightFlicker = std::clamp(pVal["lightFlicker"].asFloat(0.0f), 0.0f, 1.0f);
                 if (pVal.contains("goboSoftness") && pVal["goboSoftness"].isNumber()) prof.goboSoftness = std::clamp(pVal["goboSoftness"].asFloat(0.45f), 0.05f, 1.0f);
+                if (pVal.contains("cloudOpacity") && pVal["cloudOpacity"].isNumber()) prof.cloudOpacity = std::clamp(pVal["cloudOpacity"].asFloat(0.0f), 0.0f, 1.0f);
                 if (pVal.contains("godRaysIntensity") && pVal["godRaysIntensity"].isNumber()) prof.godRaysIntensity = std::clamp(pVal["godRaysIntensity"].asFloat(0.0f), 0.0f, 1.0f);
                 if (pVal.contains("dustMotesIntensity") && pVal["dustMotesIntensity"].isNumber()) prof.dustMotesIntensity = std::clamp(pVal["dustMotesIntensity"].asFloat(0.0f), 0.0f, 1.0f);
                 if (pVal.contains("sceneDarkness") && pVal["sceneDarkness"].isNumber()) prof.sceneDarkness = std::clamp(pVal["sceneDarkness"].asFloat(0.22f), 0.0f, 0.85f);
@@ -393,8 +397,10 @@ bool SettingsManager::save() {
     a["lightAngle"] = static_cast<int>(settings_.lightAngle);
     a["shadowGobo"] = static_cast<int>(settings_.shadowGobo);
     a["lightWaver"] = settings_.lightWaver;
+    a["lightWaverSpeed"] = settings_.lightWaverSpeed;
     a["lightFlicker"] = settings_.lightFlicker;
     a["goboSoftness"] = settings_.goboSoftness;
+    a["cloudOpacity"] = settings_.cloudOpacity;
     a["godRaysIntensity"] = settings_.godRaysIntensity;
     a["dustMotesIntensity"] = settings_.dustMotesIntensity;
     a["sceneDarkness"] = settings_.sceneDarkness;
@@ -466,8 +472,10 @@ bool SettingsManager::save() {
             if (prof.lightAngle) p["lightAngle"] = static_cast<int>(*prof.lightAngle);
             if (prof.shadowGobo) p["shadowGobo"] = static_cast<int>(*prof.shadowGobo);
             if (prof.lightWaver) p["lightWaver"] = *prof.lightWaver;
+            if (prof.lightWaverSpeed) p["lightWaverSpeed"] = *prof.lightWaverSpeed;
             if (prof.lightFlicker) p["lightFlicker"] = *prof.lightFlicker;
             if (prof.goboSoftness) p["goboSoftness"] = *prof.goboSoftness;
+            if (prof.cloudOpacity) p["cloudOpacity"] = *prof.cloudOpacity;
             if (prof.godRaysIntensity) p["godRaysIntensity"] = *prof.godRaysIntensity;
             if (prof.dustMotesIntensity) p["dustMotesIntensity"] = *prof.dustMotesIntensity;
             if (prof.sceneDarkness) p["sceneDarkness"] = *prof.sceneDarkness;
@@ -529,7 +537,14 @@ void SettingsManager::applyToGame(SolitaireBoard& board, AudioFoleyEngine& foley
     cache.setCornerStyle(eff.cardCorners);
     cache.setActiveCardBack(eff.cardBackId);
     if (applyTextures) {
-        cache.loadDeckTheme(eff.deckTheme);
+        cache.setLowPolySeed(eff.lowPolySeed);
+        const auto& decks = cache.availableDecks();
+        size_t dIdx = cache.findDeckIndex(eff.deckSlug, eff.deckTheme);
+        if (dIdx < decks.size()) {
+            cache.loadDeckByDef(decks[dIdx]);
+        } else {
+            cache.loadDeckTheme(eff.deckTheme);
+        }
         cache.setActiveCardBack(eff.cardBackId);
         cache.applyConditioningAndSync(eff.cardWear, eff.cardStock);
     }
@@ -563,6 +578,7 @@ void SettingsManager::syncFromGame(const SolitaireBoard& board, const AudioFoley
     settings_.stockPosition = board.stockPosition();
     const auto& cache = CardTextureCache::instance();
     settings_.deckTheme = cache.currentDeckTheme();
+    settings_.deckSlug = cache.currentDeckId();
     settings_.cardBackId = cache.currentCardBackId();
     settings_.cardWear = cache.cardWearLevel();
     settings_.cardStock = cache.cardStock();
@@ -605,7 +621,22 @@ void SettingsManager::clearGameProfile(const std::string& gameId) {
 
 void SettingsManager::applyProfileToSettings(const GameSceneProfile& p, AppSettings& resolved) {
     if (p.tableTheme) resolved.tableTheme = *p.tableTheme;
-    if (p.tableThemeSlug) resolved.tableThemeSlug = *p.tableThemeSlug;
+    if (p.tableThemeSlug) {
+        resolved.tableThemeSlug = *p.tableThemeSlug;
+        const auto& themes = ProceduralBackgroundSystem::instance().availableThemes();
+        size_t tIdx = ProceduralBackgroundSystem::instance().findThemeIndex(*p.tableThemeSlug, resolved.tableTheme);
+        if (tIdx < themes.size()) {
+            if (!p.tableTheme) resolved.tableTheme = themes[tIdx].legacyId;
+            if (!p.tableThemeOption) {
+                if (!themes[tIdx].options.empty()) {
+                    auto it = resolved.tableThemeOptions.find(themes[tIdx].id);
+                    resolved.tableThemeOption = (it != resolved.tableThemeOptions.end()) ? it->second : themes[tIdx].options[0].id;
+                } else {
+                    resolved.tableThemeOption.clear();
+                }
+            }
+        }
+    }
     if (p.tableThemeOption) resolved.tableThemeOption = *p.tableThemeOption;
     if (p.tableTint) resolved.tableTint = *p.tableTint;
     if (p.postFxId) resolved.postFxId = *p.postFxId;
@@ -614,7 +645,17 @@ void SettingsManager::applyProfileToSettings(const GameSceneProfile& p, AppSetti
     if (p.showTableMarkings) resolved.showTableMarkings = *p.showTableMarkings;
 
     if (p.deckTheme) resolved.deckTheme = *p.deckTheme;
-    if (p.deckSlug) resolved.deckSlug = *p.deckSlug;
+    if (p.deckSlug) {
+        resolved.deckSlug = *p.deckSlug;
+        if (!p.deckTheme) {
+            auto& cache = CardTextureCache::instance();
+            const auto& decks = cache.availableDecks();
+            size_t dIdx = cache.findDeckIndex(*p.deckSlug, resolved.deckTheme);
+            if (dIdx < decks.size()) {
+                resolved.deckTheme = decks[dIdx].legacyId;
+            }
+        }
+    }
     if (p.lowPolySeed) resolved.lowPolySeed = *p.lowPolySeed;
     if (p.cardBackId) resolved.cardBackId = *p.cardBackId;
     if (p.cardWear) resolved.cardWear = *p.cardWear;
@@ -626,8 +667,10 @@ void SettingsManager::applyProfileToSettings(const GameSceneProfile& p, AppSetti
     if (p.lightAngle) resolved.lightAngle = *p.lightAngle;
     if (p.shadowGobo) resolved.shadowGobo = *p.shadowGobo;
     if (p.lightWaver) resolved.lightWaver = *p.lightWaver;
+    if (p.lightWaverSpeed) resolved.lightWaverSpeed = *p.lightWaverSpeed;
     if (p.lightFlicker) resolved.lightFlicker = *p.lightFlicker;
     if (p.goboSoftness) resolved.goboSoftness = *p.goboSoftness;
+    if (p.cloudOpacity) resolved.cloudOpacity = *p.cloudOpacity;
     if (p.godRaysIntensity) resolved.godRaysIntensity = *p.godRaysIntensity;
     if (p.dustMotesIntensity) resolved.dustMotesIntensity = *p.dustMotesIntensity;
     if (p.sceneDarkness) resolved.sceneDarkness = *p.sceneDarkness;
@@ -663,8 +706,10 @@ GameSceneProfile SettingsManager::extractSceneProfile(const AppSettings& s) {
     p.lightAngle = s.lightAngle;
     p.shadowGobo = s.shadowGobo;
     p.lightWaver = s.lightWaver;
+    p.lightWaverSpeed = s.lightWaverSpeed;
     p.lightFlicker = s.lightFlicker;
     p.goboSoftness = s.goboSoftness;
+    p.cloudOpacity = s.cloudOpacity;
     p.godRaysIntensity = s.godRaysIntensity;
     p.dustMotesIntensity = s.dustMotesIntensity;
     p.sceneDarkness = s.sceneDarkness;
@@ -739,8 +784,10 @@ GameSceneProfile SettingsManager::diffFromGlobal(const AppSettings& global, cons
     if (effective.lightAngle != global.lightAngle) p.lightAngle = effective.lightAngle;
     if (effective.shadowGobo != global.shadowGobo) p.shadowGobo = effective.shadowGobo;
     if (diffF(effective.lightWaver, global.lightWaver)) p.lightWaver = effective.lightWaver;
+    if (diffF(effective.lightWaverSpeed, global.lightWaverSpeed)) p.lightWaverSpeed = effective.lightWaverSpeed;
     if (diffF(effective.lightFlicker, global.lightFlicker)) p.lightFlicker = effective.lightFlicker;
     if (diffF(effective.goboSoftness, global.goboSoftness)) p.goboSoftness = effective.goboSoftness;
+    if (diffF(effective.cloudOpacity, global.cloudOpacity)) p.cloudOpacity = effective.cloudOpacity;
     if (diffF(effective.godRaysIntensity, global.godRaysIntensity)) p.godRaysIntensity = effective.godRaysIntensity;
     if (diffF(effective.dustMotesIntensity, global.dustMotesIntensity)) p.dustMotesIntensity = effective.dustMotesIntensity;
     if (diffF(effective.sceneDarkness, global.sceneDarkness)) p.sceneDarkness = effective.sceneDarkness;
@@ -812,10 +859,12 @@ bool parsePresetEatsFile(const std::string& filePath, bool isBuiltin, ScenePrese
             else if (key == "show_table_markings") out.profile.showTableMarkings = parseBoolStr(val);
             else if (key == "lighting_preset") out.profile.lightingPreset = static_cast<LightingPreset>(std::clamp(std::stoi(val), 0, 8));
             else if (key == "light_angle") out.profile.lightAngle = static_cast<LightAngle>(std::clamp(std::stoi(val), 0, 3));
-            else if (key == "shadow_gobo") out.profile.shadowGobo = static_cast<ShadowGobo>(std::clamp(std::stoi(val), 0, 3));
+            else if (key == "shadow_gobo") out.profile.shadowGobo = static_cast<ShadowGobo>(std::clamp(std::stoi(val), 0, 2));
             else if (key == "light_waver") out.profile.lightWaver = std::clamp(std::stof(val), 0.0f, 1.0f);
+            else if (key == "light_waver_speed") out.profile.lightWaverSpeed = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "light_flicker") out.profile.lightFlicker = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "gobo_softness") out.profile.goboSoftness = std::clamp(std::stof(val), 0.05f, 1.0f);
+            else if (key == "cloud_opacity") out.profile.cloudOpacity = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "god_rays") out.profile.godRaysIntensity = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "dust_motes") out.profile.dustMotesIntensity = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "scene_darkness") out.profile.sceneDarkness = std::clamp(std::stof(val), 0.0f, 0.85f);
@@ -930,8 +979,10 @@ void writePresetEatsFile(const std::filesystem::path& fp, const ScenePreset& sp)
     if (profile.lightAngle) ofs << "light_angle = " << static_cast<int>(*profile.lightAngle) << "\n";
     if (profile.shadowGobo) ofs << "shadow_gobo = " << static_cast<int>(*profile.shadowGobo) << "\n";
     if (profile.lightWaver) ofs << "light_waver = " << *profile.lightWaver << "\n";
+    if (profile.lightWaverSpeed) ofs << "light_waver_speed = " << *profile.lightWaverSpeed << "\n";
     if (profile.lightFlicker) ofs << "light_flicker = " << *profile.lightFlicker << "\n";
     if (profile.goboSoftness) ofs << "gobo_softness = " << *profile.goboSoftness << "\n";
+    if (profile.cloudOpacity) ofs << "cloud_opacity = " << *profile.cloudOpacity << "\n";
     if (profile.godRaysIntensity) ofs << "god_rays = " << *profile.godRaysIntensity << "\n";
     if (profile.dustMotesIntensity) ofs << "dust_motes = " << *profile.dustMotesIntensity << "\n";
     if (profile.sceneDarkness) ofs << "scene_darkness = " << *profile.sceneDarkness << "\n";

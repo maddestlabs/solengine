@@ -75,8 +75,7 @@ enum class LightAngle : uint8_t {
 enum class ShadowGobo : uint8_t {
     None = 0,       // Unobstructed light
     WindowFrame,    // Angled window panes & mullions
-    VenetianBlinds, // Parallel slatted window blinds
-    DappledCanopy   // Soft organic tree/foliage shadows gently drifting
+    VenetianBlinds  // Parallel slatted window blinds
 };
 
 /**
@@ -105,6 +104,9 @@ public:
 
     void setWaver(float waver) noexcept;
     [[nodiscard]] float getWaver() const noexcept { return waverLevel_; }
+
+    void setWaverSpeed(float speed) noexcept;
+    [[nodiscard]] float getWaverSpeed() const noexcept { return waverSpeed_; }
 
     void setFlickerLevel(float flicker) noexcept;
     [[nodiscard]] float getFlickerLevel() const noexcept { return flickerLevel_; }
@@ -165,6 +167,7 @@ private:
     LightingPreset preset_{LightingPreset::StudioSteady};
     LightAngle angle_{LightAngle::Overhead};
     float waverLevel_{0.0f};
+    float waverSpeed_{0.35f};
     float flickerLevel_{0.0f};
     LightingSwayConfig sway_{};
     LightingFlickerConfig flicker_{};
@@ -183,6 +186,7 @@ private:
     float ambientB_{0.35f};
 
     float elapsedTime_{0.0f};
+    float swayPhase_{0.0f};
     float currentSwayOffsetX_{0.0f};
     float currentSwayOffsetY_{0.0f};
     float currentFlickerMod_{1.0f};

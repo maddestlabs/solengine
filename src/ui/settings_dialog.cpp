@@ -85,41 +85,42 @@ void SettingsDialog::close() {
     draggingGodRays_ = false;
     draggingDustMotes_ = false;
     draggingLightWaver_ = false;
+    draggingLightWaverSpeed_ = false;
     draggingLightFlicker_ = false;
+    draggingCloudOpacity_ = false;
 }
 
-void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley) {
-    const AppSettings s = SettingsManager::instance().resolveForGame(activeGameId_);
+void SettingsDialog::applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& foley, const AppSettings& s) {
     board.setCardDeviation(s.cardDeviation);
     foley.setMasterVolume(s.masterVolume);
     foley.setMuted(s.muted);
+    foley.setSoundPackId(s.soundPackId);
     foley.setAmbienceVolume(s.ambienceVolume);
-    if (tempSettings_.soundPackId != s.soundPackId) {
-        foley.setSoundPackId(s.soundPackId);
-    }
-    if (tempSettings_.ambienceId != s.ambienceId) {
-        foley.setAmbience(s.ambienceId);
-    }
+    foley.setAmbience(s.ambienceId);
 
-    if (tempSettings_.cardBackId != s.cardBackId) {
-        CardTextureCache::instance().setActiveCardBack(s.cardBackId);
-    }
-    if (tempSettings_.deckSlug != s.deckSlug || tempSettings_.deckTheme != s.deckTheme || tempSettings_.cardWear != s.cardWear || tempSettings_.cardStock != s.cardStock) {
-        auto& cache = CardTextureCache::instance();
-        size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
-        if (const auto* def = cache.getDeckDef(dIdx)) {
-            cache.updatePreviewCardByDef(*def, s.cardWear, s.cardStock);
-        } else {
-            cache.updatePreviewCard(s.deckTheme, s.cardWear, s.cardStock);
+    auto& cache = CardTextureCache::instance();
+    cache.setCornerStyle(s.cardCorners);
+    cache.setLowPolySeed(s.lowPolySeed);
+    const auto& decks = cache.availableDecks();
+    size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
+    if (const auto* dDef = cache.getDeckDef(dIdx)) {
+        if (&s == &tempSettings_) {
+            tempSettings_.deckTheme = dDef->legacyId;
         }
+        cache.updatePreviewCardByDef(*dDef, s.cardWear, s.cardStock);
+    } else if (!decks.empty()) {
+        cache.updatePreviewCardByDef(decks[0], s.cardWear, s.cardStock);
+    } else {
+        cache.updatePreviewCard(s.deckTheme, s.cardWear, s.cardStock);
     }
+    cache.setActiveCardBack(s.cardBackId);
 
     bool themeChanged = (board.tableThemeSlug() != s.tableThemeSlug || board.tableTheme() != s.tableTheme);
-    if (tempSettings_.tableTint != s.tableTint) {
+    if (ProceduralBackgroundSystem::instance().tableTint() != s.tableTint) {
         ProceduralBackgroundSystem::instance().setTableTint(s.tableTint);
         ProceduralBackgroundSystem::instance().invalidateCache();
     }
-    if (tempSettings_.tableThemeOption != s.tableThemeOption) {
+    if (ProceduralBackgroundSystem::instance().themeOption() != s.tableThemeOption) {
         board.setTableThemeOption(s.tableThemeOption);
         ProceduralBackgroundSystem::instance().setThemeOption(s.tableThemeOption);
         ProceduralBackgroundSystem::instance().invalidateCache();
@@ -129,14 +130,23 @@ void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& fo
         board.setTableThemeSlug(s.tableThemeSlug);
         ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
         if (!s.tableThemeSlug.empty()) {
-            size_t origIdx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
-            const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(origIdx);
+            size_t tIdx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+            const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(tIdx);
             if (def && !def->filePath.empty()) {
                 ProceduralBackgroundSystem::instance().loadCustomEatsTheme(def->filePath);
             }
         }
         ProceduralBackgroundSystem::instance().invalidateCache();
     }
+
+    if (onPreviewDeck) {
+        onPreviewDeck(s);
+    }
+}
+
+void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley) {
+    const AppSettings s = SettingsManager::instance().resolveForGame(activeGameId_);
+    applyLivePreview(board, foley, s);
 }
 
 void SettingsDialog::render(
@@ -977,30 +987,48 @@ void SettingsDialog::render(
         drawSceneStepper(std::string("Light Angle: ") + kAngleNames[angIdx]);
         curY += rowH + rowGap;
 
-        static const char* kGoboNames[4] = { "None (Open)", "Window Frame", "Venetian Blinds", "Dappled Canopy" };
-        int goboIdx = std::clamp(static_cast<int>(tempSettings_.shadowGobo), 0, 3);
+        static const char* kGoboNames[3] = { "None (Open)", "Window Frame", "Venetian Blinds" };
+        int goboIdx = std::clamp(static_cast<int>(tempSettings_.shadowGobo), 0, 2);
         drawSceneStepper(std::string("Window Shadows: ") + kGoboNames[goboIdx]);
         curY += rowH + rowGap;
 
         const float sliderGap = 12.0f;
         const float halfW = (rowW - sliderGap) * 0.5f;
 
-        // Light Waver & Light Flicker side by side
+        // Sway Range & Sway Speed side by side
         lightWaverTrackX_ = rowX;
         lightWaverTrackY_ = curY;
         lightWaverTrackW_ = halfW;
         lightWaverTrackH_ = 24.0f;
         char waverStr[48];
-        std::snprintf(waverStr, sizeof(waverStr), "LIGHT WAVER: %d%%", static_cast<int>(std::round(tempSettings_.lightWaver * 100.0f)));
+        std::snprintf(waverStr, sizeof(waverStr), "SWAY RANGE: %d%%", static_cast<int>(std::round(tempSettings_.lightWaver * 100.0f)));
         drawSceneSlider(lightWaverTrackX_, lightWaverTrackY_, lightWaverTrackW_, lightWaverTrackH_, tempSettings_.lightWaver, waverStr);
 
-        lightFlickerTrackX_ = rowX + halfW + sliderGap;
+        lightWaverSpeedTrackX_ = rowX + halfW + sliderGap;
+        lightWaverSpeedTrackY_ = curY;
+        lightWaverSpeedTrackW_ = halfW;
+        lightWaverSpeedTrackH_ = 24.0f;
+        char speedStr[48];
+        std::snprintf(speedStr, sizeof(speedStr), "SWAY SPEED: %d%%", static_cast<int>(std::round(tempSettings_.lightWaverSpeed * 100.0f)));
+        drawSceneSlider(lightWaverSpeedTrackX_, lightWaverSpeedTrackY_, lightWaverSpeedTrackW_, lightWaverSpeedTrackH_, tempSettings_.lightWaverSpeed, speedStr);
+        curY += 24.0f + rowGap;
+
+        // Light Flicker & Clouds side by side
+        lightFlickerTrackX_ = rowX;
         lightFlickerTrackY_ = curY;
         lightFlickerTrackW_ = halfW;
         lightFlickerTrackH_ = 24.0f;
         char flickerStr[48];
         std::snprintf(flickerStr, sizeof(flickerStr), "LIGHT FLICKER: %d%%", static_cast<int>(std::round(tempSettings_.lightFlicker * 100.0f)));
         drawSceneSlider(lightFlickerTrackX_, lightFlickerTrackY_, lightFlickerTrackW_, lightFlickerTrackH_, tempSettings_.lightFlicker, flickerStr);
+
+        cloudOpacityTrackX_ = rowX + halfW + sliderGap;
+        cloudOpacityTrackY_ = curY;
+        cloudOpacityTrackW_ = halfW;
+        cloudOpacityTrackH_ = 24.0f;
+        char cloudStr[48];
+        std::snprintf(cloudStr, sizeof(cloudStr), "CLOUDS: %d%%", static_cast<int>(std::round(tempSettings_.cloudOpacity * 100.0f)));
+        drawSceneSlider(cloudOpacityTrackX_, cloudOpacityTrackY_, cloudOpacityTrackW_, cloudOpacityTrackH_, tempSettings_.cloudOpacity, cloudStr);
         curY += 24.0f + rowGap;
 
         if (tempSettings_.shadowGobo != ShadowGobo::None) {
@@ -1500,7 +1528,9 @@ bool SettingsDialog::handleMouseButton(
         draggingGodRays_ = false;
         draggingDustMotes_ = false;
         draggingLightWaver_ = false;
+        draggingLightWaverSpeed_ = false;
         draggingLightFlicker_ = false;
+        draggingCloudOpacity_ = false;
         pointerDownInContent_ = false;
         draggingThemeScrollbar_ = false;
         if (draggingThemeScroll_) {
@@ -1604,17 +1634,7 @@ bool SettingsDialog::handleMouseButton(
                 } else {
                     selectedPresetId_ = presets[nextIdx].id;
                     SettingsManager::applyProfileToSettings(presets[nextIdx].profile, tempSettings_);
-                    board.setCardDeviation(tempSettings_.cardDeviation);
-                    foley.setSoundPackId(tempSettings_.soundPackId);
-                    foley.setAmbienceVolume(tempSettings_.ambienceVolume);
-                    foley.setAmbience(tempSettings_.ambienceId);
-                    auto& cache = CardTextureCache::instance();
-                    size_t dIdx = cache.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
-                    if (const auto* dDef = cache.getDeckDef(dIdx)) {
-                        tempSettings_.deckTheme = dDef->legacyId;
-                        cache.updatePreviewCardByDef(*dDef, tempSettings_.cardWear, tempSettings_.cardStock);
-                    }
-                    cache.setActiveCardBack(tempSettings_.cardBackId);
+                    applyLivePreview(board, foley, tempSettings_);
                 }
                 foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 return true;
@@ -1927,10 +1947,22 @@ bool SettingsDialog::handleMouseButton(
                 tempSettings_.lightWaver = std::clamp((mouseX - lightWaverTrackX_) / lightWaverTrackW_, 0.0f, 1.0f);
                 return true;
             }
+            if (mouseX >= lightWaverSpeedTrackX_ && mouseX <= lightWaverSpeedTrackX_ + lightWaverSpeedTrackW_ &&
+                mouseY >= lightWaverSpeedTrackY_ && mouseY <= lightWaverSpeedTrackY_ + lightWaverSpeedTrackH_) {
+                draggingLightWaverSpeed_ = true;
+                tempSettings_.lightWaverSpeed = std::clamp((mouseX - lightWaverSpeedTrackX_) / lightWaverSpeedTrackW_, 0.0f, 1.0f);
+                return true;
+            }
             if (mouseX >= lightFlickerTrackX_ && mouseX <= lightFlickerTrackX_ + lightFlickerTrackW_ &&
                 mouseY >= lightFlickerTrackY_ && mouseY <= lightFlickerTrackY_ + lightFlickerTrackH_) {
                 draggingLightFlicker_ = true;
                 tempSettings_.lightFlicker = std::clamp((mouseX - lightFlickerTrackX_) / lightFlickerTrackW_, 0.0f, 1.0f);
+                return true;
+            }
+            if (mouseX >= cloudOpacityTrackX_ && mouseX <= cloudOpacityTrackX_ + cloudOpacityTrackW_ &&
+                mouseY >= cloudOpacityTrackY_ && mouseY <= cloudOpacityTrackY_ + cloudOpacityTrackH_) {
+                draggingCloudOpacity_ = true;
+                tempSettings_.cloudOpacity = std::clamp((mouseX - cloudOpacityTrackX_) / cloudOpacityTrackW_, 0.0f, 1.0f);
                 return true;
             }
             if (tempSettings_.shadowGobo != ShadowGobo::None &&
@@ -2094,15 +2126,15 @@ bool SettingsDialog::handleMouseButton(
 
             // Shadow Gobo stepper
             if (testSceneStepper(stepDelta)) {
-                int cur = static_cast<int>(tempSettings_.shadowGobo);
-                cur = (stepDelta < 0) ? ((cur + 3) % 4) : ((cur + 1) % 4);
+                int cur = static_cast<int>(tempSettings_.shadowGobo) % 3;
+                cur = (stepDelta < 0) ? ((cur + 2) % 3) : ((cur + 1) % 3);
                 tempSettings_.shadowGobo = static_cast<ShadowGobo>(cur);
                 foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 return true;
             }
             curY += rowH + rowGap;
 
-            curY += 24.0f + rowGap; // Light Waver / Light Flicker row
+            curY += (24.0f + rowGap) * 2.0f; // Sway Range/Speed row + Light Flicker/Clouds row
             if (tempSettings_.shadowGobo != ShadowGobo::None) {
                 curY += 24.0f + rowGap;
             }
@@ -2360,6 +2392,7 @@ bool SettingsDialog::handleMouseButton(
             }
         }
         seedText_ = std::to_string(tempSettings_.lastSeed);
+        applyLivePreview(board, foley, tempSettings_);
         foley.triggerSound(FoleySound::WoodClick, 0.75f);
         return true;
     }
@@ -2380,12 +2413,7 @@ bool SettingsDialog::handleMouseButton(
             tempSettings_.favorites = std::move(savedFavs);
         }
         seedText_ = std::to_string(tempSettings_.lastSeed);
-        board.setCardDeviation(tempSettings_.cardDeviation);
-        foley.setMasterVolume(tempSettings_.masterVolume);
-        foley.setMuted(tempSettings_.muted);
-        foley.setSoundPackId(tempSettings_.soundPackId);
-        foley.setAmbienceVolume(tempSettings_.ambienceVolume);
-        foley.setAmbience(tempSettings_.ambienceId);
+        applyLivePreview(board, foley, tempSettings_);
         foley.triggerSound(FoleySound::WoodClick, 0.8f);
         return true;
     }
@@ -2522,8 +2550,16 @@ bool SettingsDialog::handleMouseMove(
         tempSettings_.lightWaver = std::clamp((mouseX - lightWaverTrackX_) / lightWaverTrackW_, 0.0f, 1.0f);
         return true;
     }
+    if (draggingLightWaverSpeed_ && lightWaverSpeedTrackW_ > 1.0f) {
+        tempSettings_.lightWaverSpeed = std::clamp((mouseX - lightWaverSpeedTrackX_) / lightWaverSpeedTrackW_, 0.0f, 1.0f);
+        return true;
+    }
     if (draggingLightFlicker_ && lightFlickerTrackW_ > 1.0f) {
         tempSettings_.lightFlicker = std::clamp((mouseX - lightFlickerTrackX_) / lightFlickerTrackW_, 0.0f, 1.0f);
+        return true;
+    }
+    if (draggingCloudOpacity_ && cloudOpacityTrackW_ > 1.0f) {
+        tempSettings_.cloudOpacity = std::clamp((mouseX - cloudOpacityTrackX_) / cloudOpacityTrackW_, 0.0f, 1.0f);
         return true;
     }
     if (draggingThemeScrollbar_ && (currentTab_ == 1 || currentTab_ == 2) && themeMaxScrollY_ > 1.0f) {

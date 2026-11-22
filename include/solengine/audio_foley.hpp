@@ -22,7 +22,8 @@ namespace FoleySound {
     constexpr uint16_t Slide          = 6;  // Velvet baize slide across felt
     constexpr uint16_t SpectreWhisper = 7;  // Ethereal ZAngband Spectre Nether-Sight shimmer
     constexpr uint16_t MagicTine      = 8;  // High-frequency crystalline magic particle tine
-    constexpr uint16_t MaxCoreSounds  = 9;
+    constexpr uint16_t Drag           = 9;  // Soft low-pass filtered wind-like card drag across felt
+    constexpr uint16_t MaxCoreSounds  = 10;
 
     // Semantic aliases for compatibility across call sites:
     constexpr uint16_t Tap             = Snap;
@@ -35,6 +36,7 @@ namespace FoleySound {
     constexpr uint16_t Flurry          = TexasPitch;
     constexpr uint16_t CardSlide       = Slide;
     constexpr uint16_t Sweep           = Slide;
+    constexpr uint16_t CardDrag        = Drag;
     constexpr uint16_t WoodClick       = Snap;  // UI clicks become tactile Dirac needle snaps
     constexpr uint16_t FoundationChime = Snap;
     constexpr uint16_t CardDealSingle  = Deal;
@@ -325,7 +327,8 @@ public:
         PeelFriction,
         ShuffleRiffle,
         MagicTine,
-        Tap
+        Tap,
+        Drag
     };
 
 private:
@@ -619,6 +622,7 @@ private:
     uint32_t rngState_{0x9E3779B9u};
     uint32_t dealAlternator_{0};
     uint32_t tapAlternator_{0};
+    uint32_t placeAlternator_{0};
     bool initialized_{false};
     void* maDevicePtr_{nullptr};
 };

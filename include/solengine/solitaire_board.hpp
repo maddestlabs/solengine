@@ -4,6 +4,7 @@
 #include "solengine/solitaire_types.hpp"
 #include "solengine/game_definition.hpp"
 #include "solengine/script_rule_engine.hpp"
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -83,6 +84,7 @@ public:
 
     // Advance spring-damper card flight trajectories, 2.5D flips, and elevations
     void updateAnimations(float dt);
+    uint8_t consumePendingDealPans(float* outPans, uint8_t maxCount) noexcept;
 
     // Core interactions
     bool drawFromStock();
@@ -179,6 +181,8 @@ private:
     mutable GameStatus cachedGameStatus_{GameStatus::Playing};
     mutable bool statusCacheDirty_{true};
     HintMove activeHint_{};
+    std::array<float, 32> pendingDealPans_{};
+    uint8_t pendingDealCount_{0};
 
 public:
     [[nodiscard]] float cardWidth() const noexcept { return cardW_; }

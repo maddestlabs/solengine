@@ -761,7 +761,7 @@ void render3DCard(
         const float q2x = scx + uHatX * totalHalfW + vHatX * totalHalfH;
         const float q2y = scy + uHatY * totalHalfW + vHatY * totalHalfH;
         const float q3x = scx - uHatX * totalHalfW + vHatX * totalHalfH;
-        const float q3y = scy + uHatY * totalHalfW + vHatY * totalHalfH;
+        const float q3y = scy - uHatY * totalHalfW + vHatY * totalHalfH;
 
         r.drawOrientedDropShadowQuad(q0x, q0y, q1x, q1y, q2x, q2y, q3x, q3y,
                                      totalHalfW, totalHalfH, shadowCornerRad, feather, sAlpha);
@@ -1000,6 +1000,21 @@ struct ScopedCardRotation {
     }
 };
 
+inline void drawInterCardContactShadow(
+    eatsbits::ui::BatchRenderer2D& r,
+    const Card& c,
+    float baseX,
+    float baseY,
+    float baseW,
+    float baseH,
+    const eatsbits::ui::LightSource2D& light
+) {
+    if (c.flipAngle >= 0.005f) return;
+    const CardScreenRect rect = computeCardScreenRect(c, baseX, baseY, baseW, baseH, CardTextureCache::instance().cardWearLevel());
+    ScopedCardRotation contactRotGuard(r, c.angle, rect.x + rect.w * 0.5f, rect.y + rect.h * 0.5f);
+    r.drawRectDropShadow(rect.x, rect.y, rect.w, rect.h, rect.radius, 1.2f, light, 0.38f);
+}
+
 void drawPhysicalDeckRim(
     eatsbits::ui::BatchRenderer2D& r,
     const Card& topCard,
@@ -1104,23 +1119,14 @@ void drawProceduralCard(
     ScopedCardRotation rotGuard(r, c.angle, x + w * 0.5f, y + h * 0.5f);
 
     // Dynamic drop shadow driven by physical light source & card camber depth:
-    // When a card arches upward, the elevated center casts a broader, softer penumbra
-    // while the contact ends remain grounded to the table.
+    // Emit a single unified shadow at the card's effective elevation so Max-blend
+    // never produces a two-tone step between contact and penumbra silhouettes.
     if (pass != CardRenderPass::BodyOnly) {
-        const float shadowElevation = 2.5f + c.elevation + warp.liftZ;
+        (void)prevCardX;
+        (void)prevCardY;
+        const float shadowElevation = 2.5f + c.elevation + warp.liftZ * 0.65f;
         const float shadowOpacity = std::clamp(0.32f + (c.elevation + warp.liftZ * 0.4f) * 0.010f, 0.16f, 0.48f);
-        const float prevScaledX = (std::abs(prevCardX) < 9000.0f) ? (prevCardX + (baseW - w) * 0.5f) : 99999.0f;
-        const float prevScaledY = (std::abs(prevCardY) < 9000.0f) ? (prevCardY + (baseH - h) * 0.5f) : 99999.0f;
-
-        if (warp.liftZ > 1.2f && c.elevation < 1.0f) {
-            // Dual shadow for arched cards:
-            // 1. Base contact shadow where card ends touch the table
-            r.drawRectDropShadow(x, y, w, h, radius, 2.0f, light, 0.38f, prevScaledX, prevScaledY);
-            // 2. Elevated soft penumbra where the center arches off the table
-            r.drawRectDropShadow(x, y, w, h, radius, shadowElevation, light, shadowOpacity * 0.75f, prevScaledX, prevScaledY);
-        } else {
-            r.drawRectDropShadow(x, y, w, h, radius, shadowElevation, light, shadowOpacity, prevScaledX, prevScaledY);
-        }
+        r.drawRectDropShadow(x, y, w, h, radius, shadowElevation, light, shadowOpacity);
     }
     if (pass == CardRenderPass::ShadowOnly) {
         return;
@@ -3268,31 +3274,33 @@ void TableRenderer::renderBoard(
             }
         }
 
-        // Render table drop shadows under the entire resting pile first (using non-accumulating
-        // transmittance compensation against the preceding card in the pile), then card bodies bottom-to-top
+        // Render table drop shadows under the entire resting pile first inside a unified Max-blend
+        // shadow layer (eliminating overlap compounding and inter-card subtraction seams), then card bodies bottom-to-top
         const bool isTightlyStacked = (p.type == PileType::Stock || p.type == PileType::Foundation || p.type == PileType::FreeCell);
         const size_t stackCount = totalRestingCount;
 
-        for (size_t i = 0; i < restingIndices.size(); ++i) {
-            if (i > 0 && isTightlyStacked) {
-                continue; // Tightly stacked deck/foundation piles emit unified table shadows
-            }
-            const Card& c = p.cards[restingIndices[i]];
-            const float prevX = (i > 0) ? p.cards[restingIndices[i - 1]].x : 99999.0f;
-            const float prevY = (i > 0) ? p.cards[restingIndices[i - 1]].y : 99999.0f;
+        if (!restingIndices.empty()) {
+            r.beginShadowLayer();
+            for (size_t i = 0; i < restingIndices.size(); ++i) {
+                if (i > 0 && isTightlyStacked) {
+                    continue; // Tightly stacked deck/foundation piles emit unified table shadows
+                }
+                const Card& c = p.cards[restingIndices[i]];
 
-            if (isTightlyStacked && stackCount > 1) {
-                // Dual-component stack shadow:
-                // 1. Crisp, dark grounding contact shadow at base elevation
-                drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
-                // 2. Elevated soft penumbra shadow matching full physical deck height
-                const float stackElevation = std::min(18.0f, static_cast<float>(stackCount) * 0.38f);
-                Card tallCard = c;
-                tallCard.elevation = c.elevation + stackElevation;
-                drawProceduralCard(r, tallCard, tallCard.x, tallCard.y, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
-            } else {
-                drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
+                if (isTightlyStacked && stackCount > 1) {
+                    // Dual-component stack shadow:
+                    // 1. Crisp, dark grounding contact shadow at base elevation
+                    drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
+                    // 2. Elevated soft penumbra shadow matching full physical deck height
+                    const float stackElevation = std::min(18.0f, static_cast<float>(stackCount) * 0.38f);
+                    Card tallCard = c;
+                    tallCard.elevation = c.elevation + stackElevation;
+                    drawProceduralCard(r, tallCard, tallCard.x, tallCard.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
+                } else {
+                    drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
+                }
             }
+            r.endShadowLayer();
         }
 
         // Draw physical deck edge rim for multi-card stacks before rendering top card body
@@ -3306,10 +3314,7 @@ void TableRenderer::renderBoard(
             if (i > 0 && (p.type == PileType::Tableau || p.type == PileType::Waste)) {
                 // Inter-card contact shadow: card i rests physically on top of card i-1,
                 // casting a tight, crisp contact shadow (gap ~0.3mm) across card i-1's face.
-                const float effRu = CardTextureCache::instance().effectiveRu();
-                const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
-                ScopedCardRotation contactRotGuard(r, c.angle, c.x + cw * 0.5f, c.y + ch * 0.5f);
-                r.drawRectDropShadow(c.x, c.y, cw, ch, cardRadius, 1.2f, light, 0.38f);
+                drawInterCardContactShadow(r, c, c.x, c.y, cw, ch, light);
             }
             drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::BodyOnly);
         }
@@ -3376,20 +3381,21 @@ void TableRenderer::renderBoard(
             float elevB = b.card->elevation + std::sin(b.card->flipAngle) * 25.0f;
             return elevA < elevB - 0.01f;
         });
-        // Render table shadows for animating cards underneath their bodies (grouped per pile without alpha accumulation)
+        // Render table shadows for animating cards underneath their bodies inside a unified Max-blend shadow layer
+        r.beginShadowLayer();
         for (size_t i = 0; i < animatingCards.size(); ++i) {
             const auto& entry = animatingCards[i];
-            const bool samePile = (i > 0 &&
-                                   animatingCards[i - 1].pileIdx == entry.pileIdx &&
-                                   animatingCards[i - 1].card->flipAngle < 0.005f &&
-                                   entry.card->flipAngle < 0.005f &&
-                                   std::abs(animatingCards[i - 1].card->elevation - entry.card->elevation) < 0.5f);
-            const float prevX = samePile ? animatingCards[i - 1].card->x : 99999.0f;
-            const float prevY = samePile ? animatingCards[i - 1].card->y : 99999.0f;
-            drawProceduralCard(r, *entry.card, entry.card->x, entry.card->y, cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
+            drawProceduralCard(r, *entry.card, entry.card->x, entry.card->y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
         }
+        r.endShadowLayer();
         for (size_t i = 0; i < animatingCards.size(); ++i) {
             const auto& entry = animatingCards[i];
+            if (i > 0 &&
+                animatingCards[i - 1].pileIdx == entry.pileIdx &&
+                std::abs(animatingCards[i - 1].card->elevation - entry.card->elevation) < 0.5f &&
+                animatingCards[i - 1].card->flipAngle < 0.005f) {
+                drawInterCardContactShadow(r, *entry.card, entry.card->x, entry.card->y, cw, ch, light);
+            }
             drawProceduralCard(r, *entry.card, entry.card->x, entry.card->y, cw, ch, pal, light, CardRenderPass::BodyOnly);
         }
     }
@@ -3438,24 +3444,20 @@ void TableRenderer::renderBoard(
                 }
             }
 
-            float prevX = 99999.0f, prevY = 99999.0f;
+            r.beginShadowLayer();
             for (size_t k = 0; k < count; ++k) {
                 Card c = p.cards[firstDrag + k];
                 c.elevation = 14.0f;
                 c.angle += chainAng[k];
-                drawProceduralCard(r, c, chainX[k], chainY[k], cw, ch, pal, light, CardRenderPass::ShadowOnly, prevX, prevY);
-                prevX = chainX[k];
-                prevY = chainY[k];
+                drawProceduralCard(r, c, chainX[k], chainY[k], cw, ch, pal, light, CardRenderPass::ShadowOnly);
             }
+            r.endShadowLayer();
             for (size_t k = 0; k < count; ++k) {
                 Card c = p.cards[firstDrag + k];
                 c.elevation = 14.0f;
                 c.angle += chainAng[k];
                 if (k > 0) {
-                    const float effRu = CardTextureCache::instance().effectiveRu();
-                    const float cardRadius = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * cw);
-                    ScopedCardRotation contactRotGuard(r, c.angle, chainX[k] + cw * 0.5f, chainY[k] + ch * 0.5f);
-                    r.drawRectDropShadow(chainX[k], chainY[k], cw, ch, cardRadius, 1.2f, light, 0.38f);
+                    drawInterCardContactShadow(r, c, chainX[k], chainY[k], cw, ch, light);
                 }
                 drawProceduralCard(r, c, chainX[k], chainY[k], cw, ch, pal, light, CardRenderPass::BodyOnly);
             }
@@ -3492,9 +3494,11 @@ void TableRenderer::renderBoard(
             return a.xf.cz < b.xf.cz - 0.01f;
         });
 
+        r.beginShadowLayer();
         for (const auto& vac : airborne) {
             render3DCard(r, vac.card, vac.xf, pal, light, CardRenderPass::ShadowOnly);
         }
+        r.endShadowLayer();
         for (const auto& vac : airborne) {
             render3DCard(r, vac.card, vac.xf, pal, light, CardRenderPass::BodyOnly);
         }
@@ -4813,8 +4817,9 @@ struct InteractiveContext {
         }
     }
 
-    void startAsyncConditioning(CardWearLevel wear, CardStock stock) {
+    void startAsyncConditioning(CardWearLevel wear, CardStock stock, bool silent = false) {
         asyncManager.stopWorker();
+        asyncManager.silent = silent;
 
         asyncManager.cancelRequested.store(false);
         asyncManager.progress.store(0.0f);
@@ -4822,6 +4827,7 @@ struct InteractiveContext {
         asyncManager.stagingDeck = CardTextureCache::StagingDeck{};
         asyncManager.stagingDeck.hasNewBase = false;
         asyncManager.stagingDeck.theme = CardTextureCache::instance().currentDeckTheme();
+        asyncManager.stagingDeck.deckId = CardTextureCache::instance().currentDeckId();
         asyncManager.stagingDeck.cardW = CardTextureCache::instance().cardWidth();
         asyncManager.stagingDeck.cardH = CardTextureCache::instance().cardHeight();
         asyncManager.opType = AsyncOp::Conditioning;
@@ -4873,8 +4879,9 @@ struct InteractiveContext {
 #endif
     }
 
-    void startAsyncDeckTheme(DeckThemeId theme, CardWearLevel wear, CardStock stock) {
+    void startAsyncDeckTheme(DeckThemeId theme, CardWearLevel wear, CardStock stock, bool silent = false) {
         asyncManager.stopWorker();
+        asyncManager.silent = silent;
 
         asyncManager.cancelRequested.store(false);
         asyncManager.progress.store(0.0f);
@@ -4930,7 +4937,7 @@ struct InteractiveContext {
 #endif
     }
 
-    void startAsyncDeckDef(const CardTextureCache::DeckDef& def, CardWearLevel wear, CardStock stock) {
+    void startAsyncDeckDef(const CardTextureCache::DeckDef& def, CardWearLevel wear, CardStock stock, bool silent = false) {
 #if defined(__EMSCRIPTEN__)
         const bool isProceduralBuiltin = (def.legacyId == DeckThemeId::SolEngineClassic ||
                                           def.legacyId == DeckThemeId::SolPolyWhite ||
@@ -4949,6 +4956,7 @@ struct InteractiveContext {
         }
 #endif
         asyncManager.stopWorker();
+        asyncManager.silent = silent;
 
         asyncManager.cancelRequested.store(false);
         asyncManager.progress.store(0.0f);
@@ -5631,6 +5639,10 @@ struct InteractiveContext {
             }
             applyEffectiveSettings(true);
         };
+
+        settingsDialog.onPreviewDeck = [this](const AppSettings& s) {
+            syncDeckAndConditioning(s, true);
+        };
     }
 
     [[nodiscard]] std::string activeGameId() const {
@@ -5675,22 +5687,6 @@ struct InteractiveContext {
 
         if (!applyTexturesAndThemes) return;
 
-        const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
-                                s.deckTheme == DeckThemeId::SolPolyDark ||
-                                s.deckTheme == DeckThemeId::ScoundrelLowPoly ||
-                                s.deckTheme == DeckThemeId::SolPolyClassic ||
-                                s.deckTheme == DeckThemeId::SolPolyMobile);
-        bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
-        if (seedChanged) {
-            cache.setLowPolySeed(s.lowPolySeed);
-        }
-        bool deckChanged = seedChanged || ((!s.deckSlug.empty())
-            ? (s.deckSlug != cache.currentDeckId())
-            : (s.deckTheme != cache.currentDeckTheme()));
-        bool wearChanged = (s.cardWear != cache.cardWearLevel());
-        bool stockChanged = (s.cardStock != cache.cardStock());
-        bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
-
         auto applyThemeNow = [&]() {
             if (!themeChanged) return;
             ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
@@ -5707,32 +5703,58 @@ struct InteractiveContext {
             ProceduralBackgroundSystem::instance().invalidateCache();
         };
 
+        if (syncDeckAndConditioning(s, false, applyThemeNow)) {
+            return;
+        }
+        if (themeChanged) {
+            size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+            const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
+            if (def) {
+                startAsyncTableTheme(*def);
+            } else {
+                startAsyncTableTheme(s.tableTheme);
+            }
+        }
+    }
+
+    bool syncDeckAndConditioning(const AppSettings& s, bool silent, const std::function<void()>& beforeLoad = {}) {
+        auto& cache = CardTextureCache::instance();
+        const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
+                                s.deckTheme == DeckThemeId::SolPolyDark ||
+                                s.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                s.deckTheme == DeckThemeId::SolPolyClassic ||
+                                s.deckTheme == DeckThemeId::SolPolyMobile);
+        bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
+        if (seedChanged) {
+            cache.setLowPolySeed(s.lowPolySeed);
+        }
+        bool deckChanged = seedChanged || ((!s.deckSlug.empty())
+            ? (s.deckSlug != cache.currentDeckId())
+            : (s.deckTheme != cache.currentDeckTheme()));
+        bool wearChanged = (s.cardWear != cache.cardWearLevel());
+        bool stockChanged = (s.cardStock != cache.cardStock());
+        bool cardBackChanged = (s.cardBackId != cache.currentCardBackId());
+
         if (deckChanged) {
-            applyThemeNow();
+            if (beforeLoad) beforeLoad();
             const auto& decks = cache.availableDecks();
             size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
             if (dIdx < decks.size()) {
-                startAsyncDeckDef(decks[dIdx], s.cardWear, s.cardStock);
+                startAsyncDeckDef(decks[dIdx], s.cardWear, s.cardStock, silent);
             } else {
-                startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock);
+                startAsyncDeckTheme(s.deckTheme, s.cardWear, s.cardStock, silent);
             }
-        } else if (wearChanged || stockChanged) {
-            applyThemeNow();
-            startAsyncConditioning(s.cardWear, s.cardStock);
-        } else {
-            if (cardBackChanged) {
-                cache.setActiveCardBack(s.cardBackId);
-            }
-            if (themeChanged) {
-                size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
-                const auto* def = ProceduralBackgroundSystem::instance().getThemeDef(idx);
-                if (def) {
-                    startAsyncTableTheme(*def);
-                } else {
-                    startAsyncTableTheme(s.tableTheme);
-                }
-            }
+            return true;
         }
+        if (wearChanged || stockChanged) {
+            if (beforeLoad) beforeLoad();
+            startAsyncConditioning(s.cardWear, s.cardStock, silent);
+            return true;
+        }
+        if (cardBackChanged) {
+            cache.setActiveCardBack(s.cardBackId);
+        }
+        return false;
     }
 
     void checkStartupSettingsLoad() {
@@ -6270,7 +6292,7 @@ struct InteractiveContext {
                         if (renderer.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU) {
                             CardTextureCache::instance().buildGpuAtlas(renderer);
                         }
-                        if (!SettingsManager::instance().hasGameProfile(activeGameId())) {
+                        if (!settingsDialog.isOpen() && !SettingsManager::instance().hasGameProfile(activeGameId())) {
                             SettingsManager::instance().settings().deckTheme = CardTextureCache::instance().currentDeckTheme();
                             SettingsManager::instance().settings().deckSlug = CardTextureCache::instance().currentDeckId();
                             SettingsManager::instance().settings().cardWear = CardTextureCache::instance().cardWearLevel();
@@ -6733,7 +6755,7 @@ struct InteractiveContext {
             dragSoundAccumulator += std::hypot(dx, dy);
             if (dragSoundAccumulator > 72.0f) {
                 float speed = std::clamp(std::hypot(dx, dy) * 0.08f + 0.65f, 0.6f, 1.4f);
-                foley.triggerSound(FoleySound::Slide, 0.32f * speed, screenPan(fmx));
+                foley.triggerSound(FoleySound::Drag, 0.32f * speed, screenPan(fmx));
                 dragSoundAccumulator = 0.0f;
             }
         } else if (leftDown && helpOpen && (helpPointerDown || helpDraggingScrollbar)) {
@@ -7102,6 +7124,13 @@ struct InteractiveContext {
             }
         }
         board.updateAnimations(dt);
+        {
+            std::array<float, 32> dealPans{};
+            const uint8_t dealSoundCount = board.consumePendingDealPans(dealPans.data(), static_cast<uint8_t>(dealPans.size()));
+            for (uint8_t i = 0; i < dealSoundCount; ++i) {
+                foley.triggerSound(FoleySound::Deal, 0.82f, dealPans[i]);
+            }
+        }
         const AppSettings& activeCfg = settingsDialog.isOpen()
             ? settingsDialog.previewSettings()
             : effectiveSettings_;
@@ -7113,6 +7142,9 @@ struct InteractiveContext {
         }
         if (std::abs(lightController.getWaver() - activeCfg.lightWaver) > 0.001f) {
             lightController.setWaver(activeCfg.lightWaver);
+        }
+        if (std::abs(lightController.getWaverSpeed() - activeCfg.lightWaverSpeed) > 0.001f) {
+            lightController.setWaverSpeed(activeCfg.lightWaverSpeed);
         }
         if (std::abs(lightController.getFlickerLevel() - activeCfg.lightFlicker) > 0.001f) {
             lightController.setFlickerLevel(activeCfg.lightFlicker);
@@ -7167,7 +7199,8 @@ struct InteractiveContext {
                                         activeCfg.godRaysIntensity,
                                         activeCfg.dustMotesIntensity,
                                         steadyLight.x, steadyLight.y, steadyLight.z,
-                                        static_cast<uint8_t>(activeCfg.lightAngle));
+                                        static_cast<uint8_t>(activeCfg.lightAngle),
+                                        activeCfg.cloudOpacity);
             renderer.setShaderTime(static_cast<float>(now));
             if (board.activeGameDef().id != lastOddsGameId) {
                 cancelOddsAnalysis();

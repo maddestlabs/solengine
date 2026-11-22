@@ -199,8 +199,9 @@ struct LightSource2D {
 
     [[nodiscard]] ShadowOffset computeShadowOffset(float elementX, float elementY,
                                                   float elevation, float baseOpacity = 0.45f) const noexcept {
-        float effectiveZ = std::max(1.0f, z);
-        float hRatio = elevation / effectiveZ;
+        // Perspective shadow projection matching Card3DTransform::projectShadow
+        float lightZ = std::max(100.0f, z);
+        float hRatio = elevation / std::max(50.0f, lightZ - elevation);
         float dx = (elementX - x) * hRatio;
         float dy = (elementY - y) * hRatio;
         float blur = elevation * 0.40f;

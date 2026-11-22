@@ -81,6 +81,8 @@ public:
     virtual void setDirectPresent(bool /*enable*/) noexcept {}
     virtual void setAntiAliasingMode(int /*mode*/) {}
     virtual void setBlendMode(BlendMode /*mode*/) {}
+    virtual void beginShadowLayer() {}
+    virtual void endShadowLayer() {}
     virtual void renderRgba(float /*x*/, float /*y*/, float /*w*/, float /*h*/, const uint8_t* /*rgba*/, int /*imgW*/, int /*imgH*/, float /*opacity*/) {}
     virtual void renderRgbaRegion(float dstX, float dstY, float dstW, float dstH,
                                   const uint8_t* rgba, int imgW, int imgH,
@@ -99,7 +101,8 @@ public:
     virtual void setSceneAtmosphere(uint8_t /*goboType*/, float /*goboSoftness*/,
                                       float /*godRaysIntensity*/, float /*dustMotesIntensity*/,
                                       float /*steadyX*/ = 640.0f, float /*steadyY*/ = 200.0f,
-                                      float /*steadyZ*/ = 550.0f, uint8_t /*lightAngle*/ = 0) {}
+                                      float /*steadyZ*/ = 550.0f, uint8_t /*lightAngle*/ = 0,
+                                      float /*cloudOpacity*/ = 0.0f) {}
     virtual void setTableSurfaceLighting(float /*lacquerStrength*/, float /*bumpStrength*/ = 2.4f) {}
     virtual void invalidateBgTexture() {}
     virtual void setShaderTime(float /*timeSeconds*/) {}
@@ -243,9 +246,11 @@ public:
     void setInternalMaxResolution(uint32_t maxW, uint32_t maxH);
     [[nodiscard]] bool isLowCapabilityHardware() const;
 
-    // --- Blend Modes ---
+    // --- Blend Modes & Unified Shadow Layer ---
     void setBlendMode(BlendMode mode);
     [[nodiscard]] BlendMode getBlendMode() const noexcept { return blendMode_; }
+    void beginShadowLayer();
+    void endShadowLayer();
 
     // --- Dynamic Lighting & Shading ---
     void setGlobalLight(const LightSource2D& light,
@@ -255,7 +260,8 @@ public:
     void setSceneAtmosphere(uint8_t goboType, float goboSoftness,
                             float godRaysIntensity, float dustMotesIntensity,
                             float steadyX = 640.0f, float steadyY = 200.0f,
-                            float steadyZ = 550.0f, uint8_t lightAngle = 0);
+                            float steadyZ = 550.0f, uint8_t lightAngle = 0,
+                            float cloudOpacity = 0.0f);
     void drawSceneAtmospherePass(float width, float height);
     void setTableSurfaceLighting(float lacquerStrength, float bumpStrength = 2.4f) noexcept;
     void invalidateBgTexture() noexcept;

@@ -297,6 +297,29 @@ public:
     void setDirectPresent(bool enable) noexcept override { directPresent_ = enable; }
     void setAntiAliasingMode(int mode) override { antiAliasingMode_ = std::clamp(mode, 0, 2); }
     void setBlendMode(BlendMode mode) override { blendMode_ = mode; }
+    void beginShadowLayer() override {
+        size_t totalPixels = static_cast<size_t>(viewportWidth_) * viewportHeight_;
+        if (shadowBuf_.size() != totalPixels) {
+            shadowBuf_.assign(totalPixels, 0);
+        } else {
+            std::fill(shadowBuf_.begin(), shadowBuf_.end(), 0);
+        }
+        renderingToShadow_ = true;
+    }
+    void endShadowLayer() override {
+        if (!renderingToShadow_) return;
+        renderingToShadow_ = false;
+        const size_t totalPixels = std::min(framebuffer_.size(), shadowBuf_.size());
+        const BlendMode savedMode = blendMode_;
+        blendMode_ = BlendMode::Normal;
+        for (size_t i = 0; i < totalPixels; ++i) {
+            uint8_t a = shadowBuf_[i];
+            if (a > 0) {
+                framebuffer_[i] = blendPixel(framebuffer_[i], 0, 0, 0, a);
+            }
+        }
+        blendMode_ = savedMode;
+    }
     size_t getTotalVerticesRendered() const noexcept { return totalVerticesRendered_; }
 
     void snapshotFramebuffer(std::vector<uint32_t>& outPixels, uint32_t& outW, uint32_t& outH) const override {
@@ -1388,10 +1411,6 @@ private:
             uint32_t ug = static_cast<uint32_t>((q0.color >> 8) & 0xFF);
             uint32_t ub = static_cast<uint32_t>((q0.color >> 16) & 0xFF);
             float baseA = static_cast<float>((q0.color >> 24) & 0xFF) * (1.0f / 255.0f);
-            const bool hasPrev = (std::abs(q0.localUV[0]) < 9000.0f);
-            const float prevOffX = q0.localUV[0];
-            const float prevOffY = q0.localUV[1];
-
             auto evalSdf = [&](float lx, float ly) noexcept -> float {
                 float dx = std::abs(lx);
                 float dy = std::abs(ly);
@@ -1412,26 +1431,26 @@ private:
                 float my = std::max(qy, 0.0f);
                 return std::sqrt(mx * mx + my * my) + std::min(std::max(qx, qy), 0.0f) - baseRad;
             };
-
             for (int y = minY; y <= maxY; ++y) {
                 float ly = (static_cast<float>(y) + 0.5f) - cy;
-                uint32_t* rowDst = &framebuffer_[y * viewportWidth_ + minX];
+                const size_t rowOffset = static_cast<size_t>(y) * viewportWidth_ + minX;
+                uint32_t* rowDst = &framebuffer_[rowOffset];
                 for (int x = minX; x <= maxX; ++x, ++rowDst) {
                     float lx = (static_cast<float>(x) + 0.5f) - cx;
                     float sdf = evalSdf(lx, ly);
                     float t = std::clamp((outset - sdf) * invSpan, 0.0f, 1.0f);
                     float alpha = t * t * (3.0f - 2.0f * t);
                     float aCurr = baseA * alpha;
-                    if (hasPrev && aCurr > 0.001f) {
-                        float sdfP = evalSdf(lx - prevOffX, ly - prevOffY);
-                        float tP = std::clamp((outset - sdfP) * invSpan, 0.0f, 1.0f);
-                        float alphaP = tP * tP * (3.0f - 2.0f * tP);
-                        float aPrev = baseA * alphaP;
-                        aCurr = std::max(0.0f, aCurr - aPrev) / std::max(0.001f, 1.0f - aPrev);
-                    }
                     uint32_t ua = static_cast<uint32_t>(std::clamp(aCurr * 255.0f + 0.5f, 0.0f, 255.0f));
                     if (ua > 0) {
-                        *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
+                        if (renderingToShadow_) {
+                            size_t idx = rowOffset + static_cast<size_t>(x - minX);
+                            if (idx < shadowBuf_.size()) {
+                                shadowBuf_[idx] = std::max(shadowBuf_[idx], static_cast<uint8_t>(ua));
+                            }
+                        } else {
+                            *rowDst = blendPixel(*rowDst, ur, ug, ub, ua);
+                        }
                     }
                 }
             }
@@ -2259,6 +2278,8 @@ private:
     bool directPresent_{true};
     int antiAliasingMode_{2};
     BlendMode blendMode_{BlendMode::Normal};
+    bool renderingToShadow_{false};
+    std::vector<uint8_t> shadowBuf_;
 #if defined(_WIN32)
     HWND hwnd_{nullptr};
 #endif
@@ -2623,6 +2644,35 @@ public:
             wgpuRenderPipelineRelease(pipeline4x_);
             pipeline4x_ = nullptr;
         }
+        if (shadowPipeline1x_) {
+            wgpuRenderPipelineRelease(shadowPipeline1x_);
+            shadowPipeline1x_ = nullptr;
+        }
+        if (shadowBindGroup1x_) {
+            wgpuBindGroupRelease(shadowBindGroup1x_);
+            shadowBindGroup1x_ = nullptr;
+        }
+        releaseShadowTexture();
+        if (shadowCompositePipeline1x_) {
+            wgpuRenderPipelineRelease(shadowCompositePipeline1x_);
+            shadowCompositePipeline1x_ = nullptr;
+        }
+        if (shadowCompositePipeline4x_) {
+            wgpuRenderPipelineRelease(shadowCompositePipeline4x_);
+            shadowCompositePipeline4x_ = nullptr;
+        }
+        if (shadowCompositeBindGroupLayout_) {
+            wgpuBindGroupLayoutRelease(shadowCompositeBindGroupLayout_);
+            shadowCompositeBindGroupLayout_ = nullptr;
+        }
+        if (shadowCompositePipelineLayout_) {
+            wgpuPipelineLayoutRelease(shadowCompositePipelineLayout_);
+            shadowCompositePipelineLayout_ = nullptr;
+        }
+        if (shadowCompositeSampler_) {
+            wgpuSamplerRelease(shadowCompositeSampler_);
+            shadowCompositeSampler_ = nullptr;
+        }
         pipeline_ = nullptr;
         if (vertexBuffer_) {
             wgpuBufferDestroy(vertexBuffer_);
@@ -2811,6 +2861,7 @@ public:
         float sceneAtmosphere[4]; // x=goboType (0..3), y=goboSoftness, z=godRays, w=dustMotes
         float steadyLight[4];     // x,y,z=steady base light pos, w=lightAngle (0..3)
         float cameraTransform[4]; // x=invZoom, y=focusX, z=focusY, w=active (0 or 1)
+        float cloudParams[4];     // x=cloudOpacity (0..1)
     };
 
     void fillGpuUniforms(GpuUniforms& ubo, float w, float h) const noexcept {
@@ -2828,6 +2879,7 @@ public:
             ubo.sceneAtmosphere[i] = sceneAtmosphere_[i];
             ubo.steadyLight[i] = steadyLight_[i];
             ubo.cameraTransform[i] = cameraTransform_[i];
+            ubo.cloudParams[i] = cloudParams_[i];
         }
     }
 
@@ -2851,6 +2903,9 @@ public:
         }
         isFirstBatchOfFrame_ = true;
         postFxAppliedThisFrame_ = false;
+        inShadowLayer_ = false;
+        shadowLayerFirstBatch_ = false;
+        shadowLayerHasDraws_ = false;
     }
 
     void updateFontTexture(int x, int y, int w, int h, const unsigned char* data, int atlasW, int atlasH) override {
@@ -2887,9 +2942,21 @@ public:
 
         const bool renderToPostFxScene = (isOffscreenSceneActive() &&
                                           !postFxAppliedThisFrame_ && !customTargetView_);
-        WGPUTextureView targetView = nullptr;
+        uint32_t targetW = width_;
+        uint32_t targetH = height_;
         if (renderToPostFxScene) {
             ensurePostFxSceneTexture();
+            if (postFxSceneW_ > 0 && postFxSceneH_ > 0) {
+                targetW = postFxSceneW_;
+                targetH = postFxSceneH_;
+            }
+        }
+
+        WGPUTextureView targetView = nullptr;
+        if (inShadowLayer_) {
+            ensureShadowTexture(targetW, targetH);
+            targetView = shadowTextureView_;
+        } else if (renderToPostFxScene) {
             targetView = postFxSceneView_;
         }
         if (!targetView) {
@@ -2953,7 +3020,7 @@ public:
         const bool scaledScenePass = (renderToPostFxScene && postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
                                       (postFxSceneW_ != width_ || postFxSceneH_ != height_));
         WGPUTextureView activeMsaaView = scaledScenePass ? postFxMsaaTextureView_ : msaaTextureView_;
-        const bool useMsaa = (sampleCount_ > 1 && activeMsaaView != nullptr);
+        const bool useMsaa = (!inShadowLayer_ && sampleCount_ > 1 && activeMsaaView != nullptr);
         if (useMsaa) {
             colorAttachment.view = activeMsaaView;
             colorAttachment.resolveTarget = targetView;
@@ -2962,26 +3029,33 @@ public:
             colorAttachment.resolveTarget = nullptr;
         }
         colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-        colorAttachment.loadOp = isFirstBatchOfFrame_ ? WGPULoadOp_Clear : WGPULoadOp_Load;
-        colorAttachment.storeOp = WGPUStoreOp_Store;
-        colorAttachment.clearValue = WGPUColor{0.08, 0.09, 0.12, 1.0};
-
-        isFirstBatchOfFrame_ = false;
+        if (inShadowLayer_) {
+            colorAttachment.loadOp = shadowLayerFirstBatch_ ? WGPULoadOp_Clear : WGPULoadOp_Load;
+            colorAttachment.storeOp = WGPUStoreOp_Store;
+            colorAttachment.clearValue = WGPUColor{0.0, 0.0, 0.0, 0.0};
+            shadowLayerFirstBatch_ = false;
+            shadowLayerHasDraws_ = true;
+        } else {
+            colorAttachment.loadOp = isFirstBatchOfFrame_ ? WGPULoadOp_Clear : WGPULoadOp_Load;
+            colorAttachment.storeOp = WGPUStoreOp_Store;
+            colorAttachment.clearValue = WGPUColor{0.08, 0.09, 0.12, 1.0};
+            isFirstBatchOfFrame_ = false;
+        }
 
         WGPURenderPassDescriptor passDesc{};
         passDesc.colorAttachmentCount = 1;
         passDesc.colorAttachments = &colorAttachment;
 
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
-        wgpuRenderPassEncoderSetPipeline(pass, pipeline_);
-        if (bindGroup_) {
-            wgpuRenderPassEncoderSetBindGroup(pass, 0, bindGroup_, 0, nullptr);
+        WGPURenderPipeline activePipeline = (inShadowLayer_ && shadowPipeline1x_) ? shadowPipeline1x_ : pipeline_;
+        WGPUBindGroup activeBindGroup = (inShadowLayer_ && shadowPipeline1x_ && shadowBindGroup1x_) ? shadowBindGroup1x_ : bindGroup_;
+        wgpuRenderPassEncoderSetPipeline(pass, activePipeline);
+        if (activeBindGroup) {
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, activeBindGroup, 0, nullptr);
         }
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, vertexBuffer_, 0, bufferSize);
 
         bool curScissorActive = false;
-        const uint32_t targetW = (renderToPostFxScene && postFxSceneW_ > 0) ? postFxSceneW_ : width_;
-        const uint32_t targetH = (renderToPostFxScene && postFxSceneH_ > 0) ? postFxSceneH_ : height_;
         const float scissorScaleX = (scaledScenePass && width_ > 0) ? (static_cast<float>(targetW) / static_cast<float>(width_)) : 1.0f;
         const float scissorScaleY = (scaledScenePass && height_ > 0) ? (static_cast<float>(targetH) / static_cast<float>(height_)) : 1.0f;
         uint32_t curSx = 0, curSy = 0, curSw = targetW, curSh = targetH;
@@ -3644,7 +3718,8 @@ public:
     void setSceneAtmosphere(uint8_t goboType, float goboSoftness,
                             float godRaysIntensity, float dustMotesIntensity,
                             float steadyX, float steadyY,
-                            float steadyZ, uint8_t lightAngle) override {
+                            float steadyZ, uint8_t lightAngle,
+                            float cloudOpacity = 0.0f) override {
         sceneAtmosphere_[0] = static_cast<float>(goboType);
         sceneAtmosphere_[1] = goboSoftness;
         sceneAtmosphere_[2] = godRaysIntensity;
@@ -3653,6 +3728,7 @@ public:
         steadyLight_[1] = steadyY;
         steadyLight_[2] = steadyZ;
         steadyLight_[3] = static_cast<float>(lightAngle);
+        cloudParams_[0] = cloudOpacity;
         if (device_ && uniformBuffer_ && width_ > 0 && height_ > 0) {
             GpuUniforms ubo{};
             fillGpuUniforms(ubo, static_cast<float>(width_), static_cast<float>(height_));
@@ -3699,6 +3775,7 @@ private:
                 sceneAtmosphere: vec4<f32>,
                 steadyLight: vec4<f32>,
                 cameraTransform: vec4<f32>,
+                cloudParams: vec4<f32>,
             };
 
             @group(0) @binding(0) var fontTexture: texture_2d<f32>;
@@ -3772,7 +3849,8 @@ private:
 
             fn evalGoboMask(worldPos: vec2<f32>, zOffset: f32) -> f32 {
                 let goboType = uniforms.sceneAtmosphere.x;
-                if (goboType < 0.5) {
+                let cloudOpacity = clamp(uniforms.cloudParams.x, 0.0, 1.0);
+                if (goboType < 0.5 && cloudOpacity <= 0.005) {
                     return 1.0;
                 }
                 let boardPos = toBoardSpace(worldPos);
@@ -3784,7 +3862,8 @@ private:
                 let proj = (boardPos + rayDir * (zOffset * slope)) / vp;
                 let soft = clamp(uniforms.sceneAtmosphere.y, 0.05, 1.0);
 
-                if (goboType < 1.5) {
+                var goboMask = 1.0;
+                if (goboType >= 0.5 && goboType < 1.5) {
                     // 1: Window Frame & Mullions (diagonal sunlit panes)
                     let c = cos(0.46);
                     let s = sin(0.46);
@@ -3798,25 +3877,28 @@ private:
                     // Outer casement frame falloff near edges
                     let frameDist = max(abs(rp.x - 0.5) * 1.15, abs(rp.y - 0.5) * 1.35);
                     let outer = 1.0 - smoothstep(0.46 - pen * 1.5, 0.56 + pen * 1.5, frameDist);
-                    return clamp(mx * my * outer, 0.0, 1.0);
-                } else if (goboType < 2.5) {
+                    goboMask = clamp(mx * my * outer, 0.0, 1.0);
+                } else if (goboType >= 1.5) {
                     // 2: Venetian Blinds (angled parallel slats)
                     let pen = mix(0.025, 0.16, soft);
                     let p = proj - vec2<f32>(0.5, 0.5);
                     let slatCoord = dot(p, vec2<f32>(0.42, 0.91)) * 8.5;
                     let slat = abs(fract(slatCoord) - 0.5);
-                    return smoothstep(0.18 - pen, 0.18 + pen, slat);
-                } else {
-                    // 3: Dappled Foliage Canopy (soft drifting leaf shadows)
-                    let t = uniforms.time * 0.35;
-                    let uv = proj * vec2<f32>(5.5, 4.2);
-                    let w1 = sin(uv.x * 1.7 + t + sin(uv.y * 1.3 - t * 0.6)) * 0.5 + 0.5;
-                    let w2 = cos(uv.y * 2.3 - t * 0.8 + cos(uv.x * 2.1 + t * 0.4)) * 0.5 + 0.5;
-                    let w3 = sin((uv.x + uv.y) * 3.1 + t * 0.5) * 0.5 + 0.5;
-                    let canopy = w1 * 0.45 + w2 * 0.35 + w3 * 0.20;
-                    let pen = mix(0.06, 0.24, soft);
-                    return smoothstep(0.48 - pen, 0.48 + pen, canopy);
+                    goboMask = smoothstep(0.18 - pen, 0.18 + pen, slat);
                 }
+
+                if (cloudOpacity > 0.005) {
+                    // Soft drifting clouds beyond the window frame/blinds
+                    let t = uniforms.time * 0.16;
+                    let uv = proj * vec2<f32>(2.8, 2.2) + vec2<f32>(t * 0.45, t * 0.18);
+                    let w1 = sin(uv.x * 1.5 + t * 0.5 + sin(uv.y * 1.2 - t * 0.35)) * 0.5 + 0.5;
+                    let w2 = cos(uv.y * 2.1 - t * 0.4 + cos(uv.x * 1.9 + t * 0.25)) * 0.5 + 0.5;
+                    let w3 = sin((uv.x + uv.y) * 2.7 + t * 0.3) * 0.5 + 0.5;
+                    let cloudRaw = w1 * 0.48 + w2 * 0.34 + w3 * 0.18;
+                    let cloudMask = smoothstep(0.32, 0.72, cloudRaw);
+                    goboMask = goboMask * mix(1.0, cloudMask, cloudOpacity);
+                }
+                return goboMask;
             }
         )") + R"(
             @fragment
@@ -3838,17 +3920,7 @@ private:
                         let sdf = evalShadowSdf(in.localPos, baseHalf, baseRad, in.radius);
                         let t = clamp((outset - sdf) * invSpan, 0.0, 1.0);
                         let alpha = t * t * (3.0 - 2.0 * t);
-                        var aCurr = in.color.a * alpha;
-
-                        if (abs(in.localUV.x) < 9000.0 && aCurr > 0.001) {
-                            let prevOff = in.localUV;
-                            let sdfPrev = evalShadowSdf(in.localPos - prevOff, baseHalf, baseRad, in.radius);
-                            let tPrev = clamp((outset - sdfPrev) * invSpan, 0.0, 1.0);
-                            let alphaPrev = tPrev * tPrev * (3.0 - 2.0 * tPrev);
-                            let aPrev = in.color.a * alphaPrev;
-                            aCurr = max(0.0, aCurr - aPrev) / max(0.001, 1.0 - aPrev);
-                        }
-                        finalAlpha = aCurr;
+                        finalAlpha = in.color.a * alpha;
                     } else {
                         let q = abs(in.localPos) - in.halfSize + vec2<f32>(in.radius, in.radius);
                         let dist = length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - in.radius;
@@ -4213,6 +4285,19 @@ private:
         plDesc.multisample.count = 4;
         pipeline4x_ = wgpuDeviceCreateRenderPipeline(device_, &plDesc);
 
+        // Max-blend pipeline for unified shadow layer (1x offscreen shadow mask)
+        WGPUBlendState maxBlend{};
+        maxBlend.color.operation = WGPUBlendOperation_Max;
+        maxBlend.color.srcFactor = WGPUBlendFactor_One;
+        maxBlend.color.dstFactor = WGPUBlendFactor_One;
+        maxBlend.alpha.operation = WGPUBlendOperation_Max;
+        maxBlend.alpha.srcFactor = WGPUBlendFactor_One;
+        maxBlend.alpha.dstFactor = WGPUBlendFactor_One;
+        colorTarget.blend = &maxBlend;
+        plDesc.multisample.count = 1;
+        shadowPipeline1x_ = wgpuDeviceCreateRenderPipeline(device_, &plDesc);
+        colorTarget.blend = &blend;
+
         // 1. Create font atlas texture (1024x1024 R8Unorm)
         WGPUTextureDescriptor texDesc{};
         texDesc.dimension = WGPUTextureDimension_2D;
@@ -4316,6 +4401,15 @@ private:
             wgpuBindGroupLayoutRelease(bgLayout4x);
         }
 
+        if (shadowPipeline1x_) {
+            WGPUBindGroupLayout bgLayoutShadow = wgpuRenderPipelineGetBindGroupLayout(shadowPipeline1x_, 0);
+            bgDesc.layout = bgLayoutShadow;
+            bgDesc.entryCount = 5;
+            bgDesc.entries = entries;
+            shadowBindGroup1x_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+            wgpuBindGroupLayoutRelease(bgLayoutShadow);
+        }
+
         updateActivePipeline();
         reallocateMsaaTexture(width_, height_);
     }
@@ -4351,6 +4445,7 @@ private:
     float sceneAtmosphere_[4]{0.0f, 0.45f, 0.0f, 0.0f};
     float steadyLight_[4]{640.0f, 200.0f, 550.0f, 0.0f};
     float cameraTransform_[4]{1.0f, 0.0f, 0.0f, 0.0f};
+    float cloudParams_[4]{0.0f, 0.0f, 0.0f, 0.0f};
     float shaderTime_{0.0f};
     float tableLacquer_{0.0f};
     float tableBump_{2.4f};
@@ -4656,6 +4751,252 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
     bool postFxAppliedThisFrame_{false};
     float postFxIntensity_{1.0f};
     float postFxU_[4]{0.0f, 0.0f, 0.0f, 0.0f};
+    void beginShadowLayer() override {
+        if (!device_) return;
+        if (!frameDraws_.empty()) {
+            flushPendingDraws();
+        }
+        inShadowLayer_ = true;
+        shadowLayerFirstBatch_ = true;
+        shadowLayerHasDraws_ = false;
+    }
+
+    void endShadowLayer() override {
+        if (!inShadowLayer_) return;
+        if (!frameDraws_.empty()) {
+            flushPendingDraws();
+        }
+        inShadowLayer_ = false;
+        if (!shadowLayerHasDraws_ || !shadowTextureView_ || !device_) {
+            return;
+        }
+        ensureShadowCompositeResources();
+        if (!shadowCompositeBindGroup_) return;
+
+        const bool renderToPostFxScene = (isOffscreenSceneActive() &&
+                                          !postFxAppliedThisFrame_ && !customTargetView_);
+        WGPUTextureView targetView = renderToPostFxScene ? postFxSceneView_ : currentBackBufferView_;
+        if (!targetView) return;
+
+        const bool scaledScenePass = (renderToPostFxScene && postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
+                                      (postFxSceneW_ != width_ || postFxSceneH_ != height_));
+        WGPUTextureView activeMsaaView = scaledScenePass ? postFxMsaaTextureView_ : msaaTextureView_;
+        const bool useMsaa = (sampleCount_ > 1 && activeMsaaView != nullptr);
+        WGPURenderPipeline compPipe = useMsaa ? shadowCompositePipeline4x_ : shadowCompositePipeline1x_;
+        if (!compPipe) return;
+
+        WGPUCommandEncoderDescriptor encDesc{};
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device_, &encDesc);
+
+        WGPURenderPassColorAttachment colorAttachment{};
+        if (useMsaa) {
+            colorAttachment.view = activeMsaaView;
+            colorAttachment.resolveTarget = targetView;
+        } else {
+            colorAttachment.view = targetView;
+            colorAttachment.resolveTarget = nullptr;
+        }
+        colorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+        colorAttachment.loadOp = WGPULoadOp_Load;
+        colorAttachment.storeOp = WGPUStoreOp_Store;
+
+        WGPURenderPassDescriptor passDesc{};
+        passDesc.colorAttachmentCount = 1;
+        passDesc.colorAttachments = &colorAttachment;
+
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+        wgpuRenderPassEncoderSetPipeline(pass, compPipe);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, shadowCompositeBindGroup_, 0, nullptr);
+        wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+
+        WGPUCommandBufferDescriptor cmdBufDesc{};
+        WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, &cmdBufDesc);
+        wgpuCommandEncoderRelease(encoder);
+        wgpuQueueSubmit(queue_, 1, &commands);
+        wgpuCommandBufferRelease(commands);
+    }
+
+    void releaseShadowTexture() {
+        if (shadowCompositeBindGroup_) {
+            wgpuBindGroupRelease(shadowCompositeBindGroup_);
+            shadowCompositeBindGroup_ = nullptr;
+        }
+        if (shadowTextureView_) {
+            wgpuTextureViewRelease(shadowTextureView_);
+            shadowTextureView_ = nullptr;
+        }
+        if (shadowTexture_) {
+            wgpuTextureDestroy(shadowTexture_);
+            wgpuTextureRelease(shadowTexture_);
+            shadowTexture_ = nullptr;
+        }
+        shadowTexW_ = 0;
+        shadowTexH_ = 0;
+    }
+
+    void ensureShadowTexture(uint32_t targetW, uint32_t targetH) {
+        if (!device_ || targetW == 0 || targetH == 0) return;
+        if (shadowTexture_ && shadowTexW_ == targetW && shadowTexH_ == targetH) {
+            return;
+        }
+        releaseShadowTexture();
+
+        WGPUTextureDescriptor desc{};
+        desc.dimension = WGPUTextureDimension_2D;
+        desc.size = WGPUExtent3D{ targetW, targetH, 1 };
+        desc.format = surfaceFormat_;
+        desc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+        desc.mipLevelCount = 1;
+        desc.sampleCount = 1;
+        shadowTexture_ = wgpuDeviceCreateTexture(device_, &desc);
+        if (shadowTexture_) {
+            WGPUTextureViewDescriptor vdesc{};
+            vdesc.format = surfaceFormat_;
+            vdesc.dimension = WGPUTextureViewDimension_2D;
+            vdesc.baseMipLevel = 0;
+            vdesc.mipLevelCount = 1;
+            vdesc.baseArrayLayer = 0;
+            vdesc.arrayLayerCount = 1;
+            vdesc.aspect = WGPUTextureAspect_All;
+            shadowTextureView_ = wgpuTextureCreateView(shadowTexture_, &vdesc);
+            shadowTexW_ = targetW;
+            shadowTexH_ = targetH;
+        }
+    }
+
+    void ensureShadowCompositeResources() {
+        if (!device_) return;
+        if (!shadowCompositeSampler_) {
+            WGPUSamplerDescriptor sDesc{};
+            sDesc.addressModeU = WGPUAddressMode_ClampToEdge;
+            sDesc.addressModeV = WGPUAddressMode_ClampToEdge;
+            sDesc.addressModeW = WGPUAddressMode_ClampToEdge;
+            sDesc.magFilter = WGPUFilterMode_Nearest;
+            sDesc.minFilter = WGPUFilterMode_Nearest;
+            sDesc.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+            sDesc.maxAnisotropy = 1;
+            shadowCompositeSampler_ = wgpuDeviceCreateSampler(device_, &sDesc);
+        }
+        if (!shadowCompositeBindGroupLayout_) {
+            WGPUBindGroupLayoutEntry entries[2]{};
+            entries[0].binding = 0;
+            entries[0].visibility = WGPUShaderStage_Fragment;
+            entries[0].texture.sampleType = WGPUTextureSampleType_Float;
+            entries[0].texture.viewDimension = WGPUTextureViewDimension_2D;
+
+            entries[1].binding = 1;
+            entries[1].visibility = WGPUShaderStage_Fragment;
+            entries[1].sampler.type = WGPUSamplerBindingType_Filtering;
+
+            WGPUBindGroupLayoutDescriptor bglDesc{};
+            bglDesc.entryCount = 2;
+            bglDesc.entries = entries;
+            shadowCompositeBindGroupLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &bglDesc);
+        }
+        if (!shadowCompositePipelineLayout_ && shadowCompositeBindGroupLayout_) {
+            WGPUPipelineLayoutDescriptor plDesc{};
+            plDesc.bindGroupLayoutCount = 1;
+            plDesc.bindGroupLayouts = &shadowCompositeBindGroupLayout_;
+            shadowCompositePipelineLayout_ = wgpuDeviceCreatePipelineLayout(device_, &plDesc);
+        }
+        if ((!shadowCompositePipeline1x_ || !shadowCompositePipeline4x_) && shadowCompositePipelineLayout_) {
+            static const char* kShadowCompWgsl = R"(
+@group(0) @binding(0) var shadowTex: texture_2d<f32>;
+@group(0) @binding(1) var shadowSampler: sampler;
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
+@vertex fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
+    var out: VsOut;
+    let x = f32((vid << 1u) & 2u) * 2.0 - 1.0;
+    let y = f32(vid & 2u) * 2.0 - 1.0;
+    out.pos = vec4<f32>(x, -y, 0.0, 1.0);
+    out.uv = vec2<f32>(x * 0.5 + 0.5, y * 0.5 + 0.5);
+    return out;
+}
+@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let a = textureSample(shadowTex, shadowSampler, in.uv).a;
+    if (a <= 0.001) { discard; }
+    return vec4<f32>(0.0, 0.0, 0.0, a);
+}
+)";
+            WGPUShaderSourceWGSL wgslDesc{};
+            wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
+            wgslDesc.code = makeWgpuStringView(kShadowCompWgsl);
+            WGPUShaderModuleDescriptor smDesc{};
+            smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
+            if (WGPUShaderModule sm = wgpuDeviceCreateShaderModule(device_, &smDesc)) {
+                WGPUBlendState compBlend{};
+                compBlend.color.operation = WGPUBlendOperation_Add;
+                compBlend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+                compBlend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+                compBlend.alpha.operation = WGPUBlendOperation_Add;
+                compBlend.alpha.srcFactor = WGPUBlendFactor_One;
+                compBlend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+
+                WGPUColorTargetState colorTarget{};
+                colorTarget.format = surfaceFormat_;
+                colorTarget.blend = &compBlend;
+                colorTarget.writeMask = WGPUColorWriteMask_All;
+
+                WGPUFragmentState fragState{};
+                fragState.module = sm;
+                fragState.entryPoint = makeWgpuStringView("fs_main");
+                fragState.targetCount = 1;
+                fragState.targets = &colorTarget;
+
+                WGPURenderPipelineDescriptor pipeDesc{};
+                pipeDesc.layout = shadowCompositePipelineLayout_;
+                pipeDesc.vertex.module = sm;
+                pipeDesc.vertex.entryPoint = makeWgpuStringView("vs_main");
+                pipeDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+                pipeDesc.primitive.frontFace = WGPUFrontFace_CCW;
+                pipeDesc.primitive.cullMode = WGPUCullMode_None;
+                pipeDesc.multisample.mask = 0xFFFFFFFF;
+                pipeDesc.fragment = &fragState;
+
+                if (!shadowCompositePipeline1x_) {
+                    pipeDesc.multisample.count = 1;
+                    shadowCompositePipeline1x_ = wgpuDeviceCreateRenderPipeline(device_, &pipeDesc);
+                }
+                if (!shadowCompositePipeline4x_) {
+                    pipeDesc.multisample.count = 4;
+                    shadowCompositePipeline4x_ = wgpuDeviceCreateRenderPipeline(device_, &pipeDesc);
+                }
+                wgpuShaderModuleRelease(sm);
+            }
+        }
+        if (!shadowCompositeBindGroup_ && shadowCompositeBindGroupLayout_ && shadowTextureView_ && shadowCompositeSampler_) {
+            WGPUBindGroupEntry bgEntries[2]{};
+            bgEntries[0].binding = 0;
+            bgEntries[0].textureView = shadowTextureView_;
+            bgEntries[1].binding = 1;
+            bgEntries[1].sampler = shadowCompositeSampler_;
+
+            WGPUBindGroupDescriptor bgDesc{};
+            bgDesc.layout = shadowCompositeBindGroupLayout_;
+            bgDesc.entryCount = 2;
+            bgDesc.entries = bgEntries;
+            shadowCompositeBindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+        }
+    }
+
+    WGPURenderPipeline shadowPipeline1x_{nullptr};
+    WGPUBindGroup shadowBindGroup1x_{nullptr};
+    WGPUTexture shadowTexture_{nullptr};
+    WGPUTextureView shadowTextureView_{nullptr};
+    uint32_t shadowTexW_{0};
+    uint32_t shadowTexH_{0};
+    bool inShadowLayer_{false};
+    bool shadowLayerFirstBatch_{false};
+    bool shadowLayerHasDraws_{false};
+    WGPUSampler shadowCompositeSampler_{nullptr};
+    WGPUBindGroupLayout shadowCompositeBindGroupLayout_{nullptr};
+    WGPUPipelineLayout shadowCompositePipelineLayout_{nullptr};
+    WGPUBindGroup shadowCompositeBindGroup_{nullptr};
+    WGPURenderPipeline shadowCompositePipeline1x_{nullptr};
+    WGPURenderPipeline shadowCompositePipeline4x_{nullptr};
+
     float postFxParam1_{0.0f};
     float postFxParam2_{0.0f};
 };
@@ -4842,6 +5183,20 @@ void BatchRenderer2D::setBlendMode(BlendMode mode) {
     }
 }
 
+void BatchRenderer2D::beginShadowLayer() {
+    flush();
+    if (backend_) {
+        backend_->beginShadowLayer();
+    }
+}
+
+void BatchRenderer2D::endShadowLayer() {
+    flush();
+    if (backend_) {
+        backend_->endShadowLayer();
+    }
+}
+
 void BatchRenderer2D::setGlobalLight(const LightSource2D& light,
                                     float colR, float colG, float colB,
                                     float ambR, float ambG, float ambB,
@@ -4854,10 +5209,11 @@ void BatchRenderer2D::setGlobalLight(const LightSource2D& light,
 void BatchRenderer2D::setSceneAtmosphere(uint8_t goboType, float goboSoftness,
                                          float godRaysIntensity, float dustMotesIntensity,
                                          float steadyX, float steadyY,
-                                         float steadyZ, uint8_t lightAngle) {
+                                         float steadyZ, uint8_t lightAngle,
+                                         float cloudOpacity) {
     if (backend_) {
         backend_->setSceneAtmosphere(goboType, goboSoftness, godRaysIntensity, dustMotesIntensity,
-                                     steadyX, steadyY, steadyZ, lightAngle);
+                                     steadyX, steadyY, steadyZ, lightAngle, cloudOpacity);
     }
 }
 
@@ -6747,6 +7103,8 @@ void BatchRenderer2D::drawCircleDropShadow(float cx, float cy, float radius, flo
 void BatchRenderer2D::drawRectDropShadow(float x, float y, float w, float h, float cornerRadius,
                                          float elevation, const LightSource2D& light, float opacity,
                                          float prevCardX, float prevCardY) {
+    (void)prevCardX;
+    (void)prevCardY;
     if (w <= 0.0f || h <= 0.0f || elevation <= 0.0f || opacity <= 0.001f) return;
     const float localCx = x + w * 0.5f;
     const float localCy = y + h * 0.5f;
@@ -6755,36 +7113,16 @@ void BatchRenderer2D::drawRectDropShadow(float x, float y, float w, float h, flo
     applyTransform(worldCx, worldCy);
     ShadowOffset shadow = light.computeShadowOffset(worldCx, worldCy, elevation, opacity);
 
-    float scx = worldCx + shadow.dx;
-    float scy = worldCy + shadow.dy;
-
-    float relPrevX = 99999.0f;
-    float relPrevY = 99999.0f;
-    if (std::abs(prevCardX) < 9000.0f && std::abs(prevCardY) < 9000.0f) {
-        float prevWorldCx = prevCardX + w * 0.5f;
-        float prevWorldCy = prevCardY + h * 0.5f;
-        ShadowOffset prevShadow = light.computeShadowOffset(prevWorldCx, prevWorldCy, elevation, opacity);
-        float dxPrev = (prevWorldCx + prevShadow.dx) - scx;
-        float dyPrev = (prevWorldCy + prevShadow.dy) - scy;
-        if (transformActive_) {
-            relPrevX = dxPrev * transformCos_ + dyPrev * transformSin_;
-            relPrevY = -dxPrev * transformSin_ + dyPrev * transformCos_;
-        } else {
-            relPrevX = dxPrev;
-            relPrevY = dyPrev;
-        }
-    }
-
     float outset = std::max(2.0f, shadow.blur * 1.15f);
     float halfW = w * 0.5f + outset;
     float halfH = h * 0.5f + outset;
     float effRadius = std::clamp(cornerRadius, 0.0f, std::min(w, h) * 0.5f);
 
     uint32_t col = packColor(0.0f, 0.0f, 0.0f, std::clamp(shadow.opacity * 0.62f, 0.0f, 1.0f));
-    Vertex2D v0{localCx - halfW, localCy - halfH, effRadius, outset, col, 2, {-halfW, -halfH}, {relPrevX, relPrevY}};
-    Vertex2D v1{localCx + halfW, localCy - halfH, effRadius, outset, col, 2, { halfW, -halfH}, {relPrevX, relPrevY}};
-    Vertex2D v2{localCx + halfW, localCy + halfH, effRadius, outset, col, 2, { halfW,  halfH}, {relPrevX, relPrevY}};
-    Vertex2D v3{localCx - halfW, localCy + halfH, effRadius, outset, col, 2, {-halfW,  halfH}, {relPrevX, relPrevY}};
+    Vertex2D v0{localCx - halfW, localCy - halfH, effRadius, outset, col, 2, {-halfW, -halfH}, {99999.0f, 99999.0f}};
+    Vertex2D v1{localCx + halfW, localCy - halfH, effRadius, outset, col, 2, { halfW, -halfH}, {99999.0f, 99999.0f}};
+    Vertex2D v2{localCx + halfW, localCy + halfH, effRadius, outset, col, 2, { halfW,  halfH}, {99999.0f, 99999.0f}};
+    Vertex2D v3{localCx - halfW, localCy + halfH, effRadius, outset, col, 2, {-halfW,  halfH}, {99999.0f, 99999.0f}};
 
     applyTransform(v0.x, v0.y);
     applyTransform(v1.x, v1.y);

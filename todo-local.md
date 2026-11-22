@@ -17,7 +17,6 @@
 - eatsdither; dither shader + procedural library for easy reuse across eatsbits apps
 - change icon and clockwork theme still to low poly (should save a bit of gpu/cpu)
 - c header style apis from solengine
-- resolution setting: allow user to configure resolution for game itself (allows for better performance with potentially better results if user wants pixelart or dither aesthetic)
 - slider to control light movement maximum
 - slider to control light max speed
 - should we get solitaireengine.org instead? should we forego solengine entirely and instead refactor as solitaireengine since youtube channel is youtube.com/solitaireengine? Should SolEngine exist in its own Organization on GitHub?

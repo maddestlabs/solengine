@@ -20,7 +20,12 @@ lighting_preset = 1
 light_angle = 0
 shadow_gobo = 1
 light_waver = 0.55
+light_waver_speed = 0.45
 light_flicker = 0.40
+gobo_softness = 0.60
+cloud_opacity = 0.0
+god_rays = 0.0
+dust_motes = 0.25
 scene_darkness = 0.34
 light_strength = 1.30
 

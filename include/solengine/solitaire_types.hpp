@@ -251,6 +251,8 @@ struct Card {
     float flipAngle{0.0f};       // 0.0 = faceUp state, pi = flipped
     float angle{0.0f};           // Current visual rotation angle in radians (Hardwood 3.0 tactile realism)
     float targetAngle{0.0f};     // Target resting angle in radians
+    float animDelaySec{0.0f};    // Staggered launch delay (e.g. Spider run-to-foundation cascade)
+    bool dealSoundPending{false}; // Trigger FoleySound::Deal when animDelaySec reaches 0
 };
 
 /**

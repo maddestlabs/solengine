@@ -68,11 +68,13 @@ public:
     bool handleScroll(float yoffset);
 
     std::function<void()> onSettingsChanged;
+    std::function<void(const AppSettings&)> onPreviewDeck;
     std::function<void()> onOpenGameBrowser;
     std::function<void(const std::string& gameId)> onSelectFavoriteGame;
 
 private:
     void randomizeSeed();
+    void applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& foley, const AppSettings& s);
     void revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley);
     void commitSettings();
 
@@ -105,12 +107,16 @@ private:
     bool draggingGodRays_{false};
     bool draggingDustMotes_{false};
     bool draggingLightWaver_{false};
+    bool draggingLightWaverSpeed_{false};
     bool draggingLightFlicker_{false};
+    bool draggingCloudOpacity_{false};
     float goboSoftTrackX_{0.0f}, goboSoftTrackY_{0.0f}, goboSoftTrackW_{280.0f}, goboSoftTrackH_{24.0f};
     float godRaysTrackX_{0.0f}, godRaysTrackY_{0.0f}, godRaysTrackW_{280.0f}, godRaysTrackH_{24.0f};
     float dustMotesTrackX_{0.0f}, dustMotesTrackY_{0.0f}, dustMotesTrackW_{280.0f}, dustMotesTrackH_{24.0f};
     float lightWaverTrackX_{0.0f}, lightWaverTrackY_{0.0f}, lightWaverTrackW_{280.0f}, lightWaverTrackH_{24.0f};
+    float lightWaverSpeedTrackX_{0.0f}, lightWaverSpeedTrackY_{0.0f}, lightWaverSpeedTrackW_{280.0f}, lightWaverSpeedTrackH_{24.0f};
     float lightFlickerTrackX_{0.0f}, lightFlickerTrackY_{0.0f}, lightFlickerTrackW_{280.0f}, lightFlickerTrackH_{24.0f};
+    float cloudOpacityTrackX_{0.0f}, cloudOpacityTrackY_{0.0f}, cloudOpacityTrackW_{280.0f}, cloudOpacityTrackH_{24.0f};
     float postFxTrackX_{0.0f};
     float postFxTrackY_{0.0f};
     float postFxTrackW_{280.0f};
