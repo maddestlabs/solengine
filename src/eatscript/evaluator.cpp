@@ -1,6 +1,7 @@
 #include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/eatscript/lexer.hpp"
 #include "eatsbits/eatscript/parser.hpp"
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <sstream>
