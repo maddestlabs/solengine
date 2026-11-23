@@ -935,7 +935,7 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
         : std::clamp(viewportH_ * 0.014f, 8.0f, 18.0f);
     const float marginX = baseMarginX + std::max(safeLeft_, safeRight_);
     const float marginY = baseMarginY + safeTop_;
-    const float bottomReserved = 24.0f + safeBottom_; // Minimal reservation for bottom telemetry + safe area
+    const float bottomReserved = std::max(24.0f, 12.0f + safeBottom_); // Minimal reservation for bottom telemetry + safe area
 
     const float availW = std::max(120.0f, viewportW_ - 2.0f * marginX);
     const float playfieldH = std::max(120.0f, viewportH_ - bottomReserved);

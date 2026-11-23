@@ -213,10 +213,15 @@ ClockworkBarLayout computeClockworkBarLayout(
         layout.barH = static_cast<float>(kNumButtons) * orbSize + static_cast<float>(kNumButtons - 1) * orbGap + 2.0f * padY;
     }
 
-    const float marginLeft = margin + board.safeLeft();
-    const float marginRight = margin + board.safeRight();
-    const float marginTop = margin + board.safeTop();
-    const float marginBottom = margin + board.safeBottom();
+    const float insetLeft = board.safeLeft() * 0.45f;
+    const float insetRight = board.safeRight() * 0.45f;
+    const float insetTop = board.safeTop() * 0.75f;
+    const float insetBottom = board.safeBottom() * 0.55f;
+
+    const float marginLeft = std::max(margin, insetLeft);
+    const float marginRight = std::max(margin, insetRight);
+    const float marginTop = std::max(margin, insetTop);
+    const float marginBottom = std::max(margin, insetBottom);
 
     if (anchor == MenuAnchor::BottomLeft) {
         layout.barX = marginLeft;
@@ -238,18 +243,18 @@ ClockworkBarLayout computeClockworkBarLayout(
             const bool stockOnRight = (board.piles()[0].x > width * 0.5f);
             if (!isVertical) {
                 if (anchor == MenuAnchor::BottomRight && stockOnRight) {
-                    layout.barY = std::max(6.0f + board.safeTop(), board.piles()[0].y - layout.barH - 8.0f);
+                    layout.barY = std::max(6.0f + insetTop, board.piles()[0].y - layout.barH - 8.0f);
                 } else if (anchor == MenuAnchor::BottomLeft && !stockOnRight) {
-                    layout.barY = std::max(6.0f + board.safeTop(), board.piles()[0].y - layout.barH - 8.0f);
+                    layout.barY = std::max(6.0f + insetTop, board.piles()[0].y - layout.barH - 8.0f);
                 }
             }
         }
     }
 
-    const float minBarX = 4.0f + board.safeLeft();
-    const float maxBarX = std::max(minBarX, width - layout.barW - 4.0f - board.safeRight());
-    const float minBarY = 4.0f + board.safeTop();
-    const float maxBarY = std::max(minBarY, height - layout.barH - 4.0f - board.safeBottom());
+    const float minBarX = std::max(4.0f, insetLeft);
+    const float maxBarX = std::max(minBarX, width - layout.barW - std::max(4.0f, insetRight));
+    const float minBarY = std::max(4.0f, insetTop);
+    const float maxBarY = std::max(minBarY, height - layout.barH - std::max(4.0f, insetBottom));
     layout.barX = std::clamp(layout.barX, minBarX, maxBarX);
     layout.barY = std::clamp(layout.barY, minBarY, maxBarY);
 
@@ -323,10 +328,10 @@ ClockworkBarLayout computeClockworkBarLayout(
         float pillX = isRight ? (layout.barX + layout.barW - padX - pillW) : (layout.barX + padX);
         float pillY = isTop ? (layout.barY + layout.barH - padY + gapY) : (layout.barY + padY - gapY - pillH);
 
-        const float minPillX = 4.0f + board.safeLeft();
-        const float maxPillX = std::max(minPillX, width - pillW - 4.0f - board.safeRight());
-        const float minPillY = 4.0f + board.safeTop();
-        const float maxPillY = std::max(minPillY, height - pillH - 4.0f - board.safeBottom());
+        const float minPillX = std::max(4.0f, insetLeft);
+        const float maxPillX = std::max(minPillX, width - pillW - std::max(4.0f, insetRight));
+        const float minPillY = std::max(4.0f, insetTop);
+        const float maxPillY = std::max(minPillY, height - pillH - std::max(4.0f, insetBottom));
         pillX = std::clamp(pillX, minPillX, maxPillX);
         pillY = std::clamp(pillY, minPillY, maxPillY);
 
@@ -3028,6 +3033,10 @@ void updateShowcaseCamera(
         cam.targetFocusX = cam.focusX;
         cam.targetFocusY = cam.focusY;
     }
+    if (cam.userFocusX <= 0.0f && cam.userFocusY <= 0.0f) {
+        cam.userFocusX = width * 0.5f;
+        cam.userFocusY = height * 0.5f;
+    }
 
     const auto& piles = board.piles();
     const float cw = board.cardWidth();
@@ -3115,16 +3124,30 @@ void updateShowcaseCamera(
         cam.focusCardA = 0;
         cam.focusPileB = -1;
     } else {
-        cam.targetZoom = 1.0f;
-        cam.targetFocusX = width * 0.5f;
-        cam.targetFocusY = height * 0.5f;
+        cam.userZoom = std::clamp(cam.userZoom, 1.0f, 3.0f);
+        if (cam.userZoom <= 1.002f) {
+            cam.userZoom = 1.0f;
+            cam.userFocusX = width * 0.5f;
+            cam.userFocusY = height * 0.5f;
+        } else {
+            const float halfW = (width * 0.5f) / cam.userZoom;
+            const float halfH = (height * 0.5f) / cam.userZoom;
+            cam.userFocusX = (halfW < width * 0.5f) ? std::clamp(cam.userFocusX, halfW, width - halfW) : (width * 0.5f);
+            cam.userFocusY = (halfH < height * 0.5f) ? std::clamp(cam.userFocusY, halfH, height - halfH) : (height * 0.5f);
+        }
+        cam.targetZoom = cam.userZoom;
+        cam.targetFocusX = cam.userFocusX;
+        cam.targetFocusY = cam.userFocusY;
         cam.targetSpotlightAlpha = 0.0f;
         cam.focusPileA = -1;
         cam.focusCardA = -1;
         cam.focusPileB = -1;
     }
 
-    const float k = 1.0f - std::exp(-6.5f * std::clamp(dt, 0.0f, 0.05f));
+    const float dampRate = (cam.userPanActive && !activeMove && directorFocusZone < 0 && highlightedHelpZone < 0)
+        ? 24.0f
+        : ((activeMove || directorFocusZone >= 0 || highlightedHelpZone >= 0) ? 6.5f : 12.0f);
+    const float k = 1.0f - std::exp(-dampRate * std::clamp(dt, 0.0f, 0.05f));
     cam.zoom += (cam.targetZoom - cam.zoom) * k;
     cam.focusX += (cam.targetFocusX - cam.focusX) * k;
     cam.focusY += (cam.targetFocusY - cam.focusY) * k;
@@ -3827,6 +3850,7 @@ void TableRenderer::renderBoard(
     if (magicParticles) {
         magicParticles->render(r);
     }
+    r.drawSceneAtmospherePass(width, height);
     if (camZoomed) {
         r.clearCameraTransform();
     }
@@ -4575,6 +4599,80 @@ struct InteractiveContext {
 
     bool prevLeftDown = false;
     bool prevRightDown = false;
+    bool prevMiddleDown = false;
+    float midPanLastX = 0.0f;
+    float midPanLastY = 0.0f;
+    double lastMiddleClickTime = -10.0;
+    bool feltPanning = false;
+    float feltPanLastX = 0.0f;
+    float feltPanLastY = 0.0f;
+    double lastFeltTapTime = -10.0;
+    float lastFeltTapX = 0.0f;
+    float lastFeltTapY = 0.0f;
+    float lastWarpedFmx = 0.0f;
+    float lastWarpedFmy = 0.0f;
+    bool pinchActive = false;
+    double pinchSuppressUntil = -10.0;
+    float pinchLastDist = 0.0f;
+    float pinchLastMidX = 0.0f;
+    float pinchLastMidY = 0.0f;
+
+    void clampUserCamera() noexcept {
+        const float vw = static_cast<float>(width);
+        const float vh = static_cast<float>(height);
+        if (vw <= 0.0f || vh <= 0.0f) return;
+        showcaseCam.userZoom = std::clamp(showcaseCam.userZoom, 1.0f, 3.0f);
+        if (showcaseCam.userZoom <= 1.002f) {
+            showcaseCam.userZoom = 1.0f;
+            showcaseCam.userFocusX = vw * 0.5f;
+            showcaseCam.userFocusY = vh * 0.5f;
+        } else {
+            const float halfW = (vw * 0.5f) / showcaseCam.userZoom;
+            const float halfH = (vh * 0.5f) / showcaseCam.userZoom;
+            showcaseCam.userFocusX = (halfW < vw * 0.5f) ? std::clamp(showcaseCam.userFocusX, halfW, vw - halfW) : (vw * 0.5f);
+            showcaseCam.userFocusY = (halfH < vh * 0.5f) ? std::clamp(showcaseCam.userFocusY, halfH, vh - halfH) : (vh * 0.5f);
+        }
+    }
+
+    void resetUserCamera() noexcept {
+        const float vw = static_cast<float>(width);
+        const float vh = static_cast<float>(height);
+        showcaseCam.userZoom = 1.0f;
+        showcaseCam.userFocusX = vw * 0.5f;
+        showcaseCam.userFocusY = vh * 0.5f;
+        showcaseCam.userPanActive = false;
+    }
+
+    void zoomUserCameraAt(float factor, float screenX, float screenY) noexcept {
+        const float vw = static_cast<float>(width);
+        const float vh = static_cast<float>(height);
+        if (vw <= 0.0f || vh <= 0.0f) return;
+        if (showcaseCam.userFocusX <= 0.0f && showcaseCam.userFocusY <= 0.0f) {
+            showcaseCam.userFocusX = vw * 0.5f;
+            showcaseCam.userFocusY = vh * 0.5f;
+        }
+        const float oldZoom = std::clamp(showcaseCam.userZoom, 1.0f, 3.0f);
+        const float newZoom = std::clamp(oldZoom * factor, 1.0f, 3.0f);
+        if (std::abs(newZoom - oldZoom) <= 0.0001f) return;
+
+        const float boardX = showcaseCam.userFocusX + (screenX - vw * 0.5f) / oldZoom;
+        const float boardY = showcaseCam.userFocusY + (screenY - vh * 0.5f) / oldZoom;
+        showcaseCam.userZoom = newZoom;
+        if (newZoom <= 1.002f) {
+            resetUserCamera();
+        } else {
+            showcaseCam.userFocusX = boardX - (screenX - vw * 0.5f) / newZoom;
+            showcaseCam.userFocusY = boardY - (screenY - vh * 0.5f) / newZoom;
+            clampUserCamera();
+        }
+    }
+
+    void panUserCameraBy(float screenDx, float screenDy) noexcept {
+        if (showcaseCam.userZoom <= 1.002f) return;
+        showcaseCam.userFocusX -= screenDx / showcaseCam.userZoom;
+        showcaseCam.userFocusY -= screenDy / showcaseCam.userZoom;
+        clampUserCamera();
+    }
     bool prevKeyN = false;
     bool prevKeyR = false;
     bool prevKeyZ = false;
@@ -6800,8 +6898,8 @@ struct InteractiveContext {
                     if (canvas) {
                         canvas.width = $0;
                         canvas.height = $1;
-                        canvas.style.width = $2 + 'px';
-                        canvas.style.height = $3 + 'px';
+                        canvas.style.width = '100%';
+                        canvas.style.height = '100%';
                     }
                     if (typeof GLFW !== 'undefined' && GLFW.active) {
                         GLFW.active.width = $2;
@@ -6848,6 +6946,8 @@ struct InteractiveContext {
         }
         const float uiFmx = activeMouseCfg.postFxAffectUi ? fmx : rawFmx;
         const float uiFmy = activeMouseCfg.postFxAffectUi ? fmy : rawFmy;
+        lastWarpedFmx = fmx;
+        lastWarpedFmy = fmy;
 
         int hoveredBtn = screensaverActive ? BtnNone : hitTestHudButtons(fmx, fmy, static_cast<float>(width), static_cast<float>(height), board, menuAnchor, menuFlowVertical);
         if (!screensaverActive && autoPlayController.isActive()) {
@@ -6857,8 +6957,26 @@ struct InteractiveContext {
             }
         }
 
-        const bool leftDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        const bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+        float boardFmx = fmx;
+        float boardFmy = fmy;
+        if (showcaseCam.zoom > 1.002f) {
+            boardFmx = showcaseCam.focusX + (fmx - static_cast<float>(width) * 0.5f) / showcaseCam.zoom;
+            boardFmy = showcaseCam.focusY + (fmy - static_cast<float>(height) * 0.5f) / showcaseCam.zoom;
+        }
+
+        const bool touchPinchBlocked = pinchActive || (now < pinchSuppressUntil);
+        const bool leftDown = !touchPinchBlocked && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+        const bool rightDown = !touchPinchBlocked && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
+        const bool middleDown = !touchPinchBlocked && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
+
+        if (touchPinchBlocked) {
+            draggedPile = -1;
+            draggedCardIdx = -1;
+            dragOffsetX = 0.0f;
+            dragOffsetY = 0.0f;
+            isGesturing = false;
+            feltPanning = false;
+        }
 
         if (screensaverActive) {
             if ((leftDown && !prevLeftDown) || (rightDown && !prevRightDown)) {
@@ -7107,7 +7225,7 @@ struct InteractiveContext {
             } else {
                 int hitPile = -1;
                 int hitCard = -1;
-                if (board.hitTestCard(fmx, fmy, hitPile, hitCard)) {
+                if (board.hitTestCard(boardFmx, boardFmy, hitPile, hitCard)) {
                     if (autoPlayController.isActive()) {
                         autoPlayController.stop();
                     }
@@ -7118,10 +7236,10 @@ struct InteractiveContext {
                     } else if (hitCard >= 0) {
                         draggedPile = hitPile;
                         draggedCardIdx = hitCard;
-                        dragStartMouseX = fmx;
-                        dragStartMouseY = fmy;
-                        lastDragMouseX = fmx;
-                        lastDragMouseY = fmy;
+                        dragStartMouseX = boardFmx;
+                        dragStartMouseY = boardFmy;
+                        lastDragMouseX = boardFmx;
+                        lastDragMouseY = boardFmy;
                         dragSoundAccumulator = 0.0f;
                         dragOffsetX = 0.0f;
                         dragOffsetY = 0.0f;
@@ -7134,8 +7252,8 @@ struct InteractiveContext {
                         dragChainCount = 0;
                         const auto& hitP = board.piles()[static_cast<size_t>(hitPile)];
                         if (hitCard >= 0 && static_cast<size_t>(hitCard) < hitP.cards.size()) {
-                            dragGrabLocalX = fmx - hitP.cards[static_cast<size_t>(hitCard)].x;
-                            dragGrabLocalY = fmy - hitP.cards[static_cast<size_t>(hitCard)].y;
+                            dragGrabLocalX = boardFmx - hitP.cards[static_cast<size_t>(hitCard)].x;
+                            dragGrabLocalY = boardFmy - hitP.cards[static_cast<size_t>(hitCard)].y;
                         } else {
                             dragGrabLocalX = board.cardWidth() * 0.5f;
                             dragGrabLocalY = board.cardHeight() * 0.5f;
@@ -7147,12 +7265,15 @@ struct InteractiveContext {
                         autoPlayController.stop();
                     }
                     board.clearSelection();
-                    // Clicked on empty table felt -> Start Gesture!
+                    // Clicked on empty table felt -> Start Gesture or Zoomed Felt Pan!
                     isGesturing = true;
                     gestureStartX = fmx;
                     gestureStartY = fmy;
                     gestureCurX = fmx;
                     gestureCurY = fmy;
+                    feltPanning = (showcaseCam.userZoom > 1.002f);
+                    feltPanLastX = fmx;
+                    feltPanLastY = fmy;
                 }
             }
         } else if (leftDown && isClickingSolEngineOrb) {
@@ -7212,12 +7333,12 @@ struct InteractiveContext {
                 }
             }
         } else if (leftDown && draggedPile >= 0) {
-            float dx = static_cast<float>(fmx - lastDragMouseX);
-            float dy = static_cast<float>(fmy - lastDragMouseY);
-            lastDragMouseX = fmx;
-            lastDragMouseY = fmy;
-            dragOffsetX = static_cast<float>(fmx - dragStartMouseX);
-            dragOffsetY = static_cast<float>(fmy - dragStartMouseY);
+            float dx = static_cast<float>(boardFmx - lastDragMouseX);
+            float dy = static_cast<float>(boardFmy - lastDragMouseY);
+            lastDragMouseX = boardFmx;
+            lastDragMouseY = boardFmy;
+            dragOffsetX = static_cast<float>(boardFmx - dragStartMouseX);
+            dragOffsetY = static_cast<float>(boardFmy - dragStartMouseY);
             dragSoundAccumulator += std::hypot(dx, dy);
             if (dragSoundAccumulator > 72.0f) {
                 float speed = std::clamp(std::hypot(dx, dy) * 0.08f + 0.65f, 0.6f, 1.4f);
@@ -7245,6 +7366,12 @@ struct InteractiveContext {
         } else if (leftDown && isGesturing) {
             gestureCurX = fmx;
             gestureCurY = fmy;
+            if (feltPanning) {
+                panUserCameraBy(fmx - feltPanLastX, fmy - feltPanLastY);
+                feltPanLastX = fmx;
+                feltPanLastY = fmy;
+                showcaseCam.userPanActive = true;
+            }
         } else if (!modalOpen && !leftDown && prevLeftDown) {
             if (helpPointerDown || helpDraggingScrollbar) {
                 if (helpOpen && !helpDraggingScroll && !helpDraggingScrollbar) {
@@ -7362,11 +7489,28 @@ struct InteractiveContext {
                 dragOffsetY = 0.0f;
             } else if (isGesturing) {
                 isGesturing = false;
+                const bool wasFeltPan = feltPanning;
+                feltPanning = false;
+                if (!middleDown && !pinchActive) {
+                    showcaseCam.userPanActive = false;
+                }
                 const float gdx = gestureCurX - gestureStartX;
                 const float gdy = gestureCurY - gestureStartY;
                 const float gdist = std::hypot(gdx, gdy);
 
-                if (gdist > 36.0f) {
+                if (gdist <= 10.0f) {
+                    if (now - lastFeltTapTime <= 0.32 &&
+                        std::hypot(gestureCurX - lastFeltTapX, gestureCurY - lastFeltTapY) <= 28.0f) {
+                        if (showcaseCam.userZoom > 1.002f) {
+                            resetUserCamera();
+                        }
+                        lastFeltTapTime = -10.0;
+                    } else {
+                        lastFeltTapTime = now;
+                        lastFeltTapX = gestureCurX;
+                        lastFeltTapY = gestureCurY;
+                    }
+                } else if (!wasFeltPan && gdist > 36.0f) {
                     if (std::abs(gdx) > std::abs(gdy) * 1.25f) {
                         if (gdx < 0.0f) {
                             // Swipe Left on Felt -> UNDO
@@ -7402,7 +7546,7 @@ struct InteractiveContext {
             } else if (hoveredBtn < 0) {
                 int hitPile = -1;
                 int hitCard = -1;
-                if (board.hitTestCard(fmx, fmy, hitPile, hitCard) && hitPile >= 0 && hitCard >= 0) {
+                if (board.hitTestCard(boardFmx, boardFmy, hitPile, hitCard) && hitPile >= 0 && hitCard >= 0) {
                     if (board.smartMove(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
                         foley.triggerSound(FoleySound::Place, 0.85f, screenPan(fmx));
                     }
@@ -7415,8 +7559,35 @@ struct InteractiveContext {
             }
         }
 
+        if (!modalOpen && !screensaverActive && !playMenuOpen && !toolbarConfigOpen && !autoPlayController.isActive()) {
+            if (middleDown && !prevMiddleDown) {
+                midPanLastX = fmx;
+                midPanLastY = fmy;
+                if (now - lastMiddleClickTime <= 0.32) {
+                    resetUserCamera();
+                    lastMiddleClickTime = -10.0;
+                } else {
+                    lastMiddleClickTime = now;
+                }
+            } else if (middleDown) {
+                if (showcaseCam.userZoom > 1.002f) {
+                    panUserCameraBy(fmx - midPanLastX, fmy - midPanLastY);
+                    showcaseCam.userPanActive = true;
+                }
+                midPanLastX = fmx;
+                midPanLastY = fmy;
+            } else if (!middleDown && prevMiddleDown) {
+                if (!feltPanning && !pinchActive) {
+                    showcaseCam.userPanActive = false;
+                }
+            }
+        } else if (!middleDown && prevMiddleDown && !feltPanning && !pinchActive) {
+            showcaseCam.userPanActive = false;
+        }
+
         prevLeftDown = leftDown;
         prevRightDown = rightDown;
+        prevMiddleDown = middleDown;
 
         auto edgeKey = [&](int key, bool& prev) -> bool {
             bool down = glfwGetKey(window, key) == GLFW_PRESS;
@@ -8086,9 +8257,6 @@ struct InteractiveContext {
                                        dragChainCount > 0 ? dragChainAngles.data() : nullptr, dragChainCount,
                                        activeGhostCards.empty() ? nullptr : &activeGhostCards,
                                        helpOpen ? &videoSnap : nullptr);
-            if (activeCfg.godRaysIntensity > 0.005f || activeCfg.dustMotesIntensity > 0.005f) {
-                renderer.drawSceneAtmospherePass(static_cast<float>(width), static_cast<float>(height));
-            }
             if (!activeCfg.postFxAffectUi) {
                 renderer.applyPostFxPass();
             }
@@ -8221,12 +8389,16 @@ int TableRenderer::runInteractiveWindow(
     double initCssW = EM_ASM_DOUBLE({
         if (typeof document === 'undefined') return 1280;
         var container = document.getElementById('canvas-container');
-        return (container && container.clientWidth > 0) ? container.clientWidth : (typeof window !== 'undefined' && window.innerWidth ? window.innerWidth : 1280);
+        var cw = (container && container.clientWidth > 0) ? container.clientWidth : 0;
+        var iw = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 0;
+        return Math.max(cw, iw) || 1280;
     });
     double initCssH = EM_ASM_DOUBLE({
         if (typeof document === 'undefined') return 720;
         var container = document.getElementById('canvas-container');
-        return (container && container.clientHeight > 0) ? container.clientHeight : (typeof window !== 'undefined' && window.innerHeight ? window.innerHeight : 720);
+        var ch = (container && container.clientHeight > 0) ? container.clientHeight : 0;
+        var ih = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 0;
+        return Math.max(ch, ih) || 720;
     });
     double initDpr = EM_ASM_DOUBLE({
         return (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1.0;
@@ -8283,8 +8455,8 @@ int TableRenderer::runInteractiveWindow(
         if (canvas) {
             canvas.width = $0;
             canvas.height = $1;
-            canvas.style.width = $2 + 'px';
-            canvas.style.height = $3 + 'px';
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
         }
         if (typeof GLFW !== 'undefined' && GLFW.active) {
             GLFW.active.width = $2;
@@ -8347,8 +8519,73 @@ int TableRenderer::runInteractiveWindow(
                 0.0f,
                 s_activeContext->helpMaxScrollY
             );
+        } else if (!s_activeContext->screensaverActive &&
+                   !s_activeContext->loadingDialog.isOpen() &&
+                   !s_activeContext->seedDialog.isOpen() &&
+                   !s_activeContext->playMenuOpen &&
+                   !s_activeContext->toolbarConfigOpen &&
+                   !s_activeContext->autoPlayController.isActive()) {
+            const float factor = std::pow(1.12f, static_cast<float>(yoffset));
+            s_activeContext->zoomUserCameraAt(factor, s_activeContext->lastWarpedFmx, s_activeContext->lastWarpedFmy);
         }
     });
+
+#if defined(__EMSCRIPTEN__)
+    auto handleTouchEvent = [](int eventType, const EmscriptenTouchEvent* touchEvent, void* /*userData*/) -> EM_BOOL {
+        if (!s_activeContext || !touchEvent) return EM_FALSE;
+        auto& ctx = *s_activeContext;
+        if (ctx.screensaverActive || ctx.loadingDialog.isOpen() || ctx.seedDialog.isOpen() ||
+            ctx.gameBrowserDialog.isOpen() || ctx.settingsDialog.isOpen() || ctx.helpOpen ||
+            ctx.playMenuOpen || ctx.toolbarConfigOpen || ctx.autoPlayController.isActive()) {
+            ctx.pinchActive = false;
+            return EM_FALSE;
+        }
+        const double nowSec = glfwGetTime();
+        if (touchEvent->numTouches >= 2 &&
+            (eventType == EMSCRIPTEN_EVENT_TOUCHSTART || eventType == EMSCRIPTEN_EVENT_TOUCHMOVE)) {
+            const float x0 = static_cast<float>(touchEvent->touches[0].targetX);
+            const float y0 = static_cast<float>(touchEvent->touches[0].targetY);
+            const float x1 = static_cast<float>(touchEvent->touches[1].targetX);
+            const float y1 = static_cast<float>(touchEvent->touches[1].targetY);
+            const float dist = std::max(8.0f, std::hypot(x1 - x0, y1 - y0));
+            float midX = (x0 + x1) * 0.5f;
+            float midY = (y0 + y1) * 0.5f;
+            const auto& cfg = ctx.effectiveSettings_;
+            PostFxSystem::instance().warpMouseCoords(
+                cfg.postFxId, cfg.postFxOption, cfg.postFxIntensity,
+                static_cast<float>(ctx.width), static_cast<float>(ctx.height), midX, midY);
+
+            if (!ctx.pinchActive || eventType == EMSCRIPTEN_EVENT_TOUCHSTART) {
+                ctx.pinchActive = true;
+                ctx.pinchLastDist = dist;
+                ctx.pinchLastMidX = midX;
+                ctx.pinchLastMidY = midY;
+                ctx.showcaseCam.userPanActive = true;
+            } else {
+                ctx.panUserCameraBy(midX - ctx.pinchLastMidX, midY - ctx.pinchLastMidY);
+                if (ctx.pinchLastDist > 1.0f) {
+                    ctx.zoomUserCameraAt(dist / ctx.pinchLastDist, midX, midY);
+                }
+                ctx.pinchLastDist = dist;
+                ctx.pinchLastMidX = midX;
+                ctx.pinchLastMidY = midY;
+                ctx.showcaseCam.userPanActive = true;
+            }
+            ctx.pinchSuppressUntil = nowSec + 0.14;
+            return EM_TRUE;
+        }
+        if (ctx.pinchActive && touchEvent->numTouches < 2) {
+            ctx.pinchActive = false;
+            ctx.showcaseCam.userPanActive = false;
+            ctx.pinchSuppressUntil = nowSec + 0.14;
+        }
+        return EM_FALSE;
+    };
+    emscripten_set_touchstart_callback("#canvas", nullptr, EM_FALSE, handleTouchEvent);
+    emscripten_set_touchmove_callback("#canvas", nullptr, EM_FALSE, handleTouchEvent);
+    emscripten_set_touchend_callback("#canvas", nullptr, EM_FALSE, handleTouchEvent);
+    emscripten_set_touchcancel_callback("#canvas", nullptr, EM_FALSE, handleTouchEvent);
+#endif
 
     glfwSetDropCallback(window, [](GLFWwindow* /*win*/, int count, const char* paths[]) {
         for (int i = 0; i < count; ++i) {
@@ -8432,8 +8669,12 @@ int TableRenderer::runInteractiveWindow(
             window._solResizeHooked = true;
             var notifyResize = function() {
                 var container = document.getElementById('canvas-container');
-                var w = (container && container.clientWidth > 0) ? container.clientWidth : (window.innerWidth || 1280);
-                var h = (container && container.clientHeight > 0) ? container.clientHeight : (window.innerHeight || 720);
+                var cw = (container && container.clientWidth > 0) ? container.clientWidth : 0;
+                var ch = (container && container.clientHeight > 0) ? container.clientHeight : 0;
+                var iw = window.innerWidth || 0;
+                var ih = window.innerHeight || 0;
+                var w = Math.max(cw, iw) || 1280;
+                var h = Math.max(ch, ih) || 720;
                 var dpr = window.devicePixelRatio || 1.0;
                 if (typeof Module !== 'undefined') {
                     if (Module._solengine_on_web_safe_area && typeof getComputedStyle !== 'undefined') {
@@ -8456,6 +8697,10 @@ int TableRenderer::runInteractiveWindow(
                 }
             }
             window.addEventListener('resize', notifyResize);
+            window.addEventListener('orientationchange', function() {
+                setTimeout(notifyResize, 120);
+                setTimeout(notifyResize, 350);
+            });
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', notifyResize);
             }

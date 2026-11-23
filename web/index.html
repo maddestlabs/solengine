@@ -41,11 +41,16 @@
             -webkit-user-select: none;
         }
 
-        html, body {
+        html {
+            width: 100%;
+            height: 100vh;
+            background-color: #0d140e;
+            overflow: hidden;
+        }
+
+        body {
             position: fixed;
             inset: 0;
-            width: 100%;
-            height: 100%;
             background-color: #0d140e;
             color: #e2e8f0;
             font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -53,35 +58,9 @@
             overscroll-behavior: none;
         }
 
-        /* Solid safe-area header/footer bars prevent iOS 27 PWA status-bar blur & overlap */
-        #pwa-safe-top {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: var(--sat);
-            background-color: #0d140e;
-            z-index: 10000;
-            pointer-events: none;
-        }
-
-        #pwa-safe-bottom {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: var(--sab);
-            background-color: #0d140e;
-            z-index: 10000;
-            pointer-events: none;
-        }
-
         #canvas-container {
             position: fixed;
-            top: var(--sat);
-            right: var(--sar);
-            bottom: var(--sab);
-            left: var(--sal);
+            inset: 0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -433,8 +412,6 @@
     </style>
 </head>
 <body>
-    <div id="pwa-safe-top" aria-hidden="true"></div>
-    <div id="pwa-safe-bottom" aria-hidden="true"></div>
     <div id="canvas-container">
         <canvas id="canvas" tabindex="-1"></canvas>
     </div>

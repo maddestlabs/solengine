@@ -3899,14 +3899,17 @@ private:
                 return uniforms.cameraTransform.yz + (screenPos - viewCenter) * uniforms.cameraTransform.x;
             }
 
-            fn projectGoboUV(worldPos: vec2<f32>, zOffset: f32) -> vec2<f32> {
-                let boardPos = toBoardSpace(worldPos);
+            fn projectGoboUVBoard(boardPos: vec2<f32>, zOffset: f32) -> vec2<f32> {
                 let vp = max(uniforms.viewport.xy, vec2<f32>(1.0));
                 let toLight = uniforms.steadyLight.xy - boardPos;
                 let lDist = max(length(toLight), 1.0);
                 let rayDir = toLight / lDist;
                 let slope = lDist / max(uniforms.steadyLight.z, 120.0);
                 return (boardPos + rayDir * (zOffset * slope)) / vp;
+            }
+
+            fn projectGoboUV(worldPos: vec2<f32>, zOffset: f32) -> vec2<f32> {
+                return projectGoboUVBoard(toBoardSpace(worldPos), zOffset);
             }
 
             fn evalCloudMaskAtProj(proj: vec2<f32>) -> f32 {
@@ -3922,13 +3925,13 @@ private:
                 return mix(1.0, cloudMask, cloudOpacity);
             }
 
-            fn evalGoboMask(worldPos: vec2<f32>, zOffset: f32, includeClouds: bool) -> f32 {
+            fn evalGoboMaskBoard(boardPos: vec2<f32>, zOffset: f32, includeClouds: bool) -> f32 {
                 let goboType = uniforms.sceneAtmosphere.x;
                 let cloudOpacity = clamp(uniforms.cloudParams.x, 0.0, 1.0);
                 if (goboType < 0.5 && (!includeClouds || cloudOpacity <= 0.005)) {
                     return 1.0;
                 }
-                let proj = projectGoboUV(worldPos, zOffset);
+                let proj = projectGoboUVBoard(boardPos, zOffset);
                 let soft = clamp(uniforms.sceneAtmosphere.y, 0.05, 1.0);
 
                 var goboMask = 1.0;
@@ -3960,6 +3963,10 @@ private:
                     goboMask = goboMask * evalCloudMaskAtProj(proj);
                 }
                 return goboMask;
+            }
+
+            fn evalGoboMask(worldPos: vec2<f32>, zOffset: f32, includeClouds: bool) -> f32 {
+                return evalGoboMaskBoard(toBoardSpace(worldPos), zOffset, includeClouds);
             }
         )") + R"(
             @fragment
@@ -4070,11 +4077,12 @@ private:
                     if (rayStr <= 0.005) {
                         discard;
                     }
+                    let boardPos = toBoardSpace(in.worldPos);
                     let vp = max(uniforms.viewport.xy, vec2<f32>(1.0));
                     let lp = uniforms.steadyLight.xy;
                     let isOverhead = (uniforms.steadyLight.w < 0.5);
                     let rayOrigin = select(lp, vec2<f32>(vp.x * 0.50, -vp.y * 0.42), isOverhead);
-                    let toPix = in.worldPos - rayOrigin;
+                    let toPix = boardPos - rayOrigin;
                     let distNorm = length(toPix) / max(vp.x, vp.y);
                     let angle = atan2(toPix.y, toPix.x);
                     let tDrift = uniforms.time * 0.12;
@@ -4092,17 +4100,17 @@ private:
                         var gSum = 0.0;
                         for (var s = 0; s < 3; s = s + 1) {
                             let f = (f32(s) + 0.5) / 3.0;
-                            let samplePos = mix(rayOrigin, in.worldPos, 0.28 + 0.72 * f);
-                            gSum = gSum + evalGoboMask(samplePos, 0.0, false);
+                            let samplePos = mix(rayOrigin, boardPos, 0.28 + 0.72 * f);
+                            gSum = gSum + evalGoboMaskBoard(samplePos, 0.0, false);
                         }
                         goboRay = gSum / 3.0;
                     }
                     if (uniforms.cloudParams.x > 0.005) {
-                        goboRay = goboRay * evalCloudMaskAtProj(projectGoboUV(in.worldPos, 0.0));
+                        goboRay = goboRay * evalCloudMaskAtProj(projectGoboUVBoard(boardPos, 0.0));
                     }
                     let radialDecay = select(
                         exp(-distNorm * 2.15) * smoothstep(0.015, 0.10, distNorm),
-                        exp(-distNorm * 1.45) * smoothstep(0.0, 0.35, in.worldPos.y / vp.y + 0.15),
+                        exp(-distNorm * 1.45) * smoothstep(0.0, 0.35, boardPos.y / vp.y + 0.15),
                         isOverhead
                     );
                     let totalAlpha = clamp(shaftPattern * mix(0.35, 1.0, goboRay) * radialDecay * rayStr * 0.58, 0.0, 0.85);
@@ -4131,11 +4139,12 @@ private:
                 if (isSceneLit && !(baseMode == 2u && in.uv.y > 0.5)) {
                     let darkness = uniforms.ambientLight.w;
                     let strength = uniforms.lightColor.w * uniforms.lightIntensity;
-                    let dxy = in.worldPos - uniforms.lightPos.xy;
+                    let litBoardPos = toBoardSpace(in.worldPos);
+                    let dxy = litBoardPos - uniforms.lightPos.xy;
                     let refR = max(300.0, max(uniforms.viewport.x, uniforms.viewport.y) * 0.62);
                     let r2 = dot(dxy, dxy) / (refR * refR);
                     let falloff = 1.0 / (1.0 + 1.25 * r2);
-                    let gobo = evalGoboMask(in.worldPos, select(0.0, 8.0, baseMode == 3u), true);
+                    let gobo = evalGoboMaskBoard(litBoardPos, select(0.0, 8.0, baseMode == 3u), true);
                     let effFalloff = falloff * mix(0.18, 1.0, gobo);
                     let baseAmb = 1.0 - darkness;
                     let lightPool = (darkness * strength + (strength - 1.0) * 0.24) * effFalloff;
@@ -5408,12 +5417,18 @@ void BatchRenderer2D::drawSceneAtmospherePass(float width, float height) {
             const float alpha = std::clamp(twinkle * lightMask * dustMotesIntensity_ * 0.58f, 0.0f, 0.85f);
             if (alpha <= 0.005f) continue;
 
-            const float rad = 3.0f + rz * 3.5f;
+            float sx = mx;
+            float sy = my;
+            applyTransform(sx, sy);
+            const float rad = (3.0f + rz * 3.5f) * (cameraActive_ ? cameraZoom_ : 1.0f);
+            if (sx + rad < 0.0f || sx - rad > width || sy + rad < 0.0f || sy - rad > height) {
+                continue;
+            }
             const uint32_t col = packColor(1.0f, 0.98f, 0.92f, alpha);
-            Vertex2D m0{mx - rad, my - rad, 0.0f, 0.0f, col, 8u, {-1.0f, -1.0f}};
-            Vertex2D m1{mx + rad, my - rad, 1.0f, 0.0f, col, 8u, { 1.0f, -1.0f}};
-            Vertex2D m2{mx + rad, my + rad, 1.0f, 1.0f, col, 8u, { 1.0f,  1.0f}};
-            Vertex2D m3{mx - rad, my + rad, 0.0f, 1.0f, col, 8u, {-1.0f,  1.0f}};
+            Vertex2D m0{sx - rad, sy - rad, 0.0f, 0.0f, col, 8u, {-1.0f, -1.0f}};
+            Vertex2D m1{sx + rad, sy - rad, 1.0f, 0.0f, col, 8u, { 1.0f, -1.0f}};
+            Vertex2D m2{sx + rad, sy + rad, 1.0f, 1.0f, col, 8u, { 1.0f,  1.0f}};
+            Vertex2D m3{sx - rad, sy + rad, 0.0f, 1.0f, col, 8u, {-1.0f,  1.0f}};
             vertices_.push_back(m0);
             vertices_.push_back(m1);
             vertices_.push_back(m2);

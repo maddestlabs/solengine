@@ -104,6 +104,10 @@ struct ShowcaseCameraState {
     float focusY{0.0f};
     float targetFocusX{0.0f};
     float targetFocusY{0.0f};
+    float userZoom{1.0f};
+    float userFocusX{0.0f};
+    float userFocusY{0.0f};
+    bool userPanActive{false};
     float spotlightAlpha{0.0f};
     float targetSpotlightAlpha{0.0f};
     int focusPileA{-1};
