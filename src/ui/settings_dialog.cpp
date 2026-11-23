@@ -1169,6 +1169,9 @@ void SettingsDialog::render(
         (void)startCurY;
     } else if (currentTab_ == 3) {
         // --- TAB 3: DISPLAY & RESPONSIVE ---
+        auto scissor = r.makeScissorScope(contentX + 2.0f, contentY + 2.0f, contentW - 4.0f, contentH - 4.0f);
+        curY -= themeScrollY_;
+
         drawSectionHeader("RESPONSIVE LAYOUT & ASPECT-RATIO ADAPTATION");
         const char* layoutModes[3] = { "AUTO (ADAPTIVE)", "DESKTOP (CLASSIC)", "MOBILE (COMPACT)" };
         const ResponsiveLayoutMode layoutVals[3] = {
@@ -1300,6 +1303,31 @@ void SettingsDialog::render(
                 float vTextW = eatsbits::ui::glyph::getVectorTextWidth(10.0f, victoryLabels[v]);
                 eatsbits::ui::glyph::drawVectorText(r, victoryLabels[v], vx + (vBtnW - vTextW) * 0.5f, vy + 8.0f, 10.0f, isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
             }
+        }
+
+        // Scrollbar math for Display tab (2 rows of victory buttons: 34 + 28 = 62px)
+        const float totalBottom = curY + 62.0f + 12.0f + themeScrollY_;
+        themeMaxScrollY_ = std::max(0.0f, totalBottom - (contentY + contentH));
+        themeScrollY_ = std::clamp(themeScrollY_, 0.0f, themeMaxScrollY_);
+        if (themeMaxScrollY_ > 1.0f) {
+            const float sbTrackY = contentY + 8.0f;
+            const float sbTrackH = std::max(24.0f, contentH - 16.0f);
+            const float visibleRatio = std::clamp(contentH / std::max(1.0f, totalBottom - contentY), 0.15f, 1.0f);
+            const float thumbH = std::max(24.0f, sbTrackH * visibleRatio);
+            const float scrollFrac = themeScrollY_ / themeMaxScrollY_;
+            const float thumbY = sbTrackY + (sbTrackH - thumbH) * scrollFrac;
+            themeSbTrackY_ = sbTrackY;
+            themeSbTrackH_ = sbTrackH;
+            themeSbThumbH_ = thumbH;
+            const bool sbHov = (mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
+                                mouseY >= sbTrackY && mouseY <= sbTrackY + sbTrackH) || draggingThemeScrollbar_;
+            const float sbW = sbHov ? 7.0f : 5.0f;
+            const float sbX = contentX + contentW - sbW - 4.0f;
+            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, sbHov ? 0.65f : 0.45f, 2);
+            r.drawRoundedRect(sbX, thumbY, sbW, thumbH, sbW * 0.5f,
+                              isClockwork ? cpal.brassBrightR : pal.accentR,
+                              isClockwork ? cpal.brassBrightG : pal.accentG,
+                              isClockwork ? cpal.brassBrightB : pal.accentB, sbHov ? 0.95f : 0.78f, 2);
         }
     } else {
         // --- TAB 4: AUDIO ---
@@ -2175,7 +2203,18 @@ bool SettingsDialog::handleMouseButton(
             if (pointerDownInContent_) return true;
         }
     } else if (currentTab_ == 3) {
-        float curY = tabContentY + 16.0f + 24.0f;
+        if (mouseY >= contentRectY_ && mouseY <= contentRectY_ + contentRectH_ &&
+            mouseX >= contentRectX_ && mouseX <= contentRectX_ + contentRectW_) {
+            if (themeMaxScrollY_ > 1.0f &&
+                mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
+                mouseY >= themeSbTrackY_ && mouseY <= themeSbTrackY_ + themeSbTrackH_) {
+                draggingThemeScrollbar_ = true;
+                float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
+                float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
+                themeScrollY_ = frac * themeMaxScrollY_;
+                return true;
+            }
+            float curY = tabContentY + 16.0f - themeScrollY_ + 24.0f;
         const ResponsiveLayoutMode layoutVals[3] = {
             ResponsiveLayoutMode::Auto,
             ResponsiveLayoutMode::DesktopStandard,
@@ -2261,6 +2300,14 @@ bool SettingsDialog::handleMouseButton(
             if (mouseX >= vx && mouseX <= vx + vBtnW && mouseY >= vy && mouseY <= vy + 28.0f) {
                 tempSettings_.victoryAnimOverride = victoryVals[v];
                 foley.triggerSound(FoleySound::WoodClick, 0.8f);
+                return true;
+            }
+        }
+            if (themeMaxScrollY_ > 1.0f) {
+                pointerDownInContent_ = true;
+                draggingThemeScroll_ = false;
+                dragStartY_ = mouseY;
+                dragLastY_ = mouseY;
                 return true;
             }
         }
@@ -2527,13 +2574,13 @@ bool SettingsDialog::handleMouseMove(
         tempSettings_.cloudOpacity = std::clamp((mouseX - cloudOpacityTrackX_) / cloudOpacityTrackW_, 0.0f, 1.0f);
         return true;
     }
-    if (draggingThemeScrollbar_ && (currentTab_ == 1 || currentTab_ == 2) && themeMaxScrollY_ > 1.0f) {
+    if (draggingThemeScrollbar_ && (currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
         float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
         float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
         themeScrollY_ = frac * themeMaxScrollY_;
         return true;
     }
-    if (pointerDownInContent_ && (currentTab_ == 1 || currentTab_ == 2) && themeMaxScrollY_ > 1.0f) {
+    if (pointerDownInContent_ && (currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
         float dy = mouseY - dragLastY_;
         if (!draggingThemeScroll_ && std::abs(mouseY - dragStartY_) > 4.0f) {
             draggingThemeScroll_ = true;
@@ -2601,7 +2648,7 @@ bool SettingsDialog::handleChar(unsigned int codepoint) {
 
 bool SettingsDialog::handleScroll(float yoffset) {
     if (!isOpen_) return false;
-    if ((currentTab_ == 1 || currentTab_ == 2) && themeMaxScrollY_ > 1.0f) {
+    if ((currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
         themeScrollY_ = std::clamp(themeScrollY_ - yoffset * 28.0f, 0.0f, themeMaxScrollY_);
         return true;
     }
