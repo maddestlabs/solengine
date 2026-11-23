@@ -30,25 +30,49 @@ sol.define_ambience({
             lfo_depth: 50.0,
             amp_mod: 0.10
         },
+        # Crisp upper droplet patters (softened Q to avoid harsh tinny ring)
         {
             type: "stochastic_grains",
-            rate: 38.0,
-            freq_min: 1400.0,
+            rate: 28.0,
+            freq_min: 1500.0,
             freq_max: 5200.0,
-            decay: 0.012,
-            q: 3.2,
-            gain: 0.28,
-            stereo_spread: 0.85
-        },
-        {
-            type: "stochastic_grains",
-            rate: 7.0,
-            freq_min: 450.0,
-            freq_max: 1100.0,
-            decay: 0.025,
+            decay: 0.011,
             q: 2.2,
             gain: 0.22,
+            stereo_spread: 0.85
+        },
+        # Mid-range rain patter (porch/shingle texture)
+        {
+            type: "stochastic_grains",
+            rate: 14.0,
+            freq_min: 650.0,
+            freq_max: 1650.0,
+            decay: 0.014,
+            q: 1.5,
+            gain: 0.20,
             stereo_spread: 0.75
+        },
+        # Warm low-end rain on wood (decking / timber)
+        {
+            type: "stochastic_grains",
+            rate: 12.0,
+            freq_min: 260.0,
+            freq_max: 680.0,
+            decay: 0.018,
+            q: 1.9,
+            gain: 0.24,
+            stereo_spread: 0.80
+        },
+        # Fine high-frequency mist & foliage drizzle
+        {
+            type: "stochastic_grains",
+            rate: 22.0,
+            freq_min: 3800.0,
+            freq_max: 8500.0,
+            decay: 0.006,
+            q: 1.1,
+            gain: 0.14,
+            stereo_spread: 0.90
         }
     ]
 })

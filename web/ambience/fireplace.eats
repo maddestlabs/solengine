@@ -15,20 +15,21 @@ sol.define_ambience({
             cutoff: 240.0,
             q: 0.707,
             gain: 0.42,
-            lfo_rate: 0.14,
-            lfo_depth: 60.0,
-            amp_mod: 0.12
+            lfo_rate: 0.10,
+            lfo_depth: 35.0,
+            amp_mod: 0.09
         },
+        # Soft, muffled exterior cottage breeze (-20% gain)
         {
             type: "noise_bed",
             color: "pink",
             filter: "bandpass",
-            cutoff: 1200.0,
-            q: 0.85,
-            gain: 0.11,
-            lfo_rate: 0.22,
-            lfo_depth: 320.0,
-            amp_mod: 0.18
+            cutoff: 520.0,
+            q: 0.60,
+            gain: 0.044,
+            lfo_rate: 0.07,
+            lfo_depth: 75.0,
+            amp_mod: 0.08
         },
         {
             type: "stochastic_grains",
@@ -49,6 +50,28 @@ sol.define_ambience({
             q: 3.0,
             gain: 0.36,
             stereo_spread: 0.40
+        },
+        # Soft mid-warm bark & twig crackles
+        {
+            type: "stochastic_grains",
+            rate: 6.5,
+            freq_min: 650.0,
+            freq_max: 1900.0,
+            decay: 0.015,
+            q: 1.8,
+            gain: 0.24,
+            stereo_spread: 0.60
+        },
+        # Fine, airy high-end ember sparkles
+        {
+            type: "stochastic_grains",
+            rate: 9.0,
+            freq_min: 5500.0,
+            freq_max: 11500.0,
+            decay: 0.0035,
+            q: 2.6,
+            gain: 0.22,
+            stereo_spread: 0.70
         }
     ]
 })

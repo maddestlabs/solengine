@@ -81,6 +81,467 @@ void drawChevron(
     r.drawLine(x1, y1, x2, y2, red, green, blue, alpha, strokeWidth);
 }
 
+namespace {
+
+struct LowPolyTri {
+    float x0, y0, x1, y1, x2, y2;
+    uint8_t shade; // 0 = shadow, 1 = base, 2 = highlight, 3 = bright accent
+};
+
+void drawLowPolyMesh(
+    eatsbits::ui::BatchRenderer2D& r,
+    const LowPolyTri* tris,
+    size_t count,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    if (!tris || count == 0 || radius <= 0.5f || alpha <= 0.0f) return;
+
+    if (drawShadow) {
+        const float offX = std::max(1.0f, radius * 0.11f);
+        const float offY = std::max(1.0f, radius * 0.11f);
+        for (size_t i = 0; i < count; ++i) {
+            const auto& t = tris[i];
+            r.drawTriangle(
+                cx + t.x0 * radius + offX, cy + t.y0 * radius + offY,
+                cx + t.x1 * radius + offX, cy + t.y1 * radius + offY,
+                cx + t.x2 * radius + offX, cy + t.y2 * radius + offY,
+                0.04f, 0.03f, 0.02f, alpha * 0.85f
+            );
+        }
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        const auto& t = tris[i];
+        float cr = baseR, cg = baseG, cb = baseB;
+        if (t.shade == 0) {
+            cr = baseR * 0.58f;
+            cg = baseG * 0.58f;
+            cb = baseB * 0.58f;
+        } else if (t.shade == 2) {
+            cr = baseR * 0.45f + hiR * 0.55f;
+            cg = baseG * 0.45f + hiG * 0.55f;
+            cb = baseB * 0.45f + hiB * 0.55f;
+        } else if (t.shade == 3) {
+            cr = hiR;
+            cg = hiG;
+            cb = hiB;
+        }
+        r.drawTriangle(
+            cx + t.x0 * radius, cy + t.y0 * radius,
+            cx + t.x1 * radius, cy + t.y1 * radius,
+            cx + t.x2 * radius, cy + t.y2 * radius,
+            cr, cg, cb, alpha
+        );
+    }
+}
+
+} // anonymous namespace
+
+void drawSeedIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Faceted hexagonal seed crystal with inner diamond table
+    static constexpr LowPolyTri kTris[] = {
+        {  0.00f, -0.92f,  0.76f, -0.44f,  0.00f, -0.42f, 2 },
+        {  0.00f, -0.92f,  0.00f, -0.42f, -0.76f, -0.44f, 3 },
+        { -0.76f, -0.44f,  0.00f, -0.42f, -0.36f,  0.00f, 2 },
+        {  0.76f, -0.44f,  0.36f,  0.00f,  0.00f, -0.42f, 1 },
+        {  0.76f, -0.44f,  0.76f,  0.44f,  0.36f,  0.00f, 0 },
+        { -0.76f, -0.44f, -0.36f,  0.00f, -0.76f,  0.44f, 1 },
+        { -0.76f,  0.44f, -0.36f,  0.00f,  0.00f,  0.42f, 0 },
+        { -0.76f,  0.44f,  0.00f,  0.42f,  0.00f,  0.92f, 0 },
+        {  0.76f,  0.44f,  0.00f,  0.92f,  0.00f,  0.42f, 0 },
+        {  0.76f,  0.44f,  0.00f,  0.42f,  0.36f,  0.00f, 0 },
+        {  0.00f, -0.42f,  0.36f,  0.00f,  0.00f,  0.42f, 1 },
+        {  0.00f, -0.42f,  0.00f,  0.42f, -0.36f,  0.00f, 3 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawGameLibraryIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Three fanned low-poly cards with a faceted diamond pip on the front card
+    static constexpr LowPolyTri kTris[] = {
+        // Back-left card (shadow)
+        { -0.88f, -0.42f, -0.28f, -0.62f, -0.08f,  0.48f, 0 },
+        { -0.88f, -0.42f, -0.08f,  0.48f, -0.68f,  0.68f, 0 },
+        // Middle card (base)
+        { -0.42f, -0.78f,  0.26f, -0.78f,  0.26f,  0.42f, 1 },
+        { -0.42f, -0.78f,  0.26f,  0.42f, -0.42f,  0.42f, 1 },
+        // Front-right card (highlight)
+        { -0.05f, -0.52f,  0.76f, -0.34f,  0.52f,  0.82f, 2 },
+        { -0.05f, -0.52f,  0.52f,  0.82f, -0.29f,  0.64f, 2 },
+        // Faceted diamond pip on front card
+        {  0.28f, -0.10f,  0.20f,  0.40f,  0.02f,  0.11f, 3 },
+        {  0.28f, -0.10f,  0.46f,  0.19f,  0.20f,  0.40f, 0 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawNewGameIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // 4-facet chiseled low-poly play prism pointing right
+    static constexpr LowPolyTri kTris[] = {
+        { -0.64f, -0.82f,  0.86f,  0.00f, -0.08f,  0.00f, 3 },
+        { -0.64f, -0.82f, -0.08f,  0.00f, -0.42f,  0.00f, 2 },
+        { -0.42f,  0.00f, -0.08f,  0.00f, -0.64f,  0.82f, 1 },
+        { -0.08f,  0.00f,  0.86f,  0.00f, -0.64f,  0.82f, 0 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawRestartIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Chunky faceted 5-segment counter-clockwise ring + 2-facet arrowhead
+    // Angles from 150 deg (tail) counter-clockwise through 90, 0, -90 deg (head at 12 o'clock)
+    static constexpr float kPi = 3.14159265358979323846f;
+    static constexpr float kAngles[6] = {
+        155.0f * kPi / 180.0f,
+        102.0f * kPi / 180.0f,
+         48.0f * kPi / 180.0f,
+         -6.0f * kPi / 180.0f,
+        -52.0f * kPi / 180.0f,
+        -88.0f * kPi / 180.0f
+    };
+    static constexpr uint8_t kSegShade[5] = { 0, 0, 1, 2, 2 };
+    constexpr float rIn = 0.46f;
+    constexpr float rOut = 0.82f;
+
+    LowPolyTri tris[12];
+    size_t n = 0;
+    for (int i = 0; i < 5; ++i) {
+        const float c0 = std::cos(kAngles[i]), s0 = std::sin(kAngles[i]);
+        const float c1 = std::cos(kAngles[i + 1]), s1 = std::sin(kAngles[i + 1]);
+        const float x0i = rIn * c0,  y0i = rIn * s0;
+        const float x0o = rOut * c0, y0o = rOut * s0;
+        const float x1i = rIn * c1,  y1i = rIn * s1;
+        const float x1o = rOut * c1, y1o = rOut * s1;
+        const uint8_t sh = kSegShade[i];
+        tris[n++] = { x0i, y0i, x0o, y0o, x1o, y1o, sh };
+        tris[n++] = { x0i, y0i, x1o, y1o, x1i, y1i, sh };
+    }
+    // 2-facet chiseled arrowhead at 12 o'clock pointing left
+    tris[n++] = { -0.44f, -0.64f,  0.12f, -0.98f,  0.04f, -0.64f, 3 };
+    tris[n++] = { -0.44f, -0.64f,  0.04f, -0.64f,  0.12f, -0.30f, 1 };
+
+    drawLowPolyMesh(r, tris, n, cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawUndoIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Faceted chiseled return-left arrow
+    static constexpr LowPolyTri kTris[] = {
+        // 2-facet arrowhead pointing left
+        { -0.84f, -0.22f, -0.24f, -0.74f, -0.34f, -0.22f, 3 },
+        { -0.84f, -0.22f, -0.34f, -0.22f, -0.24f,  0.30f, 1 },
+        // Upper shaft (highlight -> mid)
+        { -0.34f, -0.36f,  0.46f, -0.36f,  0.32f, -0.06f, 2 },
+        { -0.34f, -0.36f,  0.32f, -0.06f, -0.34f, -0.06f, 1 },
+        // Chamfered corner turn
+        {  0.46f, -0.36f,  0.78f,  0.04f,  0.32f, -0.06f, 1 },
+        {  0.78f,  0.04f,  0.78f,  0.44f,  0.46f,  0.34f, 0 },
+        {  0.78f,  0.04f,  0.46f,  0.34f,  0.32f, -0.06f, 1 },
+        // Lower return tail (shadow)
+        {  0.78f,  0.44f,  0.46f,  0.74f,  0.46f,  0.34f, 0 },
+        {  0.46f,  0.34f,  0.46f,  0.74f,  0.02f,  0.74f, 0 },
+        {  0.46f,  0.34f,  0.02f,  0.74f,  0.02f,  0.42f, 1 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawRedoIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Faceted chiseled return-right arrow (mirrored geometry, top-left lit)
+    static constexpr LowPolyTri kTris[] = {
+        // 2-facet arrowhead pointing right
+        {  0.84f, -0.22f,  0.34f, -0.22f,  0.24f, -0.74f, 3 },
+        {  0.84f, -0.22f,  0.24f,  0.30f,  0.34f, -0.22f, 0 },
+        // Upper shaft
+        { -0.46f, -0.36f,  0.34f, -0.36f,  0.34f, -0.06f, 2 },
+        { -0.46f, -0.36f,  0.34f, -0.06f, -0.32f, -0.06f, 2 },
+        // Chamfered corner turn
+        { -0.46f, -0.36f, -0.32f, -0.06f, -0.78f,  0.04f, 2 },
+        { -0.78f,  0.04f, -0.46f,  0.34f, -0.78f,  0.44f, 1 },
+        { -0.78f,  0.04f, -0.32f, -0.06f, -0.46f,  0.34f, 1 },
+        // Lower return tail
+        { -0.78f,  0.44f, -0.46f,  0.34f, -0.46f,  0.74f, 0 },
+        { -0.46f,  0.34f, -0.02f,  0.74f, -0.46f,  0.74f, 0 },
+        { -0.46f,  0.34f, -0.02f,  0.42f, -0.02f,  0.74f, 1 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawAutoPlayIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Twin faceted fast-forward prisms
+    static constexpr LowPolyTri kTris[] = {
+        // Left prism
+        { -0.82f, -0.66f,  0.02f,  0.00f, -0.52f,  0.00f, 3 },
+        { -0.82f, -0.66f, -0.52f,  0.00f, -0.68f,  0.00f, 2 },
+        { -0.68f,  0.00f, -0.52f,  0.00f, -0.82f,  0.66f, 1 },
+        { -0.52f,  0.00f,  0.02f,  0.00f, -0.82f,  0.66f, 0 },
+        // Right prism
+        { -0.04f, -0.66f,  0.84f,  0.00f,  0.26f,  0.00f, 3 },
+        { -0.04f, -0.66f,  0.26f,  0.00f,  0.10f,  0.00f, 2 },
+        {  0.10f,  0.00f,  0.26f,  0.00f, -0.04f,  0.66f, 1 },
+        {  0.26f,  0.00f,  0.84f,  0.00f, -0.04f,  0.66f, 0 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawSolvableDealIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // 8-facet chiseled 4-point compass star gem
+    static constexpr LowPolyTri kTris[] = {
+        // Top blade (left lit, right mid)
+        {  0.00f, -0.94f,  0.00f,  0.00f, -0.24f, -0.24f, 3 },
+        {  0.00f, -0.94f,  0.24f, -0.24f,  0.00f,  0.00f, 2 },
+        // Right blade (top mid, bottom shadow)
+        {  0.94f,  0.00f,  0.00f,  0.00f,  0.24f, -0.24f, 2 },
+        {  0.94f,  0.00f,  0.24f,  0.24f,  0.00f,  0.00f, 0 },
+        // Bottom blade (left mid, right shadow)
+        {  0.00f,  0.94f, -0.24f,  0.24f,  0.00f,  0.00f, 1 },
+        {  0.00f,  0.94f,  0.00f,  0.00f,  0.24f,  0.24f, 0 },
+        // Left blade (top highlight, bottom mid)
+        { -0.94f,  0.00f, -0.24f, -0.24f,  0.00f,  0.00f, 3 },
+        { -0.94f,  0.00f,  0.00f,  0.00f, -0.24f,  0.24f, 1 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawHelpIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Chiseled angular '?' hook + 2-facet diamond dot
+    static constexpr LowPolyTri kTris[] = {
+        // Left riser
+        { -0.46f, -0.34f, -0.46f, -0.66f, -0.20f, -0.62f, 2 },
+        { -0.46f, -0.34f, -0.20f, -0.62f, -0.20f, -0.34f, 1 },
+        // Top-left bevel into crown
+        { -0.46f, -0.66f, -0.14f, -0.92f, -0.20f, -0.62f, 3 },
+        { -0.14f, -0.92f,  0.22f, -0.92f, -0.20f, -0.62f, 3 },
+        {  0.22f, -0.92f,  0.16f, -0.62f, -0.20f, -0.62f, 2 },
+        // Top-right crown to outer right
+        {  0.22f, -0.92f,  0.54f, -0.64f,  0.16f, -0.62f, 2 },
+        {  0.54f, -0.64f,  0.26f, -0.48f,  0.16f, -0.62f, 1 },
+        {  0.54f, -0.64f,  0.54f, -0.14f,  0.26f, -0.48f, 1 },
+        {  0.54f, -0.14f,  0.26f, -0.20f,  0.26f, -0.48f, 0 },
+        // Diagonal neck into stem
+        {  0.54f, -0.14f,  0.14f,  0.20f,  0.26f, -0.20f, 0 },
+        {  0.26f, -0.20f,  0.14f,  0.20f, -0.12f,  0.04f, 1 },
+        {  0.14f,  0.20f,  0.14f,  0.38f, -0.12f,  0.38f, 0 },
+        {  0.14f,  0.20f, -0.12f,  0.38f, -0.12f,  0.04f, 1 },
+        // Diamond dot
+        {  0.00f,  0.54f,  0.20f,  0.74f,  0.00f,  0.94f, 0 },
+        {  0.00f,  0.54f,  0.00f,  0.94f, -0.20f,  0.74f, 3 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawHintIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Faceted low-poly lightbulb with bright core + angular rays + brass base
+    static constexpr LowPolyTri kTris[] = {
+        // Bulb dome (hexagonal crown)
+        {  0.00f, -0.78f,  0.52f, -0.46f,  0.00f, -0.22f, 2 },
+        {  0.00f, -0.78f,  0.00f, -0.22f, -0.52f, -0.46f, 3 },
+        { -0.52f, -0.46f,  0.00f, -0.22f, -0.52f,  0.08f, 2 },
+        {  0.52f, -0.46f,  0.52f,  0.08f,  0.00f, -0.22f, 1 },
+        { -0.52f,  0.08f,  0.00f, -0.22f, -0.26f,  0.38f, 1 },
+        {  0.52f,  0.08f,  0.26f,  0.38f,  0.00f, -0.22f, 0 },
+        { -0.26f,  0.38f,  0.00f, -0.22f,  0.26f,  0.38f, 3 },
+        // Screw base (2-facet trapezoid)
+        { -0.24f,  0.46f,  0.24f,  0.46f, -0.16f,  0.86f, 1 },
+        {  0.24f,  0.46f,  0.16f,  0.86f, -0.16f,  0.86f, 0 },
+        // 3 angular light-ray wedges
+        {  0.00f, -0.86f, -0.09f, -1.04f,  0.09f, -1.04f, 3 },
+        { -0.62f, -0.54f, -0.84f, -0.70f, -0.72f, -0.82f, 3 },
+        {  0.62f, -0.54f,  0.72f, -0.82f,  0.84f, -0.70f, 2 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawShowMeIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Faceted low-poly Eye: angular upper/lower lids + diamond iris + bright pupil
+    static constexpr LowPolyTri kTris[] = {
+        // Upper lid arch
+        { -0.92f,  0.00f, -0.38f, -0.54f, -0.28f, -0.26f, 3 },
+        { -0.38f, -0.54f,  0.38f, -0.54f, -0.28f, -0.26f, 3 },
+        {  0.38f, -0.54f,  0.28f, -0.26f, -0.28f, -0.26f, 2 },
+        {  0.38f, -0.54f,  0.92f,  0.00f,  0.28f, -0.26f, 1 },
+        // Lower lid arch
+        { -0.92f,  0.00f, -0.28f,  0.26f, -0.38f,  0.54f, 1 },
+        { -0.38f,  0.54f, -0.28f,  0.26f,  0.38f,  0.54f, 0 },
+        { -0.28f,  0.26f,  0.28f,  0.26f,  0.38f,  0.54f, 0 },
+        {  0.28f,  0.26f,  0.92f,  0.00f,  0.38f,  0.54f, 0 },
+        // Diamond iris + bright pupil
+        {  0.00f, -0.30f,  0.30f,  0.00f,  0.00f,  0.00f, 2 },
+        {  0.00f, -0.30f,  0.00f,  0.00f, -0.30f,  0.00f, 3 },
+        { -0.30f,  0.00f,  0.00f,  0.00f,  0.00f,  0.30f, 1 },
+        {  0.00f,  0.00f,  0.30f,  0.00f,  0.00f,  0.30f, 0 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawPauseIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // Twin chiseled vertical bars
+    static constexpr LowPolyTri kTris[] = {
+        { -0.66f, -0.74f, -0.18f, -0.74f, -0.66f,  0.74f, 3 },
+        { -0.18f, -0.74f, -0.18f,  0.74f, -0.66f,  0.74f, 1 },
+        {  0.18f, -0.74f,  0.66f, -0.74f,  0.18f,  0.74f, 2 },
+        {  0.66f, -0.74f,  0.66f,  0.74f,  0.18f,  0.74f, 0 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawStepForwardIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // 4-facet play prism + 2-facet right stop bar
+    static constexpr LowPolyTri kTris[] = {
+        { -0.74f, -0.72f,  0.24f,  0.00f, -0.44f,  0.00f, 3 },
+        { -0.74f, -0.72f, -0.44f,  0.00f, -0.58f,  0.00f, 2 },
+        { -0.58f,  0.00f, -0.44f,  0.00f, -0.74f,  0.72f, 1 },
+        { -0.44f,  0.00f,  0.24f,  0.00f, -0.74f,  0.72f, 0 },
+        {  0.34f, -0.72f,  0.72f, -0.72f,  0.34f,  0.72f, 2 },
+        {  0.72f, -0.72f,  0.72f,  0.72f,  0.34f,  0.72f, 0 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawStepBackwardIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // 2-facet left stop bar + 4-facet play prism pointing left
+    static constexpr LowPolyTri kTris[] = {
+        { -0.72f, -0.72f, -0.34f, -0.72f, -0.72f,  0.72f, 3 },
+        { -0.34f, -0.72f, -0.34f,  0.72f, -0.72f,  0.72f, 1 },
+        {  0.74f, -0.72f,  0.58f,  0.00f, -0.24f,  0.00f, 2 },
+        {  0.74f, -0.72f,  0.44f,  0.00f,  0.58f,  0.00f, 3 },
+        {  0.44f,  0.00f,  0.74f,  0.72f,  0.58f,  0.00f, 0 },
+        { -0.24f,  0.00f,  0.74f,  0.72f,  0.44f,  0.00f, 0 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
+void drawStopIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha,
+    bool drawShadow
+) {
+    // 4-facet chiseled square Stop block (top-left lit, bottom-right shadowed)
+    static constexpr LowPolyTri kTris[] = {
+        { -0.68f, -0.68f,  0.68f, -0.68f, -0.10f, -0.10f, 3 },
+        { -0.68f, -0.68f, -0.10f, -0.10f, -0.68f,  0.68f, 2 },
+        {  0.68f, -0.68f,  0.68f,  0.68f, -0.10f, -0.10f, 1 },
+        { -0.68f,  0.68f, -0.10f, -0.10f,  0.68f,  0.68f, 0 },
+    };
+    drawLowPolyMesh(r, kTris, sizeof(kTris) / sizeof(kTris[0]),
+                    cx, cy, radius, baseR, baseG, baseB, hiR, hiG, hiB, alpha, drawShadow);
+}
+
 } // namespace vector_icon
 
 const char* SvgIconRenderer::getStockSvgXml(SvgIconId iconId) noexcept {
@@ -289,6 +750,12 @@ const char* SvgIconRenderer::getStockSvgXml(SvgIconId iconId) noexcept {
                 <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
             </svg>)";
 
+        case SvgIconId::Seed:
+            return R"(<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linejoin="round">
+                <polygon points="12,2 20,7 20,17 12,22 4,17 4,7" />
+                <polygon points="12,7 16,12 12,17 8,12" fill="white" />
+            </svg>)";
+
         default:
             return "";
     }
@@ -419,6 +886,79 @@ void SvgIconRenderer::renderIcon(
         float cx = x + w * 0.5f;
         float cy = y + h * 0.5f;
         vector_icon::drawChevron(r, cx, cy, std::min(w, h) * 0.65f, 1, red, green, blue, alpha, 2.0f);
+        return;
+    }
+    const float hiR = std::min(1.0f, red * 1.25f + 0.12f);
+    const float hiG = std::min(1.0f, green * 1.25f + 0.12f);
+    const float hiB = std::min(1.0f, blue * 1.25f + 0.12f);
+    if (iconId == SvgIconId::Seed) {
+        vector_icon::drawSeedIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                  red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::Variant) {
+        vector_icon::drawGameLibraryIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                         red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::NewDeal || iconId == SvgIconId::Play) {
+        vector_icon::drawNewGameIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                     red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::Restart) {
+        vector_icon::drawRestartIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                     red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::Undo) {
+        vector_icon::drawUndoIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                  red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::Redo) {
+        vector_icon::drawRedoIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                  red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::AutoPlay) {
+        vector_icon::drawAutoPlayIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                      red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::Help) {
+        vector_icon::drawHelpIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                  red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::Hint || iconId == SvgIconId::Lightbulb) {
+        vector_icon::drawHintIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                  red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::ShowMe) {
+        vector_icon::drawShowMeIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                    red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::Pause) {
+        vector_icon::drawPauseIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                   red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::StepForward) {
+        vector_icon::drawStepForwardIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                         red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::StepBackward) {
+        vector_icon::drawStepBackwardIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                          red, green, blue, hiR, hiG, hiB, alpha, false);
+        return;
+    }
+    if (iconId == SvgIconId::Stop) {
+        vector_icon::drawStopIcon(r, x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.48f,
+                                  red, green, blue, hiR, hiG, hiB, alpha, false);
         return;
     }
 

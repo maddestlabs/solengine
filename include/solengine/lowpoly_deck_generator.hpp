@@ -13,7 +13,9 @@ enum class LowPolyStyle : uint8_t {
     Classic   = 0,
     Scoundrel = 1,
     Clockwork = 2,
-    Mobile    = 3
+    Mobile    = 3,
+    Memory    = 4,
+    War       = 5
 };
 
 enum class LowPolyBg : uint8_t {

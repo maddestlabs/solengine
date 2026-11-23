@@ -2386,6 +2386,20 @@ public:
             return false;
         }
 
+        {
+            const int webLowCap = EM_ASM_INT({
+                var cores = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 4;
+                var isMobile = (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''));
+                var isCoarse = (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+                var dev = (typeof Module !== 'undefined') ? Module['preinitializedWebGPUDevice'] : null;
+                var maxTex = (dev && dev.limits && dev.limits.maxTextureDimension2D) ? dev.limits.maxTextureDimension2D : 8192;
+                if (cores <= 2 || maxTex < 8192 || isMobile || isCoarse) return 1;
+                return 0;
+            });
+            lowCapabilityHardware_ = (webLowCap != 0);
+            std::cout << "[WebGPU] Web LowCap=" << (lowCapabilityHardware_ ? "yes" : "no") << std::endl;
+        }
+
         WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvasDesc{};
         canvasDesc.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
         canvasDesc.selector = makeWgpuStringView("#canvas");
@@ -2875,7 +2889,7 @@ public:
         float lightIntensity;
         float lightColor[4];
         float ambientLight[4];
-        float sceneAtmosphere[4]; // x=goboType (0..3), y=goboSoftness, z=godRays, w=dustMotes
+        float sceneAtmosphere[4]; // x=goboType (0..3), y=goboSoftness, z=unused, w=dustMotes
         float steadyLight[4];     // x,y,z=steady base light pos, w=lightAngle (0..3)
         float cameraTransform[4]; // x=invZoom, y=focusX, z=focusY, w=active (0 or 1)
         float cloudParams[4];     // x=cloudOpacity (0..1)
@@ -2905,11 +2919,7 @@ public:
         frameVertices_.clear();
         width_ = static_cast<uint32_t>(std::round(width));
         height_ = static_cast<uint32_t>(std::round(height));
-        if (device_ && uniformBuffer_) {
-            GpuUniforms ubo{};
-            fillGpuUniforms(ubo, width, height);
-            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
-        }
+        uniformsDirty_ = true;
         if (!customTargetView_ && currentBackBufferView_) {
             wgpuTextureViewRelease(currentBackBufferView_);
         }
@@ -3035,6 +3045,12 @@ public:
         }
 
         const uint64_t bufferSize = static_cast<uint64_t>(frameVertices_.size()) * sizeof(Vertex2D);
+        if (uniformsDirty_ && device_ && uniformBuffer_ && width_ > 0 && height_ > 0) {
+            GpuUniforms ubo{};
+            fillGpuUniforms(ubo, static_cast<float>(width_), static_cast<float>(height_));
+            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
+            uniformsDirty_ = false;
+        }
         uint64_t writeOffset = (vertexBufferUsed_ + 3ULL) & ~3ULL;
         if (writeOffset + bufferSize > vertexBufferSize_ || !vertexBuffer_) {
             if (vertexBuffer_) {
@@ -3231,7 +3247,7 @@ public:
         // Mode bit 16u enables uniform-based 3D scene lighting (radial pool + ambient + scene darkness)
         uint32_t vMode = (bgTexture_ ? VertexMode::BgTexture : 3u) | 16u;
 
-        std::vector<Vertex2D> quad(6);
+        thread_local std::vector<Vertex2D> quad(6);
         quad[0] = { x,     y,     qU0, qV0, col, vMode, {tableLacquer_, tableBump_} };
         quad[1] = { x + w, y,     qU1, qV0, col, vMode, {tableLacquer_, tableBump_} };
         quad[2] = { x + w, y + h, qU1, qV1, col, vMode, {tableLacquer_, tableBump_} };
@@ -3758,36 +3774,29 @@ public:
         ambientLight_[1] = ambG;
         ambientLight_[2] = ambB;
         ambientLight_[3] = sceneDarkness;
-        if (device_ && uniformBuffer_ && width_ > 0 && height_ > 0) {
-            GpuUniforms ubo{};
-            fillGpuUniforms(ubo, static_cast<float>(width_), static_cast<float>(height_));
-            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
-        }
+        uniformsDirty_ = true;
     }
 
     void setSceneAtmosphere(uint8_t goboType, float goboSoftness,
-                            float godRaysIntensity, float dustMotesIntensity,
+                            float dustMotesIntensity,
                             float steadyX, float steadyY,
                             float steadyZ, uint8_t lightAngle,
                             float cloudOpacity = 0.0f) override {
         sceneAtmosphere_[0] = static_cast<float>(goboType);
         sceneAtmosphere_[1] = goboSoftness;
-        sceneAtmosphere_[2] = godRaysIntensity;
+        sceneAtmosphere_[2] = 0.0f;
         sceneAtmosphere_[3] = dustMotesIntensity;
         steadyLight_[0] = steadyX;
         steadyLight_[1] = steadyY;
         steadyLight_[2] = steadyZ;
         steadyLight_[3] = static_cast<float>(lightAngle);
         cloudParams_[0] = cloudOpacity;
-        if (device_ && uniformBuffer_ && width_ > 0 && height_ > 0) {
-            GpuUniforms ubo{};
-            fillGpuUniforms(ubo, static_cast<float>(width_), static_cast<float>(height_));
-            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
-        }
+        uniformsDirty_ = true;
     }
 
     void setShaderTime(float timeSeconds) override {
         shaderTime_ = timeSeconds;
+        uniformsDirty_ = true;
     }
 
     void setCameraTransform(float invZoom, float focusX, float focusY, float active) override {
@@ -3795,11 +3804,7 @@ public:
         cameraTransform_[1] = focusX;
         cameraTransform_[2] = focusY;
         cameraTransform_[3] = active;
-        if (device_ && uniformBuffer_ && width_ > 0 && height_ > 0) {
-            GpuUniforms ubo{};
-            fillGpuUniforms(ubo, static_cast<float>(width_), static_cast<float>(height_));
-            wgpuQueueWriteBuffer(queue_, uniformBuffer_, 0, &ubo, sizeof(ubo));
-        }
+        uniformsDirty_ = true;
     }
 
     void setTableSurfaceLighting(float lacquerStrength, float bumpStrength = 2.4f) override {
@@ -3979,25 +3984,41 @@ private:
                     col = vec4<f32>(in.color.rgb, in.color.a * alpha);
                 } else if (baseMode == 2u) {
                     let outset = in.uv.y;
+                    let hasShadowVec = abs(in.localUV.x) < 9000.0;
                     var finalAlpha = 0.0;
+                    var contactFactor = 0.0;
                     if (outset > 0.5) {
                         let baseHalf = max(vec2<f32>(0.0, 0.0), in.halfSize - vec2<f32>(outset, outset));
                         let baseRad = min(in.radius, min(baseHalf.x, baseHalf.y));
-                        let innerSoft = outset * 0.35;
-                        let invSpan = 1.0 / (outset + innerSoft);
                         let sdf = evalShadowSdf(in.localPos, baseHalf, baseRad, in.radius);
-                        let t = clamp((outset - sdf) * invSpan, 0.0, 1.0);
+                        var effOutset = outset;
+                        if (hasShadowVec) {
+                            let casterSdf = evalShadowSdf(in.localPos + in.localUV, baseHalf, baseRad, in.radius);
+                            contactFactor = 1.0 - smoothstep(0.0, max(5.0, outset * 1.6), max(0.0, casterSdf));
+                            effOutset = mix(outset, min(outset, 2.2), contactFactor * 0.72);
+                        }
+                        let innerSoft = effOutset * 0.35;
+                        let invSpan = 1.0 / (effOutset + innerSoft);
+                        let t = clamp((effOutset - sdf) * invSpan, 0.0, 1.0);
                         let alpha = t * t * (3.0 - 2.0 * t);
-                        finalAlpha = in.color.a * alpha;
+                        finalAlpha = in.color.a * alpha * (1.0 + contactFactor * 0.16);
                     } else {
                         let q = abs(in.localPos) - in.halfSize + vec2<f32>(in.radius, in.radius);
                         let dist = length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - in.radius;
                         finalAlpha = in.color.a * clamp(0.5 - dist, 0.0, 1.0);
                     }
+                    var shadowRgb = in.color.rgb;
+                    if (isSceneLit) {
+                        let gobo = evalGoboMask(in.worldPos, 0.0, true);
+                        let contactKeep = select(0.25, 0.48, hasShadowVec) * contactFactor;
+                        let dirScale = mix(0.28, 1.0, gobo);
+                        finalAlpha = clamp(finalAlpha * mix(dirScale, 1.0, contactKeep), 0.0, 0.92);
+                        shadowRgb = clamp(uniforms.ambientLight.rgb * 0.18, vec3<f32>(0.0), vec3<f32>(0.16));
+                    }
                     if (finalAlpha <= 0.001) {
                         discard;
                     }
-                    col = vec4<f32>(in.color.rgb, finalAlpha);
+                    col = vec4<f32>(shadowRgb, finalAlpha);
                 } else if (baseMode == 3u) {
                     var sampleUV = in.uv;
                     let distortAmt = in.localPos.x;
@@ -4020,24 +4041,24 @@ private:
                         let stockIdx = floor(cond / 10.0);
                         let wearLvl = cond - stockIdx * 10.0;
 
-                        // 1. Paper Stock Procedural Finish
+                        // 1. Paper Stock Procedural Finish (subtle albedo + micro-normal relief for specular)
                         if (stockIdx >= 0.9 && stockIdx < 1.9) {
                             // Cambric Linen: woven micro-embossing grid
-                            let linen = (sin(in.localUV.x * 320.0) * sin(in.localUV.y * 320.0)) * 0.042;
+                            let linen = (sin(in.localUV.x * 320.0) * sin(in.localUV.y * 320.0)) * 0.016;
                             col = vec4<f32>(col.rgb * (1.0 + linen), col.a);
                         } else if (stockIdx >= 1.9 && stockIdx < 2.9) {
                             // Antique Laid: horizontal wire ribbing with chain lines
-                            let laid = (sin(in.localUV.y * 420.0) * 0.038) + (sin(in.localUV.x * 28.0) * 0.018);
+                            let laid = (sin(in.localUV.y * 420.0) * 0.014) + (sin(in.localUV.x * 28.0) * 0.008);
                             col = vec4<f32>(col.rgb * (1.0 + laid), col.a);
                         } else if (stockIdx >= 2.9 && stockIdx < 3.9) {
                             // Cotton Tooth: micro-fiber tooth grain
                             let toothSeed = in.localUV * 460.0;
                             let toothN = fract(sin(dot(toothSeed, vec2<f32>(12.9898, 78.233))) * 43758.5453);
-                            col = vec4<f32>(col.rgb * (1.0 + (toothN - 0.5) * 0.06), col.a);
+                            col = vec4<f32>(col.rgb * (1.0 + (toothN - 0.5) * 0.028), col.a);
                         } else if (stockIdx >= 3.9 && stockIdx < 4.9) {
                             // Smooth Satin: soft luminous sheen
                             let satinGrad = 1.0 - length(in.localUV - vec2<f32>(0.5)) * 0.7;
-                            col = vec4<f32>(col.rgb * (0.98 + 0.04 * satinGrad), col.a);
+                            col = vec4<f32>(col.rgb * (0.99 + 0.02 * satinGrad), col.a);
                         }
 
                         // 2. Physical Card Wear Patina & Aging
@@ -4071,55 +4092,6 @@ private:
                 } else if (baseMode == 6u) {
                     let tex = textureSampleLevel(bgTexture, fontSampler, in.uv, 0.0);
                     col = tex * in.color;
-                } else if (baseMode == 7u) {
-                    // Atmospheric Volumetric God Rays (anchored to steady architectural light)
-                    let rayStr = uniforms.sceneAtmosphere.z;
-                    if (rayStr <= 0.005) {
-                        discard;
-                    }
-                    let boardPos = toBoardSpace(in.worldPos);
-                    let vp = max(uniforms.viewport.xy, vec2<f32>(1.0));
-                    let lp = uniforms.steadyLight.xy;
-                    let isOverhead = (uniforms.steadyLight.w < 0.5);
-                    let rayOrigin = select(lp, vec2<f32>(vp.x * 0.50, -vp.y * 0.42), isOverhead);
-                    let toPix = boardPos - rayOrigin;
-                    let distNorm = length(toPix) / max(vp.x, vp.y);
-                    let angle = atan2(toPix.y, toPix.x);
-                    let tDrift = uniforms.time * 0.12;
-                    let beamA = sin(angle * 15.0 + tDrift) * 0.5 + 0.5;
-                    let beamB = sin(angle * 29.0 - tDrift * 0.7 + 1.1) * 0.5 + 0.5;
-                    let beamC = cos(angle * 47.0 + tDrift * 0.4 + 2.4) * 0.5 + 0.5;
-                    let fineBase = beamA * 0.52 + beamB * 0.32 + beamC * 0.16;
-                    let fineRay = fineBase * fineBase * sqrt(max(fineBase, 0.0001));
-                    let broadBase = sin(angle * 7.0 + 0.4) * 0.5 + 0.5;
-                    let broadRay = broadBase * sqrt(max(broadBase, 0.0001));
-                    let shaftPattern = fineRay * 0.78 + broadRay * 0.22;
-
-                    var goboRay = 1.0;
-                    if (uniforms.sceneAtmosphere.x >= 0.5) {
-                        var gSum = 0.0;
-                        for (var s = 0; s < 3; s = s + 1) {
-                            let f = (f32(s) + 0.5) / 3.0;
-                            let samplePos = mix(rayOrigin, boardPos, 0.28 + 0.72 * f);
-                            gSum = gSum + evalGoboMaskBoard(samplePos, 0.0, false);
-                        }
-                        goboRay = gSum / 3.0;
-                    }
-                    if (uniforms.cloudParams.x > 0.005) {
-                        goboRay = goboRay * evalCloudMaskAtProj(projectGoboUVBoard(boardPos, 0.0));
-                    }
-                    let radialDecay = select(
-                        exp(-distNorm * 2.15) * smoothstep(0.015, 0.10, distNorm),
-                        exp(-distNorm * 1.45) * smoothstep(0.0, 0.35, boardPos.y / vp.y + 0.15),
-                        isOverhead
-                    );
-                    let totalAlpha = clamp(shaftPattern * mix(0.35, 1.0, goboRay) * radialDecay * rayStr * 0.58, 0.0, 0.85);
-                    if (totalAlpha <= 0.001) {
-                        discard;
-                    }
-                    let warmLight = max(uniforms.lightColor.rgb, vec3<f32>(0.92, 0.88, 0.80));
-                    let rayRGB = clamp(warmLight * vec3<f32>(1.08, 1.02, 0.90), vec3<f32>(0.0), vec3<f32>(1.0));
-                    col = vec4<f32>(rayRGB, totalAlpha);
                 } else if (baseMode == 8u) {
                     // CPU-batched Floating Dust Mote quads
                     let d = length(in.localPos);
@@ -4165,9 +4137,27 @@ private:
                         // Pristine cards are flat (0.05); Natural is subtle (0.35); Played (0.80); Vintage (1.30)
                         let camberScale = select(0.05, select(0.35, select(0.80, 1.30, wearVal >= 2.5), wearVal >= 1.5), wearVal >= 0.5);
 
-                        // Surface normal with subtle convex arch across the card face
-                        let normX = -uCenter * (0.22 * camberScale);
-                        let normY = -vCenter * (0.12 * camberScale);
+                        // Surface normal with subtle convex arch across the card face + stock micro-normals
+                        var normX = -uCenter * (0.22 * camberScale);
+                        var normY = -vCenter * (0.12 * camberScale);
+                        if (stockIdx >= 0.9 && stockIdx < 1.9) {
+                            // Cambric Linen micro-embossed weave normal
+                            let lx = in.localUV.x * 320.0;
+                            let ly = in.localUV.y * 320.0;
+                            normX = normX + cos(lx) * sin(ly) * 0.13;
+                            normY = normY + sin(lx) * cos(ly) * 0.13;
+                        } else if (stockIdx >= 1.9 && stockIdx < 2.9) {
+                            // Antique Laid wire ribbing normal
+                            normY = normY + cos(in.localUV.y * 420.0) * 0.11;
+                            normX = normX + cos(in.localUV.x * 28.0) * 0.04;
+                        } else if (stockIdx >= 2.9 && stockIdx < 3.9) {
+                            // Cotton Tooth micro-fiber normal jitter
+                            let tSeed = floor(in.localUV * 460.0);
+                            let hX = fract(sin(dot(tSeed, vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;
+                            let hY = fract(sin(dot(tSeed, vec2<f32>(39.346, 11.135))) * 43758.5453) - 0.5;
+                            normX = normX + hX * 0.09;
+                            normY = normY + hY * 0.09;
+                        }
                         let cardNorm = normalize(vec3<f32>(normX, normY, 1.0));
 
                         // 3D vector to dynamic light source
@@ -4175,12 +4165,29 @@ private:
                         let lightDir = normalize(toLight);
                         let nDotL = max(0.0, dot(cardNorm, lightDir));
 
-                        // Half-vector for semi-gloss cardstock specular reflection
+                        // Dual-lobe clearcoat gloss + Schlick Fresnel + overhead softbox sheen
                         let viewDir = vec3<f32>(0.0, 0.0, 1.0);
                         let halfDir = normalize(lightDir + viewDir);
                         let nDotH = max(0.0, dot(cardNorm, halfDir));
-                        let specPower = mix(45.0, 22.0, clamp(camberScale * 0.7, 0.0, 1.0));
-                        let specIntensity = pow(nDotH, specPower) * 0.15 * strength * falloff;
+                        let nDotV = max(0.0, cardNorm.z);
+                        let fresnel = 0.045 + 0.955 * pow(1.0 - nDotV, 5.0);
+
+                        let wearRough = clamp(wearVal * 0.35, 0.0, 0.85);
+                        let stockGloss = select(1.0, 0.55, stockIdx >= 2.9 && stockIdx < 3.9);
+                        let glossAmt = (1.0 - wearRough * 0.55) * stockGloss;
+
+                        let specPower = mix(64.0, 26.0, clamp(camberScale * 0.5 + wearRough * 0.5, 0.0, 1.0));
+                        let specCrisp = pow(nDotH, specPower);
+                        let specSatin = pow(nDotH, 11.0) * 0.20;
+
+                        let vpSafe = max(uniforms.viewport.xy, vec2<f32>(1.0));
+                        let vuv = in.worldPos / vpSafe;
+                        let luv = uniforms.lightPos.xy / vpSafe;
+                        let sbDist = length((vuv - mix(vec2<f32>(0.5, 0.35), luv, 0.65)) * vec2<f32>(0.85, 1.45));
+                        let softbox = exp(-sbDist * sbDist * 4.2) * 0.048;
+
+                        let specIntensity = ((specCrisp * (0.85 + fresnel * 1.6) + specSatin) * 0.22 + softbox)
+                                          * glossAmt * strength * falloff;
                         specHighlight = uniforms.lightColor.rgb * specIntensity;
 
                         // Modulate gain by physical curvature so edges shade naturally
@@ -4877,6 +4884,7 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
     uint32_t maxRenderW_{0};
     uint32_t maxRenderH_{0};
     bool lowCapabilityHardware_{false};
+    bool uniformsDirty_{true};
     WGPUBuffer postFxUniformBuffer_{nullptr};
     WGPUSampler postFxSampler_{nullptr};
     WGPUSampler postFxNearestSampler_{nullptr};
@@ -5055,9 +5063,9 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
     return out;
 }
 @fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    let a = textureSample(shadowTex, shadowSampler, in.uv).a;
-    if (a <= 0.001) { discard; }
-    return vec4<f32>(0.0, 0.0, 0.0, a);
+    let s = textureSample(shadowTex, shadowSampler, in.uv);
+    if (s.a <= 0.001) { discard; }
+    return vec4<f32>(s.rgb, s.a);
 }
 )";
             WGPUShaderSourceWGSL wgslDesc{};
@@ -5350,35 +5358,21 @@ void BatchRenderer2D::setGlobalLight(const LightSource2D& light,
 }
 
 void BatchRenderer2D::setSceneAtmosphere(uint8_t goboType, float goboSoftness,
-                                         float godRaysIntensity, float dustMotesIntensity,
+                                         float dustMotesIntensity,
                                          float steadyX, float steadyY,
                                          float steadyZ, uint8_t lightAngle,
                                          float cloudOpacity) {
-    godRaysIntensity_ = godRaysIntensity;
     dustMotesIntensity_ = dustMotesIntensity;
     steadyLightX_ = steadyX;
     steadyLightY_ = steadyY;
     if (backend_) {
-        backend_->setSceneAtmosphere(goboType, goboSoftness, godRaysIntensity, dustMotesIntensity,
+        backend_->setSceneAtmosphere(goboType, goboSoftness, dustMotesIntensity,
                                      steadyX, steadyY, steadyZ, lightAngle, cloudOpacity);
     }
 }
 
 void BatchRenderer2D::drawSceneAtmospherePass(float width, float height) {
     if (width <= 0.0f || height <= 0.0f) return;
-    if (godRaysIntensity_ > 0.005f) {
-        uint32_t col = packColor(1.0f, 1.0f, 1.0f, 1.0f);
-        Vertex2D v0{0.0f,  0.0f,   0.0f, 0.0f, col, 7u, {0.0f, 0.0f}};
-        Vertex2D v1{width, 0.0f,   1.0f, 0.0f, col, 7u, {0.0f, 0.0f}};
-        Vertex2D v2{width, height, 1.0f, 1.0f, col, 7u, {0.0f, 0.0f}};
-        Vertex2D v3{0.0f,  height, 0.0f, 1.0f, col, 7u, {0.0f, 0.0f}};
-        vertices_.push_back(v0);
-        vertices_.push_back(v1);
-        vertices_.push_back(v2);
-        vertices_.push_back(v0);
-        vertices_.push_back(v2);
-        vertices_.push_back(v3);
-    }
     if (dustMotesIntensity_ > 0.005f) {
         // Emit ~96 small drifting dust-mote quads instead of shading a full-screen grid
         constexpr int kMoteCount = 96;
@@ -7326,11 +7320,24 @@ void BatchRenderer2D::drawRectDropShadow(float x, float y, float w, float h, flo
     float halfH = h * 0.5f + outset;
     float effRadius = std::clamp(cornerRadius, 0.0f, std::min(w, h) * 0.5f);
 
+    float localDx = shadow.dx;
+    float localDy = shadow.dy;
+    if (cameraActive_ && cameraZoom_ > 0.001f) {
+        localDx /= cameraZoom_;
+        localDy /= cameraZoom_;
+    }
+    if (transformActive_) {
+        float rx = transformCos_ * localDx + transformSin_ * localDy;
+        float ry = -transformSin_ * localDx + transformCos_ * localDy;
+        localDx = rx;
+        localDy = ry;
+    }
+
     uint32_t col = packColor(0.0f, 0.0f, 0.0f, std::clamp(shadow.opacity * 0.62f, 0.0f, 1.0f));
-    Vertex2D v0{localCx - halfW, localCy - halfH, effRadius, outset, col, 2, {-halfW, -halfH}, {99999.0f, 99999.0f}};
-    Vertex2D v1{localCx + halfW, localCy - halfH, effRadius, outset, col, 2, { halfW, -halfH}, {99999.0f, 99999.0f}};
-    Vertex2D v2{localCx + halfW, localCy + halfH, effRadius, outset, col, 2, { halfW,  halfH}, {99999.0f, 99999.0f}};
-    Vertex2D v3{localCx - halfW, localCy + halfH, effRadius, outset, col, 2, {-halfW,  halfH}, {99999.0f, 99999.0f}};
+    Vertex2D v0{localCx - halfW, localCy - halfH, effRadius, outset, col, 2, {-halfW, -halfH}, {localDx, localDy}};
+    Vertex2D v1{localCx + halfW, localCy - halfH, effRadius, outset, col, 2, { halfW, -halfH}, {localDx, localDy}};
+    Vertex2D v2{localCx + halfW, localCy + halfH, effRadius, outset, col, 2, { halfW,  halfH}, {localDx, localDy}};
+    Vertex2D v3{localCx - halfW, localCy + halfH, effRadius, outset, col, 2, {-halfW,  halfH}, {localDx, localDy}};
 
     applyTransform(v0.x, v0.y);
     applyTransform(v1.x, v1.y);

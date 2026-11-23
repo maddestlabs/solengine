@@ -283,6 +283,7 @@ static void conditionSingleCard(
         // 2. Precompute 1D Edge Recession: Notches, Bite-Outs, Deckled Fibers & Indented Regions
         const int perimLen = 2 * (w + h);
         std::vector<float> edgeRecession(static_cast<size_t>(perimLen), 0.0f);
+        std::vector<float> edgeScuffMod(static_cast<size_t>(perimLen), 0.5f);
 
         int numNotches = 0;
         float macroAmp = 0.0f;
@@ -396,6 +397,12 @@ static void conditionSingleCard(
             }
 
             edgeRecession[s] = std::max(0.0f, macro + notchRec + deckle);
+
+            // Organic perimeter scuff variation so wear forms localized patches rather than a uniform border
+            float sCoarse = sampleSmoothPerimNoise(static_cast<float>(s), 0xA341316Cu, 48.0f);
+            float sMed    = sampleSmoothPerimNoise(static_cast<float>(s), 0xC8013EA4u, 16.0f);
+            float notchBoost = std::clamp(notchRec * 0.30f, 0.0f, 0.55f);
+            edgeScuffMod[s] = std::clamp(sCoarse * 0.65f + sMed * 0.35f + notchBoost, 0.12f, 1.0f);
         }
 
         // 5-tap Gaussian circular smoothing pass to eliminate single-pixel spike artifacts
@@ -698,13 +705,28 @@ static void conditionSingleCard(
                 }
 
                 // 6. Exposed Paper Pulp Core & Subtle 3D Edge Shading (wrapping around notches!)
-                const float pulpWidth = 1.5f + edgeScuff * 6.5f;
+                // Account for actual card content luminance so dark backgrounds show subtle abraded/soiled
+                // ink wear rather than a uniform bright white-ish border.
+                const float lightnessFactor = std::clamp((lum / 255.0f - 0.12f) / 0.70f, 0.0f, 1.0f);
+                const float scuffMod = edgeScuffMod[perimS];
+                const float widthScale = (0.18f + 0.27f * lightnessFactor) + (0.32f + 0.33f * lightnessFactor) * scuffMod;
+                const float pulpWidth = (1.5f + edgeScuff * 6.5f) * widthScale;
                 if (edgeScuff > 0.01f && effectiveDist > 0.0f && effectiveDist <= pulpWidth) {
-                    const float pulpR = 240.0f - sepiaShift * 16.0f;
-                    const float pulpG = 232.0f - sepiaShift * 26.0f;
-                    const float pulpB = 210.0f - sepiaShift * 44.0f;
+                    const float basePulpR = 240.0f - sepiaShift * 16.0f;
+                    const float basePulpG = 232.0f - sepiaShift * 26.0f;
+                    const float basePulpB = 210.0f - sepiaShift * 44.0f;
 
-                    float pulpIntensity = std::clamp((pulpWidth - effectiveDist) / pulpWidth, 0.0f, 1.0f) * edgeScuff * 0.92f;
+                    // On dark card content, blend toward a muted, ink-stained weathered fiber tone
+                    const float mutedR = r * 0.45f + (122.0f - sepiaShift * 12.0f) * 0.55f;
+                    const float mutedG = g * 0.45f + (114.0f - sepiaShift * 18.0f) * 0.55f;
+                    const float mutedB = b * 0.45f + (100.0f - sepiaShift * 24.0f) * 0.55f;
+
+                    const float pulpR = mutedR + (basePulpR - mutedR) * lightnessFactor;
+                    const float pulpG = mutedG + (basePulpG - mutedG) * lightnessFactor;
+                    const float pulpB = mutedB + (basePulpB - mutedB) * lightnessFactor;
+
+                    const float contentIntensity = (0.34f + 0.66f * lightnessFactor) * (0.40f + 0.60f * scuffMod);
+                    float pulpIntensity = std::clamp((pulpWidth - effectiveDist) / pulpWidth, 0.0f, 1.0f) * edgeScuff * 0.92f * contentIntensity;
                     uint32_t tSeed = static_cast<uint32_t>(perimS * 3) ^ (static_cast<uint32_t>(cardId) * 0x31u);
                     float pulpTooth = 1.0f + (cardHashNoise(tSeed, cardId, 601) - 0.5f) * 0.12f;
                     r = (r * (1.0f - pulpIntensity) + pulpR * pulpIntensity) * pulpTooth;
@@ -739,7 +761,8 @@ static void conditionSingleCard(
                         float relShade = (nDotL - kLz) * 0.65f;
 
                         float hDotN = bnx * -0.32f + bny * -0.32f + nz * 0.89f;
-                        float spec = (hDotN > 0.82f) ? std::pow(hDotN, 14.0f) * 0.35f : 0.0f;
+                        float specAtten = (1.0f - edgeScuff * 0.65f) * (0.28f + 0.72f * lightnessFactor);
+                        float spec = (hDotN > 0.82f) ? std::pow(hDotN, 14.0f) * 0.35f * specAtten : 0.0f;
 
                         float ao = std::clamp(effectiveDist / 1.5f, 0.68f, 1.0f);
                         float lightMod = std::clamp(1.0f + relShade, 0.48f, 1.45f) * ao;
@@ -1145,8 +1168,10 @@ const char* CardTextureCache::deckThemeName(DeckThemeId theme) noexcept {
         case DeckThemeId::SolPolyWhite:      return "SOLPOLY";
         case DeckThemeId::SolPolyDark:       return "SOLPOLY DARK";
         case DeckThemeId::ScoundrelLowPoly:  return "SCOUNDREL LOW-POLY";
+        case DeckThemeId::MemoryLowPoly:     return "MEMORY LOW-POLY";
         case DeckThemeId::SolPolyClassic:    return "SOLPOLY CLASSIC";
         case DeckThemeId::SolPolyMobile:     return "SOLPOLY MOBILE";
+        case DeckThemeId::LowPolyWar:        return "LOW POLY WAR";
         case DeckThemeId::Count:       return "DEFAULT";
     }
     return "UNKNOWN";
@@ -1204,8 +1229,10 @@ std::string CardTextureCache::currentDeckSlug() const {
         case DeckThemeId::SolPolyWhite:      return "solpoly";
         case DeckThemeId::SolPolyDark:       return "solpoly_dark";
         case DeckThemeId::ScoundrelLowPoly:  return "scoundrel_lowpoly";
+        case DeckThemeId::MemoryLowPoly:     return "memory_lowpoly";
         case DeckThemeId::SolPolyClassic:    return "solpoly_classic";
         case DeckThemeId::SolPolyMobile:     return "solpoly_mobile";
+        case DeckThemeId::LowPolyWar:        return "low_poly_war";
         default:                             return "solengine";
     }
 }
@@ -2437,8 +2464,10 @@ bool CardTextureCache::loadBaseDeckTheme(
     const bool isLowPoly = (theme == DeckThemeId::SolPolyWhite ||
                             theme == DeckThemeId::SolPolyDark ||
                             theme == DeckThemeId::ScoundrelLowPoly ||
+                            theme == DeckThemeId::MemoryLowPoly ||
                             theme == DeckThemeId::SolPolyClassic ||
-                            theme == DeckThemeId::SolPolyMobile);
+                            theme == DeckThemeId::SolPolyMobile ||
+                            theme == DeckThemeId::LowPolyWar);
     if (theme == currentTheme_ && isLoaded_ &&
         (!isLowPoly || loadedLowPolySeed_ == lowPolySeed_) &&
         &outBase != &baseTextures_ &&
@@ -2468,6 +2497,14 @@ bool CardTextureCache::loadBaseDeckTheme(
         } else if (theme == DeckThemeId::SolPolyDark) {
             lpOpts.style = LowPolyStyle::Classic;
             lpOpts.bg = LowPolyBg::Dark;
+            lpOpts.clearBottomRight = false;
+        } else if (theme == DeckThemeId::MemoryLowPoly) {
+            lpOpts.style = LowPolyStyle::Memory;
+            lpOpts.bg = LowPolyBg::Dark;
+            lpOpts.clearBottomRight = false;
+        } else if (theme == DeckThemeId::LowPolyWar) {
+            lpOpts.style = LowPolyStyle::War;
+            lpOpts.bg = LowPolyBg::Ivory;
             lpOpts.clearBottomRight = false;
         } else {
             lpOpts.style = LowPolyStyle::Scoundrel;
@@ -3208,6 +3245,11 @@ bool CardTextureCache::buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer) {
 
     hasGpuAtlas_ = true;
     atlasDirty_ = false;
+#if defined(__EMSCRIPTEN__)
+    for (auto& tex : textures_) {
+        std::vector<uint8_t>().swap(tex.rgba);
+    }
+#endif
     std::cout << "[SolEngine] Card texture GPU atlas built successfully (4096x4096 RGBA8, 53 cards, slot size "
               << reportedW << "x" << reportedH << ").\n";
     return true;
@@ -3238,13 +3280,16 @@ void CardTextureCache::setLowPolySeed(uint32_t seed) {
     sampleCardCache_.erase(DeckThemeId::SolPolyWhite);
     sampleCardCache_.erase(DeckThemeId::SolPolyDark);
     sampleCardCache_.erase(DeckThemeId::ScoundrelLowPoly);
+    sampleCardCache_.erase(DeckThemeId::MemoryLowPoly);
     sampleCardCache_.erase(DeckThemeId::SolPolyClassic);
     sampleCardCache_.erase(DeckThemeId::SolPolyMobile);
+    sampleCardCache_.erase(DeckThemeId::LowPolyWar);
     sampleDeckCardCache_.erase("solpoly");
     sampleDeckCardCache_.erase("solpoly_dark");
     sampleDeckCardCache_.erase("scoundrel_lowpoly");
     sampleDeckCardCache_.erase("solpoly_classic");
     sampleDeckCardCache_.erase("solpoly_mobile");
+    sampleDeckCardCache_.erase("low_poly_war");
 }
 
 void CardTextureCache::updatePreviewCard(DeckThemeId theme, CardWearLevel wear, CardStock stock) {
@@ -3338,8 +3383,10 @@ static DeckThemeId mapDeckSlugToLegacyId(const std::string& id) {
     if (low == "solpoly") return DeckThemeId::SolPolyWhite;
     if (low == "solpoly_dark") return DeckThemeId::SolPolyDark;
     if (low == "scoundrel_lowpoly") return DeckThemeId::ScoundrelLowPoly;
+    if (low == "memory_lowpoly") return DeckThemeId::MemoryLowPoly;
     if (low == "solpoly_classic") return DeckThemeId::SolPolyClassic;
     if (low == "solpoly_mobile") return DeckThemeId::SolPolyMobile;
+    if (low == "low_poly_war") return DeckThemeId::LowPolyWar;
     return DeckThemeId::Custom;
 }
 
@@ -3350,7 +3397,9 @@ void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
     scannedDecks_.push_back(DeckDef{ "solpoly", "SOLPOLY", "", DeckThemeId::SolPolyWhite });
     scannedDecks_.push_back(DeckDef{ "solpoly_dark", "SOLPOLY DARK", "", DeckThemeId::SolPolyDark });
     scannedDecks_.push_back(DeckDef{ "scoundrel_lowpoly", "SCOUNDREL LOW-POLY", "", DeckThemeId::ScoundrelLowPoly });
+    scannedDecks_.push_back(DeckDef{ "memory_lowpoly", "MEMORY LOW-POLY", "", DeckThemeId::MemoryLowPoly });
     scannedDecks_.push_back(DeckDef{ "solpoly_mobile", "SOLPOLY MOBILE", "", DeckThemeId::SolPolyMobile });
+    scannedDecks_.push_back(DeckDef{ "low_poly_war", "LOW POLY WAR", "", DeckThemeId::LowPolyWar });
 
     std::error_code ec;
     const std::string searchPaths[] = {
@@ -3424,23 +3473,6 @@ void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
             }
         }
     }
-
-#if defined(__EMSCRIPTEN__)
-    // Include web-streamable decks hosted on GitHub Pages even if not preloaded into MEMFS /decks/
-    const DeckDef webStreamDecks[] = {
-        { "steampunk", "STEAMPUNK", "", DeckThemeId::SteampunkAi },
-        { "anime", "ANIME", "", DeckThemeId::Anime },
-        { "cyberpunk", "CYBERPUNK", "", DeckThemeId::Cyberpunk },
-        { "baroque_light", "BAROQUE LIGHT", "", DeckThemeId::BaroqueLight },
-        { "baroque_dark", "BAROQUE DARK", "", DeckThemeId::BaroqueDark },
-    };
-    for (const auto& wd : webStreamDecks) {
-        if (idToIndex.find(wd.id) == idToIndex.end()) {
-            idToIndex[wd.id] = scannedDecks_.size();
-            scannedDecks_.push_back(wd);
-        }
-    }
-#endif
 
     decksScanned_ = true;
 }

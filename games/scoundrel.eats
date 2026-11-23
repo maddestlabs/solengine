@@ -6,6 +6,8 @@
 # Flee Room (bottom of deck, no consecutive flees), <= durability cap,
 # and barehanded vs. armed combat choice.
 
+default_deck = "scoundrel_lowpoly"
+
 # --- Unified Help & Introspection Manifest ---
 doc_meta(2, "Quick", 3, "25%-55%", 3, "Tactical")
 doc_aliases(["Dungeon Solitaire", "Scoundrel Card Game"])

@@ -1218,15 +1218,520 @@ void addPlateAndBevel(VectorImage& img, LowPolyBg bg) {
     addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, bevel);
 }
 
+void emitLowPolyHelmet(VectorImage& img, Suit suit, std::mt19937& rng) {
+    const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
+    const Ramp4 steel = {0xFF334155u, 0xFF475569u, 0xFF64748Bu, 0xFFCBD5E1u};
+    const Ramp4 trim  = red ? Ramp4{0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u}
+                            : Ramp4{0xFF1E293Bu, 0xFF38BDF8u, 0xFF7DD3FCu, 0xFFE0F2FEu};
+    const Ramp4 dark  = {0xFF090D14u, 0xFF0F172Au, 0xFF1E293Bu, 0xFF334155u};
+    const float tilt = randRange(rng, -5.0f, 5.0f);
+
+    std::vector<Tri3> tris;
+    // Dome & crest
+    tris.push_back({{0, -32, 8}, {-16, -14, 6}, {0, -14, 14}, steel});
+    tris.push_back({{0, -32, 8}, {0, -14, 14}, {16, -14, 6}, steel});
+    tris.push_back({{-16, -14, 6}, {-22, 4, 2}, {-8, 2, 10}, steel});
+    tris.push_back({{16, -14, 6}, {8, 2, 10}, {22, 4, 2}, steel});
+    // Plume / crest fin
+    tris.push_back({{0, -38, 4}, {-4, -26, 9}, {0, -24, 13}, trim});
+    tris.push_back({{0, -38, 4}, {0, -24, 13}, {4, -26, 9}, trim});
+    // Brow band
+    tris.push_back({{-16, -14, 7}, {-8, -10, 13}, {0, -14, 15}, trim});
+    tris.push_back({{0, -14, 15}, {8, -10, 13}, {16, -14, 7}, trim});
+    // Visor slit
+    tris.push_back({{-12, -8, 9}, {0, -4, 11}, {12, -8, 9}, dark});
+    // Cheek guards & nasal bar
+    tris.push_back({{-20, 4, 3}, {-14, 26, 5}, {-5, 18, 10}, steel});
+    tris.push_back({{-20, 4, 3}, {-5, 18, 10}, {-8, 0, 11}, steel});
+    tris.push_back({{20, 4, 3}, {5, 18, 10}, {14, 26, 5}, steel});
+    tris.push_back({{20, 4, 3}, {8, 0, 11}, {5, 18, 10}, steel});
+    tris.push_back({{0, -10, 14}, {-3, 14, 12}, {3, 14, 12}, trim});
+
+    for (auto& t : tris) {
+        t.v0 = rotZ(t.v0, tilt);
+        t.v1 = rotZ(t.v1, tilt);
+        t.v2 = rotZ(t.v2, tilt);
+    }
+    emitTris(img, tris, 50.0f, 72.0f);
+}
+
+void emitLowPolyShield(VectorImage& img, Suit suit, std::mt19937& rng) {
+    const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
+    const Ramp4 field = red ? Ramp4{0xFF7F1D1Du, 0xFF9E1B24u, 0xFFC8202Au, 0xFFEF4444u}
+                            : Ramp4{0xFF0369A1u, 0xFF0284C7u, 0xFF38BDF8u, 0xFF7DD3FCu};
+    const Ramp4 rim   = {0xFF475569u, 0xFF64748Bu, 0xFF94A3B8u, 0xFFE2E8F0u};
+    const Ramp4 boss  = {0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u};
+    const float tilt = randRange(rng, -5.0f, 5.0f);
+
+    std::vector<Tri3> tris;
+    // Outer heater shield bevel
+    tris.push_back({{-24, -26, 2}, {0, -28, 4}, {0, -22, 7}, rim});
+    tris.push_back({{0, -28, 4}, {24, -26, 2}, {0, -22, 7}, rim});
+    tris.push_back({{-24, -26, 2}, {-22, 4, 2}, {-17, 2, 7}, rim});
+    tris.push_back({{24, -26, 2}, {17, 2, 7}, {22, 4, 2}, rim});
+    tris.push_back({{-22, 4, 2}, {0, 32, 3}, {-17, 2, 7}, rim});
+    tris.push_back({{22, 4, 2}, {17, 2, 7}, {0, 32, 3}, rim});
+    // Heraldic quadrants
+    tris.push_back({{-19, -21, 6}, {0, -22, 8}, {0, -2, 12}, field});
+    tris.push_back({{-19, -21, 6}, {0, -2, 12}, {-17, 2, 7}, field});
+    tris.push_back({{0, -22, 8}, {19, -21, 6}, {0, -2, 12}, boss});
+    tris.push_back({{19, -21, 6}, {17, 2, 7}, {0, -2, 12}, boss});
+    tris.push_back({{-17, 2, 7}, {0, -2, 12}, {0, 26, 7}, boss});
+    tris.push_back({{17, 2, 7}, {0, 26, 7}, {0, -2, 12}, field});
+    // Center boss
+    tris.push_back({{0, -10, 14}, {-7, -2, 14}, {0, 6, 14}, rim});
+    tris.push_back({{0, -10, 14}, {0, 6, 14}, {7, -2, 14}, rim});
+
+    for (auto& t : tris) {
+        t.v0 = rotZ(t.v0, tilt);
+        t.v1 = rotZ(t.v1, tilt);
+        t.v2 = rotZ(t.v2, tilt);
+    }
+    emitTris(img, tris, 50.0f, 72.0f);
+}
+
+void emitLowPolyMace(VectorImage& img, Suit suit, std::mt19937& rng) {
+    const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
+    const Ramp4 head = {0xFF334155u, 0xFF475569u, 0xFF94A3B8u, 0xFFE2E8F0u};
+    const Ramp4 trim = red ? Ramp4{0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u}
+                           : Ramp4{0xFF0369A1u, 0xFF0284C7u, 0xFF38BDF8u, 0xFF7DD3FCu};
+    const Ramp4 haft = {0xFF451A03u, 0xFF78350Fu, 0xFF92400Eu, 0xFFB45309u};
+    const float angle = -36.0f + randRange(rng, -6.0f, 6.0f);
+
+    std::vector<Tri3> tris;
+    // Shaft
+    tris.push_back({{-2.5f, -4, 3}, {2.5f, -4, 3}, {2.5f, 32, 3}, haft});
+    tris.push_back({{-2.5f, -4, 3}, {2.5f, 32, 3}, {-2.5f, 32, 3}, haft});
+    // Pommel
+    tris.push_back({{-5, 32, 2}, {0, 29, 6}, {5, 32, 2}, trim});
+    tris.push_back({{-5, 32, 2}, {5, 32, 2}, {0, 38, 3}, trim});
+    // Flanged mace head
+    tris.push_back({{0, -28, 6}, {-12, -16, 8}, {0, -14, 14}, head});
+    tris.push_back({{0, -28, 6}, {0, -14, 14}, {12, -16, 8}, head});
+    tris.push_back({{-12, -16, 8}, {-8, -4, 6}, {0, -14, 14}, head});
+    tris.push_back({{12, -16, 8}, {0, -14, 14}, {8, -4, 6}, head});
+    // Side flanges & top spike
+    tris.push_back({{0, -37, 4}, {-4, -27, 7}, {4, -27, 7}, trim});
+    tris.push_back({{-19, -16, 3}, {-11, -21, 7}, {-11, -11, 7}, trim});
+    tris.push_back({{19, -16, 3}, {11, -11, 7}, {11, -21, 7}, trim});
+
+    for (auto& t : tris) {
+        t.v0 = rotZ(t.v0, angle);
+        t.v1 = rotZ(t.v1, angle);
+        t.v2 = rotZ(t.v2, angle);
+    }
+    emitTris(img, tris, 50.0f, 72.0f);
+}
+
+void emitLowPolyBow(VectorImage& img, Suit suit, std::mt19937& rng) {
+    const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
+    const Ramp4 wood  = {0xFF451A03u, 0xFF78350Fu, 0xFFB45309u, 0xFFD97706u};
+    const Ramp4 arrow = {0xFF334155u, 0xFF64748Bu, 0xFF94A3B8u, 0xFFE2E8F0u};
+    const Ramp4 fletch = red ? Ramp4{0xFF9E1B24u, 0xFFC8202Au, 0xFFEF4444u, 0xFFFCA5A5u}
+                             : Ramp4{0xFF059669u, 0xFF10B981u, 0xFF34D399u, 0xFFA7F3D0u};
+    const Ramp4 stringMat = {0xFFCBD5E1u, 0xFFE2E8F0u, 0xFFF1F5F9u, 0xFFFFFFFFu};
+    const float angle = 32.0f + randRange(rng, -5.0f, 5.0f);
+
+    std::vector<Tri3> tris;
+    // Bow grip & limbs
+    tris.push_back({{-3, -8, 6}, {3, -8, 6}, {3, 8, 6}, wood});
+    tris.push_back({{-3, -8, 6}, {3, 8, 6}, {-3, 8, 6}, wood});
+    tris.push_back({{-3, -8, 6}, {-14, -24, 4}, {-8, -26, 5}, wood});
+    tris.push_back({{-3, -8, 6}, {-8, -26, 5}, {3, -8, 6}, wood});
+    tris.push_back({{-14, -24, 4}, {-20, -34, 2}, {-13, -34, 3}, wood});
+    tris.push_back({{-3, 8, 6}, {3, 8, 6}, {-8, 26, 5}, wood});
+    tris.push_back({{-3, 8, 6}, {-8, 26, 5}, {-14, 24, 4}, wood});
+    tris.push_back({{-14, 24, 4}, {-13, 34, 3}, {-20, 34, 2}, wood});
+    // Taut bowstring
+    tris.push_back({{-16, -32, 3}, {-15, -32, 3}, {-15, 32, 3}, stringMat});
+    tris.push_back({{-16, -32, 3}, {-15, 32, 3}, {-16, 32, 3}, stringMat});
+    // Nocked arrow pointing right
+    tris.push_back({{-16, -1.5f, 7}, {18, -1.5f, 7}, {18, 1.5f, 7}, arrow});
+    tris.push_back({{-16, -1.5f, 7}, {18, 1.5f, 7}, {-16, 1.5f, 7}, arrow});
+    tris.push_back({{18, -5, 7}, {28, 0, 8}, {18, 5, 7}, arrow});
+    tris.push_back({{-20, -5, 6}, {-12, -1.5f, 7}, {-14, 0, 7}, fletch});
+    tris.push_back({{-20, 5, 6}, {-14, 0, 7}, {-12, 1.5f, 7}, fletch});
+
+    for (auto& t : tris) {
+        t.v0 = rotZ(t.v0, angle);
+        t.v1 = rotZ(t.v1, angle);
+        t.v2 = rotZ(t.v2, angle);
+    }
+    emitTris(img, tris, 50.0f, 72.0f);
+}
+
+void emitLowPolyGauntlet(VectorImage& img, Suit suit, std::mt19937& rng) {
+    const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
+    const Ramp4 plate = {0xFF334155u, 0xFF475569u, 0xFF64748Bu, 0xFFCBD5E1u};
+    const Ramp4 trim  = red ? Ramp4{0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u}
+                            : Ramp4{0xFF0369A1u, 0xFF0284C7u, 0xFF38BDF8u, 0xFF7DD3FCu};
+    const float tilt = randRange(rng, -6.0f, 6.0f);
+
+    std::vector<Tri3> tris;
+    // Flared wrist cuff
+    tris.push_back({{-14, 30, 3}, {-10, 10, 6}, {10, 10, 6}, plate});
+    tris.push_back({{-14, 30, 3}, {10, 10, 6}, {14, 30, 3}, plate});
+    tris.push_back({{-11, 10, 7}, {-11, 5, 9}, {11, 5, 9}, trim});
+    tris.push_back({{-11, 10, 7}, {11, 5, 9}, {11, 10, 7}, trim});
+    // Palm / fist block
+    tris.push_back({{-14, 5, 8}, {-16, -14, 10}, {0, -14, 14}, plate});
+    tris.push_back({{-14, 5, 8}, {0, -14, 14}, {14, 5, 8}, plate});
+    tris.push_back({{0, -14, 14}, {16, -14, 10}, {14, 5, 8}, plate});
+    // Articulated knuckle plates
+    tris.push_back({{-16, -14, 10}, {-12, -26, 8}, {-4, -26, 11}, trim});
+    tris.push_back({{-16, -14, 10}, {-4, -26, 11}, {0, -14, 14}, plate});
+    tris.push_back({{0, -14, 14}, {-4, -26, 11}, {8, -26, 10}, trim});
+    tris.push_back({{0, -14, 14}, {8, -26, 10}, {16, -14, 10}, plate});
+    // Thumb guard
+    tris.push_back({{-14, 4, 8}, {-23, -6, 9}, {-16, -12, 11}, trim});
+
+    for (auto& t : tris) {
+        t.v0 = rotZ(t.v0, tilt);
+        t.v1 = rotZ(t.v1, tilt);
+        t.v2 = rotZ(t.v2, tilt);
+    }
+    emitTris(img, tris, 50.0f, 72.0f);
+}
+
+void emitLowPolyGem(VectorImage& img, Suit suit, std::mt19937& rng) {
+    const Ramp4 ruby    = {0xFF881337u, 0xFFBE123Cu, 0xFFE11D48u, 0xFFFB7185u};
+    const Ramp4 emerald = {0xFF065F46u, 0xFF059669u, 0xFF10B981u, 0xFF6EE7B7u};
+    const Ramp4 sapph   = {0xFF1E3A8Au, 0xFF1D4ED8u, 0xFF3B82F6u, 0xFF93C5FDu};
+    const Ramp4 amber   = {0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u};
+    const Ramp4& gem = (suit == Suit::Hearts) ? ruby
+                     : (suit == Suit::Diamonds) ? amber
+                     : (suit == Suit::Clubs) ? emerald : sapph;
+    const float tilt = randRange(rng, -5.0f, 5.0f);
+
+    std::vector<Tri3> tris;
+    // Octagonal brilliant-cut crown table & bevels
+    const Vec3 ctr{0, 0, 16};
+    const std::array<Vec3, 8> inner = {{
+        {0, -15, 14}, {11, -11, 14}, {15, 0, 14}, {11, 11, 14},
+        {0, 15, 14}, {-11, 11, 14}, {-15, 0, 14}, {-11, -11, 14}
+    }};
+    const std::array<Vec3, 8> outer = {{
+        {0, -29, 4}, {21, -21, 4}, {29, 0, 4}, {21, 21, 4},
+        {0, 29, 4}, {-21, 21, 4}, {-29, 0, 4}, {-21, -21, 4}
+    }};
+    for (size_t i = 0; i < 8; ++i) {
+        size_t n = (i + 1) % 8;
+        tris.push_back({ctr, inner[i], inner[n], gem});
+        tris.push_back({inner[i], outer[i], outer[n], gem});
+        tris.push_back({inner[i], outer[n], inner[n], gem});
+    }
+
+    for (auto& t : tris) {
+        t.v0 = rotZ(t.v0, tilt);
+        t.v1 = rotZ(t.v1, tilt);
+        t.v2 = rotZ(t.v2, tilt);
+    }
+    emitTris(img, tris, 50.0f, 72.0f);
+}
+
+// ---------------------------------------------------------------------------
+// Low Poly War (Another World 1991 Flat-Shaded Vector Aesthetic)
+// ---------------------------------------------------------------------------
+uint32_t shiftArgb(uint32_t argb, int dr, int dg, int db) {
+    const int a = static_cast<int>((argb >> 24) & 0xFFu);
+    const int r = std::clamp(static_cast<int>((argb >> 16) & 0xFFu) + dr, 0, 255);
+    const int g = std::clamp(static_cast<int>((argb >> 8) & 0xFFu) + dg, 0, 255);
+    const int b = std::clamp(static_cast<int>(argb & 0xFFu) + db, 0, 255);
+    return (static_cast<uint32_t>(a) << 24) |
+           (static_cast<uint32_t>(r) << 16) |
+           (static_cast<uint32_t>(g) << 8) |
+           static_cast<uint32_t>(b);
+}
+
+struct WarPalette {
+    uint32_t windowBg;
+    uint32_t windowBeam;
+    uint32_t windowHorizon;
+    uint32_t navyDark;
+    uint32_t indigoMid;
+    uint32_t nearBlack;
+    uint32_t suitDark;
+    uint32_t suitBright;
+    uint32_t goldBright;
+    uint32_t goldShadow;
+    uint32_t skinLight;
+    uint32_t skinShadow;
+    uint32_t offWhite;
+    uint32_t steelLight;
+    uint32_t steelShadow;
+};
+
+WarPalette makeWarPalette(Suit suit, uint32_t deckSeed, std::mt19937& cardRng) {
+    std::mt19937 globalRng(deckSeed ^ 0x57415231u);
+    const int bgShiftR = randInt(globalRng, -10, 12);
+    const int bgShiftG = randInt(globalRng, -8, 10);
+    const int bgShiftB = randInt(globalRng, -10, 14);
+    const int clothShift = randInt(cardRng, -8, 8);
+    const bool isRed = (suit == Suit::Hearts || suit == Suit::Diamonds);
+
+    WarPalette p{};
+    p.windowBg      = shiftArgb(0xFF3C3748u, bgShiftR, bgShiftG, bgShiftB);
+    p.windowBeam    = shiftArgb(0xFF4A4459u, bgShiftR, bgShiftG, bgShiftB);
+    p.windowHorizon = shiftArgb(0xFF2E2A38u, bgShiftR, bgShiftG, bgShiftB);
+    p.navyDark      = shiftArgb(0xFF1A1733u, clothShift, clothShift / 2, clothShift);
+    p.indigoMid     = shiftArgb(0xFF2B2742u, clothShift, clothShift / 2, clothShift);
+    p.nearBlack     = 0xFF0E0D14u;
+    p.suitDark      = isRed ? shiftArgb(0xFF8A1824u, clothShift / 2, 0, 0) : shiftArgb(0xFF52576Eu, 0, clothShift / 2, clothShift);
+    p.suitBright    = isRed ? shiftArgb(0xFFC8202Au, clothShift / 2, 0, 0) : shiftArgb(0xFF7E85A1u, 0, clothShift / 2, clothShift);
+    p.goldBright    = 0xFFE5C947u;
+    p.goldShadow    = 0xFFC29C2Eu;
+    p.skinLight     = 0xFFEBC0B8u;
+    p.skinShadow    = 0xFFC28787u;
+    p.offWhite      = 0xFFECEBE2u;
+    p.steelLight    = 0xFF9CA2B4u;
+    p.steelShadow   = 0xFF686D80u;
+    return p;
+}
+
+void addWarChamferWindow(VectorImage& img, const WarPalette& p, std::mt19937& rng) {
+    // Chamfered portrait window: x in [19, 81], y in [15.5, 124.5], chamfer = 7.2
+    constexpr float wx = 19.0f, wy = 15.5f, ww = 62.0f, wh = 109.0f, ch = 7.2f;
+    addPolyShape(img, {
+        {wx + ch, wy}, {wx + ww, wy}, {wx + ww, wy + wh - ch},
+        {wx + ww - ch, wy + wh}, {wx, wy + wh}, {wx, wy + ch}
+    }, p.windowBg);
+
+    // Subtle 1991 Another World atmospheric light beam & horizon band inside window
+    const float beamShift = randRange(rng, -5.0f, 5.0f);
+    addPolyShape(img, {
+        {wx + ch + 8.0f + beamShift, wy},
+        {wx + ww - 6.0f, wy},
+        {wx + ww - 22.0f + beamShift, wy + wh * 0.65f},
+        {wx + 4.0f, wy + wh * 0.48f}
+    }, p.windowBeam);
+
+    const float horY = wy + wh * randRange(rng, 0.58f, 0.68f);
+    addPolyShape(img, {
+        {wx, horY}, {wx + ww, horY - 4.0f},
+        {wx + ww, wy + wh - ch}, {wx + ww - ch, wy + wh}, {wx, wy + wh}
+    }, p.windowHorizon);
+}
+
+void addWarFacetedPip(VectorImage& img, Suit suit, float cx, float cy, float size, bool rotate180) {
+    const float s = size * 0.5f;
+    const bool isRed = (suit == Suit::Hearts || suit == Suit::Diamonds);
+    const uint32_t c1 = isRed ? 0xFF9E1B24u : 0xFF1A1733u;
+    const uint32_t c2 = isRed ? 0xFFC8202Au : 0xFF2E2952u;
+
+    auto emitHalf = [&](std::initializer_list<std::pair<float, float>> normPts, uint32_t col) {
+        std::vector<std::pair<float, float>> pts;
+        pts.reserve(normPts.size());
+        for (auto [nx, ny] : normPts) {
+            const float sx = rotate180 ? -nx : nx;
+            const float sy = rotate180 ? -ny : ny;
+            pts.emplace_back(cx + sx * s, cy + sy * s);
+        }
+        addPolyShape(img, pts, col);
+    };
+
+    if (suit == Suit::Hearts) {
+        emitHalf({{0, 0.92f}, {-0.95f, -0.05f}, {-0.85f, -0.62f}, {-0.42f, -0.88f}, {0, -0.45f}}, c1);
+        emitHalf({{0, 0.92f}, {0, -0.45f}, {0.42f, -0.88f}, {0.85f, -0.62f}, {0.95f, -0.05f}}, c2);
+    } else if (suit == Suit::Diamonds) {
+        emitHalf({{0, -1.0f}, {-0.76f, 0.0f}, {0, 1.0f}}, c1);
+        emitHalf({{0, -1.0f}, {0.76f, 0.0f}, {0, 1.0f}}, c2);
+    } else if (suit == Suit::Spades) {
+        emitHalf({{0, -1.0f}, {-0.92f, 0.05f}, {-0.75f, 0.48f}, {-0.18f, 0.35f}, {-0.34f, 0.95f}, {0, 0.95f}}, c1);
+        emitHalf({{0, -1.0f}, {0, 0.95f}, {0.34f, 0.95f}, {0.18f, 0.35f}, {0.75f, 0.48f}, {0.92f, 0.05f}}, c2);
+    } else {
+        emitHalf({{0, -0.98f}, {-0.42f, -0.72f}, {-0.36f, -0.25f}, {-0.86f, -0.15f}, {-0.96f, 0.25f}, {-0.58f, 0.52f}, {-0.14f, 0.35f}, {-0.30f, 0.95f}, {0, 0.95f}}, c1);
+        emitHalf({{0, -0.98f}, {0, 0.95f}, {0.30f, 0.95f}, {0.14f, 0.35f}, {0.58f, 0.52f}, {0.96f, 0.25f}, {0.86f, -0.15f}, {0.36f, -0.25f}, {0.42f, -0.72f}}, c2);
+    }
+}
+
+void emitWarCourt(VectorImage& img, Suit suit, Rank rank, const LowPolyDeckOptions& opts, std::mt19937& rng) {
+    const WarPalette p = makeWarPalette(suit, opts.seed, rng);
+    addWarChamferWindow(img, p, rng);
+
+    const float leanX = randRange(rng, -1.8f, 1.8f);
+    const float leanY = randRange(rng, -1.5f, 1.5f);
+    const float shW   = randRange(rng, -2.0f, 2.2f);
+    const float crH   = randRange(rng, -2.0f, 2.4f);
+    const float foldJ = randRange(rng, -2.2f, 2.2f);
+    const float flipSign = (randInt(rng, 0, 1) == 0) ? 1.0f : -1.0f;
+    const float yScale = (rank == Rank::Queen) ? randRange(rng, 0.85f, 0.91f) : 1.0f;
+
+    // Helper to clamp polygon coordinates strictly inside the chamfered window [19..81, 15.5..124.5]
+    auto emitP = [&](std::initializer_list<std::pair<float, float>> ptsIn, uint32_t col) {
+        std::vector<std::pair<float, float>> pts;
+        pts.reserve(ptsIn.size());
+        for (auto [x, y] : ptsIn) {
+            const float px = std::clamp(50.0f + (x - 50.0f) * flipSign, 19.5f, 80.5f);
+            const float sy = 124.0f - (124.0f - y) * yScale;
+            const float py = std::clamp(sy, 16.0f, 124.0f);
+            pts.emplace_back(px, py);
+        }
+        addPolyShape(img, pts, col);
+    };
+
+    if (rank == Rank::Jack) {
+        // Jack of Spades reference: 3/4 rogue/knight bust, swept cloak, high collar, upright blade
+        // Cloak & torso base anchored to bottom of window (y = 124)
+        emitP({{20, 124}, {23 - shW, 88}, {38, 76}, {54 + leanX, 82}, {52, 124}}, p.navyDark);
+        emitP({{52, 124}, {54 + leanX, 82}, {74 + shW, 86}, {79, 124}}, p.indigoMid);
+        // Diagonal cloak fold & suit-colored tunic sash
+        emitP({{34, 80}, {48 + leanX, 78}, {68 + foldJ, 124}, {46 + foldJ, 124}}, p.suitDark);
+        emitP({{44 + leanX, 80}, {54 + leanX, 82}, {72 + foldJ, 124}, {62 + foldJ, 124}}, p.suitBright);
+        // Hard-edged cast shadow across chest
+        emitP({{22, 124}, {30, 95}, {45 + foldJ * 0.5f, 108}, {38, 124}}, p.nearBlack);
+
+        // High dramatic collar & steel gorget
+        emitP({{36 + leanX, 78}, {44 + leanX, 66}, {56 + leanX, 68}, {50 + leanX, 84}}, p.offWhite);
+        emitP({{48 + leanX, 72}, {62 + leanX, 68}, {60 + leanX, 82}, {50 + leanX, 84}}, p.steelShadow);
+        emitP({{38 + leanX, 76}, {46 + leanX, 72}, {50 + leanX, 84}}, p.steelLight);
+
+        // Neck & chiseled 3/4 face (lit left cheek, shadow right jaw)
+        emitP({{43 + leanX, 63 + leanY}, {54 + leanX, 63 + leanY}, {52 + leanX, 74}, {44 + leanX, 74}}, p.skinShadow);
+        emitP({{40 + leanX, 43 + leanY}, {51 + leanX, 41 + leanY}, {52 + leanX, 63 + leanY}, {42 + leanX, 64 + leanY}, {39 + leanX, 54 + leanY}}, p.skinLight);
+        emitP({{51 + leanX, 41 + leanY}, {59 + leanX, 46 + leanY}, {57 + leanX, 60 + leanY}, {50 + leanX, 65 + leanY}, {49 + leanX, 53 + leanY}}, p.skinShadow);
+        // Distinct left/right brow & eye shadow wedges + angular nose shadow
+        emitP({{41 + leanX, 47 + leanY}, {48 + leanX, 48 + leanY}, {47 + leanX, 51 + leanY}, {42 + leanX, 50 + leanY}}, p.navyDark);
+        emitP({{51 + leanX, 48 + leanY}, {57 + leanX, 47 + leanY}, {56 + leanX, 50 + leanY}, {51 + leanX, 51 + leanY}}, p.nearBlack);
+        emitP({{49 + leanX, 52 + leanY}, {53 + leanX, 57 + leanY}, {48 + leanX, 57 + leanY}}, p.skinShadow);
+
+        // Swept angular hair & war-beret / plumed helm
+        emitP({{37 + leanX, 46 + leanY}, {41 + leanX, 34 + leanY}, {55 + leanX, 34 + leanY}, {62 + leanX, 46 + leanY}, {58 + leanX, 57 + leanY}, {54 + leanX, 44 + leanY}, {42 + leanX, 44 + leanY}}, p.navyDark);
+        emitP({{35 + leanX, 41 + leanY}, {43 + leanX, 27 + leanY - crH}, {63 + leanX, 31 + leanY}, {59 + leanX, 42 + leanY}}, p.suitDark);
+        emitP({{43 + leanX, 27 + leanY - crH}, {57 + leanX, 25 + leanY - crH}, {63 + leanX, 31 + leanY}, {48 + leanX, 35 + leanY}}, p.suitBright);
+        // Gold plume / clasp
+        emitP({{39 + leanX, 37 + leanY}, {33 + leanX, 24 + leanY - crH}, {44 + leanX, 32 + leanY}}, p.goldBright);
+
+        // Upright faceted broadsword on the left
+        emitP({{24, 30}, {26.5f, 24}, {26.5f, 92}, {24, 92}}, p.offWhite);
+        emitP({{26.5f, 24}, {29, 30}, {29, 92}, {26.5f, 92}}, p.steelShadow);
+        emitP({{19.5f, 92}, {33.5f, 92}, {31.5f, 95.5f}, {21.5f, 95.5f}}, p.goldBright);
+        emitP({{25, 95.5f}, {28, 95.5f}, {27.5f, 108}, {25.5f, 108}}, p.goldShadow);
+    } else if (rank == Rank::Queen) {
+        // Queen of Clubs reference: regal bust, high collar, sculpted hair/veil, 3-5 pt crown
+        // Royal gown & sweeping mantle
+        emitP({{20, 124}, {24 - shW, 86}, {40, 76}, {50, 124}}, p.navyDark);
+        emitP({{80, 124}, {76 + shW, 86}, {60, 76}, {50, 124}}, p.indigoMid);
+        emitP({{37, 78}, {50, 86}, {63, 78}, {58 + foldJ * 0.4f, 124}, {42 + foldJ * 0.4f, 124}}, p.suitDark);
+        emitP({{50, 86}, {63, 78}, {58 + foldJ * 0.4f, 124}, {50, 124}}, p.suitBright);
+        // Hard shadow fold on skirt/torso
+        emitP({{20, 124}, {28, 94}, {40, 108}, {33, 124}}, p.nearBlack);
+
+        // High sculpted Queen's collar & rim-lit neckline
+        emitP({{34 + leanX * 0.5f, 78}, {38 + leanX * 0.5f, 60}, {46 + leanX, 66}, {44 + leanX, 82}}, p.offWhite);
+        emitP({{66 + leanX * 0.5f, 78}, {62 + leanX * 0.5f, 60}, {54 + leanX, 66}, {56 + leanX, 82}}, p.steelLight);
+        emitP({{41 + leanX, 76}, {50 + leanX, 90}, {59 + leanX, 76}, {50 + leanX, 72}}, p.skinLight);
+        // Suit chest medallion
+        emitP({{50 + leanX, 88}, {54 + leanX, 95}, {50 + leanX, 102}, {46 + leanX, 95}}, p.goldBright);
+        emitP({{50 + leanX, 91}, {52.5f + leanX, 95}, {50 + leanX, 99}, {47.5f + leanX, 95}}, p.suitBright);
+
+        // Flowing dark hair/veil framing face (slimmer silhouette)
+        emitP({{38 + leanX, 42 + leanY}, {41 + leanX, 35 + leanY}, {59 + leanX, 35 + leanY}, {62.5f + leanX, 44 + leanY}, {61.5f + leanX, 72}, {38.5f + leanX, 72}}, p.nearBlack);
+        emitP({{38 + leanX, 44 + leanY}, {41 + leanX, 38 + leanY}, {42.5f + leanX, 68}, {38.5f + leanX, 72}}, p.indigoMid);
+
+        // Sculpted Queen face (strong lit/shadow split)
+        emitP({{42 + leanX, 40 + leanY}, {50 + leanX, 39 + leanY}, {50 + leanX, 65 + leanY}, {43 + leanX, 60 + leanY}, {41 + leanX, 49 + leanY}}, p.skinLight);
+        emitP({{50 + leanX, 39 + leanY}, {58 + leanX, 41 + leanY}, {58 + leanX, 51 + leanY}, {56 + leanX, 60 + leanY}, {50 + leanX, 65 + leanY}}, p.skinShadow);
+        // Brow/eye & cheekbone shadow wedges
+        emitP({{42 + leanX, 46 + leanY}, {49 + leanX, 47 + leanY}, {48 + leanX, 50 + leanY}, {43 + leanX, 49 + leanY}}, p.navyDark);
+        emitP({{51 + leanX, 47 + leanY}, {57 + leanX, 46 + leanY}, {56 + leanX, 50 + leanY}, {51 + leanX, 50 + leanY}}, p.nearBlack);
+        emitP({{48 + leanX, 58 + leanY}, {52 + leanX, 58 + leanY}, {50 + leanX, 60 + leanY}}, p.suitBright);
+
+        // Ornate 3-to-5-point faceted Crown
+        emitP({{40 + leanX, 39 + leanY}, {37 + leanX, 24 + leanY - crH}, {45 + leanX, 32 + leanY}, {50 + leanX, 20 + leanY - crH}, {55 + leanX, 32 + leanY}, {63 + leanX, 24 + leanY - crH}, {60 + leanX, 39 + leanY}}, p.goldBright);
+        emitP({{50 + leanX, 20 + leanY - crH}, {55 + leanX, 32 + leanY}, {63 + leanX, 24 + leanY - crH}, {60 + leanX, 39 + leanY}, {50 + leanX, 39 + leanY}}, p.goldShadow);
+        emitP({{40 + leanX, 36 + leanY}, {60 + leanX, 36 + leanY}, {60 + leanX, 39 + leanY}, {40 + leanX, 39 + leanY}}, p.suitBright);
+    } else {
+        // King of Clubs reference: broad royal mantle, heavy 5-pt crown, sculpted beard, scepter
+        // Heavy mantle & shoulder armor
+        emitP({{20, 124}, {21 - shW, 82}, {38, 72}, {50, 124}}, p.navyDark);
+        emitP({{80, 124}, {79 + shW, 82}, {62, 72}, {50, 124}}, p.indigoMid);
+        emitP({{34, 75}, {50, 82}, {66, 75}, {64 + foldJ * 0.5f, 124}, {36 + foldJ * 0.5f, 124}}, p.suitDark);
+        emitP({{50, 82}, {66, 75}, {64 + foldJ * 0.5f, 124}, {50, 124}}, p.suitBright);
+        // Ermine/steel mantle lapels
+        emitP({{32, 76}, {41, 70}, {48, 92}, {41, 96}}, p.offWhite);
+        emitP({{68, 76}, {59, 70}, {52, 92}, {59, 96}}, p.steelLight);
+        emitP({{20, 124}, {26, 92}, {39, 108}, {32, 124}}, p.nearBlack);
+
+        // King face & distinct left/right eye/brow wedges
+        emitP({{40 + leanX, 38 + leanY}, {50 + leanX, 37 + leanY}, {50 + leanX, 58 + leanY}, {40 + leanX, 54 + leanY}}, p.skinLight);
+        emitP({{50 + leanX, 37 + leanY}, {60 + leanX, 39 + leanY}, {59 + leanX, 54 + leanY}, {50 + leanX, 58 + leanY}}, p.skinShadow);
+        emitP({{41 + leanX, 44 + leanY}, {48.5f + leanX, 45 + leanY}, {47.5f + leanX, 48.5f + leanY}, {42 + leanX, 47.5f + leanY}}, p.navyDark);
+        emitP({{51.5f + leanX, 45 + leanY}, {59 + leanX, 44 + leanY}, {58 + leanX, 47.5f + leanY}, {52.5f + leanX, 48.5f + leanY}}, p.nearBlack);
+        emitP({{48 + leanX, 48 + leanY}, {52 + leanX, 48 + leanY}, {51 + leanX, 55 + leanY}, {49 + leanX, 55 + leanY}}, p.skinLight);
+
+        // Sculpted low-poly beard & hair
+        emitP({{37 + leanX, 42 + leanY}, {41 + leanX, 40 + leanY}, {41 + leanX, 60 + leanY}, {36 + leanX, 56 + leanY}}, p.navyDark);
+        emitP({{59 + leanX, 40 + leanY}, {63 + leanX, 42 + leanY}, {64 + leanX, 56 + leanY}, {59 + leanX, 60 + leanY}}, p.nearBlack);
+        emitP({{40 + leanX, 54 + leanY}, {50 + leanX, 57 + leanY}, {50 + leanX, 75 + leanY}, {42 + leanX, 68 + leanY}}, p.indigoMid);
+        emitP({{50 + leanX, 57 + leanY}, {60 + leanX, 54 + leanY}, {58 + leanX, 68 + leanY}, {50 + leanX, 75 + leanY}}, p.navyDark);
+        emitP({{44 + leanX, 56 + leanY}, {56 + leanX, 56 + leanY}, {53 + leanX, 61 + leanY}, {47 + leanX, 61 + leanY}}, p.steelLight);
+
+        // Heavy 5-point faceted Crown
+        emitP({{38 + leanX, 38 + leanY}, {36 + leanX, 23 + leanY - crH}, {43 + leanX, 31 + leanY}, {47 + leanX, 20 + leanY - crH}, {50 + leanX, 28 + leanY}, {53 + leanX, 20 + leanY - crH}, {57 + leanX, 31 + leanY}, {64 + leanX, 23 + leanY - crH}, {62 + leanX, 38 + leanY}}, p.goldBright);
+        emitP({{50 + leanX, 28 + leanY}, {53 + leanX, 20 + leanY - crH}, {57 + leanX, 31 + leanY}, {64 + leanX, 23 + leanY - crH}, {62 + leanX, 38 + leanY}, {50 + leanX, 38 + leanY}}, p.goldShadow);
+        emitP({{38 + leanX, 34 + leanY}, {62 + leanX, 34 + leanY}, {62 + leanX, 38 + leanY}, {38 + leanX, 38 + leanY}}, p.suitBright);
+
+        // Royal scepter / greatsword hilt on right
+        emitP({{71, 44}, {74, 44}, {74, 124}, {71, 124}}, p.goldShadow);
+        emitP({{71, 44}, {72.5f, 44}, {72.5f, 124}, {71, 124}}, p.goldBright);
+        emitP({{72.5f, 34}, {77.5f, 41}, {72.5f, 48}, {67.5f, 41}}, p.suitBright);
+    }
+}
+
+void emitWarPips(VectorImage& img, Suit suit, Rank rank, const LowPolyDeckOptions& opts, std::mt19937& rng) {
+    if (rank == Rank::Ace) {
+        const WarPalette p = makeWarPalette(suit, opts.seed, rng);
+        const float tilt = randRange(rng, -3.0f, 3.0f);
+        // Subtle chamfered diamond medallion behind the Ace pip
+        addPolyShape(img, {
+            {50.0f + tilt, 34.0f}, {74.0f, 70.0f}, {50.0f - tilt, 106.0f}, {26.0f, 70.0f}
+        }, p.windowBg);
+        addPolyShape(img, {
+            {50.0f + tilt, 34.0f}, {74.0f, 70.0f}, {50.0f, 70.0f}
+        }, p.windowBeam);
+        addWarFacetedPip(img, suit, 50.0f, 70.0f, 38.0f, false);
+        return;
+    }
+
+    struct PipPos { float x, y; bool flip; };
+    static const std::vector<PipPos> kLayouts[9] = {
+        {{50, 36, false}, {50, 104, true}},
+        {{50, 34, false}, {50, 70, false}, {50, 106, true}},
+        {{34, 36, false}, {66, 36, false}, {34, 104, true}, {66, 104, true}},
+        {{34, 36, false}, {66, 36, false}, {50, 70, false}, {34, 104, true}, {66, 104, true}},
+        {{34, 34, false}, {66, 34, false}, {34, 70, false}, {66, 70, false}, {34, 106, true}, {66, 106, true}},
+        {{34, 34, false}, {66, 34, false}, {50, 52, false}, {34, 70, false}, {66, 70, false}, {34, 106, true}, {66, 106, true}},
+        {{34, 34, false}, {66, 34, false}, {50, 52, false}, {34, 70, false}, {66, 70, false}, {50, 88, true}, {34, 106, true}, {66, 106, true}},
+        {{34, 30, false}, {66, 30, false}, {34, 56, false}, {66, 56, false}, {50, 70, false}, {34, 84, true}, {66, 84, true}, {34, 110, true}, {66, 110, true}},
+        {{34, 30, false}, {66, 30, false}, {50, 43, false}, {34, 56, false}, {66, 56, false}, {34, 84, true}, {66, 84, true}, {50, 97, true}, {34, 110, true}, {66, 110, true}},
+    };
+    const int lIdx = static_cast<int>(rank) - 2;
+    const float pipSize = (lIdx >= 7) ? 13.5f : 15.5f;
+    for (const auto& pt : kLayouts[lIdx]) {
+        addWarFacetedPip(img, suit, pt.x, pt.y, pipSize, pt.flip);
+    }
+}
+
 VectorImage buildCardFaceVector(Suit suit, Rank rank, const LowPolyDeckOptions& opts, uint32_t cardSeed) {
     VectorImage img{};
     img.width = 100.0f;
     img.height = 140.0f;
 
-    addPlateAndBevel(img, opts.bg);
+    if (opts.style == LowPolyStyle::War) {
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFF4F2E6u);
+        addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, 0xFFE8E4D4u);
+    } else {
+        addPlateAndBevel(img, opts.bg);
+    }
 
     std::mt19937 rng(cardSeed);
-    if (opts.style == LowPolyStyle::Scoundrel) {
+    if (opts.style == LowPolyStyle::War) {
+        if (rank == Rank::Jack || rank == Rank::Queen || rank == Rank::King) {
+            emitWarCourt(img, suit, rank, opts, rng);
+        } else {
+            emitWarPips(img, suit, rank, opts, rng);
+        }
+    } else if (opts.style == LowPolyStyle::Scoundrel) {
         const int rn = rankToInt(rank);
         if (suit == Suit::Diamonds) {
             emitScoundrelWeapon(img, rn, rng);
@@ -1234,6 +1739,34 @@ VectorImage buildCardFaceVector(Suit suit, Rank rank, const LowPolyDeckOptions& 
             emitScoundrelPotion(img, rn, rng);
         } else {
             emitScoundrelMonster(img, suit, rn, rng);
+        }
+    } else if (opts.style == LowPolyStyle::Memory) {
+        const Ramp4 blackRamp{0xFF334155u, 0xFF475569u, 0xFF94A3B8u, 0xFFE2E8F0u};
+        const Ramp4 redRamp{0xFF7F1D1Du, 0xFF9E1B24u, 0xFFC8202Au, 0xFFEF4444u};
+        const Ramp4& suitRamp = (suit == Suit::Hearts || suit == Suit::Diamonds) ? redRamp : blackRamp;
+        const int rn = rankToInt(rank);
+        if (rank == Rank::Ace) {
+            emitTris(img, buildSuitTris(suit, suitRamp), 50.0f, 70.0f, 1.18f);
+        } else if (rank == Rank::Jack || rank == Rank::Queen || rank == Rank::King) {
+            emitClassicCourt(img, suit, rank, rng, opts);
+        } else if (rn == 10) {
+            emitScoundrelMonster(img, suit, 10, rng);
+        } else if (rn == 9) {
+            emitScoundrelWeapon(img, 9, rng);
+        } else if (rn == 8) {
+            emitScoundrelPotion(img, 8, rng);
+        } else if (rn == 7) {
+            emitLowPolyHelmet(img, suit, rng);
+        } else if (rn == 6) {
+            emitLowPolyShield(img, suit, rng);
+        } else if (rn == 5) {
+            emitLowPolyMace(img, suit, rng);
+        } else if (rn == 4) {
+            emitLowPolyBow(img, suit, rng);
+        } else if (rn == 3) {
+            emitLowPolyGauntlet(img, suit, rng);
+        } else {
+            emitLowPolyGem(img, suit, rng);
         }
     } else {
         const bool darkBg = (opts.bg == LowPolyBg::Dark);
@@ -1286,6 +1819,37 @@ VectorImage buildJokerVector(bool red, const LowPolyDeckOptions& opts) {
     img.width = 100.0f;
     img.height = 140.0f;
 
+    if (opts.style == LowPolyStyle::War) {
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFF4F2E6u);
+        addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, 0xFFE8E4D4u);
+        std::mt19937 rng(opts.seed ^ (red ? 0x4A4F4B31u : 0x4A4F4B32u));
+        const WarPalette p = makeWarPalette(red ? Suit::Hearts : Suit::Spades, opts.seed, rng);
+        addWarChamferWindow(img, p, rng);
+
+        const float lean = randRange(rng, -2.0f, 2.0f);
+        // Asymmetric Warlock Jester figure
+        addPolyShape(img, {{20, 124}, {26, 86}, {50, 78}, {50, 124}}, red ? p.suitDark : p.navyDark);
+        addPolyShape(img, {{80, 124}, {74, 86}, {50, 78}, {50, 124}}, red ? p.suitBright : p.indigoMid);
+        // Jagged jester collar
+        addPolyShape(img, {{32, 82}, {40, 72}, {50, 86}, {60, 72}, {68, 82}, {58, 92}, {50, 88}, {42, 92}}, p.goldBright);
+        // Shadow-split face
+        addPolyShape(img, {{41 + lean, 42}, {50 + lean, 40}, {50 + lean, 68}, {42 + lean, 60}}, p.skinLight);
+        addPolyShape(img, {{50 + lean, 40}, {59 + lean, 42}, {58 + lean, 60}, {50 + lean, 68}}, p.nearBlack);
+        // 2-horn jester cap
+        addPolyShape(img, {{39 + lean, 42}, {25, 22}, {46 + lean, 34}, {50 + lean, 40}}, red ? p.suitBright : p.steelLight);
+        addPolyShape(img, {{50 + lean, 40}, {54 + lean, 34}, {75, 22}, {61 + lean, 42}}, p.navyDark);
+        addPolyShape(img, {{25, 22}, {22, 26}, {27, 27}}, p.goldBright);
+        addPolyShape(img, {{75, 22}, {78, 26}, {73, 27}}, p.goldBright);
+
+        const uint32_t starC1 = red ? 0xFF9E1B24u : 0xFF1A1733u;
+        const uint32_t starC2 = red ? 0xFFC8202Au : 0xFF3E445Au;
+        addPolyShape(img, {{11, 8}, {9, 14}, {3, 16}, {9, 18}, {11, 24}}, starC1);
+        addPolyShape(img, {{11, 8}, {13, 14}, {19, 16}, {13, 18}, {11, 24}}, starC2);
+        addPolyShape(img, {{89, 116}, {87, 122}, {81, 124}, {87, 126}, {89, 132}}, starC1);
+        addPolyShape(img, {{89, 116}, {91, 122}, {97, 124}, {91, 126}, {89, 132}}, starC2);
+        return img;
+    }
+
     addPlateAndBevel(img, opts.bg);
 
     const bool darkBg = (opts.bg == LowPolyBg::Dark);
@@ -1317,12 +1881,37 @@ VectorImage buildCardBackVector(const LowPolyDeckOptions& opts) {
     img.width = 100.0f;
     img.height = 140.0f;
 
+    if (opts.style == LowPolyStyle::War) {
+        std::mt19937 rng(opts.seed ^ 0x4241434Bu);
+        const WarPalette p = makeWarPalette(Suit::Hearts, opts.seed, rng);
+        const float tilt = randRange(rng, -4.0f, 4.0f);
+
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, p.nearBlack);
+        addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, p.navyDark);
+        // Chamfered inner slate-purple window
+        addPolyShape(img, {{16, 10}, {90, 10}, {90, 122}, {82, 130}, {10, 130}, {10, 16}}, p.windowBg);
+        // Atmospheric diagonal light beam & monolith silhouette
+        addPolyShape(img, {{34 + tilt, 10}, {72 + tilt, 10}, {46, 130}, {14, 130}}, p.windowBeam);
+        addPolyShape(img, {{50 + tilt * 0.5f, 24}, {26, 70}, {50, 70}}, p.indigoMid);
+        addPolyShape(img, {{50 + tilt * 0.5f, 24}, {74, 70}, {50, 70}}, p.navyDark);
+        addPolyShape(img, {{26, 70}, {50, 70}, {50 - tilt * 0.5f, 116}}, p.steelShadow);
+        addPolyShape(img, {{74, 70}, {50, 70}, {50 - tilt * 0.5f, 116}}, p.nearBlack);
+        // Glowing crimson & gold war-shard core
+        addPolyShape(img, {{50, 44}, {36, 70}, {50, 70}}, p.suitBright);
+        addPolyShape(img, {{50, 44}, {64, 70}, {50, 70}}, p.suitDark);
+        addPolyShape(img, {{36, 70}, {50, 70}, {50, 96}}, p.goldBright);
+        addPolyShape(img, {{64, 70}, {50, 70}, {50, 96}}, p.goldShadow);
+        addStrokeRectShape(img, 6.0f, 6.3f, 88.0f, 127.4f, p.steelShadow, 0.65f);
+        return img;
+    }
+
     const bool isWarmGem = (opts.style == LowPolyStyle::Scoundrel || opts.style == LowPolyStyle::Clockwork);
+    const bool isMemoryGem = (opts.style == LowPolyStyle::Memory);
     const bool isMobile = (opts.style == LowPolyStyle::Mobile);
-    const uint32_t gemBright = isWarmGem ? 0xFFFBBF24u : (isMobile ? 0xFFEF4444u : 0xFF38BDF8u);
-    const uint32_t gemMid    = isWarmGem ? 0xFFD97706u : (isMobile ? 0xFFC8202Au : 0xFF0284C7u);
-    const uint32_t gemLight  = isWarmGem ? 0xFFFDE68Au : (isMobile ? 0xFFFCA5A5u : 0xFF7DD3FCu);
-    const uint32_t gemDark   = isWarmGem ? 0xFF92400Eu : (isMobile ? 0xFF7F1D1Du : 0xFF0369A1u);
+    const uint32_t gemBright = isMemoryGem ? 0xFF34D399u : (isWarmGem ? 0xFFFBBF24u : (isMobile ? 0xFFEF4444u : 0xFF38BDF8u));
+    const uint32_t gemMid    = isMemoryGem ? 0xFF059669u : (isWarmGem ? 0xFFD97706u : (isMobile ? 0xFFC8202Au : 0xFF0284C7u));
+    const uint32_t gemLight  = isMemoryGem ? 0xFFA7F3D0u : (isWarmGem ? 0xFFFDE68Au : (isMobile ? 0xFFFCA5A5u : 0xFF7DD3FCu));
+    const uint32_t gemDark   = isMemoryGem ? 0xFF065F46u : (isWarmGem ? 0xFF92400Eu : (isMobile ? 0xFF7F1D1Du : 0xFF0369A1u));
 
     addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFF1E2430u);
     addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, 0xFF171C26u);

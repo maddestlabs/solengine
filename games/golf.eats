@@ -1,74 +1,173 @@
 # =============================================================================
-# SolEngine Game Variant: Golf Solitaire (.eats)
+# SolEngine Game Family: Golf (.eats)
+# Consolidated variants: Golf, TriPeaks, Clockwork Dial
 # =============================================================================
-# Fast-paced waste-elimination solitaire with adjacent-rank stacking rules.
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(1, "Fast", 4, "High Luck", 2, "Casual")
-doc_aliases(["Golf Patience"])
-doc_goal("Clear all 7 tableau columns onto the Foundation.", "No playable cards remain and Stock is empty.")
-doc_zone(0, "Stock", "Remaining face-down cards. Click to deal a new card onto the Foundation.", [], ["Deals 1 card directly to the [[Foundation]]."])
-doc_zone(1, "Foundation", "Build +-1 in rank regardless of suit. Kings are dead ends.", ["5H", "6S", "5D"])
-doc_zone(2, "Tableau Columns (1-7)", "Click or drag exposed top cards that are +-1 rank from the Foundation.", ["7C", "4D"])
+# --- Shared Parameterized Golf Rules ---
 
-def eval_heuristic():
+def golf_eval(t_start, t_end, total_cards, stock_z):
     rem = 0
-    z = 2
-    while z <= 8:
+    z = t_start
+    while z <= t_end:
         rem = rem + zone_size(z)
         z = z + 1
-    return (35 - rem) * 100 + zone_size(0) * 10
+    return (total_cards - rem) * 100 + zone_size(stock_z) * 10
 
-def on_deal():
-    if zone_size(1) == 0 and zone_size(0) > 0:
-        top = zone_size(0) - 1
-        move_cards(0, top, 1)
-        flip_card(1, 0, True)
+def golf_on_deal(stock_z, found_z):
+    if zone_size(found_z) == 0 and zone_size(stock_z) > 0:
+        top = zone_size(stock_z) - 1
+        move_cards(stock_z, top, found_z)
+        flip_card(found_z, 0, True)
     return True
 
-def can_pick(z, i):
+def golf_can_pick(t_start, t_end, check_face_up, check_blocked, z, i):
     sz = zone_size(z)
-    return z >= 2 and z <= 8 and sz > 0 and i == sz - 1
+    if z < t_start or z > t_end or sz == 0 or i != sz - 1:
+        return False
+    if check_face_up and not card_face_up(z, i):
+        return False
+    if check_blocked and is_card_blocked(z, i):
+        return False
+    return True
 
-def can_drop(from_z, i, to_z):
-    if to_z != 1 or from_z < 2 or from_z > 8:
+def golf_can_drop(t_start, t_end, found_z, wrap_king_ace, allow_on_king, check_face_up, check_blocked, from_z, i, to_z):
+    if to_z != found_z or from_z < t_start or from_z > t_end:
         return False
-    sz = zone_size(from_z)
-    if sz == 0 or i != sz - 1:
+    if not golf_can_pick(t_start, t_end, check_face_up, check_blocked, from_z, i):
         return False
-    fsz = zone_size(1)
+    fsz = zone_size(found_z)
     if fsz == 0:
         return True
-    fr = card_rank(1, fsz - 1)
-    if fr == 13:
+    fr = card_rank(found_z, fsz - 1)
+    if not allow_on_king and fr == 13:
         return False
     mr = card_rank(from_z, i)
-    return mr == fr + 1 or mr == fr - 1
+    if mr == fr + 1 or mr == fr - 1:
+        return True
+    if wrap_king_ace and ((fr == 13 and mr == 1) or (fr == 1 and mr == 13)):
+        return True
+    return False
 
-def on_card_click(z, i):
-    if not can_drop(z, i, 1):
+def golf_on_stock(stock_z, found_z):
+    if zone_size(stock_z) == 0:
         return False
-    move_cards(z, i, 1)
-    add_score(10)
+    top = zone_size(stock_z) - 1
+    move_cards(stock_z, top, found_z)
+    flip_card(found_z, zone_size(found_z) - 1, True)
     return True
 
-def on_stock_click():
-    if zone_size(0) == 0:
-        return False
-    top = zone_size(0) - 1
-    move_cards(0, top, 1)
-    flip_card(1, zone_size(1) - 1, True)
-    return True
-
-def get_status():
+def golf_status(t_start, t_end):
     rem = 0
-    z = 2
-    while z <= 8:
+    z = t_start
+    while z <= t_end:
         rem = rem + zone_size(z)
         z = z + 1
     if rem == 0:
         return "victory"
     return "playing"
+
+# --- Golf (7-Column Classic) Bindings ---
+def g_eval():
+    return golf_eval(2, 8, 35, 0)
+
+def g_deal():
+    return golf_on_deal(0, 1)
+
+def g_pick(z, i):
+    return golf_can_pick(2, 8, False, False, z, i)
+
+def g_drop(from_z, i, to_z):
+    return golf_can_drop(2, 8, 1, False, False, False, False, from_z, i, to_z)
+
+def g_click(z, i):
+    if not g_drop(z, i, 1):
+        return False
+    move_cards(z, i, 1)
+    add_score(10)
+    return True
+
+def g_stock():
+    return golf_on_stock(0, 1)
+
+def g_status():
+    return golf_status(2, 8)
+
+# --- TriPeaks Bindings ---
+def tp_eval():
+    return golf_eval(2, 29, 28, 0)
+
+def tp_deal():
+    return golf_on_deal(0, 1)
+
+def tp_pick(z, i):
+    return golf_can_pick(2, 29, True, True, z, i)
+
+def tp_drop(from_z, i, to_z):
+    return golf_can_drop(2, 29, 1, True, True, True, True, from_z, i, to_z)
+
+def tp_click(z, i):
+    if not tp_drop(z, i, 1):
+        return False
+    move_cards(z, i, 1)
+    add_score(10)
+    return True
+
+def tp_stock():
+    return golf_on_stock(0, 1)
+
+def tp_turn_end():
+    z = 2
+    while z <= 29:
+        sz = zone_size(z)
+        if sz > 0 and not card_face_up(z, sz - 1) and not is_card_blocked(z, sz - 1):
+            flip_card(z, sz - 1, True)
+        z = z + 1
+    return True
+
+def tp_status():
+    return golf_status(2, 29)
+
+# --- Clockwork Dial Bindings ---
+def cd_eval():
+    rem = 0
+    z = 0
+    while z <= 11:
+        rem = rem + zone_size(z)
+        z = z + 1
+    return (36 - rem) * 100 + zone_size(13) * 15
+
+def cd_deal():
+    return golf_on_deal(13, 12)
+
+def cd_pick(z, i):
+    return golf_can_pick(0, 11, True, False, z, i)
+
+def cd_drop(from_z, i, to_z):
+    return golf_can_drop(0, 11, 12, True, True, True, False, from_z, i, to_z)
+
+def cd_click(z, i):
+    if not cd_drop(z, i, 12):
+        return False
+    move_cards(z, i, 12)
+    add_score(10)
+    return True
+
+def cd_stock():
+    return golf_on_stock(13, 12)
+
+def cd_turn_end():
+    z = 0
+    while z <= 11:
+        sz = zone_size(z)
+        if sz > 0 and not card_face_up(z, sz - 1):
+            flip_card(z, sz - 1, True)
+        z = z + 1
+    return True
+
+def cd_status():
+    return golf_status(0, 11)
+
+# --- Variant Definitions ---
 
 sol.define_game({
     id: "golf",
@@ -89,11 +188,99 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 16,
     demo_seeds: [16, 28, 40, 44, 45, 82, 141, 145],
-    eval_heuristic: eval_heuristic,
-    on_deal: on_deal,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    on_card_click: on_card_click,
-    on_stock_click: on_stock_click,
-    get_status: get_status
+    eval_heuristic: g_eval,
+    on_deal: g_deal,
+    can_pick: g_pick,
+    can_drop: g_drop,
+    on_card_click: g_click,
+    on_stock_click: g_stock,
+    get_status: g_status,
+    doc: {
+        meta: [1, "Fast", 4, "High Luck", 2, "Casual"],
+        aliases: ["Golf Patience"],
+        goal: ["Clear all 7 tableau columns onto the Foundation.", "No playable cards remain and Stock is empty."],
+        zones: [
+            { index: 0, name: "Stock", desc: "Remaining face-down cards. Click to deal a new card onto the Foundation." },
+            { index: 1, name: "Foundation", desc: "Build +-1 in rank regardless of suit. Kings are dead ends.", examples: ["5H", "6S", "5D"] },
+            { index: 2, name: "Tableau Columns (1-7)", desc: "Click or drag exposed top cards that are +-1 rank from the Foundation.", examples: ["7C", "4D"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "tri_peaks",
+    name: "TriPeaks",
+    family: "Golf",
+    category: "GOLF",
+    layout: "tripeaks",
+    description: "Fast-paced peak elimination. Stack cards +-1 rank onto foundation waste; King-Ace wrapping allowed.",
+    decks: 1,
+    tableaus: 28,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: False,
+    foundation_starter_card: True,
+    stock_deal_mode: "deal_to_foundation",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 1,
+    demo_seeds: [1, 9, 13, 21, 25, 29, 33, 2026],
+    eval_heuristic: tp_eval,
+    on_deal: tp_deal,
+    can_pick: tp_pick,
+    can_drop: tp_drop,
+    on_card_click: tp_click,
+    on_stock_click: tp_stock,
+    on_turn_end: tp_turn_end,
+    get_status: tp_status,
+    doc: {
+        meta: [1, "Fast", 4, "High Luck", 2, "Casual"],
+        aliases: ["Three Peaks", "Tri Towers"],
+        goal: ["Clear all 28 cards from the 3 overlapping peaks onto the Foundation.", "No playable cards remain and Stock is empty."],
+        zones: [
+            { index: 0, name: "Stock", desc: "Remaining face-down cards. Click to deal a new card onto the Foundation." },
+            { index: 1, name: "Foundation", desc: "Build +-1 in rank regardless of suit, wrapping King <-> Ace.", examples: ["KH", "AS", "2D"] },
+            { index: 2, name: "Three Peaks (28 Cards)", desc: "Click or drag uncovered cards that are +-1 rank from the Foundation." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "clockwork_dial",
+    name: "Clockwork Dial",
+    family: "Golf",
+    category: "GOLF",
+    layout: "radial_clock",
+    description: "12 radial clock spokes fanning outward around a central dial. Play +-1 rank onto the center Foundation.",
+    decks: 1,
+    tableaus: 12,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+    tableau_all_face_up: False,
+    foundation_starter_card: True,
+    stock_deal_mode: "deal_to_foundation",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 2026,
+    demo_seeds: [1, 7, 13, 21, 2026],
+    eval_heuristic: cd_eval,
+    on_deal: cd_deal,
+    can_pick: cd_pick,
+    can_drop: cd_drop,
+    on_card_click: cd_click,
+    on_stock_click: cd_stock,
+    on_turn_end: cd_turn_end,
+    get_status: cd_status,
+    doc: {
+        meta: [2, "Quick", 3, "Balanced", 2, "Casual"],
+        aliases: ["Radial Clock", "Sun Dial", "Watch"],
+        goal: ["Clear all 12 radial clock spokes onto the center Foundation.", "No playable cards remain on the dial and the center Stock is empty."],
+        zones: [
+            { index: 0, name: "Clock Spokes (1-12)", desc: "12 radial piles fanning outward. Play exposed top cards +-1 rank (wrapping K <-> A) to the center Foundation." },
+            { index: 12, name: "Center Foundation", desc: "Build +-1 in rank regardless of suit.", examples: ["KH", "AS", "2D"] },
+            { index: 13, name: "Center Stock", desc: "Click to deal a fresh card onto the center Foundation." }
+        ]
+    }
 })

@@ -197,7 +197,7 @@ void GameRegistry::registerBuiltins() {
 
     // 11. TriPeaks
     SolitaireGameDef tp{};
-    tp.id = "tripeaks";
+    tp.id = "tri_peaks";
     tp.name = "TriPeaks";
     tp.family = "Golf";
     tp.category = "GOLF";
@@ -518,7 +518,16 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.decks = static_cast<uint8_t>(kv.count("decks") ? std::clamp(std::stoi(kv["decks"]), 1, 4) : 1);
         outDef.excludeRedRoyals = kv.count("exclude_red_royals") && (kv["exclude_red_royals"] == "True" || kv["exclude_red_royals"] == "true" || kv["exclude_red_royals"] == "1");
         outDef.deckCards = static_cast<uint16_t>(kv.count("deck_cards") ? std::clamp(std::stoi(kv["deck_cards"]), 0, 416) : (outDef.excludeRedRoyals ? outDef.decks * 44 : 0));
-        outDef.tableaus = static_cast<uint8_t>(kv.count("tableaus") ? std::clamp(std::stoi(kv["tableaus"]), 1, 32) : 7);
+        outDef.suitCount = static_cast<uint8_t>(kv.count("suit_count") ? std::clamp(std::stoi(kv["suit_count"]), 1, 4) : 4);
+        outDef.jokers = static_cast<uint8_t>(kv.count("jokers") ? std::clamp(std::stoi(kv["jokers"]), 0, 2) : 0);
+        outDef.gridCols = static_cast<uint8_t>(kv.count("grid_cols") ? std::clamp(std::stoi(kv["grid_cols"]), 0, 20) : 0);
+        if (kv.count("supports_solver")) {
+            outDef.supportsSolver = (kv["supports_solver"] == "True" || kv["supports_solver"] == "true" || kv["supports_solver"] == "1");
+        }
+        if (kv.count("allow_undo")) {
+            outDef.allowUndo = (kv["allow_undo"] == "True" || kv["allow_undo"] == "true" || kv["allow_undo"] == "1");
+        }
+        outDef.tableaus = static_cast<uint8_t>(kv.count("tableaus") ? std::clamp(std::stoi(kv["tableaus"]), 1, 104) : 7);
         outDef.foundations = static_cast<uint8_t>(kv.count("foundations") ? std::clamp(std::stoi(kv["foundations"]), 1, 8) : 4);
         outDef.freecells = static_cast<uint8_t>(kv.count("freecells") ? std::clamp(std::stoi(kv["freecells"]), 0, 8) : 0);
         outDef.tableauAllFaceUp = kv.count("tableau_all_face_up") && (kv["tableau_all_face_up"] == "True" || kv["tableau_all_face_up"] == "true" || kv["tableau_all_face_up"] == "1");
@@ -569,7 +578,25 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.decks = static_cast<uint8_t>(std::clamp(ev.getVariable("decks").asInt(1), 1, 4));
         outDef.excludeRedRoyals = ev.getVariable("exclude_red_royals").asBoolean(false);
         outDef.deckCards = static_cast<uint16_t>(std::clamp(ev.getVariable("deck_cards").asInt(outDef.excludeRedRoyals ? outDef.decks * 44 : 0), 0, 416));
-        outDef.tableaus = static_cast<uint8_t>(std::clamp(ev.getVariable("tableaus").asInt(7), 1, 32));
+        outDef.suitCount = static_cast<uint8_t>(std::clamp(ev.getVariable("suit_count").asInt(4), 1, 4));
+        outDef.jokers = static_cast<uint8_t>(std::clamp(ev.getVariable("jokers").asInt(0), 0, 2));
+        outDef.gridCols = static_cast<uint8_t>(std::clamp(ev.getVariable("grid_cols").asInt(0), 0, 20));
+        if (ev.hasVariable("supports_solver")) {
+            outDef.supportsSolver = ev.getVariable("supports_solver").asBoolean(true);
+        }
+        if (ev.hasVariable("allow_undo")) {
+            outDef.allowUndo = ev.getVariable("allow_undo").asBoolean(true);
+        }
+        if (ev.hasVariable("exclude_ranks")) {
+            auto er = ev.getVariable("exclude_ranks");
+            if (er.isList()) {
+                for (const auto& v : er.listVal) {
+                    int r = v.asInt(0);
+                    if (r >= 1 && r <= 13) outDef.excludeRanks.push_back(static_cast<uint8_t>(r));
+                }
+            }
+        }
+        outDef.tableaus = static_cast<uint8_t>(std::clamp(ev.getVariable("tableaus").asInt(7), 1, 104));
         outDef.foundations = static_cast<uint8_t>(std::clamp(ev.getVariable("foundations").asInt(4), 1, 8));
         outDef.freecells = static_cast<uint8_t>(std::clamp(ev.getVariable("freecells").asInt(0), 0, 8));
 
@@ -679,6 +706,9 @@ void GameRegistry::registerGame(const SolitaireGameDef& def) {
     }
     for (auto& g : games_) {
         if ((!entry.id.empty() && g.id == entry.id) || (entry.id.empty() && g.name == entry.name)) {
+            if (entry.nativeVariant == GameVariant::CustomScript && g.nativeVariant != GameVariant::CustomScript) {
+                entry.nativeVariant = g.nativeVariant;
+            }
             g = entry;
             return;
         }

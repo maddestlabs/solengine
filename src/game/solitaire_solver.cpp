@@ -2051,6 +2051,7 @@ bool SolitaireSolver::isDealSolvable(uint32_t seed, GameVariant variant, float t
 }
 
 bool SolitaireSolver::isDealSolvable(uint32_t seed, const SolitaireGameDef& def, float timeoutMs, std::atomic<bool>* cancelSignal) {
+    if (!def.supportsSolver) return true;
     SolitaireBoard testBoard;
     testBoard.newDeal(seed, def);
     SolveResult res = solve(testBoard, 15000, timeoutMs, cancelSignal);

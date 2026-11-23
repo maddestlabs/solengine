@@ -94,6 +94,25 @@ void Evaluator::registerBuiltins() {
     registerFunction("tanh", [](const auto& args, const auto&) {
         return Value(std::tanh(args.empty() ? 0.0 : args[0].asNumber()));
     });
+    registerFunction("abs", [](const auto& args, const auto&) {
+        return Value(std::abs(args.empty() ? 0.0 : args[0].asNumber()));
+    });
+    registerFunction("min", [](const auto& args, const auto&) {
+        if (args.empty()) return Value(0.0);
+        double m = args[0].asNumber();
+        for (size_t i = 1; i < args.size(); ++i) m = std::min(m, args[i].asNumber());
+        return Value(m);
+    });
+    registerFunction("max", [](const auto& args, const auto&) {
+        if (args.empty()) return Value(0.0);
+        double m = args[0].asNumber();
+        for (size_t i = 1; i < args.size(); ++i) m = std::max(m, args[i].asNumber());
+        return Value(m);
+    });
+    registerFunction("clamp", [](const auto& args, const auto&) {
+        if (args.size() < 3) return Value(args.empty() ? 0.0 : args[0].asNumber());
+        return Value(std::clamp(args[0].asNumber(), args[1].asNumber(), args[2].asNumber()));
+    });
 
     // eat.param(...) constructor
     auto eatParamFn = [](const std::vector<Value>& args, const std::map<std::string, Value>& kwargs) -> Value {

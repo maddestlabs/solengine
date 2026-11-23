@@ -371,15 +371,10 @@ void AudioFoleyEngine::applyPreset(const std::string& presetName) {
     } else if (lower == "glass" || lower == "crystal") {
         loadFromEatsFile("sounds/glass_crystal.eats");
         return;
-    } else if (lower == "place" || lower == "authentic_place") {
-        loadFromEatsFile("sounds/authentic_place.eats");
-        return;
     } else if (lower == "plastic" || lower == "copag" || lower == "copag_plastic") {
-        p = {5800.0f, 1.25f, 7.5f, 0.00011f, 11500.0f, 4400.0f};
+        p = {6000.0f, 1.40f, 9.0f, 0.00009f, 13500.0f, 4800.0f};
     } else if (lower == "bicycle" || lower == "vintage_bicycle" || lower == "paper") {
-        p = {2600.0f, 0.95f, 6.0f, 0.00022f, 6800.0f, 2900.0f};
-    } else if (lower == "linen" || lower == "vegas_linen" || lower == "bee") {
-        p = {4800.0f, 1.10f, 4.0f, 0.00015f, 8200.0f, 3600.0f, 0.0f, 1.5f, 0.30f};
+        p = {2200.0f, 0.70f, -1.5f, 0.00026f, 4800.0f, 2350.0f};
     } else if (lower == "futuristic" || lower == "cyberdeck" || lower == "scifi") {
         p = {4800.0f, 1.15f, 8.5f, 0.00035f, 12500.0f, 4200.0f, 0.00055f, 1.8f, 0.38f};
     }
@@ -524,10 +519,15 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         v.velvetPlaybackRate = std::clamp(v.pitchMod * (1.0f + nextNoise() * 0.06f * varScale), 0.80f, 1.25f);
         v.continuousIdx = static_cast<float>(nextRng() % kNoiseBufferSize);
 
-        float mainFreq = std::clamp(5050.0f * v.pitchMod * (1.0f + nextNoise() * 0.03f * varScale), 3600.0f, 6800.0f);
-        float airFreq  = std::clamp(6650.0f * v.pitchMod * (1.0f + nextNoise() * 0.04f * varScale), 4800.0f, 9200.0f);
-        float snapFreq = std::clamp(3450.0f * v.pitchMod * (1.0f + nextNoise() * 0.04f * varScale), 2400.0f, 4800.0f);
-        float bodyFreq = std::clamp(950.0f  * v.pitchMod * (1.0f + nextNoise() * 0.06f * varScale), 600.0f, 1450.0f);
+        const float rigidityRatio = std::clamp(pp.cardRigidityFreq / 3200.0f, 0.55f, 1.85f);
+        const float dampingRatio  = std::clamp(pp.feltDampingCutoff / 7500.0f, 0.45f, 1.85f);
+        const float edgeRatio     = std::clamp(pp.edgeSnapCrispness / 0.90f, 0.40f, 1.85f);
+        const float tapFreqScale  = v.pitchMod * (0.35f + 0.65f * rigidityRatio);
+
+        float mainFreq = std::clamp(5050.0f * tapFreqScale * (1.0f + nextNoise() * 0.03f * varScale), 2600.0f, 9200.0f);
+        float airFreq  = std::clamp(6650.0f * tapFreqScale * (0.60f + 0.40f * dampingRatio) * (1.0f + nextNoise() * 0.04f * varScale), 3400.0f, 12500.0f);
+        float snapFreq = std::clamp(3450.0f * tapFreqScale * (1.0f + nextNoise() * 0.04f * varScale), 1800.0f, 6400.0f);
+        float bodyFreq = std::clamp(950.0f  * tapFreqScale * (1.0f + nextNoise() * 0.06f * varScale), 520.0f, 1750.0f);
         float feltCutoff = pp.feltDampingCutoff * (1.0f + nextNoise() * 0.06f * varScale);
 
         v.biquad1.c = makeBandpass(mainFreq, 2.2f, sr);
@@ -537,9 +537,9 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         v.biquad5.c = makeLowpass(feltCutoff, 0.707f, sr);
 
         v.tapBounceDelaySec = std::clamp((0.0023f + nextNoise() * 0.0005f * varScale) * v.tapLengthScale, 0.0015f, 0.0040f);
-        v.tapBounceGain = std::clamp(0.22f + nextNoise() * 0.06f * varScale, 0.10f, 0.34f);
-        v.tapBodyGain = std::clamp(0.24f + nextNoise() * 0.05f * varScale, 0.14f, 0.36f);
-        v.tapThumpGain = std::clamp(0.14f + nextNoise() * 0.03f * varScale, 0.08f, 0.20f);
+        v.tapBounceGain = std::clamp((0.22f + nextNoise() * 0.06f * varScale) * (0.55f + 0.45f * edgeRatio), 0.08f, 0.44f);
+        v.tapBodyGain = std::clamp((0.24f + nextNoise() * 0.05f * varScale) * std::clamp(1.22f - 0.22f * rigidityRatio, 0.65f, 1.40f), 0.10f, 0.42f);
+        v.tapThumpGain = std::clamp((0.14f + nextNoise() * 0.03f * varScale) * std::clamp(1.25f - 0.25f * rigidityRatio, 0.55f, 1.45f), 0.05f, 0.24f);
 
         v.dropFreq = (74.0f + nextNoise() * 5.0f * varScale) * v.pitchMod;
         float targetThumpFreq = (54.0f + nextNoise() * 3.0f * varScale) * v.pitchMod;
@@ -570,14 +570,17 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         float airBoost = (pp.airBoostDb * 0.45f) + nextNoise() * 0.4f * varScale;
 
         if (isDealSwell) {
-            // High-pass out low-end/boxy mud (<1.5kHz) and open up high-frequency cellulose shimmer (3kHz - 14kHz)
-            float dealHpFreq = std::clamp((1550.0f + nextNoise() * 380.0f * varScale) * freqScale, 1100.0f, 2800.0f);
-            float shelfFreq = std::clamp(6800.0f * freqScale, 5200.0f, 9600.0f);
-            float flexFreq = std::clamp((pp.cardRigidityFreq * 1.35f) * freqScale * (1.0f + nextNoise() * 0.14f * varScale), 2800.0f, 7800.0f);
+            const float rigidityRatio = std::clamp(pp.cardRigidityFreq / 3200.0f, 0.55f, 1.85f);
+            const float dampingRatio  = std::clamp(pp.feltDampingCutoff / 7500.0f, 0.45f, 1.85f);
+
+            // High-pass out low-end/boxy mud scaled by card rigidity, and shape cellulose shimmer by felt damping
+            float dealHpFreq = std::clamp((1550.0f + nextNoise() * 380.0f * varScale) * freqScale * (0.45f + 0.55f * rigidityRatio), 850.0f, 3400.0f);
+            float shelfFreq = std::clamp(6800.0f * freqScale * (0.65f + 0.35f * dampingRatio), 4200.0f, 11500.0f);
+            float flexFreq = std::clamp((pp.cardRigidityFreq * 1.35f) * freqScale * (1.0f + nextNoise() * 0.14f * varScale), 2400.0f, 8400.0f);
             float flexQ = 1.8f + std::abs(nextNoise()) * 0.9f * varScale;
 
             // Subtle randomized low-pass sweep across the upper cellulose shimmer (up or down) for human nuance
-            float dealLpStart = std::clamp((10200.0f + nextNoise() * 1400.0f * varScale) * freqScale, 6800.0f, 14500.0f);
+            float dealLpStart = std::clamp((10200.0f + nextNoise() * 1400.0f * varScale) * freqScale * dampingRatio, 4600.0f, 17500.0f);
             float sweepRand = (nextNoise() + nextNoise()) * 0.5f; // Triangular distribution peaked around 0
             float sweepRatio = std::clamp(1.0f + sweepRand * 0.48f * varScale, 0.55f, 1.65f);
             float dealLpEnd = std::clamp(dealLpStart * sweepRatio, 4800.0f, 18000.0f);
@@ -703,14 +706,14 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
         v.dropSlapGain = 1.32f - 0.42f * tilt;
         v.dropKnockGain = lightDealTouch
             ? (0.14f * (1.0f + nextNoise() * 0.12f * varScale))
-            : std::clamp(0.45f * (1.0f + nextNoise() * 0.22f * varScale), 0.28f, 0.62f);
+            : std::clamp(0.45f * (1.0f + nextNoise() * 0.22f * varScale) * std::clamp(1.18f - 0.18f * rigidityRatio, 0.70f, 1.35f), 0.24f, 0.72f);
         v.dropThudGain = lightDealTouch
             ? 0.0f
-            : std::clamp(0.16f * (1.0f + nextNoise() * 0.25f * varScale), 0.09f, 0.24f);
+            : std::clamp(0.16f * (1.0f + nextNoise() * 0.25f * varScale) * std::clamp(1.25f - 0.25f * rigidityRatio, 0.55f, 1.45f), 0.06f, 0.28f);
 
         // Filter 1: Main card face air slap bandpass
         float slapFreq = lightDealTouch
-            ? std::clamp(5200.0f * freqScale * (1.0f + nextNoise() * 0.12f * varScale), 3800.0f, 7500.0f)
+            ? std::clamp(5200.0f * freqScale * (0.45f + 0.55f * rigidityRatio) * (1.0f + nextNoise() * 0.12f * varScale), 2800.0f, 9200.0f)
             : std::clamp(4150.0f * freqScale * rigidityRatio * (0.60f + 0.40f * dampingRatio) * (1.0f + nextNoise() * 0.10f * varScale), 2000.0f, 8200.0f);
         float slapQ = lightDealTouch
             ? (1.45f * (1.0f + nextNoise() * 0.08f * varScale))
@@ -719,7 +722,7 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
 
         // Filter 2: Leading edge touch tick bandpass
         float edgeFreq = lightDealTouch
-            ? std::clamp(7400.0f * freqScale * (1.0f + nextNoise() * 0.12f * varScale), 5500.0f, 10500.0f)
+            ? std::clamp(7400.0f * freqScale * (0.45f + 0.55f * rigidityRatio) * (1.0f + nextNoise() * 0.12f * varScale), 4000.0f, 12500.0f)
             : std::clamp(6100.0f * freqScale * rigidityRatio * (0.55f + 0.45f * dampingRatio) * (1.0f + nextNoise() * 0.10f * varScale), 3000.0f, 11500.0f);
         float edgeQ = lightDealTouch
             ? (1.9f * (1.0f + nextNoise() * 0.08f * varScale))
@@ -728,7 +731,7 @@ void AudioFoleyEngine::handleTrigger(uint16_t soundId, float intensity, float pa
 
         // Filter 3: Card body acoustic knock bandpass
         float knockFreq = lightDealTouch
-            ? std::clamp(3300.0f * freqScale * (1.0f + nextNoise() * 0.10f * varScale), 2400.0f, 4600.0f)
+            ? std::clamp(3300.0f * freqScale * (0.45f + 0.55f * rigidityRatio) * (1.0f + nextNoise() * 0.10f * varScale), 1800.0f, 5600.0f)
             : std::clamp(2450.0f * freqScale * rigidityRatio * (1.0f + nextNoise() * 0.12f * varScale), 1300.0f, 4800.0f);
         float knockQ = lightDealTouch
             ? (1.8f * (1.0f + nextNoise() * 0.08f * varScale))
@@ -2122,11 +2125,9 @@ bool AudioFoleyEngine::loadFromEatsScript(const std::string& script) {
                 loadFromEatsFile("sounds/glass_crystal.eats");
                 return eatsbits::eatscript::Value(true);
             } else if (lower == "plastic" || lower == "copag" || lower == "copag_plastic") {
-                p = {5800.0f, 1.25f, 7.5f, 0.00011f, 11500.0f, 4400.0f, 0.0f, 1.5f, 0.30f};
+                p = {6000.0f, 1.40f, 9.0f, 0.00009f, 13500.0f, 4800.0f, 0.0f, 1.5f, 0.30f};
             } else if (lower == "bicycle" || lower == "vintage_bicycle" || lower == "paper") {
-                p = {2600.0f, 0.95f, 6.0f, 0.00022f, 6800.0f, 2900.0f, 0.0f, 1.5f, 0.30f};
-            } else if (lower == "linen" || lower == "vegas_linen" || lower == "bee") {
-                p = {4800.0f, 1.10f, 4.0f, 0.00015f, 8200.0f, 3600.0f, 0.0f, 1.5f, 0.30f};
+                p = {2200.0f, 0.70f, -1.5f, 0.00026f, 4800.0f, 2350.0f, 0.0f, 1.5f, 0.30f};
             } else if (lower == "futuristic" || lower == "cyberdeck" || lower == "scifi") {
                 p = {4800.0f, 1.15f, 8.5f, 0.00035f, 12500.0f, 4200.0f, 0.00055f, 1.8f, 0.38f};
             }
@@ -2421,10 +2422,8 @@ void AudioFoleyEngine::scanSoundPacks(const std::string& dir) {
     auto& packs = soundPackRegistryStorage();
     const std::vector<std::pair<std::string, std::string>> builtins = {
         {"default", "Default"},
-        {"authentic_place", "Authentic"},
         {"copag_plastic", "Copag"},
         {"vintage_bicycle", "Bicycle"},
-        {"vegas_linen", "Linen"},
         {"bass_heavy", "Bass"},
         {"glass_crystal", "Crystal"},
         {"futuristic", "Futuristic"},
@@ -2721,8 +2720,9 @@ void AudioFoleyEngine::mixAmbience(float* outInterleavedStereo, uint32_t frameCo
                                 float totalSamples = std::max(1.0f, g.durationSec * sampleRate);
                                 g.freqMult = std::pow(endFreq / std::max(40.0f, g.freq), 1.0f / totalSamples);
                                 g.chirpModPhase = 0.0f;
-                                g.chirpModRate = 14.0f + 16.0f * rand01();
-                                g.chirpModDepth = g.isChirp ? 0.14f : 0.0f;
+                                const bool isLowNocturnalCall = g.isChirp && (g.freq < 700.0f);
+                                g.chirpModRate = isLowNocturnalCall ? (3.5f + 2.5f * rand01()) : (14.0f + 16.0f * rand01());
+                                g.chirpModDepth = g.isChirp ? (isLowNocturnalCall ? 0.012f : 0.14f) : 0.0f;
 
                                 float pan = (rand01() * 2.0f - 1.0f) * layer.stereoSpread;
                                 float amp = layer.gain * (0.55f + 0.45f * rand01());
@@ -2763,8 +2763,14 @@ void AudioFoleyEngine::mixAmbience(float* outInterleavedStereo, uint32_t frameCo
                 float grainEnv = 1.0f;
                 if (g.isChirp) {
                     float tNorm = g.ageSec / g.durationSec;
-                    // Smooth bell/2-syllable woodland chirp envelope
-                    grainEnv = std::sin(kPi * tNorm) * (0.65f + 0.35f * std::sin(kTwoPi * 2.0f * tNorm));
+                    if (g.chirpModDepth < 0.05f) {
+                        // Soft distant owl hoot: gentle "hoo... hoooo" swell with zero harsh attack
+                        float breathDip = 1.0f - 0.55f * std::exp(-std::pow((tNorm - 0.28f) / 0.075f, 2.0f));
+                        grainEnv = std::sin(kPi * tNorm) * breathDip;
+                    } else {
+                        // Smooth bell/2-syllable woodland chirp envelope
+                        grainEnv = std::sin(kPi * tNorm) * (0.65f + 0.35f * std::sin(kTwoPi * 2.0f * tNorm));
+                    }
                 } else {
                     float att = std::min(1.0f, g.ageSec / 0.0025f);
                     grainEnv = att * std::exp(-g.ageSec * g.decayRate);

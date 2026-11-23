@@ -181,6 +181,30 @@ private:
     uint32_t rng_{0x9E3779B9u};
 };
 
+struct VictoryGatherCard {
+    Card card;
+    float startX{0.0f};
+    float startY{0.0f};
+    float startZ{0.0f};
+    float startYaw{0.0f};
+    float startPitch{0.0f};
+    float startRoll{0.0f};
+    float startW{0.0f};
+    float startH{0.0f};
+    float delaySec{0.0f};
+};
+
+struct VictoryGatherState {
+    bool active{false};
+    float elapsedSec{0.0f};
+    float durationSec{0.58f};
+    float targetX{0.0f};
+    float targetY{0.0f};
+    float targetW{0.0f};
+    float targetH{0.0f};
+    std::vector<VictoryGatherCard> cards;
+};
+
 class TableRenderer {
 public:
     TableRenderer() = default;
@@ -226,7 +250,8 @@ public:
         const float* dragChainAngles = nullptr,
         size_t dragChainCount = 0,
         const std::vector<GhostCardCue>* ghostCards = nullptr,
-        const HelpVideoThumb* helpVideoThumb = nullptr
+        const HelpVideoThumb* helpVideoThumb = nullptr,
+        const VictoryGatherState* victoryGather = nullptr
     );
 
     static bool renderToPng(

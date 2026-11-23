@@ -179,7 +179,7 @@ if(EMSCRIPTEN)
     set_target_properties(solengine_web PROPERTIES
         OUTPUT_NAME "solengine"
         SUFFIX ".html"
-        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=4 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_load_game_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] ${SOLENGINE_PRELOAD_FLAGS_STR} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+        LINK_FLAGS "-O3 -msimd128 -flto -pthread -sPTHREAD_POOL_SIZE=2 -sNO_EXIT_RUNTIME=1 -fwasm-exceptions --use-port=emdawnwebgpu -sUSE_GLFW=3 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2097152 -sINITIAL_MEMORY=134217728 -sEXPORTED_FUNCTIONS=['_main','_solengine_load_file_from_web','_solengine_load_game_from_web','_solengine_set_search_query','_solengine_on_web_resize'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS'] ${SOLENGINE_PRELOAD_FLAGS_STR} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
         LINK_DEPENDS "${SOLENGINE_PRELOAD_DEPS};${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
     )
     add_custom_command(TARGET solengine_web POST_BUILD
@@ -204,6 +204,15 @@ if(EMSCRIPTEN)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-512.png"
             "${CMAKE_BINARY_DIR}/icon-512.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-192-maskable.png"
+            "${CMAKE_BINARY_DIR}/icon-192-maskable.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-512-maskable.png"
+            "${CMAKE_BINARY_DIR}/icon-512-maskable.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/apple-touch-icon.png"
+            "${CMAKE_BINARY_DIR}/apple-touch-icon.png"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/web/solengine_logo.svg"
             "${CMAKE_BINARY_DIR}/solengine_logo.svg"

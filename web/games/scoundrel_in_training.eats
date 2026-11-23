@@ -6,6 +6,8 @@
 # while preserving core Scoundrel rules: 1 potion per Room, <= CAP durability,
 # barehanded vs. armed combat, Room carryover, and Fleeing.
 
+default_deck = "scoundrel_lowpoly"
+
 # --- Unified Help & Introspection Manifest ---
 doc_meta(1, "Quick", 4, "55%-85%", 2, "Tactical")
 doc_aliases(["Scoundrel Easy", "52-Card Scoundrel", "Dungeon Solitaire Easy"])

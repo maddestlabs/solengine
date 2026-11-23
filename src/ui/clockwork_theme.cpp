@@ -37,63 +37,69 @@ void drawGear(
 
     const float toothAngle = kTwoPi / static_cast<float>(teeth);
 
-    // 1. Optional subtle drop shadow behind gear teeth (only when requested, using physically grounded light)
+    // 1. Optional hard-edged offset drop shadow (matches low-poly style, zero blur cost)
     if (drawShadow) {
-        r.drawCircleDropShadow(cx, cy, outerRadius, 2.5f,
-                               eatsbits::ui::LightSource2D{cx - 100.0f, cy - 200.0f, 400.0f, 0.85f}, 0.35f * bodyA);
+        const float offX = 2.0f, offY = 2.5f;
+        const int shadowSegs = std::clamp(teeth, 6, 12);
+        for (int i = 0; i < shadowSegs; ++i) {
+            float a0 = angleRad + static_cast<float>(i) * (kTwoPi / static_cast<float>(shadowSegs));
+            float a1 = angleRad + static_cast<float>(i + 1) * (kTwoPi / static_cast<float>(shadowSegs));
+            r.drawTriangle(
+                cx + offX, cy + offY,
+                cx + offX + outerRadius * 0.92f * std::cos(a0), cy + offY + outerRadius * 0.92f * std::sin(a0),
+                cx + offX + outerRadius * 0.92f * std::cos(a1), cy + offY + outerRadius * 0.92f * std::sin(a1),
+                0.0f, 0.0f, 0.0f, 0.30f * bodyA
+            );
+        }
     }
 
-    // 2. Annular ring between root radius and inner radius (gear body plate)
-    const int ringSegments = std::clamp(teeth * 3, 18, 64);
+    // 2. Low-poly faceted annular ring between root radius and inner radius
+    const int ringSegments = std::clamp(teeth, 6, 16);
+    constexpr float kLx = -0.62f, kLy = -0.78f;
     for (int i = 0; i < ringSegments; ++i) {
-        float a0 = static_cast<float>(i) * (kTwoPi / static_cast<float>(ringSegments));
-        float a1 = static_cast<float>(i + 1) * (kTwoPi / static_cast<float>(ringSegments));
+        float a0 = angleRad + static_cast<float>(i) * (kTwoPi / static_cast<float>(ringSegments));
+        float a1 = angleRad + static_cast<float>(i + 1) * (kTwoPi / static_cast<float>(ringSegments));
         float c0 = std::cos(a0), s0 = std::sin(a0);
         float c1 = std::cos(a1), s1 = std::sin(a1);
+        float am = (a0 + a1) * 0.5f;
+        float shade = 1.0f + 0.14f * (std::cos(am) * kLx + std::sin(am) * kLy);
 
-        // Quad between innerRadius and rootRadius
         r.drawTriangle(
             cx + innerRadius * c0, cy + innerRadius * s0,
             cx + rootRadius * c0,  cy + rootRadius * s0,
             cx + rootRadius * c1,  cy + rootRadius * s1,
-            bodyR, bodyG, bodyB, bodyA
+            bodyR * shade, bodyG * shade, bodyB * shade, bodyA
         );
         r.drawTriangle(
             cx + innerRadius * c0, cy + innerRadius * s0,
             cx + rootRadius * c1,  cy + rootRadius * s1,
             cx + innerRadius * c1, cy + innerRadius * s1,
-            bodyR, bodyG, bodyB, bodyA
+            bodyR * (shade * 0.92f), bodyG * (shade * 0.92f), bodyB * (shade * 0.92f), bodyA
         );
     }
 
-    // 3. Trapezoidal Gear Teeth around perimeter
+    // 3. Faceted Trapezoidal Gear Teeth around perimeter
     for (int t = 0; t < teeth; ++t) {
         float baseA = angleRad + static_cast<float>(t) * toothAngle;
         float a0 = baseA;
-        float a1 = baseA + toothAngle * 0.22f; // Tip start
-        float a2 = baseA + toothAngle * 0.52f; // Tip end
-        float a3 = baseA + toothAngle * 0.74f; // Root end
+        float a1 = baseA + toothAngle * 0.22f;
+        float a2 = baseA + toothAngle * 0.52f;
+        float a3 = baseA + toothAngle * 0.74f;
+        float am = baseA + toothAngle * 0.37f;
+        float light = std::cos(am) * kLx + std::sin(am) * kLy;
+        float sHi = 1.04f + 0.14f * light;
+        float sLo = 0.90f + 0.12f * light;
 
         float p0x = cx + rootRadius * std::cos(a0), p0y = cy + rootRadius * std::sin(a0);
         float p1x = cx + outerRadius * std::cos(a1), p1y = cy + outerRadius * std::sin(a1);
         float p2x = cx + outerRadius * std::cos(a2), p2y = cy + outerRadius * std::sin(a2);
         float p3x = cx + rootRadius * std::cos(a3), p3y = cy + rootRadius * std::sin(a3);
 
-        // Fill tooth trapezoid
-        r.drawTriangle(p0x, p0y, p1x, p1y, p2x, p2y, bodyR * 1.05f, bodyG * 1.04f, bodyB * 1.02f, bodyA);
-        r.drawTriangle(p0x, p0y, p2x, p2y, p3x, p3y, bodyR * 0.95f, bodyG * 0.94f, bodyB * 0.92f, bodyA);
-
-        // Bevel highlight on leading edge, shadow on trailing edge
-        r.drawLine(p0x, p0y, p1x, p1y, rimR, rimG, rimB, rimA * 0.90f, 1.2f);
-        r.drawLine(p1x, p1y, p2x, p2y, rimR, rimG, rimB, rimA * 0.95f, 1.2f);
-        r.drawLine(p2x, p2y, p3x, p3y, bodyR * 0.45f, bodyG * 0.40f, bodyB * 0.20f, rimA * 0.85f, 1.0f);
+        r.drawTriangle(p0x, p0y, p1x, p1y, p2x, p2y, bodyR * sHi, bodyG * sHi, bodyB * sHi, bodyA);
+        r.drawTriangle(p0x, p0y, p2x, p2y, p3x, p3y, bodyR * sLo, bodyG * sLo, bodyB * sLo, bodyA);
     }
 
-    // 4. Outer rim bevel stroke
-    r.drawCircleOutline(cx, cy, rootRadius, rimR * 0.85f, rimG * 0.80f, rimB * 0.60f, rimA * 0.80f, 1.2f, ringSegments);
-    r.drawCircleOutline(cx, cy, innerRadius, bodyR * 0.50f, bodyG * 0.45f, bodyB * 0.25f, rimA * 0.90f, 1.2f, ringSegments);
-
-    // 5. Radial Spokes inside wheel cutout
+    // 4. Radial Spokes inside wheel cutout
     if (spokeCount > 0 && spokeCount <= 12) {
         float spokeAngle = kTwoPi / static_cast<float>(spokeCount);
         float halfThickness = std::max(1.5f, (innerRadius - hubRadius) * 0.16f);
@@ -115,28 +121,36 @@ void drawGear(
             float xOuter1 = cx + innerRadius * cosS - perpX * 0.85f;
             float yOuter1 = cy + innerRadius * sinS - perpY * 0.85f;
 
-            r.drawTriangle(xInner0, yInner0, xOuter0, yOuter0, xOuter1, yOuter1, bodyR, bodyG, bodyB, bodyA);
-            r.drawTriangle(xInner0, yInner0, xOuter1, yOuter1, xInner1, yInner1, bodyR * 0.92f, bodyG * 0.90f, bodyB * 0.88f, bodyA);
-
-            // Spoke bevel highlights
-            r.drawLine(xInner0, yInner0, xOuter0, yOuter0, rimR, rimG, rimB, rimA * 0.85f, 1.0f);
-            r.drawLine(xInner1, yInner1, xOuter1, yOuter1, bodyR * 0.45f, bodyG * 0.40f, bodyB * 0.20f, rimA * 0.70f, 1.0f);
+            r.drawTriangle(xInner0, yInner0, xOuter0, yOuter0, xOuter1, yOuter1, bodyR * 1.04f, bodyG * 1.02f, bodyB, bodyA);
+            r.drawTriangle(xInner0, yInner0, xOuter1, yOuter1, xInner1, yInner1, bodyR * 0.84f, bodyG * 0.82f, bodyB * 0.80f, bodyA);
         }
     }
 
-    // 6. Central Brass Boss & Pivot Rivet
-    r.drawCircleRadial3StopGradient(
-        cx, cy, hubRadius,
-        rimR, rimG, rimB, bodyA,
-        bodyR, bodyG, bodyB, bodyA,
-        bodyR * 0.45f, bodyG * 0.38f, bodyB * 0.18f, bodyA,
-        -hubRadius * 0.25f, -hubRadius * 0.30f, 0.45f, 24
-    );
-    r.drawCircleOutline(cx, cy, hubRadius, bodyR * 0.35f, bodyG * 0.30f, bodyB * 0.15f, bodyA, 1.2f, 24);
-
-    // Center micro-rivet / axle hole
-    r.drawCircle(cx, cy, std::max(1.5f, hubRadius * 0.35f), 0.15f, 0.12f, 0.10f, bodyA, 12);
-    r.drawCircleOutline(cx, cy, std::max(1.5f, hubRadius * 0.35f), rimR, rimG, rimB, bodyA * 0.85f, 0.9f, 12);
+    // 5. Faceted Hexagonal Brass Boss & Axle Core
+    constexpr int kHubSides = 6;
+    const float axleR = std::max(1.5f, hubRadius * 0.36f);
+    for (int i = 0; i < kHubSides; ++i) {
+        float a0 = angleRad + static_cast<float>(i) * (kTwoPi / static_cast<float>(kHubSides));
+        float a1 = angleRad + static_cast<float>(i + 1) * (kTwoPi / static_cast<float>(kHubSides));
+        float am = (a0 + a1) * 0.5f;
+        float light = std::cos(am) * kLx + std::sin(am) * kLy;
+        float t = std::clamp(0.5f + 0.5f * light, 0.0f, 1.0f);
+        float hr = bodyR * (1.0f - t) + rimR * t;
+        float hg = bodyG * (1.0f - t) + rimG * t;
+        float hb = bodyB * (1.0f - t) + rimB * t;
+        r.drawTriangle(
+            cx, cy,
+            cx + hubRadius * std::cos(a0), cy + hubRadius * std::sin(a0),
+            cx + hubRadius * std::cos(a1), cy + hubRadius * std::sin(a1),
+            hr, hg, hb, bodyA
+        );
+        r.drawTriangle(
+            cx, cy,
+            cx + axleR * std::cos(a0), cy + axleR * std::sin(a0),
+            cx + axleR * std::cos(a1), cy + axleR * std::sin(a1),
+            0.14f, 0.12f, 0.10f, bodyA
+        );
+    }
 }
 
 void drawRivet(
@@ -868,24 +882,13 @@ void drawClockworkMenuOrb(
     const float alpha = (hovered || menuOpen) ? 0.98f : 0.70f;
 
     ClockworkLogoConfig cfg;
-    cfg.animated = !menuOpen;
+    cfg.animated = hovered && !menuOpen;
     cfg.showGauges = (radius >= 22.0f);
     cfg.showPipes = (radius >= 18.0f);
     cfg.showGlow = true;
-    cfg.highlightWhite = hovered;
+    cfg.highlightWhite = false;
     cfg.alpha = alpha;
     cfg.brassTint = hovered ? 1.15f : 1.0f;
-
-    // Mouse-hover in SolEngine icon uses pure white highlight ring and soft radiant halo
-    if (hovered) {
-        r.drawCircleRadialGradient(
-            cx, cy, radius * 1.25f,
-            1.0f, 1.0f, 1.0f, 0.42f,
-            1.0f, 1.0f, 1.0f, 0.0f,
-            0.0f, 0.0f, 28
-        );
-        r.drawCircleOutline(cx, cy, radius * 0.98f, 1.0f, 1.0f, 1.0f, 0.92f, 2.0f, 28);
-    }
 
     if (menuOpen) {
         cfg.alpha = alpha * 0.75f;
@@ -1005,78 +1008,108 @@ void drawClockworkMedallion(
     const bool isResize = (std::string_view(glyph) == "⤢" ||
                            std::string_view(glyph) == "\xE2\xA4\xA2" ||
                            std::string_view(glyph) == "SIZE");
+    const bool isSeed = (glyph[0] == '#' && glyph[1] == '\0');
+    const bool isGameLibrary = (glyph[0] == 'G' && glyph[1] == '\0');
+    const bool isUndo = (glyph[0] == '<' && glyph[1] == '\0');
+    const bool isRedo = (glyph[0] == '>' && glyph[1] == '\0');
+    const bool isHelp = (glyph[0] == '?' && glyph[1] == '\0');
+    const bool isHint = (glyph[0] == 'H' && glyph[1] == '\0');
 
     if (isStar) {
-        // Guaranteed Solvable Deal: 5-point golden vector star
-        const float starRad = faceRadius * 0.60f;
-        // Ambient drop shadow
-        vector_icon::drawStar(
-            r, cx + 1.4f, cy + 1.4f, starRad,
-            0.04f, 0.03f, 0.02f, alpha * 0.90f,
-            0.04f, 0.03f, 0.02f, alpha * 0.90f, 1.0f
-        );
-        // Golden star
-        vector_icon::drawStar(
-            r, cx, cy, starRad,
-            hovered ? pal.brassHighlightR : pal.brassBrightR,
-            hovered ? pal.brassHighlightG : pal.brassBrightG,
-            hovered ? pal.brassHighlightB : pal.brassBrightB,
-            alpha,
-            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha,
-            1.2f
+        // Guaranteed Solvable Deal: 8-facet chiseled compass star gem
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawSolvableDealIcon(
+            r, cx, cy, faceRadius * 0.64f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
         );
     } else if (isPlay) {
-        // Play / New Game: solid vector play triangle pointing right
-        const float triHalfH = faceRadius * 0.48f;
-        const float triW = faceRadius * 0.55f;
-        const float x0 = cx - triW * 0.38f;
-        const float y0 = cy - triHalfH;
-        const float x1 = cx + triW * 0.62f;
-        const float y1 = cy;
-        const float x2 = cx - triW * 0.38f;
-        const float y2 = cy + triHalfH;
-
-        // Drop shadow
-        r.drawTriangle(x0 + 1.4f, y0 + 1.4f, x1 + 1.4f, y1 + 1.4f, x2 + 1.4f, y2 + 1.4f,
-                       0.04f, 0.03f, 0.02f, alpha * 0.90f);
-        // Face
-        r.drawTriangle(x0, y0, x1, y1, x2, y2,
-                       hovered ? pal.brassHighlightR : pal.brassBrightR,
-                       hovered ? pal.brassHighlightG : pal.brassBrightG,
-                       hovered ? pal.brassHighlightB : pal.brassBrightB,
-                       alpha);
-        // Outer outline
-        r.drawLine(x0, y0, x1, y1, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
-        r.drawLine(x1, y1, x2, y2, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
-        r.drawLine(x2, y2, x0, y0, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.2f);
+        // New Game / Play: 4-facet chiseled low-poly prism
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawNewGameIcon(
+            r, cx, cy, faceRadius * 0.56f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
+    } else if (isSeed) {
+        // Deal Seed: faceted hexagonal seed crystal
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawSeedIcon(
+            r, cx, cy, faceRadius * 0.60f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
+    } else if (isGameLibrary) {
+        // Game Library: 3 fanned low-poly cards with diamond pip
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawGameLibraryIcon(
+            r, cx, cy, faceRadius * 0.62f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
     } else if (isAutoPlay) {
-        // Auto-Play: double play chevrons / fast-forward triangles
-        const float triHalfH = faceRadius * 0.42f;
-        const float triW = faceRadius * 0.42f;
-        const float offsets[2] = { -faceRadius * 0.28f, faceRadius * 0.16f };
-
-        for (float offX : offsets) {
-            const float x0 = cx + offX - triW * 0.40f;
-            const float y0 = cy - triHalfH;
-            const float x1 = cx + offX + triW * 0.60f;
-            const float y1 = cy;
-            const float x2 = cx + offX - triW * 0.40f;
-            const float y2 = cy + triHalfH;
-
-            // Drop shadow
-            r.drawTriangle(x0 + 1.2f, y0 + 1.2f, x1 + 1.2f, y1 + 1.2f, x2 + 1.2f, y2 + 1.2f,
-                           0.04f, 0.03f, 0.02f, alpha * 0.85f);
-            // Face
-            r.drawTriangle(x0, y0, x1, y1, x2, y2,
-                           hovered ? pal.brassHighlightR : pal.brassBrightR,
-                           hovered ? pal.brassHighlightG : pal.brassBrightG,
-                           hovered ? pal.brassHighlightB : pal.brassBrightB,
-                           alpha);
-            // Outline
-            r.drawLine(x0, y0, x1, y1, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
-            r.drawLine(x1, y1, x2, y2, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
-            r.drawLine(x2, y2, x0, y0, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
-        }
+        // Auto-Play: twin faceted fast-forward prisms
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawAutoPlayIcon(
+            r, cx, cy, faceRadius * 0.58f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
+    } else if (isUndo) {
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawUndoIcon(
+            r, cx, cy, faceRadius * 0.58f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
+    } else if (isRedo) {
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawRedoIcon(
+            r, cx, cy, faceRadius * 0.58f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
+    } else if (isHelp) {
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawHelpIcon(
+            r, cx, cy, faceRadius * 0.58f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
+    } else if (isHint) {
+        const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
+        const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
+        const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
+        vector_icon::drawHintIcon(
+            r, cx, cy, faceRadius * 0.58f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
     } else if (isResize) {
         // Diagonal scale / resize arrows pointing outward top-right and bottom-left
         const float arm = faceRadius * 0.44f;
@@ -1104,48 +1137,16 @@ void drawClockworkMedallion(
         r.drawLine(x0, y0, x0 + head, y0, brR, brG, brB, alpha, 2.2f);
         r.drawLine(x0, y0, x0, y0 - head, brR, brG, brB, alpha, 2.2f);
     } else if (isRestart) {
-        // Procedural Circular Rewind Arrow (anti-clockwise)
-        const float arcR = faceRadius * 0.48f;
-        const float ahL = faceRadius * 0.32f;
-        const float ahW = faceRadius * 0.24f;
-        constexpr int numSegs = 22;
-        constexpr float startTheta = 1.10f * kPi;
-        constexpr float endTheta = -0.50f * kPi; // 12 o'clock (top)
-
-        // Drop shadow pass
-        for (int i = 0; i < numSegs; ++i) {
-            float t0 = startTheta + (endTheta - startTheta) * (static_cast<float>(i) / static_cast<float>(numSegs));
-            float t1 = startTheta + (endTheta - startTheta) * (static_cast<float>(i + 1) / static_cast<float>(numSegs));
-            r.drawLine(cx + arcR * std::cos(t0) + 1.4f, cy + arcR * std::sin(t0) + 1.4f,
-                       cx + arcR * std::cos(t1) + 1.4f, cy + arcR * std::sin(t1) + 1.4f,
-                       0.04f, 0.03f, 0.02f, alpha * 0.90f, 2.6f);
-        }
-        // Shadow arrowhead at 12 o'clock pointing left
-        r.drawTriangle(cx - ahL + 1.4f, cy - arcR + 1.4f,
-                       cx + 1.4f, cy - arcR - ahW + 1.4f,
-                       cx + 1.4f, cy - arcR + ahW + 1.4f,
-                       0.04f, 0.03f, 0.02f, alpha * 0.90f);
-
-        // Polished brass stroke
+        // Restart Game: chunky faceted low-poly rewind ring + chiseled arrowhead
         const float brR = hovered ? pal.brassHighlightR : pal.brassBrightR;
         const float brG = hovered ? pal.brassHighlightG : pal.brassBrightG;
         const float brB = hovered ? pal.brassHighlightB : pal.brassBrightB;
-
-        for (int i = 0; i < numSegs; ++i) {
-            float t0 = startTheta + (endTheta - startTheta) * (static_cast<float>(i) / static_cast<float>(numSegs));
-            float t1 = startTheta + (endTheta - startTheta) * (static_cast<float>(i + 1) / static_cast<float>(numSegs));
-            r.drawLine(cx + arcR * std::cos(t0), cy + arcR * std::sin(t0),
-                       cx + arcR * std::cos(t1), cy + arcR * std::sin(t1),
-                       brR, brG, brB, alpha, 2.4f);
-        }
-        // Brass arrowhead at top pointing left
-        r.drawTriangle(cx - ahL, cy - arcR,
-                       cx, cy - arcR - ahW,
-                       cx, cy - arcR + ahW,
-                       brR, brG, brB, alpha);
-        r.drawLine(cx - ahL, cy - arcR, cx, cy - arcR - ahW, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
-        r.drawLine(cx, cy - arcR - ahW, cx, cy - arcR + ahW, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
-        r.drawLine(cx, cy - arcR + ahW, cx - ahL, cy - arcR, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 1.0f);
+        vector_icon::drawRestartIcon(
+            r, cx, cy, faceRadius * 0.60f,
+            brR, brG, brB,
+            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB,
+            alpha, true
+        );
     } else {
         // Vector typography glyphs: "<", ">", "+", "?", "G", "#"
         const float fontSize = (glyph[0] == '+' || glyph[0] == '#' || glyph[0] == '<' || glyph[0] == '>')
@@ -1344,6 +1345,250 @@ void drawClockworkCloseButton(
     );
 }
 
+namespace {
+
+struct SolLogoTri {
+    float x0, y0, x1, y1, x2, y2;
+    float r, g, b;
+};
+
+struct SolRgb { float r, g, b; };
+
+inline SolRgb sampleRamp(const SolRgb* ramp, int count, float t) noexcept {
+    t = std::clamp(t, 0.0f, 1.0f);
+    float scaled = t * static_cast<float>(count - 1);
+    int idx = std::min(count - 2, static_cast<int>(scaled));
+    float f = scaled - static_cast<float>(idx);
+    return {
+        ramp[idx].r + (ramp[idx + 1].r - ramp[idx].r) * f,
+        ramp[idx].g + (ramp[idx + 1].g - ramp[idx].g) * f,
+        ramp[idx].b + (ramp[idx + 1].b - ramp[idx].b) * f
+    };
+}
+
+inline SolRgb facetLight(float mx, float my, const SolRgb* ramp, int count, float bias) noexcept {
+    constexpr float lx = -0.62f, ly = -0.78f;
+    float len = std::hypot(mx, my);
+    float nx = (len > 1e-6f) ? (mx / len) : 0.0f;
+    float ny = (len > 1e-6f) ? (my / len) : -1.0f;
+    float d = nx * lx + ny * ly;
+    return sampleRamp(ramp, count, 0.50f + 0.44f * d + bias);
+}
+
+// Shared normalized [-1, 1] low-poly Sol-Gear + core-font 'S' geometry
+int buildSolLogoTriangles(SolLogoTri* out, int maxOut, float rotRad, float brassTint, bool highlightWhite) noexcept {
+    static constexpr SolRgb kGunmetal[5] = {
+        {36.0f/255.0f, 36.0f/255.0f, 38.0f/255.0f},
+        {62.0f/255.0f, 62.0f/255.0f, 65.0f/255.0f},
+        {96.0f/255.0f, 96.0f/255.0f, 100.0f/255.0f},
+        {140.0f/255.0f, 140.0f/255.0f, 145.0f/255.0f},
+        {190.0f/255.0f, 190.0f/255.0f, 196.0f/255.0f}
+    };
+    static constexpr SolRgb kSteel[5] = {
+        {56.0f/255.0f, 56.0f/255.0f, 58.0f/255.0f},
+        {92.0f/255.0f, 92.0f/255.0f, 96.0f/255.0f},
+        {138.0f/255.0f, 138.0f/255.0f, 142.0f/255.0f},
+        {184.0f/255.0f, 184.0f/255.0f, 188.0f/255.0f},
+        {224.0f/255.0f, 224.0f/255.0f, 228.0f/255.0f}
+    };
+    static constexpr SolRgb kGoldS[5] = {
+        {164.0f/255.0f, 62.0f/255.0f, 10.0f/255.0f},
+        {218.0f/255.0f, 104.0f/255.0f, 16.0f/255.0f},
+        {242.0f/255.0f, 152.0f/255.0f, 24.0f/255.0f},
+        {248.0f/255.0f, 204.0f/255.0f, 68.0f/255.0f},
+        {255.0f/255.0f, 234.0f/255.0f, 154.0f/255.0f}
+    };
+
+    int n = 0;
+    auto pushTri = [&](float x0, float y0, float x1, float y1, float x2, float y2, SolRgb c) {
+        if (n < maxOut) {
+            out[n++] = {x0, y0, x1, y1, x2, y2, c.r, c.g, c.b};
+        }
+    };
+    auto pol = [](float r, float a, float& ox, float& oy) {
+        ox = r * std::cos(a);
+        oy = r * std::sin(a);
+    };
+
+    // 1. Outer 8-tooth chamfered gunmetal gear (normalized to R_TIP = 1.0)
+    constexpr float kInvTip = 1.0f / 240.0f;
+    constexpr float kRBore = 164.0f * kInvTip;
+    constexpr float kRRoot = 196.0f * kInvTip;
+    constexpr float kRMid  = 218.0f * kInvTip;
+    constexpr float kRTip  = 1.0f;
+    constexpr float kStep  = kTwoPi / 8.0f;
+    constexpr float kHalfBase = 0.235f;
+    constexpr float kHalfTip  = 0.135f;
+
+    for (int i = 0; i < 8; ++i) {
+        float ac = -kPi * 0.5f + static_cast<float>(i) * kStep + rotRad;
+        float an = ac + kStep;
+        float av = ac + kStep * 0.5f;
+
+        float bcx, bcy, brx, bry, bvx, bvy, bnlx, bnly, bnx, bny;
+        float rlx, rly, rcx, rcy, rrx, rry, rvx, rvy, rnlx, rnly, rnx, rny;
+        pol(kRBore, ac, bcx, bcy);
+        pol(kRBore, ac + kHalfBase, brx, bry);
+        pol(kRBore, av, bvx, bvy);
+        pol(kRBore, an - kHalfBase, bnlx, bnly);
+        pol(kRBore, an, bnx, bny);
+
+        pol(kRRoot, ac - kHalfBase, rlx, rly);
+        pol(kRRoot, ac, rcx, rcy);
+        pol(kRRoot, ac + kHalfBase, rrx, rry);
+        pol(kRRoot, av, rvx, rvy);
+        pol(kRRoot, an - kHalfBase, rnlx, rnly);
+        pol(kRRoot, an, rnx, rny);
+
+        auto emitG = [&](float x0, float y0, float x1, float y1, float x2, float y2, float bias) {
+            SolRgb c = facetLight((x0 + x1 + x2) / 3.0f, (y0 + y1 + y2) / 3.0f, kGunmetal, 5, bias);
+            pushTri(x0, y0, x1, y1, x2, y2, c);
+        };
+        emitG(bcx, bcy, rcx, rcy, rrx, rry, 0.04f);
+        emitG(bcx, bcy, rrx, rry, brx, bry, -0.04f);
+        emitG(brx, bry, rrx, rry, rvx, rvy, 0.06f);
+        emitG(brx, bry, rvx, rvy, bvx, bvy, -0.06f);
+        emitG(bvx, bvy, rvx, rvy, rnlx, rnly, 0.05f);
+        emitG(bvx, bvy, rnlx, rnly, bnlx, bnly, -0.05f);
+        emitG(bnlx, bnly, rnlx, rnly, rnx, rny, 0.04f);
+        emitG(bnlx, bnly, rnx, rny, bnx, bny, -0.04f);
+
+        float tlx, tly, trx, try_, tax, tay;
+        pol(kRTip, ac - kHalfTip, tlx, tly);
+        pol(kRTip, ac + kHalfTip, trx, try_);
+        pol(kRMid, ac, tax, tay);
+
+        emitG(rlx, rly, tlx, tly, tax, tay, 0.16f);
+        emitG(rlx, rly, tax, tay, rcx, rcy, 0.06f);
+        emitG(tlx, tly, trx, try_, tax, tay, 0.22f);
+        emitG(rcx, rcy, tax, tay, rrx, rry, -0.10f);
+        emitG(tax, tay, trx, try_, rrx, rry, -0.18f);
+    }
+
+    // 2. Inner octagonal dark hearth recess
+    constexpr float kRecess = 180.0f * kInvTip;
+    for (int i = 0; i < 8; ++i) {
+        float a0 = -kPi / 8.0f + static_cast<float>(i) * (kPi * 0.25f);
+        float a1 = a0 + kPi * 0.25f;
+        float x0, y0, x1, y1;
+        pol(kRecess, a0, x0, y0);
+        pol(kRecess, a1, x1, y1);
+        pushTri(0.0f, 0.0f, x0, y0, x1, y1, {20.0f/255.0f, 19.0f/255.0f, 18.0f/255.0f});
+    }
+
+    // 3. Thin 16px octagonal faceted steel ring
+    constexpr float kRRin  = 134.0f * kInvTip;
+    constexpr float kRRMid = 142.0f * kInvTip;
+    constexpr float kRRout = 150.0f * kInvTip;
+    for (int i = 0; i < 8; ++i) {
+        float a0 = -kPi / 8.0f + static_cast<float>(i) * (kPi * 0.25f);
+        float a1 = a0 + kPi * 0.25f;
+        float am = a0 + kPi / 8.0f;
+        float pi0x, pi0y, pi1x, pi1y, po0x, po0y, po1x, po1y, pmx, pmy;
+        pol(kRRin, a0, pi0x, pi0y);
+        pol(kRRin, a1, pi1x, pi1y);
+        pol(kRRout, a0, po0x, po0y);
+        pol(kRRout, a1, po1x, po1y);
+        pol(kRRMid, am, pmx, pmy);
+
+        auto emitS = [&](float x0, float y0, float x1, float y1, float x2, float y2, float bias) {
+            SolRgb c = facetLight((x0 + x1 + x2) / 3.0f, (y0 + y1 + y2) / 3.0f, kSteel, 5, bias);
+            if (highlightWhite) {
+                c.r = std::min(1.0f, c.r * 1.15f);
+                c.g = std::min(1.0f, c.g * 1.15f);
+                c.b = std::min(1.0f, c.b * 1.15f);
+            }
+            pushTri(x0, y0, x1, y1, x2, y2, c);
+        };
+        emitS(pi0x, pi0y, po0x, po0y, pmx, pmy, 0.10f);
+        emitS(po0x, po0y, po1x, po1y, pmx, pmy, 0.16f);
+        emitS(pmx, pmy, po1x, po1y, pi1x, pi1y, -0.06f);
+        emitS(pi0x, pi0y, pmx, pmy, pi1x, pi1y, -0.12f);
+    }
+
+    // 4. Four cardinal compass-sunburst spikes
+    const float rInnerFlat = kRRin * std::cos(kPi / 8.0f);
+    constexpr float kTipDist = 112.0f * kInvTip;
+    constexpr float kHalfSpikeW = 9.0f * kInvTip;
+    for (int i = 0; i < 4; ++i) {
+        float a = -kPi * 0.5f + static_cast<float>(i) * (kPi * 0.5f);
+        float ux = std::cos(a), uy = std::sin(a);
+        float vx = -uy, vy = ux;
+        float bd = rInnerFlat - (1.0f * kInvTip);
+        float tx = ux * kTipDist, ty = uy * kTipDist;
+        float mx = ux * bd, my = uy * bd;
+        float lx = mx - vx * kHalfSpikeW, ly = my - vy * kHalfSpikeW;
+        float rx = mx + vx * kHalfSpikeW, ry = my + vy * kHalfSpikeW;
+        pushTri(tx, ty, mx, my, lx, ly, facetLight((tx+mx+lx)/3.0f, (ty+my+ly)/3.0f, kSteel, 5, 0.22f));
+        pushTri(tx, ty, rx, ry, mx, my, facetLight((tx+rx+mx)/3.0f, (ty+ry+my)/3.0f, kSteel, 5, -0.18f));
+    }
+
+    // 5. Core-font 'S' overlay (exact centerline from vector_font.cpp / ebf_font.cpp)
+    constexpr float kFontScale = 17.6f * kInvTip;
+    constexpr float kHw = 18.5f * kInvTip;
+    constexpr float kSpinePts[8][2] = {
+        {7.5f, 2.5f}, {3.5f, 2.5f}, {2.0f, 4.0f}, {2.0f, 6.5f},
+        {8.0f, 9.5f}, {8.0f, 12.0f}, {6.5f, 13.5f}, {2.5f, 13.5f}
+    };
+    float sx[8], sy[8], lrx[8], lry[8], rrx[8], rry[8];
+    for (int k = 0; k < 8; ++k) {
+        sx[k] = (kSpinePts[k][0] - 5.0f) * kFontScale;
+        sy[k] = (kSpinePts[k][1] - 8.0f) * kFontScale;
+    }
+    auto segNorm = [&](int a, int b, float& nx, float& ny) {
+        float dx = sx[b] - sx[a], dy = sy[b] - sy[a];
+        float len = std::max(1e-6f, std::hypot(dx, dy));
+        nx = -dy / len; ny = dx / len;
+    };
+    for (int k = 0; k < 8; ++k) {
+        if (k == 0) {
+            float nx, ny; segNorm(0, 1, nx, ny);
+            float dx = sx[0] - sx[1], dy = sy[0] - sy[1];
+            float len = std::max(1e-6f, std::hypot(dx, dy));
+            float tx = dx / len, ty = dy / len;
+            lrx[0] = sx[0] + (nx + tx * 0.65f) * kHw; lry[0] = sy[0] + (ny + ty * 0.65f) * kHw;
+            rrx[0] = sx[0] - (nx + tx * 0.65f) * kHw; rry[0] = sy[0] - (ny + ty * 0.65f) * kHw;
+        } else if (k == 7) {
+            float nx, ny; segNorm(6, 7, nx, ny);
+            float dx = sx[7] - sx[6], dy = sy[7] - sy[6];
+            float len = std::max(1e-6f, std::hypot(dx, dy));
+            float tx = dx / len, ty = dy / len;
+            lrx[7] = sx[7] + (nx + tx * 0.65f) * kHw; lry[7] = sy[7] + (ny + ty * 0.65f) * kHw;
+            rrx[7] = sx[7] - (nx + tx * 0.65f) * kHw; rry[7] = sy[7] - (ny + ty * 0.65f) * kHw;
+        } else {
+            float n0x, n0y, n1x, n1y;
+            segNorm(k - 1, k, n0x, n0y);
+            segNorm(k, k + 1, n1x, n1y);
+            float mx = n0x + n1x, my = n0y + n1y;
+            float mlen = std::max(1e-6f, std::hypot(mx, my));
+            mx /= mlen; my /= mlen;
+            float dot = std::max(0.35f, mx * n0x + my * n0y);
+            float mDist = kHw / dot;
+            lrx[k] = sx[k] + mx * mDist; lry[k] = sy[k] + my * mDist;
+            rrx[k] = sx[k] - mx * mDist; rry[k] = sy[k] - my * mDist;
+        }
+    }
+    for (int k = 0; k < 7; ++k) {
+        float tPos = 1.0f - (static_cast<float>(k) / 6.0f) * 0.68f;
+        float tL = std::min(1.0f, tPos + 0.12f);
+        float tR = std::max(0.06f, tPos - 0.24f);
+        auto tintG = [&](float t) -> SolRgb {
+            SolRgb c = sampleRamp(kGoldS, 5, t);
+            c.r = std::min(1.0f, c.r * brassTint);
+            c.g = std::min(1.0f, c.g * brassTint);
+            c.b = std::min(1.0f, c.b * brassTint);
+            return c;
+        };
+        pushTri(lrx[k], lry[k], lrx[k + 1], lry[k + 1], sx[k + 1], sy[k + 1], tintG(tL));
+        pushTri(lrx[k], lry[k], sx[k + 1], sy[k + 1], sx[k], sy[k], tintG(std::min(1.0f, tL - 0.06f)));
+        pushTri(sx[k], sy[k], sx[k + 1], sy[k + 1], rrx[k + 1], rry[k + 1], tintG(tR));
+        pushTri(sx[k], sy[k], rrx[k + 1], rry[k + 1], rrx[k], rry[k], tintG(std::max(0.05f, tR - 0.08f)));
+    }
+    return n;
+}
+
+} // anonymous namespace
+
 void drawClockworkLogo(
     eatsbits::ui::BatchRenderer2D& r,
     float cx, float cy, float radius,
@@ -1352,280 +1597,70 @@ void drawClockworkLogo(
 ) {
     if (radius <= 2.0f) return;
 
-    using eatsbits::ui::Point2D;
-
-    const auto& pal = palette();
     const float alpha = std::clamp(config.alpha, 0.0f, 1.0f);
     if (alpha <= 0.001f) return;
 
-    const float rot = config.animated ? timeSec * 0.35f : 0.0f;
+    const float rot = config.animated ? timeSec * 0.45f : 0.0f;
     const float bTint = std::clamp(config.brassTint, 0.5f, 2.0f);
 
-    // Dynamic level-of-detail (LOD) thresholds
-    const bool isSmall = (radius < 20.0f);
-    const bool isMedium = (radius >= 20.0f && radius < 42.0f);
-    const bool isLarge = (radius >= 42.0f);
+    // Cache the static unrotated unit mesh once (zero per-frame trig/allocation overhead)
+    constexpr int kOuterGearTris = 8 * 13; // 8 teeth * (8 ring + 5 tooth) triangles
+    struct CachedSolMesh {
+        std::array<SolLogoTri, 192> tris{};
+        int count{0};
+    };
+    static const CachedSolMesh kStaticMesh = []() {
+        CachedSolMesh m;
+        m.count = buildSolLogoTriangles(m.tris.data(), static_cast<int>(m.tris.size()), 0.0f, 1.0f, false);
+        return m;
+    }();
 
-    // 1. Drop shadow underneath the entire clockwork assembly
+    const float cosR = (rot != 0.0f) ? std::cos(rot) : 1.0f;
+    const float sinR = (rot != 0.0f) ? std::sin(rot) : 0.0f;
+    auto xform = [&](int idx, float& ox0, float& oy0, float& ox1, float& oy1, float& ox2, float& oy2) {
+        const auto& t = kStaticMesh.tris[idx];
+        if (rot != 0.0f && idx < kOuterGearTris) {
+            ox0 = t.x0 * cosR - t.y0 * sinR; oy0 = t.x0 * sinR + t.y0 * cosR;
+            ox1 = t.x1 * cosR - t.y1 * sinR; oy1 = t.x1 * sinR + t.y1 * cosR;
+            ox2 = t.x2 * cosR - t.y2 * sinR; oy2 = t.x2 * sinR + t.y2 * cosR;
+        } else {
+            ox0 = t.x0; oy0 = t.y0;
+            ox1 = t.x1; oy1 = t.y1;
+            ox2 = t.x2; oy2 = t.y2;
+        }
+    };
+
     if (radius > 12.0f) {
-        r.drawCircleDropShadow(
-            cx, cy, radius, std::max(2.0f, radius * 0.12f),
-            eatsbits::ui::LightSource2D{cx - 100.0f, cy - 200.0f, 400.0f, 0.85f},
-            0.42f * alpha
-        );
-    }
-
-    // 2. Layer 1: Outer Weathered Cast-Iron Chassis Cog
-    const int outerTeeth = isSmall ? 12 : (isMedium ? 16 : 20);
-    const float outerRootR = radius * 0.84f;
-    const float outerInnerR = radius * 0.70f;
-    drawGear(
-        r, cx, cy, radius, outerRootR, outerInnerR, outerTeeth, rot,
-        pal.chassisDarkR * 1.15f, pal.chassisDarkG * 1.15f, pal.chassisDarkB * 1.15f, alpha,
-        pal.chassisLightR * 1.25f, pal.chassisLightR * 1.25f, pal.chassisLightB * 1.25f, alpha,
-        isSmall ? 4 : 6, outerInnerR * 0.45f, false
-    );
-
-    // 3. Layer 2: Riveted Viktoria Brass Annular Collar / Bezel
-    const float collarOut = radius * 0.74f;
-    const float collarIn = radius * 0.53f;
-
-    // Brass gradient body
-    r.drawCircleRadial3StopGradient(
-        cx, cy, collarOut,
-        std::min(1.0f, pal.brassHighlightR * bTint), std::min(1.0f, pal.brassHighlightG * bTint), std::min(1.0f, pal.brassHighlightB * bTint), alpha,
-        std::min(1.0f, pal.brassBrightR * bTint), std::min(1.0f, pal.brassBrightG * bTint), std::min(1.0f, pal.brassBrightB * bTint), alpha,
-        std::min(1.0f, pal.brassDarkR * bTint), std::min(1.0f, pal.brassDarkG * bTint), std::min(1.0f, pal.brassDarkB * bTint), alpha,
-        -collarOut * 0.22f, -collarOut * 0.25f, 0.48f, isSmall ? 20 : 32
-    );
-
-    // Fine concentric etched rings
-    const float hiR = config.highlightWhite ? 1.0f : std::min(1.0f, pal.brassHighlightR * bTint);
-    const float hiG = config.highlightWhite ? 1.0f : std::min(1.0f, pal.brassHighlightG * bTint);
-    const float hiB = config.highlightWhite ? 1.0f : std::min(1.0f, pal.brassHighlightB * bTint);
-    r.drawCircleOutline(cx, cy, collarOut, hiR, hiG, hiB, alpha * 0.90f, 1.2f, isSmall ? 20 : 32);
-    r.drawCircleOutline(cx, cy, (collarOut + collarIn) * 0.5f, pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, alpha * 0.40f, 0.8f, isSmall ? 20 : 32);
-    r.drawCircleOutline(cx, cy, collarIn, config.highlightWhite ? 1.0f : pal.brassDarkR * 0.75f, config.highlightWhite ? 1.0f : pal.brassDarkG * 0.75f, config.highlightWhite ? 1.0f : pal.brassDarkB * 0.75f, alpha * 0.95f, 1.4f, isSmall ? 20 : 32);
-
-    // Circumferential Brass Rivets / Bolts
-    const float rivetOrbitR = (collarOut + collarIn) * 0.5f;
-    const float rivetR = std::max(1.0f, radius * 0.034f);
-    const int numRivets = isSmall ? 6 : (isMedium ? 8 : 12);
-    for (int i = 0; i < numRivets; ++i) {
-        float angle = static_cast<float>(i) * (kTwoPi / static_cast<float>(numRivets)) + (kTwoPi / (numRivets * 2.0f));
-        float rx = cx + std::cos(angle) * rivetOrbitR;
-        float ry = cy + std::sin(angle) * rivetOrbitR;
-        drawRivet(r, rx, ry, rivetR, false,
-                  pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha * 0.92f);
-    }
-
-    // Radial Copper Conduit Struts (bridging from outer cog to collar)
-    if (config.showPipes && !isSmall) {
-        const float strutR0 = collarOut;
-        const float strutR1 = outerRootR * 0.98f;
-        const int strutCount = 4;
-        for (int i = 0; i < strutCount; ++i) {
-            float a = (static_cast<float>(i) + 0.5f) * (kTwoPi / static_cast<float>(strutCount));
-            float cosA = std::cos(a);
-            float sinA = std::sin(a);
-            float x0 = cx + cosA * strutR0;
-            float y0 = cy + sinA * strutR0;
-            float x1 = cx + cosA * strutR1;
-            float y1 = cy + sinA * strutR1;
-            r.drawLine(x0, y0, x1, y1, pal.copperBrightR, pal.copperBrightG, pal.copperBrightB, alpha * 0.90f, std::max(1.4f, radius * 0.045f));
-            drawRivet(r, x0, y0, std::max(1.1f, radius * 0.026f), true, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha);
+        const float offX = std::max(1.5f, radius * 0.03f);
+        const float offY = std::max(2.0f, radius * 0.045f);
+        for (int i = 0; i < kStaticMesh.count; ++i) {
+            float x0, y0, x1, y1, x2, y2;
+            xform(i, x0, y0, x1, y1, x2, y2);
+            r.drawTriangle(
+                cx + x0 * radius + offX, cy + y0 * radius + offY,
+                cx + x1 * radius + offX, cy + y1 * radius + offY,
+                cx + x2 * radius + offX, cy + y2 * radius + offY,
+                0.0f, 0.0f, 0.0f, 0.28f * alpha
+            );
         }
     }
 
-    // 4. Layer 3: Recessed Dark Boiler Well & Glowing Amber Furnace Hearth
-    r.drawCircle(cx, cy, collarIn, 0.08f, 0.07f, 0.06f, alpha * 0.98f, isSmall ? 20 : 32);
-    r.drawCircleOutline(cx, cy, collarIn - 0.5f, 0.04f, 0.03f, 0.02f, alpha * 0.85f, 1.0f, isSmall ? 20 : 32);
-
-    if (config.showGlow) {
-        const float pulse = config.animated ? (0.84f + 0.16f * std::sin(timeSec * 2.8f)) : 1.0f;
-        const float gAmbR = config.highlightWhite ? 1.0f : pal.furnaceAmberR;
-        const float gAmbG = config.highlightWhite ? 1.0f : pal.furnaceAmberG;
-        const float gAmbB = config.highlightWhite ? 1.0f : pal.furnaceAmberB;
-        const float gCoreR = config.highlightWhite ? 1.0f : pal.furnaceCoreR;
-        const float gCoreG = config.highlightWhite ? 1.0f : pal.furnaceCoreG;
-        const float gCoreB = config.highlightWhite ? 1.0f : pal.furnaceCoreB;
-        r.drawCircleRadialGradient(
-            cx + radius * 0.04f, cy + radius * 0.03f, collarIn * 0.92f,
-            gAmbR, gAmbG, gAmbB, (config.highlightWhite ? 0.35f : 0.52f) * pulse * alpha,
-            0.08f, 0.07f, 0.06f, 0.0f,
-            0.0f, 0.0f, isSmall ? 18 : 28
-        );
-        r.drawCircleRadialGradient(
-            cx + radius * 0.02f, cy + radius * 0.02f, collarIn * 0.45f,
-            gCoreR, gCoreG, gCoreB, 0.40f * pulse * alpha,
-            gAmbR, gAmbG, gAmbB, 0.0f,
-            0.0f, 0.0f, isSmall ? 16 : 24
-        );
-    }
-
-    // 5. Layer 4: Horological Sub-Assembly (Interlocking Secondary Cogs & Gauges)
-    if (!isSmall) {
-        // Upper-left secondary brass cog
-        const float cog1X = cx - radius * 0.14f;
-        const float cog1Y = cy - radius * 0.17f;
-        const float cog1R = radius * 0.22f;
-        drawGear(
-            r, cog1X, cog1Y, cog1R, cog1R * 0.78f, cog1R * 0.35f, 9, -rot * 2.4f,
-            pal.brassMidR, pal.brassMidG, pal.brassMidB, alpha * 0.88f,
-            pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha * 0.88f,
-            3, cog1R * 0.24f, false
-        );
-
-        // Lower-center/right small copper cog (meshed)
-        const float cog2X = cx + radius * 0.10f;
-        const float cog2Y = cy + radius * 0.16f;
-        const float cog2R = radius * 0.16f;
-        drawGear(
-            r, cog2X, cog2Y, cog2R, cog2R * 0.78f, cog2R * 0.35f, 7, rot * 3.1f + 0.25f,
-            pal.copperMidR, pal.copperMidG, pal.copperMidB, alpha * 0.85f,
-            pal.copperBrightR, pal.copperBrightG, pal.copperBrightB, alpha * 0.85f,
-            3, cog2R * 0.22f, false
-        );
-
-        // Miniature Top-Right Manometer Gauge on collar
-        if (config.showGauges && isLarge) {
-            const float gaugeAngle = config.animated ? (0.68f + 0.14f * std::sin(timeSec * 3.6f)) : 0.72f;
-            drawManometerGauge(r, cx + radius * 0.28f, cy - radius * 0.58f, radius * 0.09f, gaugeAngle);
+    for (int i = 0; i < kStaticMesh.count; ++i) {
+        const auto& t = kStaticMesh.tris[i];
+        float x0, y0, x1, y1, x2, y2;
+        xform(i, x0, y0, x1, y1, x2, y2);
+        float cr = t.r, cg = t.g, cb = t.b;
+        if (bTint != 1.0f && i >= kStaticMesh.count - 28) {
+            cr = std::min(1.0f, cr * bTint);
+            cg = std::min(1.0f, cg * bTint);
+            cb = std::min(1.0f, cb * bTint);
         }
-
-        // Curved copper steam pipe winding around lower lobe
-        if (config.showPipes) {
-            Point2D p0{cx - radius * 0.28f, cy + radius * 0.18f};
-            Point2D cp0{cx - radius * 0.36f, cy + radius * 0.42f};
-            Point2D cp1{cx - radius * 0.08f, cy + radius * 0.48f};
-            Point2D p1{cx + radius * 0.22f, cy + radius * 0.38f};
-            r.drawCatenaryBezier(p0, cp0, cp1, p1, pal.copperMidR, pal.copperMidG, pal.copperMidB, alpha * 0.90f, std::max(1.5f, radius * 0.05f));
-            r.drawCatenaryBezier(p0, cp0, cp1, p1, pal.copperSpineR, pal.copperSpineG, pal.copperSpineB, alpha * 0.90f, std::max(0.6f, radius * 0.018f));
-        }
-    }
-
-    // 6. Layer 5: Iconic Victorian Riveted Brass 'S' Insignia
-    if (isSmall) {
-        // High-legibility vector glyph fallback for small icons/headers
-        const float fontSize = radius * 1.05f;
-        const float txtW = eatsbits::ui::glyph::getVectorTextWidth(fontSize, "S");
-        eatsbits::ui::glyph::drawVectorText(
-            r, "S", cx - txtW * 0.5f + 1.0f, cy - fontSize * 0.5f + 1.0f, fontSize,
-            0.04f, 0.03f, 0.02f, alpha * 0.90f
+        r.drawTriangle(
+            cx + x0 * radius, cy + y0 * radius,
+            cx + x1 * radius, cy + y1 * radius,
+            cx + x2 * radius, cy + y2 * radius,
+            cr, cg, cb, alpha
         );
-        eatsbits::ui::glyph::drawVectorText(
-            r, "S", cx - txtW * 0.5f, cy - fontSize * 0.5f, fontSize,
-            config.highlightWhite ? 1.0f : pal.furnaceAmberR,
-            config.highlightWhite ? 1.0f : pal.furnaceAmberG,
-            config.highlightWhite ? 1.0f : pal.furnaceAmberB,
-            alpha * 0.70f
-        );
-        eatsbits::ui::glyph::drawVectorText(
-            r, "S", cx - txtW * 0.5f, cy - fontSize * 0.5f, fontSize,
-            hiR, hiG, hiB, alpha
-        );
-        return;
-    }
-
-    // Full Victorian Hand-Crafted Brass 'S' Vector Geometry
-    const float sScale = radius * 0.78f;
-    const float stemW = std::max(2.5f, sScale * 0.17f);
-    const float spineW = std::max(1.0f, sScale * 0.05f);
-
-    Point2D topTerm{cx + sScale * 0.22f, cy - sScale * 0.44f};
-    Point2D topArch0{cx + sScale * 0.20f, cy - sScale * 0.60f};
-    Point2D topArch1{cx - sScale * 0.36f, cy - sScale * 0.58f};
-    Point2D midUpper{cx - sScale * 0.34f, cy - sScale * 0.22f};
-    Point2D centerPt{cx, cy};
-    Point2D midLower{cx + sScale * 0.34f, cy + sScale * 0.22f};
-    Point2D botArch0{cx + sScale * 0.36f, cy + sScale * 0.58f};
-    Point2D botArch1{cx - sScale * 0.20f, cy + sScale * 0.60f};
-    Point2D botTerm{cx - sScale * 0.22f, cy + sScale * 0.44f};
-
-    // A. Drop Shadow Pass
-    const float shadowOffX = 1.4f;
-    const float shadowOffY = 2.2f;
-    Point2D sTopTerm{topTerm.x + shadowOffX, topTerm.y + shadowOffY};
-    Point2D sTopArch0{topArch0.x + shadowOffX, topArch0.y + shadowOffY};
-    Point2D sTopArch1{topArch1.x + shadowOffX, topArch1.y + shadowOffY};
-    Point2D sMidUpper{midUpper.x + shadowOffX, midUpper.y + shadowOffY};
-    Point2D sCenterPt{centerPt.x + shadowOffX, centerPt.y + shadowOffY};
-    Point2D sMidLower{midLower.x + shadowOffX, midLower.y + shadowOffY};
-    Point2D sBotArch0{botArch0.x + shadowOffX, botArch0.y + shadowOffY};
-    Point2D sBotArch1{botArch1.x + shadowOffX, botArch1.y + shadowOffY};
-    Point2D sBotTerm{botTerm.x + shadowOffX, botTerm.y + shadowOffY};
-
-    r.drawCatenaryBezier(sTopTerm, sTopArch0, sTopArch1, sMidUpper, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
-    r.drawCatenaryBezier(sMidUpper, Point2D{sMidUpper.x + sScale * 0.08f, sCenterPt.y - sScale * 0.08f}, Point2D{sCenterPt.x - sScale * 0.08f, sCenterPt.y - sScale * 0.04f}, sCenterPt, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
-    r.drawCatenaryBezier(sCenterPt, Point2D{sCenterPt.x + sScale * 0.08f, sCenterPt.y + sScale * 0.04f}, Point2D{sMidLower.x - sScale * 0.08f, sCenterPt.y + sScale * 0.08f}, sMidLower, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
-    r.drawCatenaryBezier(sMidLower, sBotArch0, sBotArch1, sBotTerm, 0.04f, 0.03f, 0.02f, alpha * 0.85f, stemW + 2.0f);
-
-    // B. Furnace Amber Underglow Pass (crisp white on hover)
-    if (config.showGlow) {
-        const float glowW = stemW + std::max(2.0f, sScale * 0.08f);
-        const float ugR = config.highlightWhite ? 1.0f : pal.furnaceAmberR;
-        const float ugG = config.highlightWhite ? 1.0f : pal.furnaceAmberG;
-        const float ugB = config.highlightWhite ? 1.0f : pal.furnaceAmberB;
-        r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, ugR, ugG, ugB, alpha * 0.55f, glowW);
-        r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, ugR, ugG, ugB, alpha * 0.55f, glowW);
-        r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, ugR, ugG, ugB, alpha * 0.55f, glowW);
-        r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, ugR, ugG, ugB, alpha * 0.55f, glowW);
-    }
-
-    // C. Solid Brass Body Pass
-    r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
-    r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
-    r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
-    r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, pal.brassMidR * bTint, pal.brassMidG * bTint, pal.brassMidB * bTint, alpha * 0.98f, stemW);
-
-    // D. Burnished Brass Center Spine / Ridge
-    r.drawCatenaryBezier(topTerm, topArch0, topArch1, midUpper, hiR, hiG, hiB, alpha, spineW);
-    r.drawCatenaryBezier(midUpper, Point2D{midUpper.x + sScale * 0.08f, centerPt.y - sScale * 0.08f}, Point2D{centerPt.x - sScale * 0.08f, centerPt.y - sScale * 0.04f}, centerPt, hiR, hiG, hiB, alpha, spineW);
-    r.drawCatenaryBezier(centerPt, Point2D{centerPt.x + sScale * 0.08f, centerPt.y + sScale * 0.04f}, Point2D{midLower.x - sScale * 0.08f, centerPt.y + sScale * 0.08f}, midLower, hiR, hiG, hiB, alpha, spineW);
-    r.drawCatenaryBezier(midLower, botArch0, botArch1, botTerm, hiR, hiG, hiB, alpha, spineW);
-
-    // E. Top-Right Victorian Plated Serif Bracket
-    const float topBoxW = sScale * 0.26f;
-    const float topBoxH = sScale * 0.28f;
-    const float topBoxX = topTerm.x - topBoxW * 0.20f;
-    const float topBoxY = topTerm.y - topBoxH * 0.75f;
-    r.drawRoundedRect(topBoxX, topBoxY, topBoxW, topBoxH, 2.5f, pal.brassDarkR * bTint, pal.brassDarkG * bTint, pal.brassDarkB * bTint, alpha * 0.95f, 4);
-    r.drawRoundedRectOutline(topBoxX, topBoxY, topBoxW, topBoxH, 2.5f, hiR, hiG, hiB, alpha, 1.2f, 4);
-    drawRivet(r, topBoxX + 3.0f, topBoxY + 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
-    drawRivet(r, topBoxX + topBoxW - 3.0f, topBoxY + 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
-    drawRivet(r, topBoxX + topBoxW - 3.0f, topBoxY + topBoxH - 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
-    if (isLarge) {
-        drawGear(r, topBoxX + topBoxW * 0.55f, topBoxY + topBoxH * 0.52f, topBoxW * 0.28f, topBoxW * 0.20f, topBoxW * 0.08f, 6, rot * 2.0f,
-                 pal.brassMidR, pal.brassMidG, pal.brassMidB, alpha, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha, 3, 2.0f);
-    }
-
-    // F. Bottom-Left Victorian Plated Serif Bracket with Mini Manometer
-    const float botBoxW = sScale * 0.28f;
-    const float botBoxH = sScale * 0.30f;
-    const float botBoxX = botTerm.x - botBoxW * 0.80f;
-    const float botBoxY = botTerm.y - botBoxH * 0.25f;
-    r.drawRoundedRect(botBoxX, botBoxY, botBoxW, botBoxH, 2.5f, pal.brassDarkR * bTint, pal.brassDarkG * bTint, pal.brassDarkB * bTint, alpha * 0.95f, 4);
-    r.drawRoundedRectOutline(botBoxX, botBoxY, botBoxW, botBoxH, 2.5f, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha, 1.2f, 4);
-    drawRivet(r, botBoxX + 3.0f, botBoxY + botBoxH - 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
-    drawRivet(r, botBoxX + botBoxW - 3.0f, botBoxY + botBoxH - 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
-    drawRivet(r, botBoxX + 3.0f, botBoxY + 3.0f, 1.2f, false, pal.brassHighlightR * bTint, pal.brassHighlightG * bTint, pal.brassHighlightB * bTint, alpha);
-
-    if (config.showGauges && !isSmall) {
-        const float gaugeR = std::min(botBoxW, botBoxH) * 0.36f;
-        const float gaugeCx = botBoxX + botBoxW * 0.50f;
-        const float gaugeCy = botBoxY + botBoxH * 0.48f;
-        const float gaugeAngle = config.animated ? (0.55f + 0.18f * std::sin(timeSec * 4.0f)) : 0.60f;
-        drawManometerGauge(r, gaugeCx, gaugeCy, gaugeR, gaugeAngle);
-    }
-
-    // G. Riveted Brass Coupling Plates across the S
-    if (!isSmall) {
-        const float strapW = sScale * 0.18f;
-        const float strapH = stemW * 1.25f;
-        r.drawRoundedRect(centerPt.x - strapW * 0.5f, centerPt.y - strapH * 0.5f, strapW, strapH, 1.5f, pal.brassBrightR * bTint, pal.brassBrightG * bTint, pal.brassBrightB * bTint, alpha, 2);
-        r.drawRoundedRectOutline(centerPt.x - strapW * 0.5f, centerPt.y - strapH * 0.5f, strapW, strapH, 1.5f, pal.brassDarkR, pal.brassDarkG, pal.brassDarkB, alpha * 0.70f, 0.8f, 2);
-        drawRivet(r, centerPt.x - strapW * 0.30f, centerPt.y, 1.0f, false, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha);
-        drawRivet(r, centerPt.x + strapW * 0.30f, centerPt.y, 1.0f, false, pal.brassHighlightR, pal.brassHighlightG, pal.brassHighlightB, alpha);
     }
 }
 
@@ -1638,137 +1673,42 @@ void bakeClockworkLogoRgba(
 ) {
     if (!outRgba || width <= 0 || height <= 0 || radius <= 2.0f || alpha <= 0.001f) return;
 
-    const float rOuter = radius;
-    const float rRoot = radius * 0.84f;
-    const float rCollarOut = radius * 0.74f;
-    const float rCollarIn = radius * 0.53f;
-    const float rOrbit = (rCollarOut + rCollarIn) * 0.5f;
-    const float rivetRadius = std::max(1.5f, radius * 0.035f);
+    std::array<SolLogoTri, 192> tris;
+    const int count = buildSolLogoTriangles(tris.data(), static_cast<int>(tris.size()), 0.0f, 1.0f, false);
 
-    constexpr int kOuterTeeth = 18;
-    constexpr int kNumRivets = 12;
+    auto edgeFn = [](float ax, float ay, float bx, float by, float px, float py) noexcept {
+        return (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+    };
 
-    const int minX = std::max(0, static_cast<int>(std::floor(centerX - rOuter - 2.0f)));
-    const int maxX = std::min(width - 1, static_cast<int>(std::ceil(centerX + rOuter + 2.0f)));
-    const int minY = std::max(0, static_cast<int>(std::floor(centerY - rOuter - 2.0f)));
-    const int maxY = std::min(height - 1, static_cast<int>(std::ceil(centerY + rOuter + 2.0f)));
+    for (int i = 0; i < count; ++i) {
+        const auto& t = tris[i];
+        float x0 = centerX + t.x0 * radius, y0 = centerY + t.y0 * radius;
+        float x1 = centerX + t.x1 * radius, y1 = centerY + t.y1 * radius;
+        float x2 = centerX + t.x2 * radius, y2 = centerY + t.y2 * radius;
+        float area = edgeFn(x0, y0, x1, y1, x2, y2);
+        if (std::abs(area) < 1e-4f) continue;
+        float sign = (area > 0.0f) ? 1.0f : -1.0f;
 
-    for (int y = minY; y <= maxY; ++y) {
-        float dy = static_cast<float>(y) + 0.5f - centerY;
-        for (int x = minX; x <= maxX; ++x) {
-            float dx = static_cast<float>(x) + 0.5f - centerX;
-            float dist = std::hypot(dx, dy);
-            if (dist > rOuter) continue;
+        int minX = std::max(0, static_cast<int>(std::floor(std::min({x0, x1, x2}))));
+        int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({x0, x1, x2}))));
+        int minY = std::max(0, static_cast<int>(std::floor(std::min({y0, y1, y2}))));
+        int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({y0, y1, y2}))));
 
-            float angle = std::atan2(dy, dx);
-            if (angle < 0.0f) angle += kTwoPi;
-
-            float pixR = 0.0f, pixG = 0.0f, pixB = 0.0f, pixA = 0.0f;
-
-            // 1. Outer Cast-Iron Teeth Zone: [rRoot, rOuter]
-            if (dist >= rRoot) {
-                float toothPhase = std::fmod(angle * (static_cast<float>(kOuterTeeth) / kTwoPi), 1.0f);
-                if (toothPhase < 0.50f) {
-                    float t = (dist - rRoot) / (rOuter - rRoot);
-                    pixR = 0.18f + 0.08f * t;
-                    pixG = 0.16f + 0.07f * t;
-                    pixB = 0.14f + 0.06f * t;
-                    pixA = 1.0f;
-                } else {
-                    continue;
+        for (int y = minY; y <= maxY; ++y) {
+            float py = static_cast<float>(y) + 0.5f;
+            for (int x = minX; x <= maxX; ++x) {
+                float px = static_cast<float>(x) + 0.5f;
+                if (edgeFn(x0, y0, x1, y1, px, py) * sign >= 0.0f &&
+                    edgeFn(x1, y1, x2, y2, px, py) * sign >= 0.0f &&
+                    edgeFn(x2, y2, x0, y0, px, py) * sign >= 0.0f) {
+                    size_t pixelOffset = static_cast<size_t>(y * strideBytes + x * 4);
+                    float invA = 1.0f - alpha;
+                    outRgba[pixelOffset + 0] = static_cast<uint8_t>(std::clamp(t.r * 255.0f * alpha + outRgba[pixelOffset + 0] * invA, 0.0f, 255.0f));
+                    outRgba[pixelOffset + 1] = static_cast<uint8_t>(std::clamp(t.g * 255.0f * alpha + outRgba[pixelOffset + 1] * invA, 0.0f, 255.0f));
+                    outRgba[pixelOffset + 2] = static_cast<uint8_t>(std::clamp(t.b * 255.0f * alpha + outRgba[pixelOffset + 2] * invA, 0.0f, 255.0f));
+                    outRgba[pixelOffset + 3] = static_cast<uint8_t>(std::clamp(255.0f * alpha + outRgba[pixelOffset + 3] * invA, 0.0f, 255.0f));
                 }
             }
-            // 2. Outer Cast-Iron Rim Zone: [rCollarOut, rRoot)
-            else if (dist >= rCollarOut) {
-                pixR = 0.20f;
-                pixG = 0.18f;
-                pixB = 0.16f;
-                pixA = 1.0f;
-            }
-            // 3. Riveted Viktoria Brass Collar: [rCollarIn, rCollarOut)
-            else if (dist >= rCollarIn) {
-                float tCollar = (dist - rCollarIn) / (rCollarOut - rCollarIn);
-                pixR = 0.78f + 0.16f * tCollar;
-                pixG = 0.62f + 0.18f * tCollar;
-                pixB = 0.22f + 0.14f * tCollar;
-                pixA = 1.0f;
-
-                for (int i = 0; i < kNumRivets; ++i) {
-                    float ra = static_cast<float>(i) * (kTwoPi / static_cast<float>(kNumRivets)) + (kTwoPi / (kNumRivets * 2.0f));
-                    float rx = std::cos(ra) * rOrbit;
-                    float ry = std::sin(ra) * rOrbit;
-                    if (std::hypot(dx - rx, dy - ry) <= rivetRadius) {
-                        pixR = 1.00f; pixG = 0.92f; pixB = 0.64f;
-                        break;
-                    }
-                }
-            }
-            // 4. Recessed Dark Boilerplate Well & Furnace Ember Glow: [0, rCollarIn)
-            else {
-                pixR = 0.09f;
-                pixG = 0.08f;
-                pixB = 0.07f;
-                pixA = 1.0f;
-
-                float glowDist = std::hypot(dx - radius * 0.04f, dy - radius * 0.03f) / (rCollarIn * 0.85f);
-                if (glowDist < 1.0f) {
-                    float glowFactor = (1.0f - glowDist) * 0.55f;
-                    pixR += 0.95f * glowFactor;
-                    pixG += 0.46f * glowFactor;
-                    pixB += 0.08f * glowFactor;
-                }
-
-                const float sArchR = radius * 0.19f;
-                const float sUpperCy = -radius * 0.20f;
-                const float sLowerCy = radius * 0.20f;
-                const float sStemW = radius * 0.09f;
-
-                float distUpper = std::abs(std::hypot(dx + radius * 0.02f, dy - sUpperCy) - sArchR);
-                float distLower = std::abs(std::hypot(dx - radius * 0.02f, dy - sLowerCy) - sArchR);
-
-                bool inS = false;
-                bool isSpine = false;
-
-                if (distUpper < sStemW && (dy <= sUpperCy || dx <= 0.02f)) {
-                    inS = true;
-                    if (distUpper < sStemW * 0.30f) isSpine = true;
-                }
-                if (distLower < sStemW && (dy >= sLowerCy || dx >= -0.02f)) {
-                    inS = true;
-                    if (distLower < sStemW * 0.30f) isSpine = true;
-                }
-                if (std::abs(dy) <= radius * 0.14f) {
-                    float diagDist = std::abs(dx - (dy * 0.9f));
-                    if (diagDist < sStemW * 1.1f) {
-                        inS = true;
-                        if (diagDist < sStemW * 0.32f) isSpine = true;
-                    }
-                }
-
-                if (dx >= radius * 0.10f && dx <= radius * 0.32f && dy >= -radius * 0.40f && dy <= -radius * 0.18f) {
-                    inS = true;
-                }
-                if (dx >= -radius * 0.32f && dx <= -radius * 0.10f && dy >= radius * 0.18f && dy <= radius * 0.40f) {
-                    inS = true;
-                }
-
-                if (inS) {
-                    if (isSpine) {
-                        pixR = 1.00f; pixG = 0.92f; pixB = 0.64f;
-                    } else {
-                        pixR = 0.78f; pixG = 0.62f; pixB = 0.22f;
-                    }
-                }
-            }
-
-            size_t pixelOffset = static_cast<size_t>(y * strideBytes + x * 4);
-            float finalAlpha = pixA * alpha;
-            float invA = 1.0f - finalAlpha;
-
-            outRgba[pixelOffset + 0] = static_cast<uint8_t>(std::clamp(pixR * 255.0f * finalAlpha + outRgba[pixelOffset + 0] * invA, 0.0f, 255.0f));
-            outRgba[pixelOffset + 1] = static_cast<uint8_t>(std::clamp(pixG * 255.0f * finalAlpha + outRgba[pixelOffset + 1] * invA, 0.0f, 255.0f));
-            outRgba[pixelOffset + 2] = static_cast<uint8_t>(std::clamp(pixB * 255.0f * finalAlpha + outRgba[pixelOffset + 2] * invA, 0.0f, 255.0f));
-            outRgba[pixelOffset + 3] = static_cast<uint8_t>(std::clamp(255.0f * finalAlpha + outRgba[pixelOffset + 3] * invA, 0.0f, 255.0f));
         }
     }
 }

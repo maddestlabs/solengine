@@ -14,11 +14,11 @@
     <meta name="theme-color" content="#0d140e">
     <meta name="color-scheme" content="dark">
     <meta name="description" content="High-fidelity procedural Solitaire board game built in C++20 and WebGPU with PBR table lighting and custom Eatscript decks.">
-    <link rel="canonical" href="https://solengine.org/">
+    <link rel="canonical" href="https://solitaireengine.org/">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-    <link rel="apple-touch-icon" href="app_icon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 
     <!-- Fonts (non-render-blocking so loading screen paints immediately) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -493,9 +493,9 @@
         <div class="sol-modal-box">
             <div class="sol-modal-title">LOAD .EATS RECIPE</div>
             <div class="sol-modal-desc">
-                Enter a GitHub repo URL, Gist ID, deck name (e.g. <span style="color:#e8d08c; font-family:'Roboto Mono',monospace;">baroque_arches</span>), or any raw link:
+                Enter a GitHub repo URL, Gist ID, deck name (e.g. <span style="color:#e8d08c; font-family:'Roboto Mono',monospace;">classic</span>), or any raw link:
             </div>
-            <input type="text" id="sol-modal-url-input" class="sol-modal-input" placeholder="e.g. baroque_arches, github.com/.../baroque_arches.eats, or Gist ID">
+            <input type="text" id="sol-modal-url-input" class="sol-modal-input" placeholder="e.g. classic, github.com/.../classic.eats, or Gist ID">
             <div class="sol-modal-actions">
                 <button id="btn-modal-cancel" class="sol-web-btn">Cancel</button>
                 <button id="btn-modal-submit" class="sol-web-btn" style="border-color:#d4af37; color:#fef08a;">Load Recipe</button>
@@ -616,7 +616,7 @@
 
         function resolveDeckUrl(input) {
             let s = input.trim();
-            // 1. Shorthand single deck name (e.g. "baroque_arches" or "baroque_arches.eats")
+            // 1. Shorthand single deck name (e.g. "classic" or "classic.eats")
             if (!s.includes('/') && !s.includes(':')) {
                 const stem = s.endsWith('.eats') ? s.slice(0, -5) : s;
                 return {
@@ -625,7 +625,7 @@
                     filename: `${stem}.eats`
                 };
             }
-            // 2. Relative decks/ path (e.g. "decks/baroque_arches.eats" or "./decks/baroque_arches.eats")
+            // 2. Relative decks/ path (e.g. "decks/classic.eats" or "./decks/classic.eats")
             if (s.startsWith('./decks/') || s.startsWith('decks/')) {
                 const fname = s.split('/').pop().split('?')[0];
                 return {
@@ -635,7 +635,7 @@
                 };
             }
             // 3. GitHub Web blob URL -> raw.githubusercontent.com
-            // e.g. https://github.com/maddestlabs/solengine/blob/main/decks/baroque_arches.eats
+            // e.g. https://github.com/maddestlabs/solengine/blob/main/decks/classic.eats
             if (s.includes('github.com/') && s.includes('/blob/')) {
                 const rawUrl = s.replace('github.com/', 'raw.githubusercontent.com/').replace('/blob/', '/');
                 const fname = rawUrl.split('/').pop().split('?')[0];
@@ -796,152 +796,24 @@
             }
         }
 
-        let isBaroqueActive = false;
-        window.loadBaroqueDeck = async function() {
-            const btnLabel = document.getElementById('btn-baroque-label');
-            const btn = document.getElementById('btn-load-baroque');
-
-            if (isBaroqueActive) {
-                if (typeof FS !== 'undefined' && typeof Module !== 'undefined' && Module.ccall) {
-                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['decks/classic.eats']);
-                    if (ok) {
-                        isBaroqueActive = false;
-                        if (btnLabel) btnLabel.innerText = 'Baroque Arches';
-                        if (btn) btn.classList.remove('active-steampunk');
-                        showToast('Switched to Classic SVG Deck.');
-                        return;
-                    }
-                }
-            }
-
-            if (typeof FS !== 'undefined') {
-                let exists = false;
-                try {
-                    const stat = FS.stat('/decks/baroque_arches.eats');
-                    if (stat && stat.size > 0) exists = true;
-                } catch (e) {}
-
-                if (exists && typeof Module !== 'undefined' && Module.ccall) {
-                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['/decks/baroque_arches.eats']);
-                    if (ok) {
-                        isBaroqueActive = true;
-                        if (btnLabel) btnLabel.innerText = 'Classic SVG Deck';
-                        if (btn) btn.classList.add('active-steampunk');
-                        showToast('Activated Baroque Arches Deck.');
-                        return;
-                    }
-                }
-            }
-
-            const success = await loadEatsFromUrl('baroque_arches', 'baroque_arches.eats');
-            if (success) {
-                isBaroqueActive = true;
-                if (btnLabel) btnLabel.innerText = 'Classic SVG Deck';
-                if (btn) btn.classList.add('active-steampunk');
-            }
-        };
-
         window.loadDeckByName = async function(name) {
             const cleanName = name.replace(/\.eats$/, '');
+            const vPath = `/decks/${cleanName}.eats`;
+            if (typeof FS !== 'undefined' && typeof Module !== 'undefined' && Module.ccall) {
+                let exists = false;
+                try {
+                    const stat = FS.stat(vPath);
+                    if (stat && stat.size > 0) exists = true;
+                } catch (e) {}
+                if (exists) {
+                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], [vPath]);
+                    if (ok) {
+                        showToast(`Activated ${cleanName} Deck.`);
+                        return true;
+                    }
+                }
+            }
             return await loadEatsFromUrl(cleanName, cleanName + '.eats');
-        };
-
-        let isSteampunkActive = false;
-        window.loadSteampunkDeck = async function() {
-            const btnLabel = document.getElementById('btn-steampunk-label');
-            const btn = document.getElementById('btn-load-steampunk');
-
-            // If already downloaded and active, toggle back to Classic
-            if (isSteampunkActive) {
-                if (typeof FS !== 'undefined' && typeof Module !== 'undefined' && Module.ccall) {
-                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['decks/classic.eats']);
-                    if (ok) {
-                        isSteampunkActive = false;
-                        if (btnLabel) btnLabel.innerText = 'Steampunk Deck';
-                        if (btn) btn.classList.remove('active-steampunk');
-                        showToast('Switched to Classic SVG Deck.');
-                        return;
-                    }
-                }
-            }
-
-            // Check if steampunk.eats is already present in MEMFS
-            if (typeof FS !== 'undefined') {
-                let exists = false;
-                try {
-                    const stat = FS.stat('/decks/steampunk.eats');
-                    if (stat && stat.size > 0) exists = true;
-                } catch (e) {}
-
-                if (exists && typeof Module !== 'undefined' && Module.ccall) {
-                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['/decks/steampunk.eats']);
-                    if (ok) {
-                        isSteampunkActive = true;
-                        if (btnLabel) btnLabel.innerText = 'Classic SVG Deck';
-                        if (btn) btn.classList.add('active-steampunk');
-                        showToast('Activated Steampunk Deck.');
-                        return;
-                    }
-                }
-            }
-
-            // Otherwise, stream download from static ./decks/steampunk.eats (with GitHub repo fallback)
-            const success = await loadEatsFromUrl('steampunk', 'steampunk.eats');
-            if (success) {
-                isSteampunkActive = true;
-                if (btnLabel) btnLabel.innerText = 'Classic SVG Deck';
-                if (btn) btn.classList.add('active-steampunk');
-            }
-        };
-
-        window.loadAnimeDeck = async function() {
-            // Check if anime.eats is already present in MEMFS
-            if (typeof FS !== 'undefined') {
-                let exists = false;
-                try {
-                    const stat = FS.stat('/decks/anime.eats');
-                    if (stat && stat.size > 0) exists = true;
-                } catch (e) {}
-
-                if (exists && typeof Module !== 'undefined' && Module.ccall) {
-                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['/decks/anime.eats']);
-                    if (ok) {
-                        showToast('Activated Anime Celestia Deck.');
-                        return;
-                    }
-                }
-            }
-
-            // Otherwise, stream download from static ./decks/anime.eats
-            const success = await loadEatsFromUrl('./decks/anime.eats', 'anime.eats');
-            if (success) {
-                showToast('Activated Anime Celestia Deck.');
-            }
-        };
-
-        window.loadCyberpunkDeck = async function() {
-            // Check if cyberpunk.eats is already present in MEMFS
-            if (typeof FS !== 'undefined') {
-                let exists = false;
-                try {
-                    const stat = FS.stat('/decks/cyberpunk.eats');
-                    if (stat && stat.size > 0) exists = true;
-                } catch (e) {}
-
-                if (exists && typeof Module !== 'undefined' && Module.ccall) {
-                    const ok = Module.ccall('solengine_load_file_from_web', 'boolean', ['string'], ['/decks/cyberpunk.eats']);
-                    if (ok) {
-                        showToast('Activated Cyberpunk Neon Deck.');
-                        return;
-                    }
-                }
-            }
-
-            // Otherwise, stream download from static ./decks/cyberpunk.eats
-            const success = await loadEatsFromUrl('./decks/cyberpunk.eats', 'cyberpunk.eats');
-            if (success) {
-                showToast('Activated Cyberpunk Neon Deck.');
-            }
         };
 
         function setupWebControls() {
@@ -1017,9 +889,9 @@
                 const url = params.get('url');
                 await loadEatsFromUrl(url);
             } else if (params.has('deck')) {
-                const deck = params.get('deck').toLowerCase();
-                if (deck === 'steampunk') {
-                    await window.loadSteampunkDeck();
+                const deck = params.get('deck').trim().toLowerCase();
+                if (deck) {
+                    await window.loadDeckByName(deck);
                 }
             }
         }

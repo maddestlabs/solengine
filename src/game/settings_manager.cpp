@@ -23,7 +23,7 @@ bool GameSceneProfile::empty() const noexcept {
            !deckTheme && !deckSlug && !lowPolySeed && !cardBackId &&
            !cardWear && !cardStock && !cardCorners && !cardDeviation &&
            !lightingPreset && !lightAngle && !shadowGobo && !lightWaver && !lightWaverSpeed &&
-           !lightFlicker && !goboSoftness && !cloudOpacity && !godRaysIntensity && !dustMotesIntensity &&
+           !lightFlicker && !goboSoftness && !cloudOpacity && !dustMotesIntensity &&
            !sceneDarkness && !lightStrength && !soundPackId && !ambienceId &&
            !ambienceVolume && !stockPosition && !autoFinish && !victoryAnimOverride;
 }
@@ -189,7 +189,6 @@ bool SettingsManager::load() {
             settings_.lightFlicker = std::clamp(a["lightFlicker"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.goboSoftness = std::clamp(a["goboSoftness"].asFloat(0.45f), 0.05f, 1.0f);
             settings_.cloudOpacity = std::clamp(a["cloudOpacity"].asFloat(0.0f), 0.0f, 1.0f);
-            settings_.godRaysIntensity = std::clamp(a["godRaysIntensity"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.dustMotesIntensity = std::clamp(a["dustMotesIntensity"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.sceneDarkness = std::clamp(a["sceneDarkness"].asFloat(0.22f), 0.0f, 0.85f);
             settings_.lightStrength = std::clamp(a["lightStrength"].asFloat(1.20f), 0.0f, 2.0f);
@@ -300,7 +299,6 @@ bool SettingsManager::load() {
                 if (pVal.contains("lightFlicker") && pVal["lightFlicker"].isNumber()) prof.lightFlicker = std::clamp(pVal["lightFlicker"].asFloat(0.0f), 0.0f, 1.0f);
                 if (pVal.contains("goboSoftness") && pVal["goboSoftness"].isNumber()) prof.goboSoftness = std::clamp(pVal["goboSoftness"].asFloat(0.45f), 0.05f, 1.0f);
                 if (pVal.contains("cloudOpacity") && pVal["cloudOpacity"].isNumber()) prof.cloudOpacity = std::clamp(pVal["cloudOpacity"].asFloat(0.0f), 0.0f, 1.0f);
-                if (pVal.contains("godRaysIntensity") && pVal["godRaysIntensity"].isNumber()) prof.godRaysIntensity = std::clamp(pVal["godRaysIntensity"].asFloat(0.0f), 0.0f, 1.0f);
                 if (pVal.contains("dustMotesIntensity") && pVal["dustMotesIntensity"].isNumber()) prof.dustMotesIntensity = std::clamp(pVal["dustMotesIntensity"].asFloat(0.0f), 0.0f, 1.0f);
                 if (pVal.contains("sceneDarkness") && pVal["sceneDarkness"].isNumber()) prof.sceneDarkness = std::clamp(pVal["sceneDarkness"].asFloat(0.22f), 0.0f, 0.85f);
                 if (pVal.contains("lightStrength") && pVal["lightStrength"].isNumber()) prof.lightStrength = std::clamp(pVal["lightStrength"].asFloat(1.20f), 0.0f, 2.0f);
@@ -406,7 +404,6 @@ bool SettingsManager::save() {
     a["lightFlicker"] = settings_.lightFlicker;
     a["goboSoftness"] = settings_.goboSoftness;
     a["cloudOpacity"] = settings_.cloudOpacity;
-    a["godRaysIntensity"] = settings_.godRaysIntensity;
     a["dustMotesIntensity"] = settings_.dustMotesIntensity;
     a["sceneDarkness"] = settings_.sceneDarkness;
     a["lightStrength"] = settings_.lightStrength;
@@ -481,7 +478,6 @@ bool SettingsManager::save() {
             if (prof.lightFlicker) p["lightFlicker"] = *prof.lightFlicker;
             if (prof.goboSoftness) p["goboSoftness"] = *prof.goboSoftness;
             if (prof.cloudOpacity) p["cloudOpacity"] = *prof.cloudOpacity;
-            if (prof.godRaysIntensity) p["godRaysIntensity"] = *prof.godRaysIntensity;
             if (prof.dustMotesIntensity) p["dustMotesIntensity"] = *prof.dustMotesIntensity;
             if (prof.sceneDarkness) p["sceneDarkness"] = *prof.sceneDarkness;
             if (prof.lightStrength) p["lightStrength"] = *prof.lightStrength;
@@ -676,7 +672,6 @@ void SettingsManager::applyProfileToSettings(const GameSceneProfile& p, AppSetti
     if (p.lightFlicker) resolved.lightFlicker = *p.lightFlicker;
     if (p.goboSoftness) resolved.goboSoftness = *p.goboSoftness;
     if (p.cloudOpacity) resolved.cloudOpacity = *p.cloudOpacity;
-    if (p.godRaysIntensity) resolved.godRaysIntensity = *p.godRaysIntensity;
     if (p.dustMotesIntensity) resolved.dustMotesIntensity = *p.dustMotesIntensity;
     if (p.sceneDarkness) resolved.sceneDarkness = *p.sceneDarkness;
     if (p.lightStrength) resolved.lightStrength = *p.lightStrength;
@@ -715,7 +710,6 @@ GameSceneProfile SettingsManager::extractSceneProfile(const AppSettings& s) {
     p.lightFlicker = s.lightFlicker;
     p.goboSoftness = s.goboSoftness;
     p.cloudOpacity = s.cloudOpacity;
-    p.godRaysIntensity = s.godRaysIntensity;
     p.dustMotesIntensity = s.dustMotesIntensity;
     p.sceneDarkness = s.sceneDarkness;
     p.lightStrength = s.lightStrength;
@@ -793,7 +787,6 @@ GameSceneProfile SettingsManager::diffFromGlobal(const AppSettings& global, cons
     if (diffF(effective.lightFlicker, global.lightFlicker)) p.lightFlicker = effective.lightFlicker;
     if (diffF(effective.goboSoftness, global.goboSoftness)) p.goboSoftness = effective.goboSoftness;
     if (diffF(effective.cloudOpacity, global.cloudOpacity)) p.cloudOpacity = effective.cloudOpacity;
-    if (diffF(effective.godRaysIntensity, global.godRaysIntensity)) p.godRaysIntensity = effective.godRaysIntensity;
     if (diffF(effective.dustMotesIntensity, global.dustMotesIntensity)) p.dustMotesIntensity = effective.dustMotesIntensity;
     if (diffF(effective.sceneDarkness, global.sceneDarkness)) p.sceneDarkness = effective.sceneDarkness;
     if (diffF(effective.lightStrength, global.lightStrength)) p.lightStrength = effective.lightStrength;
@@ -870,7 +863,6 @@ bool parsePresetEatsFile(const std::string& filePath, bool isBuiltin, ScenePrese
             else if (key == "light_flicker") out.profile.lightFlicker = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "gobo_softness") out.profile.goboSoftness = std::clamp(std::stof(val), 0.05f, 1.0f);
             else if (key == "cloud_opacity") out.profile.cloudOpacity = std::clamp(std::stof(val), 0.0f, 1.0f);
-            else if (key == "god_rays") out.profile.godRaysIntensity = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "dust_motes") out.profile.dustMotesIntensity = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "scene_darkness") out.profile.sceneDarkness = std::clamp(std::stof(val), 0.0f, 0.85f);
             else if (key == "light_strength") out.profile.lightStrength = std::clamp(std::stof(val), 0.0f, 2.0f);
@@ -1003,7 +995,6 @@ void writePresetEatsFile(const std::filesystem::path& fp, const ScenePreset& sp)
     if (profile.lightFlicker) ofs << ",\n        flicker: " << *profile.lightFlicker;
     if (profile.goboSoftness) ofs << ",\n        gobo_softness: " << *profile.goboSoftness;
     if (profile.cloudOpacity) ofs << ",\n        cloud_opacity: " << *profile.cloudOpacity;
-    if (profile.godRaysIntensity) ofs << ",\n        god_rays: " << *profile.godRaysIntensity;
     if (profile.dustMotesIntensity) ofs << ",\n        dust_motes: " << *profile.dustMotesIntensity;
     if (profile.sceneDarkness) ofs << ",\n        scene_darkness: " << *profile.sceneDarkness;
     if (profile.lightStrength) ofs << ",\n        light_strength: " << *profile.lightStrength;

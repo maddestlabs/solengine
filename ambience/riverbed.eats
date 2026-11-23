@@ -1,6 +1,6 @@
 # ==============================================================================
 # SolEngine Procedural Ambience: Riverbed (.eats)
-# Rushing current, surface riffle, upward-sweeping bubbles, and pebble splashes.
+# Broad turbulent rushing current, whitewater surface riffle, and light spray.
 # ==============================================================================
 
 sol.define_ambience({
@@ -8,48 +8,64 @@ sol.define_ambience({
     name: "Riverbed",
     master_gain: 1.0,
     layers: [
+        # Deep river body rumble
         {
             type: "noise_bed",
             color: "brown",
             filter: "lowpass",
-            cutoff: 360.0,
+            cutoff: 400.0,
             q: 0.707,
-            gain: 0.38,
-            lfo_rate: 0.18,
-            lfo_depth: 90.0,
-            amp_mod: 0.14
+            gain: 0.42,
+            lfo_rate: 0.14,
+            lfo_depth: 70.0,
+            amp_mod: 0.10
         },
+        # Main rushing current (wide-band pink noise)
         {
             type: "noise_bed",
             color: "pink",
             filter: "bandpass",
-            cutoff: 1100.0,
-            q: 0.85,
-            gain: 0.26,
-            lfo_rate: 0.27,
-            lfo_depth: 320.0,
-            amp_mod: 0.16
+            cutoff: 1050.0,
+            q: 0.55,
+            gain: 0.36,
+            lfo_rate: 0.19,
+            lfo_depth: 220.0,
+            amp_mod: 0.12
         },
+        # Surface whitewater riffle over stones
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 3100.0,
+            q: 0.65,
+            gain: 0.15,
+            lfo_rate: 0.26,
+            lfo_depth: 450.0,
+            amp_mod: 0.14
+        },
+        # Subtle water spray & pebble splashes (non-tonal)
+        {
+            type: "stochastic_grains",
+            rate: 9.0,
+            freq_min: 1800.0,
+            freq_max: 4800.0,
+            decay: 0.012,
+            q: 1.4,
+            gain: 0.11,
+            stereo_spread: 0.85
+        },
+        # Very sparse, quiet air-pocket pops
         {
             type: "stochastic_grains",
             tonal: true,
-            rate: 16.0,
-            freq_min: 420.0,
-            freq_max: 1250.0,
-            freq_sweep: 1.65,
-            decay: 0.032,
-            gain: 0.22,
-            stereo_spread: 0.80
-        },
-        {
-            type: "stochastic_grains",
-            rate: 12.0,
-            freq_min: 1600.0,
-            freq_max: 4200.0,
-            decay: 0.015,
-            q: 2.0,
-            gain: 0.20,
-            stereo_spread: 0.85
+            rate: 1.4,
+            freq_min: 480.0,
+            freq_max: 980.0,
+            freq_sweep: 1.45,
+            decay: 0.022,
+            gain: 0.04,
+            stereo_spread: 0.75
         }
     ]
 })

@@ -1,0 +1,358 @@
+# =============================================================================
+# SolEngine Game Family: Memory (.eats)
+# Consolidated variants:
+#   - Memory (8x3, default landscape 24-card)
+#   - Memory (4x4, 16-card quick)
+#   - Memory (13x4, 52-card classic)
+#   - Memory (Figure-8, 24-card twin angled loops)
+#   - Clockwork Memory (14-card clock ring + 4 center clock-hand cards)
+# =============================================================================
+
+# --- Shared Memory Rules ---
+
+def memory_on_deal():
+    set_stat("FIRST_Z", -1)
+    set_stat("SECOND_Z", -1)
+    set_stat("TURNS", 0)
+    set_stat("PAIRS", 0)
+
+def memory_can_pick(z, i):
+    return False
+
+def memory_can_drop(fz, fi, tz):
+    return False
+
+def collect_pair():
+    z1 = get_stat("FIRST_Z", -1)
+    z2 = get_stat("SECOND_Z", -1)
+    if z1 >= 1 and zone_size(z1) > 0:
+        move_cards(z1, 0, 0)
+    if z2 >= 1 and zone_size(z2) > 0:
+        move_cards(z2, 0, 0)
+    set_stat("FIRST_Z", -1)
+    set_stat("SECOND_Z", -1)
+    set_stat("PAIRS", get_stat("PAIRS", 0) + 1)
+    add_score(20)
+
+def flip_pair_down():
+    z1 = get_stat("FIRST_Z", -1)
+    z2 = get_stat("SECOND_Z", -1)
+    if z1 >= 1 and zone_size(z1) > 0:
+        flip_card(z1, 0, False)
+    if z2 >= 1 and zone_size(z2) > 0:
+        flip_card(z2, 0, False)
+    set_stat("FIRST_Z", -1)
+    set_stat("SECOND_Z", -1)
+
+def memory_on_card_click(z, i):
+    if z < 1 or zone_size(z) == 0 or card_face_up(z, 0):
+        return False
+    first_z = get_stat("FIRST_Z", -1)
+    if first_z == -1:
+        flip_card(z, 0, True)
+        set_stat("FIRST_Z", z)
+        return True
+    if first_z == z:
+        return False
+    flip_card(z, 0, True)
+    set_stat("SECOND_Z", z)
+    set_stat("TURNS", get_stat("TURNS", 0) + 1)
+    if card_rank(first_z, 0) == card_rank(z, 0):
+        schedule_action(0.45, "collect_pair", True)
+    else:
+        schedule_action(0.85, "flip_pair_down", True)
+    return True
+
+def memory_status_16():
+    if zone_size(0) >= 16:
+        return "victory"
+    return "playing"
+
+def memory_status_18():
+    if zone_size(0) >= 18:
+        return "victory"
+    return "playing"
+
+def memory_status_24():
+    if zone_size(0) >= 24:
+        return "victory"
+    return "playing"
+
+def memory_status_52():
+    if zone_size(0) >= 52:
+        return "victory"
+    return "playing"
+
+# --- Shaped Layouts ---
+
+def figure8_layout(bw, bh):
+    cw = get_card_width()
+    ch = get_card_height()
+    avail_w = max(200.0, bw - 64.0)
+    avail_h = max(200.0, bh - 135.0)
+    r_h = (avail_h - ch * 1.15) * 0.5
+    r_w = (avail_w - cw * 1.35) * 0.255
+    rad = max(ch * 0.95, min(r_h, r_w))
+    cx = bw * 0.5
+    cy = 68.0 + (bh - 120.0) * 0.54
+
+    set_zone_pose(0, cx - cw * 0.5, 36.0, 0.0, 10)
+
+    pi = 3.14159265
+    lcx = cx - rad * 1.18
+    i = 0
+    while i < 12:
+        deg = i * 30.0
+        theta = deg * pi / 180.0
+        px = lcx + cos(theta) * rad - cw * 0.5
+        py = cy + sin(theta) * rad - ch * 0.5
+        ang = deg + 90.0
+        if i == 0:
+            px = px - cw * 0.06
+            py = py - ch * 0.18
+            ang = 52.0
+        set_zone_pose(1 + i, px, py, ang, i)
+        i = i + 1
+
+    rcx = cx + rad * 1.18
+    j = 0
+    while j < 12:
+        deg = 180.0 - j * 30.0
+        theta = deg * pi / 180.0
+        px = rcx + cos(theta) * rad - cw * 0.5
+        py = cy + sin(theta) * rad - ch * 0.5
+        ang = deg - 90.0
+        if j == 0:
+            py = py + ch * 0.18
+            ang = 52.0
+        set_zone_pose(13 + j, px, py, ang, j)
+        j = j + 1
+
+def clockwork_memory_layout(bw, bh):
+    cw = get_card_width()
+    ch = get_card_height()
+    avail_w = max(200.0, bw - 80.0)
+    avail_h = max(200.0, bh - 130.0)
+    rad = max(ch * 1.25, (min(avail_w, avail_h) - ch * 1.15) * 0.5)
+    cx = bw * 0.5
+    cy = 62.0 + (bh - 115.0) * 0.52
+
+    # Matched Pairs pile in top-left corner
+    set_zone_pose(0, 36.0, 44.0, 0.0, 20)
+
+    pi = 3.14159265
+    # Outer ring: 14 cards (zones 1..14)
+    i = 0
+    while i < 14:
+        deg = -90.0 + i * (360.0 / 14.0)
+        theta = deg * pi / 180.0
+        px = cx + cos(theta) * rad - cw * 0.5
+        py = cy + sin(theta) * rad - ch * 0.5
+        set_zone_pose(1 + i, px, py, deg + 90.0, i)
+        i = i + 1
+
+    # Center 4 cards representing clock hands (zones 15..18)
+    hand_off = max(cw * 0.78, ch * 0.58)
+    set_zone_pose(15, cx - cw * 0.5, cy - hand_off - ch * 0.5, 0.0, 15)
+    set_zone_pose(16, cx + hand_off - cw * 0.5, cy - ch * 0.5, 90.0, 16)
+    set_zone_pose(17, cx - cw * 0.5, cy + hand_off - ch * 0.5, 180.0, 17)
+    set_zone_pose(18, cx - hand_off - cw * 0.5, cy - ch * 0.5, 270.0, 18)
+
+# --- Variant Definitions ---
+
+sol.define_game({
+    id: "memory",
+    name: "Memory",
+    family: "Memory",
+    category: "MATCHING",
+    layout: "grid",
+    description: "24-card landscape Memory (9 through Ace, 12 pairs) in an 8x3 grid. Flip pairs of matching rank.",
+    decks: 1,
+    exclude_ranks: [2, 3, 4, 5, 6, 7, 8],
+    tableaus: 24,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 8,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: False,
+    stock_deal_mode: "none",
+    supports_solver: False,
+    allow_undo: False,
+    demo_seed: 2026,
+    default_deck: "memory_lowpoly",
+    on_deal: memory_on_deal,
+    can_pick: memory_can_pick,
+    can_drop: memory_can_drop,
+    on_card_click: memory_on_card_click,
+    get_status: memory_status_24,
+    doc: {
+        meta: [2, "Quick", 1, "Pure Memory", 3, "Focus"],
+        aliases: ["Concentration", "Memory 8x3", "Pelmanism", "Pairs"],
+        goal: ["Match and collect all 12 pairs (9 through Ace) from the 8x3 grid.", "No lose condition — finish in as few turns as possible."],
+        zones: [
+            { index: 0, name: "Matched Pairs", desc: "Collected pairs of matching rank." }
+        ],
+        stats: [
+            { key: "TURNS", name: "Turns", desc: "Total pair-flip attempts taken." },
+            { key: "PAIRS", name: "Pairs Found", desc: "Number of matched pairs collected (out of 12)." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "memory_4x4",
+    name: "Memory (4x4)",
+    family: "Memory",
+    category: "MATCHING",
+    layout: "grid",
+    description: "Quick 16-card Memory using Aces and Court cards (8 pairs) in a 4x4 grid.",
+    decks: 1,
+    exclude_ranks: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    tableaus: 16,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 4,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: False,
+    stock_deal_mode: "none",
+    supports_solver: False,
+    allow_undo: False,
+    demo_seed: 2026,
+    default_deck: "memory_lowpoly",
+    on_deal: memory_on_deal,
+    can_pick: memory_can_pick,
+    can_drop: memory_can_drop,
+    on_card_click: memory_on_card_click,
+    get_status: memory_status_16,
+    doc: {
+        meta: [1, "Very Quick", 1, "Pure Memory", 2, "Focus"],
+        aliases: ["Concentration 4x4", "Mini Memory"],
+        goal: ["Match and collect all 8 pairs (Aces, Jacks, Queens, Kings) from the 4x4 grid.", "No lose condition — finish in as few turns as possible."],
+        zones: [
+            { index: 0, name: "Matched Pairs", desc: "Collected pairs of matching rank." }
+        ],
+        stats: [
+            { key: "TURNS", name: "Turns", desc: "Total pair-flip attempts taken." },
+            { key: "PAIRS", name: "Pairs Found", desc: "Number of matched pairs collected (out of 8)." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "memory_13x4",
+    name: "Memory (13x4)",
+    family: "Memory",
+    category: "MATCHING",
+    layout: "grid",
+    description: "Full 52-card Memory (Concentration) in a 13x4 grid. Match all 26 pairs.",
+    decks: 1,
+    tableaus: 52,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 13,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: False,
+    stock_deal_mode: "none",
+    supports_solver: False,
+    allow_undo: False,
+    demo_seed: 2026,
+    default_deck: "memory_lowpoly",
+    on_deal: memory_on_deal,
+    can_pick: memory_can_pick,
+    can_drop: memory_can_drop,
+    on_card_click: memory_on_card_click,
+    get_status: memory_status_52,
+    doc: {
+        meta: [3, "Medium", 1, "Pure Memory", 3, "Focus"],
+        aliases: ["Concentration 13x4", "Full Deck Memory", "Memory 4x13"],
+        goal: ["Match and collect all 26 pairs of equal-rank cards from the 13x4 grid.", "No lose condition — finish in as few turns as possible."],
+        zones: [
+            { index: 0, name: "Matched Pairs", desc: "Collected pairs of matching rank." }
+        ],
+        stats: [
+            { key: "TURNS", name: "Turns", desc: "Total pair-flip attempts taken." },
+            { key: "PAIRS", name: "Pairs Found", desc: "Number of matched pairs collected (out of 26)." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "memory_figure8",
+    name: "Memory (Figure-8)",
+    family: "Memory",
+    category: "MATCHING",
+    layout: "grid",
+    description: "24-card Memory (9 through Ace, 12 pairs) arranged along a flowing twin-loop Figure-8.",
+    decks: 1,
+    exclude_ranks: [2, 3, 4, 5, 6, 7, 8],
+    tableaus: 24,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 13,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: False,
+    stock_deal_mode: "none",
+    supports_solver: False,
+    allow_undo: False,
+    demo_seed: 2026,
+    default_deck: "memory_lowpoly",
+    on_deal: memory_on_deal,
+    on_layout: figure8_layout,
+    can_pick: memory_can_pick,
+    can_drop: memory_can_drop,
+    on_card_click: memory_on_card_click,
+    get_status: memory_status_24,
+    doc: {
+        meta: [2, "Quick", 1, "Pure Memory", 3, "Focus"],
+        aliases: ["Figure-8 Memory", "Infinity Memory", "Concentration Figure-8"],
+        goal: ["Match and collect all 12 pairs (9 through Ace) from the Figure-8 loops.", "No lose condition — finish in as few turns as possible."],
+        zones: [
+            { index: 0, name: "Matched Pairs", desc: "Collected pairs of matching rank." }
+        ],
+        stats: [
+            { key: "TURNS", name: "Turns", desc: "Total pair-flip attempts taken." },
+            { key: "PAIRS", name: "Pairs Found", desc: "Number of matched pairs collected (out of 12)." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "clockwork_memory",
+    name: "Clockwork Memory",
+    family: "Memory",
+    category: "MATCHING",
+    layout: "grid",
+    description: "18-card Clockwork Memory (9 pairs): a 14-card radial clock dial with 4 clock-hand cards in the center.",
+    decks: 1,
+    suit_count: 2,
+    exclude_ranks: [2, 3, 4, 5],
+    tableaus: 18,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 12,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: False,
+    stock_deal_mode: "none",
+    supports_solver: False,
+    allow_undo: False,
+    demo_seed: 2026,
+    default_deck: "memory_lowpoly",
+    on_deal: memory_on_deal,
+    on_layout: clockwork_memory_layout,
+    can_pick: memory_can_pick,
+    can_drop: memory_can_drop,
+    on_card_click: memory_on_card_click,
+    get_status: memory_status_18,
+    doc: {
+        meta: [2, "Quick", 1, "Pure Memory", 2, "Focus"],
+        aliases: ["Clockwork Dial Memory", "Clock Memory"],
+        goal: ["Match and collect all 9 pairs (6 through Ace) from the 14-card dial and 4 center clock hands.", "No lose condition — finish in as few turns as possible."],
+        zones: [
+            { index: 0, name: "Matched Pairs", desc: "Collected pairs of matching rank." }
+        ],
+        stats: [
+            { key: "TURNS", name: "Turns", desc: "Total pair-flip attempts taken." },
+            { key: "PAIRS", name: "Pairs Found", desc: "Number of matched pairs collected (out of 9)." }
+        ]
+    }
+})

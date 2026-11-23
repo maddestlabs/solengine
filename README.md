@@ -2,7 +2,7 @@
 
 > *"The Solitaire Engine. Bake your new Sol into existence with the power of Python-based scripting in Eatscript."*
 
-[![Play Online](https://img.shields.io/badge/Play%20Online-solengine.org-brightgreen?style=flat-square&logo=github)](https://solengine.org/)
+[![Play Online](https://img.shields.io/badge/Play%20Online-solitaireengine.org-brightgreen?style=flat-square&logo=github)](https://solitaireengine.org/)
 [![Repository](https://img.shields.io/badge/Repository-maddestlabs%2Fsolengine-blue?style=flat-square&logo=github)](https://github.com/maddestlabs/solengine)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](file:///c:/git/solengine/LICENSE.md)
 [![Standard: C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?style=flat-square&logo=c%2B%2B)](file:///c:/git/solengine/CMakeLists.txt)
@@ -18,7 +18,7 @@
 To minimize runtime, SolEngine leans heavily into procedural generation and desperately wants to draw everything in code, never relying on external assets. Alas, it doth protest.
 
 Play instantly in your browser:  
-👉 **[Launch SolEngine](https://solengine.org/)**
+👉 **[Launch SolEngine](https://solitaireengine.org/)**
 
 ---
 

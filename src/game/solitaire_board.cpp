@@ -180,6 +180,7 @@ void SolitaireBoard::newDeal(uint32_t seed, GameVariant variant) {
 
 void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
     statusCacheDirty_ = true;
+    pendingActions_.clear();
     activeDef_ = gameDef;
     seed_ = seed;
     rngState_ = seed;
@@ -284,16 +285,34 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
             }
         }
     } else {
-        deck.reserve(52);
+        const uint8_t numDecks = std::max<uint8_t>(1, activeDef_.decks);
+        const uint8_t numSuits = std::clamp<uint8_t>(activeDef_.suitCount, 1, 4);
+        deck.reserve(static_cast<size_t>(numDecks) * numSuits * 13 + activeDef_.jokers * numDecks);
         uint8_t idCounter = 0;
-        for (uint8_t s = 0; s < 4; ++s) {
-            for (uint8_t r = 1; r <= 13; ++r) {
+        for (uint8_t copy = 0; copy < numDecks; ++copy) {
+            for (uint8_t s = 0; s < numSuits; ++s) {
+                for (uint8_t r = 1; r <= 13; ++r) {
+                    if (!activeDef_.excludeRanks.empty() &&
+                        std::find(activeDef_.excludeRanks.begin(), activeDef_.excludeRanks.end(), r) != activeDef_.excludeRanks.end()) {
+                        continue;
+                    }
+                    Card c{};
+                    c.id = idCounter++;
+                    c.suit = static_cast<Suit>(s);
+                    c.rank = static_cast<Rank>(r);
+                    c.faceUp = false;
+                    c.flipAngle = 0.0f;
+                    deck.push_back(c);
+                }
+            }
+            for (uint8_t j = 0; j < activeDef_.jokers; ++j) {
                 Card c{};
                 c.id = idCounter++;
-                c.suit = static_cast<Suit>(s);
-                c.rank = static_cast<Rank>(r);
+                c.suit = (j % 2 == 0) ? Suit::Spades : Suit::Hearts;
+                c.rank = Rank::Ace;
                 c.faceUp = false;
                 c.flipAngle = 0.0f;
+                c.addTag("joker");
                 deck.push_back(c);
             }
         }
@@ -538,6 +557,62 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
         }
         if (hasStock) {
             const size_t stockIdx = static_cast<size_t>(numTab) + numFound;
+            while (cursor < deck.size()) {
+                Card c = deck[cursor++];
+                c.faceUp = false;
+                piles_[stockIdx].cards.push_back(c);
+            }
+        }
+    } else if (activeDef_.layout == "grid") {
+        // Grid Layout:
+        // 0..numFound-1 = Foundation / Discard piles
+        // numFound..numFound+numTab-1 = Grid cell piles
+        // optional Stock pile at end if stockDealMode != "none"
+        const uint8_t numFound = activeDef_.foundations;
+        const uint8_t numTab = activeDef_.tableaus > 0 ? activeDef_.tableaus : static_cast<uint8_t>(deck.size());
+        for (uint8_t i = 0; i < numFound; ++i) {
+            Pile f{};
+            f.type = PileType::Foundation;
+            f.index = i;
+            f.role = "foundation";
+            f.fanDirX = 0.0f;
+            f.fanDirY = 0.0f;
+            piles_.push_back(f);
+        }
+        for (uint8_t i = 0; i < numTab; ++i) {
+            Pile t{};
+            t.type = PileType::Tableau;
+            t.index = i;
+            t.role = "grid";
+            t.fanDirX = 0.0f;
+            t.fanDirY = 0.0f;
+            piles_.push_back(t);
+        }
+        const bool hasStock = (activeDef_.stockDealMode != "none");
+        if (hasStock) {
+            Pile stock{};
+            stock.type = PileType::Stock;
+            stock.index = 0;
+            stock.role = "stock";
+            stock.fanDirX = 0.0f;
+            stock.fanDirY = 0.0f;
+            piles_.push_back(stock);
+        }
+
+        size_t cursor = 0;
+        for (uint8_t i = 0; i < numTab; ++i) {
+            const uint8_t count = (i < activeDef_.tableauDealCounts.size()) ? activeDef_.tableauDealCounts[i] : 1;
+            for (uint8_t r = 0; r < count && cursor < deck.size(); ++r) {
+                Card c = deck[cursor++];
+                c.faceUp = activeDef_.tableauAllFaceUp;
+                if (c.faceUp) {
+                    c.flipAngle = kPi * 0.75f;
+                }
+                piles_[numFound + i].cards.push_back(c);
+            }
+        }
+        if (hasStock) {
+            const size_t stockIdx = static_cast<size_t>(numFound) + numTab;
             while (cursor < deck.size()) {
                 Card c = deck[cursor++];
                 c.faceUp = false;
@@ -884,13 +959,68 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
     }
 
     computeLayout(viewportW_, viewportH_);
-    const float originX = piles_.empty() ? 0.0f : piles_[0].x;
-    const float originY = piles_.empty() ? 0.0f : piles_[0].y;
+    float originX = 0.0f;
+    float originY = 0.0f;
+    dealOrigin(originX, originY);
     for (auto& p : piles_) {
         for (auto& c : p.cards) {
             c.x = originX;
             c.y = originY;
             c.elevation = 6.0f;
+        }
+    }
+}
+
+void SolitaireBoard::dealOrigin(float& outX, float& outY) const noexcept {
+    for (const auto& p : piles_) {
+        if (p.type == PileType::Stock && p.x > -500.0f && p.y > -500.0f) {
+            outX = p.x;
+            outY = p.y;
+            return;
+        }
+    }
+    for (const auto& p : piles_) {
+        if (p.x > -500.0f && p.y > -500.0f) {
+            outX = p.x;
+            outY = p.y;
+            return;
+        }
+    }
+    outX = std::max(0.0f, (viewportW_ - cardW_) * 0.5f);
+    outY = safeTop_ + 16.0f;
+}
+
+void SolitaireBoard::triggerDealAnimation() noexcept {
+    float originX = 0.0f;
+    float originY = 0.0f;
+    dealOrigin(originX, originY);
+
+    size_t movingCount = 0;
+    for (const auto& p : piles_) {
+        for (const auto& c : p.cards) {
+            if (std::hypot(c.targetX - originX, c.targetY - originY) > 2.0f) {
+                ++movingCount;
+            }
+        }
+    }
+    const float stepSec = (movingCount > 0)
+        ? std::min(0.022f, 0.72f / static_cast<float>(movingCount))
+        : 0.0f;
+
+    size_t dealtIdx = 0;
+    for (auto& p : piles_) {
+        for (auto& c : p.cards) {
+            c.x = originX;
+            c.y = originY;
+            c.elevation = 6.0f;
+            if (std::hypot(c.targetX - originX, c.targetY - originY) > 2.0f) {
+                c.animDelaySec = static_cast<float>(dealtIdx) * stepSec;
+                c.dealSoundPending = (dealtIdx % 2 == 0);
+                ++dealtIdx;
+            } else {
+                c.animDelaySec = 0.0f;
+                c.dealSoundPending = false;
+            }
         }
     }
 }
@@ -1157,6 +1287,73 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
             }
         }
 
+        updateCardTargets();
+        return;
+    }
+
+    if (activeDef_.layout == "grid") {
+        const uint8_t numFound = activeDef_.foundations;
+        const uint8_t numTab = activeDef_.tableaus > 0 ? activeDef_.tableaus : 16;
+        const bool hasStock = (activeDef_.stockDealMode != "none");
+        const uint8_t topSlots = numFound + (hasStock ? 1 : 0);
+
+        uint8_t cols = activeDef_.gridCols;
+        if (cols == 0) {
+            const float aspect = availW / std::max(1.0f, availH);
+            cols = static_cast<uint8_t>(std::clamp(
+                static_cast<int>(std::round(std::sqrt(static_cast<float>(numTab) * aspect * kCardAspect))),
+                2,
+                static_cast<int>(numTab)
+            ));
+        }
+        const uint8_t rows = static_cast<uint8_t>((numTab + cols - 1) / cols);
+        const float topRowUnits = (topSlots > 0) ? (1.0f + kGapYRatio * 1.2f) : 0.0f;
+
+        // Reserve comfortable top/bottom padding so grid cards sit clearly above the bottom toolbar
+        const float gridTopPad = std::max(marginY, std::clamp(viewportH_ * 0.04f, 18.0f, 40.0f));
+        const float gridBotPad = std::max(bottomReserved, std::clamp(viewportH_ * 0.11f, 68.0f, 96.0f) + safeBottom_);
+        const float gridPlayH = std::max(120.0f, viewportH_ - gridTopPad - gridBotPad);
+
+        const float spanWPerCard = static_cast<float>(cols) + static_cast<float>(cols > 1 ? cols - 1 : 0) * kGapXRatio;
+        const float spanHPerCard = kCardAspect * (topRowUnits + static_cast<float>(rows) + static_cast<float>(rows > 1 ? rows - 1 : 0) * kGapYRatio);
+        cardW_ = std::clamp(std::min(availW / spanWPerCard, gridPlayH / spanHPerCard), 28.0f, 320.0f);
+        cardH_ = std::round(cardW_ * kCardAspect);
+
+        const float colGap = std::max(3.0f, std::round(cardW_ * kGapXRatio));
+        const float rowGap = std::max(4.0f, std::round(cardH_ * kGapYRatio));
+        const float gridW = static_cast<float>(cols) * cardW_ + static_cast<float>(cols > 1 ? cols - 1 : 0) * colGap;
+        const float gridH = static_cast<float>(rows) * cardH_ + static_cast<float>(rows > 1 ? rows - 1 : 0) * rowGap;
+        const float totalH = (topSlots > 0 ? (cardH_ + rowGap * 1.2f) : 0.0f) + gridH;
+        const float startX = std::round((viewportW_ - gridW) * 0.5f);
+        const float topY = std::round(gridTopPad + std::max(0.0f, (gridPlayH - totalH) * 0.5f));
+
+        if (topSlots > 0) {
+            const float topW = static_cast<float>(topSlots) * cardW_ + static_cast<float>(topSlots - 1) * colGap;
+            const float topStartX = std::round((viewportW_ - topW) * 0.5f);
+            for (uint8_t i = 0; i < numFound && i < piles_.size(); ++i) {
+                piles_[i].x = topStartX + static_cast<float>(i) * (cardW_ + colGap);
+                piles_[i].y = topY;
+            }
+            if (hasStock && static_cast<size_t>(numFound) + numTab < piles_.size()) {
+                piles_[static_cast<size_t>(numFound) + numTab].x = topStartX + static_cast<float>(numFound) * (cardW_ + colGap);
+                piles_[static_cast<size_t>(numFound) + numTab].y = topY;
+            }
+        }
+
+        const float gridTopY = topY + (topSlots > 0 ? (cardH_ + rowGap * 1.2f) : 0.0f);
+        for (uint8_t i = 0; i < numTab && (static_cast<size_t>(numFound) + i) < piles_.size(); ++i) {
+            const uint8_t r = i / cols;
+            const uint8_t c = i % cols;
+            piles_[numFound + i].x = std::round(startX + static_cast<float>(c) * (cardW_ + colGap));
+            piles_[numFound + i].y = std::round(gridTopY + static_cast<float>(r) * (cardH_ + rowGap));
+            piles_[numFound + i].fanDirX = 0.0f;
+            piles_[numFound + i].fanDirY = 0.0f;
+        }
+
+        if (scriptEngine_.hasOnLayout()) {
+            auto ctx = makeScriptContext(nullptr);
+            scriptEngine_.invokeOnLayout(ctx, viewportW_, viewportH_);
+        }
         updateCardTargets();
         return;
     }
@@ -1545,11 +1742,21 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
         }
     }
 
+    if (scriptEngine_.hasOnLayout()) {
+        auto ctx = makeScriptContext(nullptr);
+        scriptEngine_.invokeOnLayout(ctx, viewportW_, viewportH_);
+    }
+
     updateCardTargets();
 }
 
 void SolitaireBoard::setCardDeviation(float dev) noexcept {
     cardDeviation_ = std::clamp(dev, 0.0f, 1.0f);
+    if (scriptEngine_.hasOnLayout()) {
+        auto ctx = makeScriptContext(nullptr);
+        scriptEngine_.invokeOnLayout(ctx, viewportW_, viewportH_);
+    }
+
     updateCardTargets();
 }
 
@@ -1698,8 +1905,40 @@ void SolitaireBoard::updateCardTargets() {
     }
 }
 
+bool SolitaireBoard::isInputLocked() const noexcept {
+    for (const auto& act : pendingActions_) {
+        if (act.lockInput) return true;
+    }
+    return false;
+}
+
 void SolitaireBoard::updateAnimations(float dt) {
     const float clampedDt = std::min(dt, 0.05f);
+    if (!pendingActions_.empty()) {
+        std::vector<std::string> dueActions;
+        for (size_t i = 0; i < pendingActions_.size();) {
+            pendingActions_[i].remainingSec -= clampedDt;
+            if (pendingActions_[i].remainingSec <= 0.0f) {
+                dueActions.push_back(std::move(pendingActions_[i].fnName));
+                pendingActions_.erase(pendingActions_.begin() + static_cast<ptrdiff_t>(i));
+            } else {
+                ++i;
+            }
+        }
+        if (!dueActions.empty()) {
+            clearHint();
+            TurnTransaction tx;
+            auto ctx = makeScriptContext(&tx);
+            for (const auto& fn : dueActions) {
+                scriptEngine_.invokeNamedAction(ctx, fn);
+            }
+            if (activeDef_.allowUndo && !tx.ops.empty()) {
+                txUndoStack_.push_back(std::move(tx));
+                txRedoStack_.clear();
+            }
+            updateCardTargets();
+        }
+    }
     if (!isVictory()) {
         elapsedSeconds_ += clampedDt;
         victorySeconds_ = 0.0f;
@@ -1768,7 +2007,7 @@ void SolitaireBoard::finalizeScriptTurn(ScriptBoardContext& ctx, TurnTransaction
         updateCardTargets();
         scriptEngine_.invokeOnTurnEnd(ctx);
     }
-    if (recordUndo && !tx.ops.empty()) {
+    if (recordUndo && activeDef_.allowUndo && !tx.ops.empty()) {
         txUndoStack_.push_back(std::move(tx));
         txRedoStack_.clear();
     }
@@ -1777,6 +2016,7 @@ void SolitaireBoard::finalizeScriptTurn(ScriptBoardContext& ctx, TurnTransaction
 }
 
 bool SolitaireBoard::drawFromStock() {
+    if (isInputLocked()) return false;
     if (scriptEngine_.hasOnStockClick()) {
         clearHint();
         TurnTransaction tx;
@@ -2157,6 +2397,7 @@ bool SolitaireBoard::canMoveCards(uint8_t fromPileIdx, size_t startCardIdx, uint
 }
 
 bool SolitaireBoard::executeMove(uint8_t fromPileIdx, size_t startCardIdx, uint8_t toPileIdx, bool recordUndo) {
+    if (isInputLocked()) return false;
     if (hasScriptHooks() && (scriptEngine_.hasCanTarget() || scriptEngine_.hasCanDrop() || scriptEngine_.hasCanPick())) {
         if (fromPileIdx < piles_.size() && toPileIdx < piles_.size() && fromPileIdx != toPileIdx && !piles_[toPileIdx].cards.empty()) {
             const size_t dstTop = piles_[toPileIdx].cards.size() - 1;
@@ -2325,6 +2566,7 @@ bool SolitaireBoard::collectCompletedSpiderRuns() {
 }
 
 bool SolitaireBoard::executeCardTarget(uint8_t fromPileIdx, size_t fromCardIdx, uint8_t toPileIdx, size_t toCardIdx, bool recordUndo) {
+    if (isInputLocked()) return false;
     if (!scriptEngine_.hasOnTarget()) return false;
     auto constCtx = makeConstScriptContext();
     if (scriptEngine_.hasCanTarget() && !scriptEngine_.invokeCanTarget(constCtx, fromPileIdx, fromCardIdx, toPileIdx, toCardIdx)) {
@@ -2341,6 +2583,7 @@ bool SolitaireBoard::executeCardTarget(uint8_t fromPileIdx, size_t fromCardIdx, 
 }
 
 bool SolitaireBoard::smartMove(uint8_t fromPileIdx, size_t startCardIdx) {
+    if (isInputLocked()) return false;
     if (fromPileIdx >= piles_.size()) return false;
     const Pile& src = piles_[fromPileIdx];
     if (startCardIdx >= src.cards.size()) return false;
@@ -2538,6 +2781,7 @@ bool SolitaireBoard::stepAutoFoundation() {
 }
 
 bool SolitaireBoard::canAutoFinish() const noexcept {
+    if (!activeDef_.supportsSolver) return false;
     if (isVictory()) return false;
     if (isGolf() || isSpider()) return false;
     for (const auto& p : piles_) {
@@ -2555,6 +2799,7 @@ bool SolitaireBoard::canAutoFinish() const noexcept {
 HintMove SolitaireBoard::findBestHint() {
     const HintMove prevHint = activeHint_;
     clearHint();
+    if (!activeDef_.supportsSolver) return activeHint_;
 
     std::vector<HintMove> candidates;
     auto pushUnique = [&](const HintMove& hm) {
@@ -2700,6 +2945,8 @@ uint8_t SolitaireBoard::consumePendingDealPans(float* outPans, uint8_t maxCount)
 }
 
 bool SolitaireBoard::undo() {
+    if (!activeDef_.allowUndo) return false;
+    pendingActions_.clear();
     pendingDealCount_ = 0;
     for (auto& p : piles_) {
         for (auto& c : p.cards) {
@@ -2911,7 +3158,7 @@ bool SolitaireBoard::hitTestCard(float px, float py, int& outPileIdx, int& outCa
                 if (p.type != PileType::Tableau && cIdx != static_cast<int>(p.cards.size()) - 1) {
                     continue;
                 }
-                if (!c.faceUp) {
+                if (!c.faceUp && !(scriptEngine_.hasOnCardClick() && cIdx == static_cast<int>(p.cards.size()) - 1)) {
                     return false;
                 }
                 outPileIdx = pIdx;
@@ -2959,6 +3206,7 @@ ScriptBoardContext SolitaireBoard::makeScriptContext(TurnTransaction* tx) noexce
     ctx.cardH = cardH_;
     ctx.viewportW = viewportW_;
     ctx.viewportH = viewportH_;
+    ctx.pendingActions = &pendingActions_;
     return ctx;
 }
 
@@ -2973,6 +3221,7 @@ ScriptBoardContext SolitaireBoard::makeConstScriptContext() const noexcept {
     ctx.cardH = cardH_;
     ctx.viewportW = viewportW_;
     ctx.viewportH = viewportH_;
+    ctx.pendingActions = nullptr;
     return ctx;
 }
 

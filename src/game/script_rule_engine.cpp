@@ -128,6 +128,7 @@ ScriptRuleEngine& ScriptRuleEngine::operator=(const ScriptRuleEngine& other) {
     hasOnStockClick_ = other.hasOnStockClick_;
     hasOnTurnEnd_ = other.hasOnTurnEnd_;
     hasOnVictory_ = other.hasOnVictory_;
+    hasOnLayout_ = other.hasOnLayout_;
     hasGetStatus_ = other.hasGetStatus_;
     hasEvalHeuristic_ = other.hasEvalHeuristic_;
     docManifest_ = other.docManifest_;
@@ -182,6 +183,7 @@ ScriptRuleEngine& ScriptRuleEngine::operator=(ScriptRuleEngine&& other) noexcept
     hasOnStockClick_ = other.hasOnStockClick_;
     hasOnTurnEnd_ = other.hasOnTurnEnd_;
     hasOnVictory_ = other.hasOnVictory_;
+    hasOnLayout_ = other.hasOnLayout_;
     hasGetStatus_ = other.hasGetStatus_;
     hasEvalHeuristic_ = other.hasEvalHeuristic_;
     docManifest_ = std::move(other.docManifest_);
@@ -208,6 +210,7 @@ void ScriptRuleEngine::reset() noexcept {
     hasOnStockClick_ = false;
     hasOnTurnEnd_ = false;
     hasOnVictory_ = false;
+    hasOnLayout_ = false;
     hasGetStatus_ = false;
     hasEvalHeuristic_ = false;
     docManifest_.clear();
@@ -303,6 +306,7 @@ bool ScriptRuleEngine::loadScriptForGame(const std::string& source, const std::s
     bindFn("on_stock_click", hasOnStockClick_);
     bindFn("on_turn_end", hasOnTurnEnd_);
     bindFn("on_victory", hasOnVictory_);
+    bindFn("on_layout", hasOnLayout_);
     bindFn("get_status", hasGetStatus_);
     bindFn("eval_heuristic", hasEvalHeuristic_);
 
@@ -830,6 +834,70 @@ void ScriptRuleEngine::registerHostApi() {
     evaluator_.registerFunction("get_card_height", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
         return Value(boundCtx_ ? static_cast<double>(boundCtx_->cardH) : 136.0);
     });
+
+    evaluator_.registerFunction("schedule_action", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() < 2 || !boundCtx_ || !boundCtx_->pendingActions) return Value(false);
+        float delaySec = static_cast<float>(std::max(0.0, args[0].asNumber(0.0)));
+        std::string fnName = args[1].asString();
+        if (fnName.empty()) return Value(false);
+        bool lockInput = (args.size() >= 3) ? args[2].asBoolean(true) : true;
+        boundCtx_->pendingActions->push_back(PendingScriptAction{delaySec, std::move(fnName), lockInput});
+        return Value(true);
+    });
+
+    evaluator_.registerFunction("shuffle_zone", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.empty() || !boundCtx_ || !boundCtx_->piles) return Value(false);
+        int z = args[0].asInt(-1);
+        if (!validZone(boundCtx_, z)) return Value(false);
+        auto& cards = (*boundCtx_->piles)[static_cast<size_t>(z)].cards;
+        if (cards.size() <= 1) return Value(true);
+        BoardOp op{};
+        op.type = BoardOpType::ShuffleZone;
+        op.fromPile = static_cast<uint8_t>(z);
+        op.prevCards = cards;
+        op.nextCards = cards;
+        uint32_t localRng = boundCtx_->rngState ? *boundCtx_->rngState : 2026u;
+        for (size_t i = op.nextCards.size() - 1; i > 0; --i) {
+            localRng += 0x6D2B79F5u;
+            uint32_t t = localRng;
+            t = (t ^ (t >> 15)) * (t | 1u);
+            t ^= t + (t ^ (t >> 7)) * (t | 61u);
+            uint32_t r = t ^ (t >> 14);
+            size_t j = static_cast<size_t>(r % static_cast<uint32_t>(i + 1));
+            std::swap(op.nextCards[i], op.nextCards[j]);
+        }
+        if (boundCtx_->rngState) *boundCtx_->rngState = localRng;
+        if (!applyOp(*boundCtx_, op)) return Value(false);
+        if (boundCtx_->activeTx) boundCtx_->activeTx->ops.push_back(std::move(op));
+        return Value(true);
+    });
+
+    evaluator_.registerFunction("spawn_card", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() < 3 || !boundCtx_ || !boundCtx_->piles) return Value(false);
+        int z = args[0].asInt(-1);
+        if (!validZone(boundCtx_, z)) return Value(false);
+        int s = std::clamp(args[1].asInt(0), 0, 3);
+        int r = std::clamp(args[2].asInt(1), 1, 13);
+        bool faceUp = (args.size() >= 4) ? args[3].asBoolean(true) : true;
+        auto& cards = (*boundCtx_->piles)[static_cast<size_t>(z)].cards;
+        size_t insertIdx = (args.size() >= 5)
+            ? static_cast<size_t>(std::clamp(args[4].asInt(static_cast<int>(cards.size())), 0, static_cast<int>(cards.size())))
+            : cards.size();
+        Card c{};
+        c.id = static_cast<uint8_t>((s * 13 + (r - 1)) & 0xFF);
+        c.suit = static_cast<Suit>(s);
+        c.rank = static_cast<Rank>(r);
+        c.faceUp = faceUp;
+        c.flipAngle = faceUp ? 0.0f : 3.14159265358979323846f;
+        BoardOp op{};
+        op.type = BoardOpType::SpawnCard;
+        op.toPile = static_cast<uint8_t>(z);
+        op.cardIdx = static_cast<uint32_t>(insertIdx);
+        op.snapshotCard = c;
+        if (!applyOp(*boundCtx_, op)) return Value(false);
+        if (boundCtx_->activeTx) boundCtx_->activeTx->ops.push_back(std::move(op));
+        return Value(true);
+    });
 }
 
 // --- Hook Invocations ---
@@ -943,6 +1011,25 @@ bool ScriptRuleEngine::invokeOnVictory(ScriptBoardContext& ctx) {
     return res.asBoolean(true);
 }
 
+bool ScriptRuleEngine::invokeOnLayout(ScriptBoardContext& ctx, float boardW, float boardH) {
+    if (!hasOnLayout_) return false;
+    bindContext(&ctx);
+    Value res = invokeHook("on_layout", {
+        Value(static_cast<double>(boardW)),
+        Value(static_cast<double>(boardH))
+    });
+    bindContext(nullptr);
+    return res.asBoolean(true);
+}
+
+bool ScriptRuleEngine::invokeNamedAction(ScriptBoardContext& ctx, const std::string& fnName) {
+    if (!loaded_ || fnName.empty()) return false;
+    bindContext(&ctx);
+    Value res = invokeHook(fnName);
+    bindContext(nullptr);
+    return res.asBoolean(true);
+}
+
 GameStatus ScriptRuleEngine::invokeGetStatus(ScriptBoardContext& ctx) {
     if (!hasGetStatus_) return GameStatus::Playing;
     bindContext(&ctx);
@@ -978,13 +1065,23 @@ bool ScriptRuleEngine::applyOp(ScriptBoardContext& ctx, const BoardOp& op) {
                 dst[insertIdx + k].targetX = dstPile.x;
                 dst[insertIdx + k].targetY = dstPile.y;
                 dst[insertIdx + k].targetAngle = dstPile.angle;
+                dst[insertIdx + k].elevation = std::max(dst[insertIdx + k].elevation, 9.0f);
             }
             src.erase(src.begin() + op.cardIdx, src.begin() + op.cardIdx + op.count);
             return true;
         }
         case BoardOpType::FlipCard: {
             if (!validCard(&ctx, op.fromPile, static_cast<int>(op.cardIdx))) return false;
-            (*ctx.piles)[op.fromPile].cards[op.cardIdx].faceUp = op.nextBool;
+            auto& card = (*ctx.piles)[op.fromPile].cards[op.cardIdx];
+            const bool wasFaceUp = card.faceUp;
+            card.faceUp = op.nextBool;
+            if (!wasFaceUp && op.nextBool) {
+                constexpr float kPi = 3.14159265358979323846f;
+                card.flipAngle = kPi;
+                card.elevation = std::max(card.elevation, 9.0f);
+            } else if (wasFaceUp && !op.nextBool) {
+                card.flipAngle = 0.0f;
+            }
             return true;
         }
         case BoardOpType::RemoveCard: {
@@ -1030,6 +1127,11 @@ bool ScriptRuleEngine::applyOp(ScriptBoardContext& ctx, const BoardOp& op) {
             *ctx.score += op.nextInt;
             return true;
         }
+        case BoardOpType::ShuffleZone: {
+            if (!validZone(&ctx, op.fromPile)) return false;
+            (*ctx.piles)[op.fromPile].cards = op.nextCards;
+            return true;
+        }
     }
     return false;
 }
@@ -1049,7 +1151,11 @@ bool ScriptRuleEngine::revertOp(ScriptBoardContext& ctx, const BoardOp& op) {
         }
         case BoardOpType::FlipCard: {
             if (!validCard(&ctx, op.fromPile, static_cast<int>(op.cardIdx))) return false;
-            (*ctx.piles)[op.fromPile].cards[op.cardIdx].faceUp = op.prevBool;
+            auto& card = (*ctx.piles)[op.fromPile].cards[op.cardIdx];
+            card.faceUp = op.prevBool;
+            if (!op.prevBool) {
+                card.flipAngle = 0.0f;
+            }
             return true;
         }
         case BoardOpType::RemoveCard: {
@@ -1097,6 +1203,11 @@ bool ScriptRuleEngine::revertOp(ScriptBoardContext& ctx, const BoardOp& op) {
         case BoardOpType::AddScore: {
             if (!ctx.score) return false;
             *ctx.score -= op.nextInt;
+            return true;
+        }
+        case BoardOpType::ShuffleZone: {
+            if (!validZone(&ctx, op.fromPile)) return false;
+            (*ctx.piles)[op.fromPile].cards = op.prevCards;
             return true;
         }
     }

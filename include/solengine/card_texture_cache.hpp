@@ -70,6 +70,8 @@ enum class DeckThemeId : uint8_t {
     ScoundrelLowPoly  = 15,
     SolPolyClassic    = 16,
     SolPolyMobile     = 17,
+    MemoryLowPoly     = 18,
+    LowPolyWar        = 19,
     Count
 };
 

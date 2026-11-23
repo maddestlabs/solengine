@@ -1,6 +1,7 @@
 # ==============================================================================
 # SolEngine Procedural Ambience: Campfire (.eats)
-# Open-air night breeze, wide stereo ember crackles, and resonant log snaps.
+# Open-air night breeze, wide stereo ember crackles, resonant log snaps,
+# occasional rustling tree branches, and soft distant owl hoots.
 # ==============================================================================
 
 sol.define_ambience({
@@ -49,6 +50,29 @@ sol.define_ambience({
             q: 2.8,
             gain: 0.34,
             stereo_spread: 0.70
+        },
+        # Occasional gentle tree branches & leaves rustling in the night breeze
+        {
+            type: "stochastic_grains",
+            rate: 0.22,
+            freq_min: 1400.0,
+            freq_max: 3200.0,
+            decay: 0.085,
+            q: 0.85,
+            gain: 0.14,
+            stereo_spread: 0.85
+        },
+        # Soft distant owl hoots once in a while
+        {
+            type: "chirp_spawner",
+            rate: 0.08,
+            freq_min: 330.0,
+            freq_max: 430.0,
+            freq_sweep: 0.90,
+            decay: 0.75,
+            gain: 0.16,
+            stereo_spread: 0.75,
+            tonal: true
         }
     ]
 })

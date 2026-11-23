@@ -188,7 +188,7 @@ ClockworkBarLayout computeClockworkBarLayout(
         sDefs.push_back({ BtnSeedDialog,   "[#] Deal Seed",           "#" });
     }
     if (flags & ToolbarItem_GameSelect) {
-        sDefs.push_back({ BtnVariant,      "[G] Select Game",         "G" });
+        sDefs.push_back({ BtnVariant,      "[G]ame Library",           "G" });
     }
     // Always place Help (?) last before Scale/Configure
     sDefs.push_back({ BtnHelp,             "[F1] Help & Rules",       "?" });
@@ -318,9 +318,11 @@ ClockworkBarLayout computeClockworkBarLayout(
         if (gameTitle.empty()) gameTitle = "Solitaire";
 
         const float textW = eatsbits::ui::glyph::getVectorTextWidth(fontSz, gameTitle.c_str());
+        const float iconSize = fontSz + 2.5f;
+        const float iconSpace = iconSize + 5.0f;
         const float chevronSpace = 14.0f;
         const float maxPillW = std::min(std::max(layout.barW, 180.0f), std::max(80.0f, width - 28.0f));
-        const float pillW = std::clamp(textW + pillPadX * 2.0f + chevronSpace, 72.0f, maxPillW);
+        const float pillW = std::clamp(textW + pillPadX * 2.0f + iconSpace + chevronSpace, 86.0f, maxPillW);
 
         const bool isRight = (anchor == MenuAnchor::BottomRight || anchor == MenuAnchor::TopRight);
         const bool isTop = (anchor == MenuAnchor::TopLeft || anchor == MenuAnchor::TopRight);
@@ -341,7 +343,7 @@ ClockworkBarLayout computeClockworkBarLayout(
             pillY,
             pillW,
             pillH,
-            "[G] Game Library",
+            "[G]ame Library",
             "",
             SvgIconId::None
         });
@@ -375,42 +377,41 @@ std::vector<HudButtonRect> buildTransportButtons(
     constexpr float btnW = 38.0f;
     constexpr float btnH = 32.0f;
     constexpr float gap = 6.0f;
-    const float takeOverW = 90.0f;
+    const float takeOverW = btnW;
     const float totalW = 5.0f * btnW + takeOverW + 5.0f * gap + 24.0f;
     const float barX = (width - totalW) * 0.5f;
     const float barY = height - 52.0f - safeBottom;
 
     auto makeBtn = [](HudButtonId id, float x, float y, float w, float h, const char* label, SvgIconId iconId) -> HudButtonRect {
-        return HudButtonRect{id, x, y, w, h, label, label, iconId};
+        return HudButtonRect{id, x, y, w, h, label, "", iconId};
     };
 
     float curX = barX + 12.0f;
     float curY = barY + 5.0f;
 
     // 1. Restart Deal
-    btns.push_back(makeBtn(BtnPlayRestart, curX, curY, btnW, btnH, "|<", SvgIconId::Restart));
+    btns.push_back(makeBtn(BtnPlayRestart, curX, curY, btnW, btnH, "", SvgIconId::Restart));
     curX += btnW + gap;
 
     // 2. Step Backward (Rewind)
-    btns.push_back(makeBtn(BtnStepBack, curX, curY, btnW, btnH, "<<", SvgIconId::StepBackward));
+    btns.push_back(makeBtn(BtnStepBack, curX, curY, btnW, btnH, "", SvgIconId::StepBackward));
     curX += btnW + gap;
 
     // 3. Play / Pause
     SvgIconId playPauseIcon = controller.isPlaying() ? SvgIconId::Pause : SvgIconId::Play;
-    const char* playPauseLbl = controller.isPlaying() ? "||" : ">";
-    btns.push_back(makeBtn(BtnPlayPause, curX, curY, btnW, btnH, playPauseLbl, playPauseIcon));
+    btns.push_back(makeBtn(BtnPlayPause, curX, curY, btnW, btnH, "", playPauseIcon));
     curX += btnW + gap;
 
     // 4. Step Forward
-    btns.push_back(makeBtn(BtnStepFwd, curX, curY, btnW, btnH, ">>", SvgIconId::StepForward));
+    btns.push_back(makeBtn(BtnStepFwd, curX, curY, btnW, btnH, "", SvgIconId::StepForward));
     curX += btnW + gap;
 
     // 5. Speed Toggle (1x, 2x, 4x)
     btns.push_back(makeBtn(BtnSpeedToggle, curX, curY, btnW, btnH, controller.speedLabel(), SvgIconId::None));
     curX += btnW + gap;
 
-    // 6. Take Over
-    btns.push_back(makeBtn(BtnTakeOver, curX, curY, takeOverW, btnH, "Take Over", SvgIconId::Close));
+    // 6. Stop / Take Over
+    btns.push_back(makeBtn(BtnTakeOver, curX, curY, takeOverW, btnH, "", SvgIconId::Stop));
 
     return btns;
 }
@@ -907,7 +908,7 @@ void render3DCard(
                              0.92f * cardLight, 0.88f * cardLight, 0.79f * cardLight, 1.0f);
     }
 
-    if (c.enshadedGlow) {
+    if (c.enshadedGlow || c.hasTag("selected")) {
         draw3DRoundedOutline(r, xf, outerUV, zSign, pal.accentR, pal.accentG, pal.accentB, 0.98f, 2.6f);
     } else if (wearLvl == CardWearLevel::Pristine) {
         draw3DRoundedOutline(r, xf, outerUV, zSign, 0.22f, 0.18f, 0.14f, 0.85f, 1.2f);
@@ -1197,7 +1198,7 @@ void drawProceduralCard(
         }
     }
 
-    if (c.enshadedGlow) {
+    if (c.enshadedGlow || c.hasTag("selected")) {
             r.drawRoundedRectOutline(x - 1.5f, y - 1.5f, w + 3.0f, h + 3.0f, radius + 1.5f,
                                      pal.accentR, pal.accentG, pal.accentB, 0.98f, 2.6f, 4);
         } else if (wearLvl == CardWearLevel::Pristine) {
@@ -1243,7 +1244,7 @@ void drawProceduralCard(
         }
     }
 
-    if (c.enshadedGlow) {
+    if (c.enshadedGlow || c.hasTag("selected")) {
             r.drawRoundedRectOutline(x - 1.5f, y - 1.5f, w + 3.0f, h + 3.0f, radius + 1.5f,
                                      pal.accentR, pal.accentG, pal.accentB, 0.98f, 2.6f, 4);
         } else if (wearLvl == CardWearLevel::Pristine) {
@@ -1363,7 +1364,7 @@ void drawProceduralCard(
         }
     }
 
-    if (c.enshadedGlow) {
+    if (c.enshadedGlow || c.hasTag("selected")) {
         r.drawRoundedRectOutline(x - 1.5f, y - 1.5f, w + 3.0f, h + 3.0f, radius + 1.5f,
                                  pal.accentR, pal.accentG, pal.accentB, 0.98f, 2.6f, 4);
     } else {
@@ -1625,7 +1626,7 @@ void drawTransportBar(
 struct HelpSidebarRect {
     float x{0.0f}, y{0.0f}, w{0.0f}, h{0.0f};
     float closeX{0.0f}, closeY{0.0f}, closeW{24.0f}, closeH{24.0f};
-    float showMeX{0.0f}, showMeY{0.0f}, showMeW{64.0f}, showMeH{22.0f};
+    float showMeX{0.0f}, showMeY{0.0f}, showMeW{78.0f}, showMeH{22.0f};
     float fontIncX{0.0f}, fontIncY{0.0f}, fontIncW{24.0f}, fontIncH{22.0f};
     float fontDecX{0.0f}, fontDecY{0.0f}, fontDecW{24.0f}, fontDecH{22.0f};
     bool isBottomSheet{false};
@@ -1648,7 +1649,7 @@ HelpSidebarRect computeHelpSidebarRect(float width, float height) noexcept {
     }
     r.closeX = r.x + r.w - 30.0f;
     r.closeY = r.y + 8.0f;
-    r.showMeX = r.closeX - 70.0f;
+    r.showMeX = r.closeX - 84.0f;
     r.showMeY = r.y + 9.0f;
     r.fontIncX = r.showMeX - 28.0f;
     r.fontIncY = r.y + 9.0f;
@@ -2062,7 +2063,16 @@ void drawHelpSidebar(
 
     r.drawRoundedRect(sb.showMeX, sb.showMeY, sb.showMeW, sb.showMeH, 4.0f, 0.16f, 0.34f, 0.24f, 0.92f, 2);
     r.drawRoundedRectOutline(sb.showMeX, sb.showMeY, sb.showMeW, sb.showMeH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 1.0f, 2);
-    eatsbits::ui::glyph::drawVectorText(r, "SHOW ME", sb.showMeX + 7.0f, sb.showMeY + 5.5f, 9.5f, 0.94f, 0.96f, 0.88f, 1.0f);
+    vector_icon::drawShowMeIcon(
+        r,
+        sb.showMeX + 12.0f,
+        sb.showMeY + sb.showMeH * 0.5f,
+        5.5f,
+        0.94f, 0.96f, 0.88f,
+        1.0f, 1.0f, 0.96f,
+        1.0f, false
+    );
+    eatsbits::ui::glyph::drawVectorText(r, "SHOW ME", sb.showMeX + 21.0f, sb.showMeY + 5.5f, 9.5f, 0.94f, 0.96f, 0.88f, 1.0f);
     r.drawRoundedRect(sb.closeX, sb.closeY, sb.closeW, sb.closeH, 4.0f, 0.28f, 0.14f, 0.14f, 0.90f, 2);
     eatsbits::ui::glyph::drawVectorText(r, "X", sb.closeX + 7.5f, sb.closeY + 5.5f, 11.0f, 0.96f, 0.88f, 0.84f, 1.0f);
     r.drawLine(sb.x + 8.0f, sb.y + 36.0f, sb.x + sb.w - 8.0f, sb.y + 36.0f, pal.trimR, pal.trimG, pal.trimB, 0.35f, 1.0f);
@@ -2270,22 +2280,40 @@ void drawHelpSidebar(
         // 6. Action Buttons at bottom of Help Sidebar (Hint, New Solvable, Games Library)
         cy += 6.0f;
         auto drawSidebarBtn = [&](float bx, float by, float bw, float bh, const char* label,
-                                  float bgR, float bgG, float bgB, float txtR, float txtG, float txtB) {
+                                  float bgR, float bgG, float bgB, float txtR, float txtG, float txtB,
+                                  int iconKind) {
             bool hov = (mouseX >= bx && mouseX <= bx + bw && mouseY >= by && mouseY <= by + bh &&
                         mouseY >= hl.viewY && mouseY <= hl.viewY + hl.viewH);
             r.drawRoundedRect(bx, by, bw, bh, 4.0f, bgR + (hov ? 0.06f : 0.0f), bgG + (hov ? 0.05f : 0.0f), bgB + (hov ? 0.04f : 0.0f), 0.95f, 2);
             r.drawRoundedRectOutline(bx, by, bw, bh, 4.0f, hov ? pal.accentR : pal.trimR, hov ? pal.accentG : pal.trimG, hov ? pal.accentB : pal.trimB, 0.80f, 1.1f, 2);
-            float tw = eatsbits::ui::glyph::getVectorTextWidth(10.5f, label);
-            eatsbits::ui::glyph::drawVectorText(r, label, bx + (bw - tw) * 0.5f, by + (bh - 10.5f) * 0.5f, 10.5f, txtR, txtG, txtB, 1.0f);
+            const float tw = eatsbits::ui::glyph::getVectorTextWidth(10.5f, label);
+            const float iconRad = 6.2f;
+            const float iconGap = (iconKind > 0) ? (iconRad * 2.0f + 5.0f) : 0.0f;
+            const float contentX = bx + (bw - (tw + iconGap)) * 0.5f;
+            if (iconKind > 0) {
+                const float icx = contentX + iconRad;
+                const float icy = by + bh * 0.5f;
+                const float hiR = std::min(1.0f, txtR * 1.25f + 0.15f);
+                const float hiG = std::min(1.0f, txtG * 1.25f + 0.15f);
+                const float hiB = std::min(1.0f, txtB * 1.25f + 0.15f);
+                if (iconKind == 1) {
+                    vector_icon::drawSolvableDealIcon(r, icx, icy, iconRad, txtR, txtG, txtB, hiR, hiG, hiB, 1.0f, false);
+                } else if (iconKind == 2) {
+                    vector_icon::drawGameLibraryIcon(r, icx, icy, iconRad, txtR, txtG, txtB, hiR, hiG, hiB, 1.0f, false);
+                } else if (iconKind == 3) {
+                    vector_icon::drawHintIcon(r, icx, icy, iconRad, txtR, txtG, txtB, hiR, hiG, hiB, 1.0f, false);
+                }
+            }
+            eatsbits::ui::glyph::drawVectorText(r, label, contentX + iconGap, by + (bh - 10.5f) * 0.5f, 10.5f, txtR, txtG, txtB, 1.0f);
         };
 
         drawSidebarBtn(hl.hintX, cy, hl.hintW, hl.hintH, "HINT [H]",
-                       0.24f, 0.20f, 0.14f, pal.trimR, pal.trimG, pal.trimB);
+                       0.24f, 0.20f, 0.14f, pal.trimR, pal.trimG, pal.trimB, 3);
         drawSidebarBtn(hl.solvableX, cy, hl.solvableW, hl.solvableH, "NEW SOLVABLE",
-                       0.16f, 0.28f, 0.22f, 0.92f, 0.96f, 0.88f);
+                       0.16f, 0.28f, 0.22f, 0.92f, 0.96f, 0.88f, 1);
         cy += 32.0f;
         drawSidebarBtn(hl.gamesX, cy, hl.gamesW, hl.gamesH, "GAMES LIBRARY",
-                       0.20f, 0.22f, 0.28f, pal.accentR, pal.accentG, pal.accentB);
+                       0.20f, 0.22f, 0.28f, pal.accentR, pal.accentG, pal.accentB, 2);
     }
 
     // Subtle vertical scrollbar indicator when content overflows
@@ -2619,65 +2647,6 @@ void MagicParticleSystem::spawnArcTrail(float x0, float y0, float x1, float y1, 
 }
 
 namespace {
-
-struct VictoryDialogLayout {
-    float bx{0.0f}, by{0.0f}, bw{0.0f}, bh{0.0f};
-    float titleX{0.0f}, titleY{0.0f};
-    float subtitleX{0.0f}, subtitleY{0.0f};
-    bool hasSubtitle{false};
-    float btnX{0.0f}, btnY{0.0f}, btnW{0.0f}, btnH{0.0f};
-    float btnTextX{0.0f}, btnTextY{0.0f};
-    std::string title;
-    std::string subtitle;
-};
-
-void resolveVictoryBanner(const SolitaireBoard& board, std::string& outTitle, std::string& outSubtitle) {
-    outTitle = board.blackboard().getStr("victory_message");
-    if (outTitle.empty()) {
-        outTitle = board.docManifest().victoryTitle;
-    }
-    if (outTitle.empty()) {
-        outTitle = "Victory!";
-    }
-
-    outSubtitle = board.blackboard().getStr("victory_subtitle");
-    if (outSubtitle.empty()) {
-        outSubtitle = board.docManifest().victorySubtitle;
-    }
-}
-
-VictoryDialogLayout buildVictoryDialogLayout(const SolitaireBoard& board, float width, float height) {
-    VictoryDialogLayout vl{};
-    resolveVictoryBanner(board, vl.title, vl.subtitle);
-
-    constexpr float kTitleSize = 20.0f;
-    constexpr float kSubSize = 12.5f;
-    constexpr float kBtnLabelSize = 12.5f;
-    constexpr const char* kBtnLabel = "Start New Game";
-
-    const float titleW = eatsbits::ui::glyph::getVectorTextWidth(kTitleSize, vl.title);
-    const float subW = vl.subtitle.empty() ? 0.0f : eatsbits::ui::glyph::getVectorTextWidth(kSubSize, vl.subtitle);
-    const float btnLabelW = eatsbits::ui::glyph::getVectorTextWidth(kBtnLabelSize, kBtnLabel);
-
-    vl.btnW = std::max(188.0f, btnLabelW + 40.0f);
-    vl.btnH = 34.0f;
-    vl.bw = std::max({360.0f, titleW + 64.0f, subW + 64.0f, vl.btnW + 64.0f});
-    vl.hasSubtitle = !vl.subtitle.empty();
-    vl.bh = vl.hasSubtitle ? 138.0f : 114.0f;
-    vl.bx = (width - vl.bw) * 0.5f;
-    vl.by = (height - vl.bh) * 0.5f;
-
-    vl.titleX = vl.bx + (vl.bw - titleW) * 0.5f;
-    vl.titleY = vl.by + 20.0f;
-    vl.subtitleX = vl.bx + (vl.bw - subW) * 0.5f;
-    vl.subtitleY = vl.by + 50.0f;
-
-    vl.btnX = vl.bx + (vl.bw - vl.btnW) * 0.5f;
-    vl.btnY = vl.hasSubtitle ? (vl.by + 82.0f) : (vl.by + 60.0f);
-    vl.btnTextX = vl.btnX + (vl.btnW - btnLabelW) * 0.5f;
-    vl.btnTextY = vl.btnY + (vl.btnH - kBtnLabelSize) * 0.5f;
-    return vl;
-}
 
 struct VictoryAirborneCard {
     Card card;
@@ -3238,6 +3207,37 @@ bool loadDirectorTimeline(const std::string& path, std::vector<DirectorBeat>& ou
     return !outBeats.empty();
 }
 
+void evaluateActiveVictoryAirborne(
+    const SolitaireBoard& board,
+    float width,
+    float height,
+    std::vector<VictoryAirborneCard>& outAirborne) {
+    const float cw = board.cardWidth();
+    const float ch = board.cardHeight();
+    const float vTime = board.victorySeconds();
+    VictoryStageSpec overrideSpec{};
+    const auto* profVic = SettingsManager::instance().getGameProfile(board.activeGameDef().id);
+    const VictoryAnimOverride vicOverride = (profVic && profVic->victoryAnimOverride)
+        ? *profVic->victoryAnimOverride
+        : SettingsManager::instance().settings().victoryAnimOverride;
+    if (buildVictoryOverrideStage(vicOverride, overrideSpec)) {
+        evaluateVictoryStage(overrideSpec, board, vTime, width, height, cw, ch, outAirborne);
+    } else {
+        const auto& stages = board.victoryChoreography().stages;
+        if (stages.empty()) {
+            VictoryStageSpec defaultStage{};
+            evaluateVictoryStage(defaultStage, board, vTime, width, height, cw, ch, outAirborne);
+        } else {
+            for (const auto& stage : stages) {
+                evaluateVictoryStage(stage, board, vTime, width, height, cw, ch, outAirborne);
+            }
+        }
+    }
+    std::stable_sort(outAirborne.begin(), outAirborne.end(), [](const VictoryAirborneCard& a, const VictoryAirborneCard& b) noexcept {
+        return a.xf.cz < b.xf.cz - 0.01f;
+    });
+}
+
 } // namespace
 
 void TableRenderer::renderBoard(
@@ -3280,7 +3280,8 @@ void TableRenderer::renderBoard(
     const float* dragChainAngles,
     size_t dragChainCount,
     const std::vector<GhostCardCue>* ghostCards,
-    const HelpVideoThumb* helpVideoThumb
+    const HelpVideoThumb* helpVideoThumb,
+    const VictoryGatherState* victoryGather
 ) {
     const ThemePalette pal = getPalette(board.tableTheme());
     // Overhead table illumination: dynamic swaying light or centered static default
@@ -3392,7 +3393,7 @@ void TableRenderer::renderBoard(
         std::vector<size_t> restingIndices;
     };
     thread_local std::vector<RestingPileRenderData> restingPiles;
-    restingPiles.clear();
+    size_t restingPilesCount = 0;
     thread_local std::vector<size_t> drawOrder;
     drawOrder.resize(piles.size());
     for (size_t i = 0; i < piles.size(); ++i) drawOrder[i] = i;
@@ -3418,9 +3419,13 @@ void TableRenderer::renderBoard(
             startIdx = (p.cards.size() > 4) ? (p.cards.size() - 4) : 0;
         }
 
-        RestingPileRenderData rp{};
+        if (restingPilesCount >= restingPiles.size()) {
+            restingPiles.emplace_back();
+        }
+        RestingPileRenderData& rp = restingPiles[restingPilesCount];
         rp.pIdx = pIdx;
         rp.isTightlyStacked = (p.type == PileType::Stock || p.type == PileType::Foundation || p.type == PileType::FreeCell);
+        rp.restingIndices.clear();
         size_t totalRestingCount = 0;
         bool pileHasMovingBelow = false;
         for (size_t cIdx = 0; cIdx < p.cards.size(); ++cIdx) {
@@ -3429,7 +3434,10 @@ void TableRenderer::renderBoard(
                 static_cast<int>(cIdx) >= draggedCardIdx) {
                 continue;
             }
-            if (!screensaverMode && board.isVictory() && shouldHideVictoryPileCard(board, p, cIdx)) {
+            if (victoryGather && victoryGather->active) {
+                continue; // All cards are gathering back to deal origin
+            }
+            if (board.isVictory() && shouldHideVictoryPileCard(board, p, cIdx)) {
                 continue; // Card launched into 3D victory animation
             }
             const Card& c = p.cards[cIdx];
@@ -3445,14 +3453,15 @@ void TableRenderer::renderBoard(
         }
         rp.stackCount = totalRestingCount;
         if (!rp.restingIndices.empty()) {
-            restingPiles.push_back(std::move(rp));
+            ++restingPilesCount;
         }
     }
 
     // Pass A: Render ALL resting pile table drop shadows in a single unified Max-blend shadow layer
-    if (!restingPiles.empty()) {
+    if (restingPilesCount > 0) {
         r.beginShadowLayer();
-        for (const auto& rp : restingPiles) {
+        for (size_t rpIdx = 0; rpIdx < restingPilesCount; ++rpIdx) {
+            const auto& rp = restingPiles[rpIdx];
             const Pile& p = piles[rp.pIdx];
             for (size_t i = 0; i < rp.restingIndices.size(); ++i) {
                 if (i > 0 && rp.isTightlyStacked) {
@@ -3460,14 +3469,18 @@ void TableRenderer::renderBoard(
                 }
                 const Card& c = p.cards[rp.restingIndices[i]];
                 if (rp.isTightlyStacked && rp.stackCount > 1) {
-                    // Dual-component stack shadow:
+                    // Continuous multi-slice stack shadow:
                     // 1. Crisp, dark grounding contact shadow at base elevation
                     drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
-                    // 2. Elevated soft penumbra shadow matching full physical deck height
+                    // 2. Stepped intermediate + top penumbra slices forming a seamless 3D prism shadow
                     const float stackElevation = std::min(18.0f, static_cast<float>(rp.stackCount) * 0.38f);
-                    Card tallCard = c;
-                    tallCard.elevation = c.elevation + stackElevation;
-                    drawProceduralCard(r, tallCard, tallCard.x, tallCard.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
+                    const int slices = (stackElevation > 8.0f) ? 3 : 2;
+                    for (int s = 1; s <= slices; ++s) {
+                        const float frac = static_cast<float>(s) / static_cast<float>(slices);
+                        Card sliceCard = c;
+                        sliceCard.elevation = c.elevation + stackElevation * frac;
+                        drawProceduralCard(r, sliceCard, sliceCard.x, sliceCard.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
+                    }
                 } else {
                     drawProceduralCard(r, c, c.x, c.y, cw, ch, pal, light, CardRenderPass::ShadowOnly);
                 }
@@ -3477,7 +3490,8 @@ void TableRenderer::renderBoard(
     }
 
     // Pass B: Render physical deck rims, inter-card contact shadows, and resting card bodies
-    for (const auto& rp : restingPiles) {
+    for (size_t rpIdx = 0; rpIdx < restingPilesCount; ++rpIdx) {
+        const auto& rp = restingPiles[rpIdx];
         const Pile& p = piles[rp.pIdx];
         if (rp.isTightlyStacked && rp.stackCount >= 2 && !rp.restingIndices.empty()) {
             const Card& topCard = p.cards[rp.restingIndices.back()];
@@ -3516,27 +3530,23 @@ void TableRenderer::renderBoard(
                 ? (fp.cards.size() - 1)
                 : std::min<size_t>(static_cast<size_t>(fromCardIdx), fp.cards.size() - 1);
 
+            const CardWearLevel wearLvl = CardTextureCache::instance().cardWearLevel();
+
+            // Draw all card outlines underneath the card bodies so overlapping cards in a
+            // highlighted run occlude interior borders, leaving only the outer stack perimeter.
+            for (size_t ci = startIdx; ci < fp.cards.size(); ++ci) {
+                const Card& fc = fp.cards[ci];
+                if (isCardMoving(fc)) continue;
+                const CardScreenRect rect = computeCardScreenRect(fc, fc.x, fc.y, cw, ch, wearLvl);
+                ScopedCardRotation rotGuard(r, fc.angle, rect.x + rect.w * 0.5f, rect.y + rect.h * 0.5f);
+                r.drawRoundedRectOutline(rect.x - 2.0f, rect.y - 2.0f, rect.w + 4.0f, rect.h + 4.0f,
+                                         rect.radius + 2.0f, pal.accentR, pal.accentG, pal.accentB,
+                                         0.82f, 2.6f, 4);
+            }
             for (size_t ci = startIdx; ci < fp.cards.size(); ++ci) {
                 const Card& fc = fp.cards[ci];
                 if (isCardMoving(fc)) continue;
                 drawProceduralCard(r, fc, fc.x, fc.y, cw, ch, pal, light, CardRenderPass::BodyOnly);
-            }
-            const Card& topC = fp.cards.back();
-            const Card& firstC = fp.cards[startIdx];
-            if (std::abs(topC.angle) > 0.001f || std::abs(firstC.angle) > 0.001f) {
-                for (size_t ci = startIdx; ci < fp.cards.size(); ++ci) {
-                    const Card& fc = fp.cards[ci];
-                    ScopedCardRotation rotGuard(r, fc.angle, fc.x + cw * 0.5f, fc.y + ch * 0.5f);
-                    r.drawRoundedRectOutline(fc.x - 2.0f, fc.y - 2.0f, cw + 4.0f, ch + 4.0f, cardRad + 2.0f,
-                                             pal.accentR, pal.accentG, pal.accentB, 0.82f, 2.0f, 4);
-                }
-            } else {
-                const float bx = std::min(firstC.x, topC.x);
-                const float by = std::min(firstC.y, topC.y);
-                const float bw = std::max(firstC.x, topC.x) + cw - bx;
-                const float bh = std::max(firstC.y, topC.y) + ch - by;
-                r.drawRoundedRectOutline(bx - 2.0f, by - 2.0f, bw + 4.0f, bh + 4.0f, cardRad + 2.0f,
-                                         pal.accentR, pal.accentG, pal.accentB, 0.82f, 2.0f, 4);
             }
         };
 
@@ -3639,35 +3649,67 @@ void TableRenderer::renderBoard(
         }
     }
 
-    // 6. Hardwood 3.0 3D Victory Cascade / Choreography & Banner Overlay
-    if (!screensaverMode && board.isVictory()) {
-        std::vector<VictoryAirborneCard> airborne;
-        airborne.reserve(64);
+    // 6. Hardwood 3.0 3D Victory Cascade / Choreography & Gather-to-Origin Segue
+    if (victoryGather && victoryGather->active) {
+        std::vector<VictoryAirborneCard> gathering;
+        gathering.reserve(victoryGather->cards.size());
 
-        const float vTime = board.victorySeconds();
-        VictoryStageSpec overrideSpec{};
-        const auto* profVic = SettingsManager::instance().getGameProfile(board.activeGameDef().id);
-    const VictoryAnimOverride vicOverride = (profVic && profVic->victoryAnimOverride)
-        ? *profVic->victoryAnimOverride
-        : SettingsManager::instance().settings().victoryAnimOverride;
-    if (buildVictoryOverrideStage(vicOverride, overrideSpec)) {
-            evaluateVictoryStage(overrideSpec, board, vTime, width, height, cw, ch, airborne);
-        } else {
-            const auto& stages = board.victoryChoreography().stages;
-            if (stages.empty()) {
-                VictoryStageSpec defaultStage{};
-                evaluateVictoryStage(defaultStage, board, vTime, width, height, cw, ch, airborne);
-            } else {
-                for (const auto& stage : stages) {
-                    evaluateVictoryStage(stage, board, vTime, width, height, cw, ch, airborne);
-                }
-            }
+        const float targetCx = victoryGather->targetX + victoryGather->targetW * 0.5f;
+        const float targetCy = victoryGather->targetY + victoryGather->targetH * 0.5f;
+        const float dur = std::max(0.05f, victoryGather->durationSec);
+        const float kPiLocal = 3.14159265358979323846f;
+
+        for (size_t i = 0; i < victoryGather->cards.size(); ++i) {
+            const auto& gc = victoryGather->cards[i];
+            const float localT = std::clamp((victoryGather->elapsedSec - gc.delaySec) / dur, 0.0f, 1.0f);
+            // Smooth cubic ease-in-out
+            const float ease = (localT < 0.5f)
+                ? (4.0f * localT * localT * localT)
+                : (1.0f - std::pow(-2.0f * localT + 2.0f, 3.0f) * 0.5f);
+            const float arcZ = std::sin(localT * kPiLocal) * 42.0f;
+
+            // Wrap startYaw into [-pi, pi] so cards take the shortest spin back to face-down
+            float sYaw = std::fmod(gc.startYaw, 2.0f * kPiLocal);
+            if (sYaw > kPiLocal) sYaw -= 2.0f * kPiLocal;
+            if (sYaw < -kPiLocal) sYaw += 2.0f * kPiLocal;
+            const float endYaw = gc.card.faceUp ? kPiLocal : 0.0f;
+            float dYaw = endYaw - sYaw;
+            if (dYaw > kPiLocal) dYaw -= 2.0f * kPiLocal;
+            if (dYaw < -kPiLocal) dYaw += 2.0f * kPiLocal;
+
+            float sRoll = std::fmod(gc.startRoll, 2.0f * kPiLocal);
+            if (sRoll > kPiLocal) sRoll -= 2.0f * kPiLocal;
+            if (sRoll < -kPiLocal) sRoll += 2.0f * kPiLocal;
+
+            VictoryAirborneCard vac{};
+            vac.card = gc.card;
+            vac.xf.baseW = gc.startW + (victoryGather->targetW - gc.startW) * ease;
+            vac.xf.baseH = gc.startH + (victoryGather->targetH - gc.startH) * ease;
+            vac.xf.cx = gc.startX + (targetCx - gc.startX) * ease;
+            vac.xf.cy = gc.startY + (targetCy - gc.startY) * ease;
+            vac.xf.cz = gc.startZ + (6.0f - gc.startZ) * ease + arcZ;
+            vac.xf.yaw = sYaw + dYaw * ease;
+            vac.xf.pitch = gc.startPitch * (1.0f - ease);
+            vac.xf.roll = sRoll * (1.0f - ease);
+            gathering.push_back(vac);
         }
 
-        // Depth-sort airborne cards from back to front (lowest cz to highest cz)
-        std::stable_sort(airborne.begin(), airborne.end(), [](const VictoryAirborneCard& a, const VictoryAirborneCard& b) noexcept {
+        std::stable_sort(gathering.begin(), gathering.end(), [](const VictoryAirborneCard& a, const VictoryAirborneCard& b) noexcept {
             return a.xf.cz < b.xf.cz - 0.01f;
         });
+
+        r.beginShadowLayer();
+        for (const auto& vac : gathering) {
+            render3DCard(r, vac.card, vac.xf, pal, light, CardRenderPass::ShadowOnly);
+        }
+        r.endShadowLayer();
+        for (const auto& vac : gathering) {
+            render3DCard(r, vac.card, vac.xf, pal, light, CardRenderPass::BodyOnly);
+        }
+    } else if (board.isVictory()) {
+        std::vector<VictoryAirborneCard> airborne;
+        airborne.reserve(64);
+        evaluateActiveVictoryAirborne(board, width, height, airborne);
 
         r.beginShadowLayer();
         for (const auto& vac : airborne) {
@@ -3677,39 +3719,6 @@ void TableRenderer::renderBoard(
         for (const auto& vac : airborne) {
             render3DCard(r, vac.card, vac.xf, pal, light, CardRenderPass::BodyOnly);
         }
-
-        const VictoryDialogLayout vl = buildVictoryDialogLayout(board, width, height);
-        const bool btnHovered = (helpMouseX >= vl.btnX && helpMouseX <= vl.btnX + vl.btnW &&
-                                 helpMouseY >= vl.btnY && helpMouseY <= vl.btnY + vl.btnH);
-
-        r.drawRectDropShadow(vl.bx, vl.by, vl.bw, vl.bh, 10.0f, 16.0f, light, 0.60f);
-        r.drawRoundedRectGradient(vl.bx, vl.by, vl.bw, vl.bh, 10.0f,
-                                  pal.woodR0, pal.woodG0, pal.woodB0,
-                                  pal.woodR1, pal.woodG1, pal.woodB1, 0.98f, 4);
-        r.drawRoundedRectOutline(vl.bx, vl.by, vl.bw, vl.bh, 10.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f, 2.2f, 4);
-
-        eatsbits::ui::glyph::drawVectorText(r, vl.title, vl.titleX, vl.titleY, 20.0f,
-                                            pal.accentR, pal.accentG, pal.accentB, 1.0f);
-        if (vl.hasSubtitle) {
-            eatsbits::ui::glyph::drawVectorText(r, vl.subtitle, vl.subtitleX, vl.subtitleY, 12.5f,
-                                                0.94f, 0.90f, 0.82f, 0.95f);
-        }
-
-        const float btnBgTopR = btnHovered ? std::min(1.0f, pal.woodR0 * 1.45f) : pal.woodR0 * 1.15f;
-        const float btnBgTopG = btnHovered ? std::min(1.0f, pal.woodG0 * 1.45f) : pal.woodG0 * 1.15f;
-        const float btnBgTopB = btnHovered ? std::min(1.0f, pal.woodB0 * 1.45f) : pal.woodB0 * 1.15f;
-        const float btnBgBotR = btnHovered ? pal.woodR1 * 1.25f : pal.woodR1 * 0.95f;
-        const float btnBgBotG = btnHovered ? pal.woodG1 * 1.25f : pal.woodG1 * 0.95f;
-        const float btnBgBotB = btnHovered ? pal.woodB1 * 1.25f : pal.woodB1 * 0.95f;
-        r.drawRoundedRectGradient(vl.btnX, vl.btnY, vl.btnW, vl.btnH, 6.0f,
-                                  btnBgTopR, btnBgTopG, btnBgTopB,
-                                  btnBgBotR, btnBgBotG, btnBgBotB, 0.96f, 2);
-        r.drawRoundedRectOutline(vl.btnX, vl.btnY, vl.btnW, vl.btnH, 6.0f,
-                                 pal.accentR, pal.accentG, pal.accentB, btnHovered ? 1.0f : 0.78f, btnHovered ? 1.8f : 1.3f, 2);
-        eatsbits::ui::glyph::drawVectorText(r, "Start New Game", vl.btnTextX, vl.btnTextY, 12.5f,
-                                            btnHovered ? pal.accentR : 0.96f,
-                                            btnHovered ? pal.accentG : 0.93f,
-                                            btnHovered ? pal.accentB : 0.86f, 1.0f);
     } else if (board.gameStatus() == GameStatus::Defeat) {
         const float bw = 460.0f;
         const float bh = 96.0f;
@@ -4018,8 +4027,10 @@ void TableRenderer::renderBoard(
             }
             if (gameTitle.empty()) gameTitle = "Solitaire";
 
+            const float iconSize = fontSz + 2.5f;
+            const float iconSpace = iconSize + 5.0f;
             const float chevronSpace = 14.0f;
-            const float maxTextW = std::max(16.0f, b.w - pillPadX * 2.0f - chevronSpace);
+            const float maxTextW = std::max(16.0f, b.w - pillPadX * 2.0f - iconSpace - chevronSpace);
             if (eatsbits::ui::glyph::getVectorTextWidth(fontSz, gameTitle.c_str()) > maxTextW) {
                 while (gameTitle.size() > 1 &&
                        eatsbits::ui::glyph::getVectorTextWidth(fontSz, (gameTitle + "...").c_str()) > maxTextW) {
@@ -4028,9 +4039,21 @@ void TableRenderer::renderBoard(
                 gameTitle += "...";
             }
 
+            vector_icon::drawGameLibraryIcon(
+                r,
+                b.x + pillPadX + iconSize * 0.5f,
+                b.y + b.h * 0.5f,
+                iconSize * 0.50f,
+                hovered ? cpal.furnaceAmberR : cpal.brassBrightR,
+                hovered ? cpal.furnaceAmberG : cpal.brassBrightG,
+                hovered ? cpal.furnaceAmberB : cpal.brassBrightB,
+                cpal.brassHighlightR, cpal.brassHighlightG, cpal.brassHighlightB,
+                1.0f, false
+            );
+
             const float textY = b.y + (b.h - fontSz) * 0.5f - 0.5f;
             eatsbits::ui::glyph::drawVectorText(
-                r, gameTitle.c_str(), b.x + pillPadX, textY, fontSz,
+                r, gameTitle.c_str(), b.x + pillPadX + iconSpace, textY, fontSz,
                 hovered ? 1.0f : 0.94f,
                 hovered ? 0.96f : 0.90f,
                 hovered ? 0.86f : 0.80f,
@@ -5102,6 +5125,11 @@ struct InteractiveContext {
     bool autoCascadeActive = false;
     float autoCascadeTimer = 0.0f;
     bool screensaverActive = false;
+    VictoryGatherState victoryGather;
+    bool pendingGatherDeal = false;
+    uint32_t pendingGatherSeed = 0;
+    bool pendingGatherSeedReady = false;
+    bool pendingGatherSilent = false;
     double lastTime = 0.0;
     SettingsDialog settingsDialog;
     SeedDialog seedDialog;
@@ -5407,8 +5435,10 @@ struct InteractiveContext {
                                           def.legacyId == DeckThemeId::SolPolyWhite ||
                                           def.legacyId == DeckThemeId::SolPolyDark ||
                                           def.legacyId == DeckThemeId::ScoundrelLowPoly ||
+                                          def.legacyId == DeckThemeId::MemoryLowPoly ||
                                           def.legacyId == DeckThemeId::SolPolyClassic ||
-                                          def.legacyId == DeckThemeId::SolPolyMobile);
+                                          def.legacyId == DeckThemeId::SolPolyMobile ||
+                                          def.legacyId == DeckThemeId::LowPolyWar);
         if (def.filePath.empty() && !isProceduralBuiltin) {
             std::string jsName = def.id;
             EM_ASM({
@@ -5920,6 +5950,16 @@ struct InteractiveContext {
             if (startSeed == 0) startSeed = 2026u;
         }
 
+        if (!def.supportsSolver) {
+            if (victoryGather.active || pendingGatherDeal || (screensaverActive && board.isVictory())) {
+                pendingGatherSeed = startSeed;
+                pendingGatherSeedReady = true;
+                return;
+            }
+            applyNewDealWithAnimation(startSeed, def, silent);
+            return;
+        }
+
         asyncManager.cancelRequested.store(false);
         asyncManager.progress.store(0.0f);
         asyncManager.solvableSeedReady = false;
@@ -6023,9 +6063,121 @@ struct InteractiveContext {
         foley.triggerSound(FoleySound::Flip, 0.75f);
     }
 
+    void applyNewDealWithAnimation(uint32_t seed, const SolitaireGameDef& def, bool silent) {
+        autoCascadeActive = false;
+        autoPlayController.stop();
+        board.newDeal(seed, def);
+        board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+        board.triggerDealAnimation();
+        if (!screensaverActive) {
+            SettingsManager::instance().settings().lastSeed = seed;
+            SettingsManager::instance().settings().variant = def.nativeVariant;
+            SettingsManager::instance().save();
+            applyEffectiveSettings(true);
+            SessionManager::instance().clearSession();
+        }
+        if (loadingDialog.isOpen()) {
+            loadingDialog.close();
+            foley.triggerSound(FoleySound::Shuffle, 0.90f);
+        } else if (!silent) {
+            foley.triggerSound(FoleySound::Deal, 0.85f);
+        }
+        if (screensaverActive) {
+            autoPlayController.setSpeed(AutoPlaySpeed::Normal);
+            autoPlayController.start(board);
+        }
+    }
+
+    void beginVictoryGather(bool silent = false) {
+        if (victoryGather.active) return;
+
+        float ox = 0.0f;
+        float oy = 0.0f;
+        board.dealOrigin(ox, oy);
+        const float cw = board.cardWidth();
+        const float ch = board.cardHeight();
+
+        victoryGather.cards.clear();
+        std::vector<VictoryAirborneCard> airborne;
+        airborne.reserve(64);
+        evaluateActiveVictoryAirborne(board, static_cast<float>(width), static_cast<float>(height), airborne);
+
+        for (const auto& vac : airborne) {
+            VictoryGatherCard gc{};
+            gc.card = vac.card;
+            gc.startX = vac.xf.cx;
+            gc.startY = vac.xf.cy;
+            gc.startZ = vac.xf.cz;
+            gc.startYaw = vac.xf.yaw;
+            gc.startPitch = vac.xf.pitch;
+            gc.startRoll = vac.xf.roll;
+            gc.startW = vac.xf.baseW;
+            gc.startH = vac.xf.baseH;
+            victoryGather.cards.push_back(gc);
+        }
+
+        for (const auto& p : board.piles()) {
+            for (size_t cIdx = 0; cIdx < p.cards.size(); ++cIdx) {
+                if (shouldHideVictoryPileCard(board, p, cIdx)) continue;
+                const Card& c = p.cards[cIdx];
+                VictoryGatherCard gc{};
+                gc.card = c;
+                gc.startX = c.x + cw * 0.5f;
+                gc.startY = c.y + ch * 0.5f;
+                gc.startZ = c.elevation;
+                gc.startYaw = 0.0f;
+                gc.startPitch = 0.0f;
+                gc.startRoll = c.angle;
+                gc.startW = cw;
+                gc.startH = ch;
+                victoryGather.cards.push_back(gc);
+            }
+        }
+
+        if (victoryGather.cards.empty()) {
+            return;
+        }
+
+        const float step = std::min(0.005f, 0.16f / static_cast<float>(victoryGather.cards.size()));
+        for (size_t i = 0; i < victoryGather.cards.size(); ++i) {
+            victoryGather.cards[i].delaySec = static_cast<float>(i) * step;
+        }
+
+        victoryGather.targetX = ox;
+        victoryGather.targetY = oy;
+        victoryGather.targetW = cw;
+        victoryGather.targetH = ch;
+        victoryGather.elapsedSec = 0.0f;
+        victoryGather.durationSec = 0.58f;
+        victoryGather.active = true;
+        pendingGatherDeal = true;
+        pendingGatherSilent = silent;
+        if (!silent) {
+            foley.triggerSound(FoleySound::Flip, 0.65f);
+        }
+    }
+
+    void updateVictoryGather(float dt) {
+        if (!victoryGather.active) return;
+        victoryGather.elapsedSec += dt;
+        const float maxDelay = victoryGather.cards.empty() ? 0.0f : victoryGather.cards.back().delaySec;
+        if (victoryGather.elapsedSec >= (victoryGather.durationSec + maxDelay) && pendingGatherSeedReady) {
+            victoryGather.active = false;
+            victoryGather.cards.clear();
+            pendingGatherDeal = false;
+            pendingGatherSeedReady = false;
+            applyNewDealWithAnimation(pendingGatherSeed, board.activeGameDef(), pendingGatherSilent);
+            foley.triggerSound(FoleySound::Shuffle, 0.72f);
+        }
+    }
+
     void exitScreensaverMode(bool triggerSound = true) {
         if (!screensaverActive) return;
         screensaverActive = false;
+        victoryGather.active = false;
+        victoryGather.cards.clear();
+        pendingGatherDeal = false;
+        pendingGatherSeedReady = false;
         if (asyncManager.isBusy.load() && asyncManager.opType == AsyncOp::SolvableDeal) {
             asyncManager.cancelRequested.store(true);
         }
@@ -6224,8 +6376,10 @@ struct InteractiveContext {
         const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
                                 s.deckTheme == DeckThemeId::SolPolyDark ||
                                 s.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                s.deckTheme == DeckThemeId::MemoryLowPoly ||
                                 s.deckTheme == DeckThemeId::SolPolyClassic ||
-                                s.deckTheme == DeckThemeId::SolPolyMobile);
+                                s.deckTheme == DeckThemeId::SolPolyMobile ||
+                                s.deckTheme == DeckThemeId::LowPolyWar);
         bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
         if (seedChanged) {
             cache.setLowPolySeed(s.lowPolySeed);
@@ -6267,8 +6421,10 @@ struct InteractiveContext {
         const bool isLowPoly = (s.deckTheme == DeckThemeId::SolPolyWhite ||
                                 s.deckTheme == DeckThemeId::SolPolyDark ||
                                 s.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                s.deckTheme == DeckThemeId::MemoryLowPoly ||
                                 s.deckTheme == DeckThemeId::SolPolyClassic ||
-                                s.deckTheme == DeckThemeId::SolPolyMobile);
+                                s.deckTheme == DeckThemeId::SolPolyMobile ||
+                                s.deckTheme == DeckThemeId::LowPolyWar);
         bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
         if (seedChanged) {
             cache.setLowPolySeed(s.lowPolySeed);
@@ -6413,6 +6569,24 @@ struct InteractiveContext {
             case BtnNewDeal:
                 autoPlayController.stop();
                 autoCascadeActive = false;
+                if (board.isVictory() && !victoryGather.active) {
+                    beginVictoryGather(false);
+                    if (SettingsManager::instance().settings().guaranteeSolvable) {
+                        pendingGatherSeedReady = false;
+                        startAsyncSolvableDeal(board.activeGameDef(), 0, true);
+                    } else {
+                        uint32_t nextSeed = board.seed() + 1u;
+                        if (SettingsManager::instance().settings().randomizeOnNewDeal) {
+                            std::random_device rd;
+                            auto nowVal = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+                            nextSeed = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(nowVal)) & 0x7FFFFFFFu;
+                            if (nextSeed == 0) nextSeed = 2026u;
+                        }
+                        pendingGatherSeed = nextSeed;
+                        pendingGatherSeedReady = true;
+                    }
+                    break;
+                }
                 if (SettingsManager::instance().settings().guaranteeSolvable) {
                     startAsyncSolvableDeal(board.activeGameDef());
                     break;
@@ -6425,12 +6599,8 @@ struct InteractiveContext {
                         nextSeed = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(nowVal)) & 0x7FFFFFFFu;
                         if (nextSeed == 0) nextSeed = 2026u;
                     }
-                    board.newDeal(nextSeed, board.activeGameDef());
-                    SettingsManager::instance().settings().lastSeed = nextSeed;
-                    SettingsManager::instance().save();
-                    SessionManager::instance().clearSession();
+                    applyNewDealWithAnimation(nextSeed, board.activeGameDef(), false);
                 }
-                foley.triggerSound(FoleySound::Deal, 0.9f);
                 break;
             case BtnSolvableDeal:
                 autoPlayController.stop();
@@ -6708,7 +6878,7 @@ struct InteractiveContext {
         }
 
         auto screenPan = [&](float x) noexcept -> float {
-            return (width > 0) ? std::clamp(((x / static_cast<float>(width)) * 2.0f - 1.0f) * 0.30f, -0.30f, 0.30f) : 0.0f;
+            return (width > 0) ? std::clamp(((x / static_cast<float>(width)) * 2.0f - 1.0f) * 0.45f, -0.45f, 0.45f) : 0.0f;
         };
 
         if (asyncManager.opType != AsyncOp::None || asyncManager.isBusy.load() || loadingDialog.isOpen()) {
@@ -6751,26 +6921,11 @@ struct InteractiveContext {
                         SettingsManager::instance().save();
                     }
                 } else if (asyncManager.opType == AsyncOp::SolvableDeal && asyncManager.solvableSeedReady) {
-                    autoCascadeActive = false;
-                    autoPlayController.stop();
-                    board.newDeal(asyncManager.solvableSeed, asyncManager.solvableDef);
-                    board.computeLayout(static_cast<float>(width), static_cast<float>(height));
-                    if (!screensaverActive) {
-                        SettingsManager::instance().settings().lastSeed = asyncManager.solvableSeed;
-                        SettingsManager::instance().settings().variant = asyncManager.solvableDef.nativeVariant;
-                        SettingsManager::instance().save();
-                        applyEffectiveSettings(true);
-                        SessionManager::instance().clearSession();
-                    }
-                    if (loadingDialog.isOpen()) {
-                        loadingDialog.close();
-                        foley.triggerSound(FoleySound::Shuffle, 0.90f);
+                    if (victoryGather.active || pendingGatherDeal || (screensaverActive && board.isVictory())) {
+                        pendingGatherSeed = asyncManager.solvableSeed;
+                        pendingGatherSeedReady = true;
                     } else {
-                        foley.triggerSound(FoleySound::Deal, 0.85f);
-                    }
-                    if (screensaverActive) {
-                        autoPlayController.setSpeed(AutoPlaySpeed::Normal);
-                        autoPlayController.start(board);
+                        applyNewDealWithAnimation(asyncManager.solvableSeed, asyncManager.solvableDef, asyncManager.silent);
                     }
                 } else if (asyncManager.opType == AsyncOp::TableTheme && asyncManager.themeReady) {
                     board.setTableTheme(asyncManager.targetTheme);
@@ -7200,15 +7355,6 @@ struct InteractiveContext {
                 return true;
             }()) {
                 // Click handled by Help Sidebar
-            } else if (!screensaverActive && board.isVictory() && [&]() {
-                const VictoryDialogLayout vl = buildVictoryDialogLayout(board, static_cast<float>(width), static_cast<float>(height));
-                if (fmx >= vl.btnX && fmx <= vl.btnX + vl.btnW && fmy >= vl.btnY && fmy <= vl.btnY + vl.btnH) {
-                    triggerAction(BtnNewDeal);
-                    return true;
-                }
-                return (fmx >= vl.bx && fmx <= vl.bx + vl.bw && fmy >= vl.by && fmy <= vl.by + vl.bh);
-            }()) {
-                // Click handled by Victory dialog
             } else if (hoveredBtn == BtnMenuToggle) {
                 isClickingSolEngineOrb = true;
                 isDraggingMenu = false;
@@ -7222,6 +7368,16 @@ struct InteractiveContext {
                 pressStartX = fmx;
                 pressStartY = fmy;
                 holdTriggered = false;
+            } else if (!screensaverActive && board.isVictory()) {
+                if (victoryGather.active && pendingGatherSeedReady) {
+                    victoryGather.active = false;
+                    victoryGather.cards.clear();
+                    pendingGatherDeal = false;
+                    pendingGatherSeedReady = false;
+                    applyNewDealWithAnimation(pendingGatherSeed, board.activeGameDef(), false);
+                } else if (!victoryGather.active) {
+                    triggerAction(BtnNewDeal);
+                }
             } else {
                 int hitPile = -1;
                 int hitCard = -1;
@@ -7234,8 +7390,14 @@ struct InteractiveContext {
                             foley.triggerSound(FoleySound::Deal, 0.85f, screenPan(fmx));
                         }
                     } else if (hitCard >= 0) {
-                        draggedPile = hitPile;
-                        draggedCardIdx = hitCard;
+                        if (board.hasScriptCardClick() && board.hasScriptCanPick() &&
+                            !board.canPickScriptCard(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
+                            if (board.smartMove(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
+                                foley.triggerSound(FoleySound::Snap, 0.75f, screenPan(fmx));
+                            }
+                        } else {
+                            draggedPile = hitPile;
+                            draggedCardIdx = hitCard;
                         dragStartMouseX = boardFmx;
                         dragStartMouseY = boardFmy;
                         lastDragMouseX = boardFmx;
@@ -7259,6 +7421,7 @@ struct InteractiveContext {
                             dragGrabLocalY = board.cardHeight() * 0.5f;
                         }
                         foley.triggerSound(FoleySound::Snap, 0.75f, screenPan(fmx));
+                        }
                     }
                 } else {
                     if (autoPlayController.isActive()) {
@@ -7762,12 +7925,25 @@ struct InteractiveContext {
         }
 
         autoPlayController.update(dt, board, &foley);
-        if (screensaverActive && asyncManager.opType == AsyncOp::None && !asyncManager.isBusy.load()) {
-            const AutoPlayState apState = autoPlayController.state();
-            if (board.isVictory() || apState == AutoPlayState::Completed ||
-                apState == AutoPlayState::Failed || apState == AutoPlayState::Inactive) {
-                autoPlayController.stop();
-                startAsyncSolvableDeal(board.activeGameDef(), 0, true);
+        updateVictoryGather(dt);
+        if (screensaverActive) {
+            if (victoryGather.active) {
+                // Wait for gather-to-origin animation to finish
+            } else if (board.isVictory()) {
+                if (!pendingGatherSeedReady && asyncManager.opType == AsyncOp::None && !asyncManager.isBusy.load()) {
+                    pendingGatherDeal = true;
+                    startAsyncSolvableDeal(board.activeGameDef(), 0, true);
+                }
+                if (board.victorySeconds() >= 6.0f && pendingGatherSeedReady) {
+                    beginVictoryGather(true);
+                }
+            } else if (asyncManager.opType == AsyncOp::None && !asyncManager.isBusy.load()) {
+                const AutoPlayState apState = autoPlayController.state();
+                if (apState == AutoPlayState::Completed ||
+                    apState == AutoPlayState::Failed || apState == AutoPlayState::Inactive) {
+                    autoPlayController.stop();
+                    startAsyncSolvableDeal(board.activeGameDef(), 0, true);
+                }
             }
         }
         board.updateAnimations(dt);
@@ -7843,7 +8019,6 @@ struct InteractiveContext {
                                     activeCfg.sceneDarkness, activeCfg.lightStrength);
             renderer.setSceneAtmosphere(static_cast<uint8_t>(activeCfg.shadowGobo),
                                         activeCfg.goboSoftness,
-                                        activeCfg.godRaysIntensity,
                                         activeCfg.dustMotesIntensity,
                                         steadyLight.x, steadyLight.y, steadyLight.z,
                                         static_cast<uint8_t>(activeCfg.lightAngle),
@@ -8256,7 +8431,8 @@ struct InteractiveContext {
                                        dragPivotAngle, dragGrabLocalX, dragGrabLocalY,
                                        dragChainCount > 0 ? dragChainAngles.data() : nullptr, dragChainCount,
                                        activeGhostCards.empty() ? nullptr : &activeGhostCards,
-                                       helpOpen ? &videoSnap : nullptr);
+                                       helpOpen ? &videoSnap : nullptr,
+                                       victoryGather.active ? &victoryGather : nullptr);
             if (!activeCfg.postFxAffectUi) {
                 renderer.applyPostFxPass();
             }
@@ -8621,7 +8797,11 @@ int TableRenderer::runInteractiveWindow(
         return 1;
     }
 
+#if defined(__EMSCRIPTEN__)
+    ctx.renderer.setAntiAliasingMode(ctx.renderer.isLowCapabilityHardware() ? 0 : 4);
+#else
     ctx.renderer.setAntiAliasingMode(4);
+#endif
     CardTextureCache::instance().initialize();
     if (ctx.renderer.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU) {
         CardTextureCache::instance().buildGpuAtlas(ctx.renderer);

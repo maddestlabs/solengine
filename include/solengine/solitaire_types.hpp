@@ -318,7 +318,8 @@ enum class BoardOpType : uint8_t {
     RemoveCardTag,
     SetGlobalStat,
     SetGlobalStr,
-    AddScore
+    AddScore,
+    ShuffleZone
 };
 
 /**
@@ -338,6 +339,8 @@ struct BoardOp {
     std::string prevStr;
     std::string nextStr;
     Card snapshotCard{}; // Used for RemoveCard / SpawnCard undo
+    std::vector<Card> prevCards; // Used for ShuffleZone undo
+    std::vector<Card> nextCards; // Used for ShuffleZone redo
 };
 
 struct TurnTransaction {

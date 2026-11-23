@@ -8,12 +8,12 @@ def configure():
     audio.set_master_variance(1.0)
 
     audio.set_physical_params({
-        velvet_density: 2600.0,
-        edge_snap:      0.95,
-        air_boost:      6.0,
-        comb_delay:     0.00022,
-        felt_damping:   6800.0,
-        card_rigidity:  2900.0
+        velvet_density: 2200.0,
+        edge_snap:      0.70,
+        air_boost:      -1.5,
+        comb_delay:     0.00026,
+        felt_damping:   4800.0,
+        card_rigidity:  2350.0
     })
 
 sol.define_sound_pack({

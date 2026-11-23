@@ -51,7 +51,6 @@ struct GameSceneProfile {
     std::optional<float> lightFlicker;
     std::optional<float> goboSoftness;
     std::optional<float> cloudOpacity;
-    std::optional<float> godRaysIntensity;
     std::optional<float> dustMotesIntensity;
     std::optional<float> sceneDarkness;
     std::optional<float> lightStrength;
@@ -114,7 +113,6 @@ struct AppSettings {
     float lightFlicker{0.0f};        // 0.0 = steady, 1.0 = dynamic candle/draft flicker
     float goboSoftness{0.45f};       // 0.05 = crisp mullions, 1.0 = soft diffused penumbra
     float cloudOpacity{0.0f};        // 0.0 = clear sky, 1.0 = full drifting cloud shadows beyond gobo
-    float godRaysIntensity{0.0f};     // 0.0 = off, up to 1.0 = dramatic light shafts
     float dustMotesIntensity{0.0f};   // 0.0 = off, up to 1.0 = sunlit floating dust
     float sceneDarkness{0.22f}; // 0.0 = 0% darkening, 0.22 = 22% subtle atmospheric darkening, up to 0.85
     float lightStrength{1.20f}; // 0.0 = off, 1.20 = 120% warm overhead light pool, up to 2.00

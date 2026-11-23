@@ -81,9 +81,12 @@ public:
 
     // Layout calculation for responsive desktop & mobile aspect ratios
     void computeLayout(float viewportWidth, float viewportHeight);
+    void dealOrigin(float& outX, float& outY) const noexcept;
+    void triggerDealAnimation() noexcept;
 
     // Advance spring-damper card flight trajectories, 2.5D flips, and elevations
     void updateAnimations(float dt);
+    [[nodiscard]] bool isInputLocked() const noexcept;
     uint8_t consumePendingDealPans(float* outPans, uint8_t maxCount) noexcept;
 
     // Core interactions
@@ -187,6 +190,7 @@ private:
     std::vector<TurnTransaction> txRedoStack_;
     BoardBlackboard blackboard_;
     mutable ScriptRuleEngine scriptEngine_;
+    std::vector<PendingScriptAction> pendingActions_;
     mutable GameStatus cachedGameStatus_{GameStatus::Playing};
     mutable bool statusCacheDirty_{true};
     HintMove activeHint_{};

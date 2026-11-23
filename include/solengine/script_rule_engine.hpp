@@ -10,6 +10,12 @@
 
 namespace solengine {
 
+struct PendingScriptAction {
+    float remainingSec{0.0f};
+    std::string fnName;
+    bool lockInput{true};
+};
+
 /**
  * Mutable view of board state exposed to Eatscript rule hooks and BoardOp undo/redo.
  */
@@ -23,6 +29,7 @@ struct ScriptBoardContext {
     float cardH{136.0f};
     float viewportW{1280.0f};
     float viewportH{720.0f};
+    std::vector<PendingScriptAction>* pendingActions{nullptr};
 };
 
 /**
@@ -58,6 +65,7 @@ public:
     [[nodiscard]] bool hasOnStockClick() const noexcept { return hasOnStockClick_; }
     [[nodiscard]] bool hasOnTurnEnd() const noexcept { return hasOnTurnEnd_; }
     [[nodiscard]] bool hasOnVictory() const noexcept { return hasOnVictory_; }
+    [[nodiscard]] bool hasOnLayout() const noexcept { return hasOnLayout_; }
     [[nodiscard]] bool hasGetStatus() const noexcept { return hasGetStatus_; }
     [[nodiscard]] bool hasEvalHeuristic() const noexcept { return hasEvalHeuristic_; }
     [[nodiscard]] const GameDocManifest& docManifest() const noexcept { return docManifest_; }
@@ -74,6 +82,8 @@ public:
     bool invokeOnStockClick(ScriptBoardContext& ctx);
     bool invokeOnTurnEnd(ScriptBoardContext& ctx);
     bool invokeOnVictory(ScriptBoardContext& ctx);
+    bool invokeOnLayout(ScriptBoardContext& ctx, float boardW, float boardH);
+    bool invokeNamedAction(ScriptBoardContext& ctx, const std::string& fnName);
     [[nodiscard]] GameStatus invokeGetStatus(ScriptBoardContext& ctx);
     [[nodiscard]] int32_t invokeEvalHeuristic(ScriptBoardContext& ctx);
 
@@ -106,6 +116,7 @@ private:
     bool hasOnStockClick_{false};
     bool hasOnTurnEnd_{false};
     bool hasOnVictory_{false};
+    bool hasOnLayout_{false};
     bool hasGetStatus_{false};
     bool hasEvalHeuristic_{false};
     GameDocManifest docManifest_;

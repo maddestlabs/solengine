@@ -115,7 +115,18 @@ bool EatsPackageLoader::loadSource(const std::string& source,
             def.decks = static_cast<uint8_t>(std::clamp(d.get("decks", Value(1)).asInt(1), 1, 8));
             def.deckCards = static_cast<uint16_t>(std::max(0, d.get("deck_cards", Value(0)).asInt(0)));
             def.excludeRedRoyals = d.get("exclude_red_royals", Value(false)).asBoolean(false);
-            def.tableaus = static_cast<uint8_t>(std::clamp(d.get("tableaus", Value(7)).asInt(7), 0, 24));
+            def.suitCount = static_cast<uint8_t>(std::clamp(d.get("suit_count", Value(4)).asInt(4), 1, 4));
+            def.jokers = static_cast<uint8_t>(std::clamp(d.get("jokers", Value(0)).asInt(0), 0, 2));
+            def.gridCols = static_cast<uint8_t>(std::clamp(d.get("grid_cols", Value(0)).asInt(0), 0, 20));
+            def.supportsSolver = d.get("supports_solver", Value(true)).asBoolean(true);
+            def.allowUndo = d.get("allow_undo", Value(true)).asBoolean(true);
+            if (d.hasKey("exclude_ranks") && d.get("exclude_ranks").isList()) {
+                for (const auto& v : d.get("exclude_ranks").listVal) {
+                    int r = v.asInt(0);
+                    if (r >= 1 && r <= 13) def.excludeRanks.push_back(static_cast<uint8_t>(r));
+                }
+            }
+            def.tableaus = static_cast<uint8_t>(std::clamp(d.get("tableaus", Value(7)).asInt(7), 0, 104));
             def.foundations = static_cast<uint8_t>(std::clamp(d.get("foundations", Value(4)).asInt(4), 0, 16));
             def.freecells = static_cast<uint8_t>(std::clamp(d.get("freecells", Value(0)).asInt(0), 0, 16));
 
@@ -137,6 +148,7 @@ bool EatsPackageLoader::loadSource(const std::string& source,
                 }
             }
             def.defaultDeckSlug = d.get("deck").asString();
+            if (def.defaultDeckSlug.empty()) def.defaultDeckSlug = d.get("default_deck").asString();
             def.defaultTableThemeSlug = d.get("theme").asString();
             def.defaultPostFxId = d.get("postfx").asString();
             def.defaultAmbienceId = d.get("ambience").asString();
@@ -149,7 +161,33 @@ bool EatsPackageLoader::loadSource(const std::string& source,
             def.filePath = virtualPath;
             def.scriptSource = source;
             def.isScripted = true;
-            def.nativeVariant = GameVariant::CustomScript;
+
+            const std::string idLow = def.id;
+            const std::string nameLow = toLowerAscii(def.name);
+            const std::string famLow = toLowerAscii(def.family);
+            if (idLow == "spiderette" || nameLow == "spiderette") {
+                def.nativeVariant = GameVariant::Spider1Suit;
+            } else if (idLow == "golf" || nameLow == "golf") {
+                def.nativeVariant = GameVariant::Golf;
+            } else if (nameLow.find("spider") != std::string::npos || famLow == "spider") {
+                if (nameLow.find("1") != std::string::npos || idLow.find("_1") != std::string::npos) {
+                    def.nativeVariant = GameVariant::Spider1Suit;
+                } else if (nameLow.find("2") != std::string::npos || idLow.find("_2") != std::string::npos) {
+                    def.nativeVariant = GameVariant::Spider2Suits;
+                } else if (nameLow.find("3") != std::string::npos || idLow.find("_3") != std::string::npos) {
+                    def.nativeVariant = GameVariant::Spider3Suits;
+                } else {
+                    def.nativeVariant = GameVariant::Spider4Suits;
+                }
+            } else if (nameLow.find("freecell") != std::string::npos || idLow == "freecell") {
+                def.nativeVariant = GameVariant::FreeCell;
+            } else if (nameLow.find("draw 3") != std::string::npos || idLow.find("draw_3") != std::string::npos) {
+                def.nativeVariant = GameVariant::KlondikeDraw3;
+            } else if (nameLow.find("draw 1") != std::string::npos || idLow.find("draw_1") != std::string::npos) {
+                def.nativeVariant = GameVariant::KlondikeDraw1;
+            } else {
+                def.nativeVariant = GameVariant::CustomScript;
+            }
 
             GameRegistry::instance().registerGame(def);
             outResult.gameIds.push_back(def.id);
@@ -359,7 +397,6 @@ bool EatsPackageLoader::loadSource(const std::string& source,
                 if (l.hasKey("flicker")) p.lightFlicker = l.get("flicker").asFloat(0.0f);
                 if (l.hasKey("gobo_softness")) p.goboSoftness = l.get("gobo_softness").asFloat(0.50f);
                 if (l.hasKey("cloud_opacity")) p.cloudOpacity = l.get("cloud_opacity").asFloat(0.15f);
-                if (l.hasKey("god_rays")) p.godRaysIntensity = l.get("god_rays").asFloat(0.25f);
                 if (l.hasKey("dust_motes")) p.dustMotesIntensity = l.get("dust_motes").asFloat(0.35f);
                 if (l.hasKey("scene_darkness")) p.sceneDarkness = l.get("scene_darkness").asFloat(0.22f);
                 if (l.hasKey("light_strength")) p.lightStrength = l.get("light_strength").asFloat(1.20f);

@@ -99,7 +99,7 @@ public:
                                 float /*ambR*/ = 0.35f, float /*ambG*/ = 0.35f, float /*ambB*/ = 0.35f,
                                 float /*sceneDarkness*/ = 0.0f, float /*lightStrength*/ = 1.0f) {}
     virtual void setSceneAtmosphere(uint8_t /*goboType*/, float /*goboSoftness*/,
-                                      float /*godRaysIntensity*/, float /*dustMotesIntensity*/,
+                                      float /*dustMotesIntensity*/,
                                       float /*steadyX*/ = 640.0f, float /*steadyY*/ = 200.0f,
                                       float /*steadyZ*/ = 550.0f, uint8_t /*lightAngle*/ = 0,
                                       float /*cloudOpacity*/ = 0.0f) {}
@@ -258,7 +258,7 @@ public:
                         float ambR = 0.35f, float ambG = 0.35f, float ambB = 0.35f,
                         float sceneDarkness = 0.0f, float lightStrength = 1.0f);
     void setSceneAtmosphere(uint8_t goboType, float goboSoftness,
-                            float godRaysIntensity, float dustMotesIntensity,
+                            float dustMotesIntensity,
                             float steadyX = 640.0f, float steadyY = 200.0f,
                             float steadyZ = 550.0f, uint8_t lightAngle = 0,
                             float cloudOpacity = 0.0f);
@@ -634,7 +634,6 @@ private:
     size_t sceneLitStartIdx_{0};
     float tableLacquer_{0.0f};
     float tableBump_{2.4f};
-    float godRaysIntensity_{0.0f};
     float dustMotesIntensity_{0.0f};
     float steadyLightX_{640.0f};
     float steadyLightY_{200.0f};

@@ -28,6 +28,142 @@ void drawChevron(
     float strokeWidth = 1.8f
 );
 
+// Low-poly faceted 2D vector icons (zero-allocation, direct BatchRenderer2D triangles)
+void drawSeedIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawGameLibraryIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawNewGameIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawRestartIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawUndoIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawRedoIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawAutoPlayIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawSolvableDealIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawHelpIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawHintIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawShowMeIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawPauseIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawStepForwardIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawStepBackwardIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
+void drawStopIcon(
+    eatsbits::ui::BatchRenderer2D& r,
+    float cx, float cy, float radius,
+    float baseR, float baseG, float baseB,
+    float hiR, float hiG, float hiB,
+    float alpha = 1.0f,
+    bool drawShadow = false
+);
+
 } // namespace vector_icon
 
 enum class SvgIconId : uint16_t {
@@ -64,6 +200,10 @@ enum class SvgIconId : uint16_t {
     AutoPlay,
     Lightbulb,
     Paste,
+    Seed,
+    Help,
+    ShowMe,
+    Stop,
     Count
 };
 

@@ -1,5 +1,6 @@
 #include "solengine/ui/seed_dialog.hpp"
 #include "solengine/ui/clockwork_theme.hpp"
+#include "solengine/ui/svg_icon_renderer.hpp"
 #include "solengine/settings_manager.hpp"
 #include "solengine/solitaire_board.hpp"
 #include "solengine/audio_foley.hpp"
@@ -165,8 +166,13 @@ void SeedDialog::render(
     // Decorative Steam Pipe behind Header
     clockwork_ui::drawPipe(r, dialogX_ + 14.0f, dialogY_ + 10.0f, dialogX_ + dialogW_ - 14.0f, dialogY_ + 10.0f, 5.0f, true, true);
 
-    // Header Manometer Badge
-    clockwork_ui::drawManometerGauge(r, dialogX_ + 32.0f, dialogY_ + 26.0f, 15.0f, timeSec * 0.6f, 0.65f, false, nullptr);
+    // Header Low-Poly Seed Icon
+    vector_icon::drawSeedIcon(
+        r, dialogX_ + 32.0f, dialogY_ + 26.0f, 13.5f,
+        cPal.brassBrightR, cPal.brassBrightG, cPal.brassBrightB,
+        cPal.brassHighlightR, cPal.brassHighlightG, cPal.brassHighlightB,
+        1.0f, true
+    );
 
     // Title Text
     const char* title = "DEAL SEED TRANSMUTATION";

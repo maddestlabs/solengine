@@ -82,7 +82,6 @@ void SettingsDialog::close() {
     draggingDarkness_ = false;
     draggingLightStrength_ = false;
     draggingGoboSoftness_ = false;
-    draggingGodRays_ = false;
     draggingDustMotes_ = false;
     draggingLightWaver_ = false;
     draggingLightWaverSpeed_ = false;
@@ -201,7 +200,7 @@ void SettingsDialog::render(
         dialogY_ = (screenH - dialogH_) * 0.5f;
 
         if (isClockwork) {
-            clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, true, true, timeSec);
+            clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, true, false, timeSec);
         } else {
             eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 500.0f};
             r.drawRectDropShadow(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, 22.0f, light, 0.65f);
@@ -662,8 +661,10 @@ void SettingsDialog::render(
         const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
                                     tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                    tempSettings_.deckTheme == DeckThemeId::MemoryLowPoly ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyClassic ||
-                                    tempSettings_.deckTheme == DeckThemeId::SolPolyMobile);
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyMobile ||
+                                    tempSettings_.deckTheme == DeckThemeId::LowPolyWar);
         if (isLowPolyDeck) {
             std::string seedStr = "Low-Poly Seed: " + std::to_string(tempSettings_.lowPolySeed);
             drawStepper(seedStr);
@@ -1043,18 +1044,10 @@ void SettingsDialog::render(
             curY += goboSoftTrackH_ + rowGap;
         }
 
-        // God Rays & Dust Motes side by side
-        godRaysTrackX_ = rowX;
-        godRaysTrackY_ = curY;
-        godRaysTrackW_ = halfW;
-        godRaysTrackH_ = 24.0f;
-        char rayStr[48];
-        std::snprintf(rayStr, sizeof(rayStr), "GOD RAYS: %d%%", static_cast<int>(std::round(tempSettings_.godRaysIntensity * 100.0f)));
-        drawSceneSlider(godRaysTrackX_, godRaysTrackY_, godRaysTrackW_, godRaysTrackH_, tempSettings_.godRaysIntensity, rayStr);
-
-        dustMotesTrackX_ = rowX + halfW + sliderGap;
+        // Dust Motes (full row width)
+        dustMotesTrackX_ = rowX;
         dustMotesTrackY_ = curY;
-        dustMotesTrackW_ = halfW;
+        dustMotesTrackW_ = rowW;
         dustMotesTrackH_ = 24.0f;
         char dustStr[48];
         std::snprintf(dustStr, sizeof(dustStr), "DUST MOTES: %d%%", static_cast<int>(std::round(tempSettings_.dustMotesIntensity * 100.0f)));
@@ -1511,7 +1504,6 @@ bool SettingsDialog::handleMouseButton(
         draggingDarkness_ = false;
         draggingLightStrength_ = false;
         draggingGoboSoftness_ = false;
-        draggingGodRays_ = false;
         draggingDustMotes_ = false;
         draggingLightWaver_ = false;
         draggingLightWaverSpeed_ = false;
@@ -1812,8 +1804,10 @@ bool SettingsDialog::handleMouseButton(
         const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
                                     tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly ||
+                                    tempSettings_.deckTheme == DeckThemeId::MemoryLowPoly ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyClassic ||
-                                    tempSettings_.deckTheme == DeckThemeId::SolPolyMobile);
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyMobile ||
+                                    tempSettings_.deckTheme == DeckThemeId::LowPolyWar);
         if (isLowPolyDeck) {
             if (testStepper(stepDelta)) {
                 int nextSeed = static_cast<int>(tempSettings_.lowPolySeed) + stepDelta;
@@ -1957,12 +1951,6 @@ bool SettingsDialog::handleMouseButton(
                 draggingGoboSoftness_ = true;
                 float pct = std::clamp((mouseX - goboSoftTrackX_) / goboSoftTrackW_, 0.0f, 1.0f);
                 tempSettings_.goboSoftness = 0.05f + pct * 0.95f;
-                return true;
-            }
-            if (mouseX >= godRaysTrackX_ && mouseX <= godRaysTrackX_ + godRaysTrackW_ &&
-                mouseY >= godRaysTrackY_ && mouseY <= godRaysTrackY_ + godRaysTrackH_) {
-                draggingGodRays_ = true;
-                tempSettings_.godRaysIntensity = std::clamp((mouseX - godRaysTrackX_) / godRaysTrackW_, 0.0f, 1.0f);
                 return true;
             }
             if (mouseX >= dustMotesTrackX_ && mouseX <= dustMotesTrackX_ + dustMotesTrackW_ &&
@@ -2517,10 +2505,6 @@ bool SettingsDialog::handleMouseMove(
     if (draggingGoboSoftness_ && goboSoftTrackW_ > 1.0f) {
         float pct = std::clamp((mouseX - goboSoftTrackX_) / goboSoftTrackW_, 0.0f, 1.0f);
         tempSettings_.goboSoftness = 0.05f + pct * 0.95f;
-        return true;
-    }
-    if (draggingGodRays_ && godRaysTrackW_ > 1.0f) {
-        tempSettings_.godRaysIntensity = std::clamp((mouseX - godRaysTrackX_) / godRaysTrackW_, 0.0f, 1.0f);
         return true;
     }
     if (draggingDustMotes_ && dustMotesTrackW_ > 1.0f) {

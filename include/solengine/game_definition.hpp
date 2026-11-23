@@ -22,7 +22,13 @@ struct SolitaireGameDef {
     uint8_t decks{1};            // Deck count (1, 2, etc.)
     uint16_t deckCards{0};       // Optional explicit card count (0 = default decks * 52)
     bool excludeRedRoyals{false}; // Exclude red Aces & red J/Q/K (44-card Scoundrel deck)
-    uint8_t tableaus{7};         // Tableau column count
+    std::vector<uint8_t> excludeRanks; // Optional rank numbers (1-13) to exclude (e.g. {8,9} for 40-card Spanish)
+    uint8_t suitCount{4};        // Number of suits to include (1-4)
+    uint8_t jokers{0};           // Number of jokers per deck (0-2)
+    uint8_t gridCols{0};         // Optional column count for "grid" layout (0 = auto-fit)
+    bool supportsSolver{true};   // False for hidden-information or non-deterministic games (e.g. Memory)
+    bool allowUndo{true};        // False to disable Undo/Redo for strict modes
+    uint8_t tableaus{7};         // Tableau column/slot count
     uint8_t foundations{4};      // Foundation pile count
     uint8_t freecells{0};        // FreeCell / reserve count
     std::vector<uint8_t> tableauDealCounts; // Initial card count per tableau column
