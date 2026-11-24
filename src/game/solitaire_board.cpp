@@ -1353,6 +1353,8 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
         if (scriptEngine_.hasOnLayout()) {
             auto ctx = makeScriptContext(nullptr);
             scriptEngine_.invokeOnLayout(ctx, viewportW_, viewportH_);
+            cardW_ = ctx.cardW;
+            cardH_ = ctx.cardH;
         }
         updateCardTargets();
         return;
@@ -1524,6 +1526,13 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
             piles_[k].y = cy - cardH_ * 0.5f;
             piles_[k].angle = 0.0f;
             piles_[k].zIndex = 2;
+        }
+
+        if (scriptEngine_.hasOnLayout()) {
+            auto ctx = makeScriptContext(nullptr);
+            scriptEngine_.invokeOnLayout(ctx, viewportW_, viewportH_);
+            cardW_ = ctx.cardW;
+            cardH_ = ctx.cardH;
         }
 
         updateCardTargets();
@@ -1745,6 +1754,8 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
     if (scriptEngine_.hasOnLayout()) {
         auto ctx = makeScriptContext(nullptr);
         scriptEngine_.invokeOnLayout(ctx, viewportW_, viewportH_);
+        cardW_ = ctx.cardW;
+        cardH_ = ctx.cardH;
     }
 
     updateCardTargets();
@@ -1755,6 +1766,8 @@ void SolitaireBoard::setCardDeviation(float dev) noexcept {
     if (scriptEngine_.hasOnLayout()) {
         auto ctx = makeScriptContext(nullptr);
         scriptEngine_.invokeOnLayout(ctx, viewportW_, viewportH_);
+        cardW_ = ctx.cardW;
+        cardH_ = ctx.cardH;
     }
 
     updateCardTargets();
@@ -1821,6 +1834,12 @@ void SolitaireBoard::updateCardTargets() {
             } else {
                 downStep = std::round(cardH_ * 0.08f);
                 upStep = std::round(cardH_ * 0.16f);
+            }
+            if (p.customFanStepUp > 0.0f) {
+                upStep = std::round(p.customFanStepUp);
+            }
+            if (p.customFanStepDown > 0.0f) {
+                downStep = std::round(p.customFanStepDown);
             }
             p.fanOffsetDown = downStep;
             p.fanOffsetUp = upStep;
@@ -3206,6 +3225,10 @@ ScriptBoardContext SolitaireBoard::makeScriptContext(TurnTransaction* tx) noexce
     ctx.cardH = cardH_;
     ctx.viewportW = viewportW_;
     ctx.viewportH = viewportH_;
+    ctx.safeTop = safeTop_;
+    ctx.safeRight = safeRight_;
+    ctx.safeBottom = safeBottom_;
+    ctx.safeLeft = safeLeft_;
     ctx.pendingActions = &pendingActions_;
     return ctx;
 }
@@ -3221,6 +3244,10 @@ ScriptBoardContext SolitaireBoard::makeConstScriptContext() const noexcept {
     ctx.cardH = cardH_;
     ctx.viewportW = viewportW_;
     ctx.viewportH = viewportH_;
+    ctx.safeTop = safeTop_;
+    ctx.safeRight = safeRight_;
+    ctx.safeBottom = safeBottom_;
+    ctx.safeLeft = safeLeft_;
     ctx.pendingActions = nullptr;
     return ctx;
 }

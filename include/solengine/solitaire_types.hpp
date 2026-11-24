@@ -284,6 +284,8 @@ struct Pile {
     float fanDirY{1.0f};         // Fanning direction Y (+1 = downward)
     float fanOffsetDown{18.0f};
     float fanOffsetUp{28.0f};
+    float customFanStepDown{0.0f}; // Optional EatScript override (0 = engine default)
+    float customFanStepUp{0.0f};   // Optional EatScript override (0 = engine default)
     std::vector<Card> cards;
 };
 

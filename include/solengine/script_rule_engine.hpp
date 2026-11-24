@@ -29,6 +29,10 @@ struct ScriptBoardContext {
     float cardH{136.0f};
     float viewportW{1280.0f};
     float viewportH{720.0f};
+    float safeTop{0.0f};
+    float safeRight{0.0f};
+    float safeBottom{0.0f};
+    float safeLeft{0.0f};
     std::vector<PendingScriptAction>* pendingActions{nullptr};
 };
 

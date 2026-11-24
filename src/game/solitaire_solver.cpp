@@ -398,6 +398,7 @@ struct GameRules {
     bool isGolf{false};
     bool isTriPeaks{false};
     bool isRadialClock{false};
+    bool isBlackHole{false};
     bool isPyramid{false};
     bool isYukon{false};
     bool isRussian{false};
@@ -441,7 +442,8 @@ GameRules extractGameRules(const SolitaireBoard& board) {
     rules.isSpider = !rules.isScorpion && (board.isSpider() || id == "spiderette");
     rules.isTriPeaks = (id == "tri_peaks" || id == "tripeaks" || def.layout == "tripeaks");
     rules.isRadialClock = (id == "clockwork_dial" || def.layout == "radial_clock");
-    rules.isGolf = board.isGolf() || rules.isTriPeaks || rules.isRadialClock || id == "golf";
+    rules.isBlackHole = (id == "black_hole");
+    rules.isGolf = board.isGolf() || rules.isTriPeaks || rules.isRadialClock || rules.isBlackHole || id == "golf";
     rules.isPyramid = board.isPyramidGame();
     rules.isYukon = (def.family == "Yukon");
     rules.isRussian = (id == "russian_solitaire" || def.name.find("Russian") != std::string::npos);
@@ -566,12 +568,17 @@ int evaluateHeuristic(const CompactBoard& board, const GameRules& rules) {
 
     if (rules.isGolf) {
         int tabRemaining = 0;
+        int deepPenalty = 0;
         for (size_t p = 0; p < board.numPiles; ++p) {
             if (board.piles[p].type == PileType::Tableau) {
-                tabRemaining += static_cast<int>(board.piles[p].count);
+                const int cnt = static_cast<int>(board.piles[p].count);
+                tabRemaining += cnt;
+                if (rules.isBlackHole && cnt > 1) {
+                    deepPenalty += cnt * cnt * 12;
+                }
             }
         }
-        return (52 - tabRemaining) * 200;
+        return (52 - tabRemaining) * 200 - deepPenalty;
     }
 
     if (rules.isSpider || rules.isScorpion) {
@@ -794,7 +801,7 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
         const CompactCard& top = dst.back();
         const int movingRank = static_cast<int>(lead.rank());
         const int topRank = static_cast<int>(top.rank());
-        if (rules.isTriPeaks || rules.isRadialClock) {
+        if (rules.isTriPeaks || rules.isRadialClock || rules.isBlackHole) {
             return (movingRank == topRank + 1) || (movingRank == topRank - 1) ||
                    (topRank == 13 && movingRank == 1) || (topRank == 1 && movingRank == 13);
         }

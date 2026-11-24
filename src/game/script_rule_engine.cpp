@@ -819,6 +819,32 @@ void ScriptRuleEngine::registerHostApi() {
         return Value(true);
     });
 
+    evaluator_.registerFunction("set_zone_fan_step", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.size() < 2 || !boundCtx_ || !boundCtx_->piles) return Value(false);
+        int z = args[0].asInt(-1);
+        if (!validZone(boundCtx_, z)) return Value(false);
+        Pile& p = (*boundCtx_->piles)[static_cast<size_t>(z)];
+        const float upStep = std::max(0.0f, static_cast<float>(args[1].asNumber(0.0)));
+        const float downStep = (args.size() >= 3)
+            ? std::max(0.0f, static_cast<float>(args[2].asNumber(0.0)))
+            : upStep * 0.5f;
+        p.customFanStepUp = upStep;
+        p.customFanStepDown = downStep;
+        return Value(true);
+    });
+
+    evaluator_.registerFunction("set_card_size", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
+        if (args.empty() || !boundCtx_) return Value(false);
+        constexpr float kCardAspect = 1.40f;
+        const float w = std::clamp(static_cast<float>(args[0].asNumber(96.0)), 28.0f, 320.0f);
+        const float h = (args.size() >= 2)
+            ? std::clamp(static_cast<float>(args[1].asNumber(w * kCardAspect)), 39.0f, 448.0f)
+            : std::round(w * kCardAspect);
+        boundCtx_->cardW = w;
+        boundCtx_->cardH = h;
+        return Value(true);
+    });
+
     evaluator_.registerFunction("get_board_width", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
         return Value(boundCtx_ ? static_cast<double>(boundCtx_->viewportW) : 1280.0);
     });
@@ -833,6 +859,22 @@ void ScriptRuleEngine::registerHostApi() {
 
     evaluator_.registerFunction("get_card_height", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
         return Value(boundCtx_ ? static_cast<double>(boundCtx_->cardH) : 136.0);
+    });
+
+    evaluator_.registerFunction("get_safe_top", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(boundCtx_ ? static_cast<double>(boundCtx_->safeTop) : 0.0);
+    });
+
+    evaluator_.registerFunction("get_safe_bottom", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(boundCtx_ ? static_cast<double>(boundCtx_->safeBottom) : 0.0);
+    });
+
+    evaluator_.registerFunction("get_safe_left", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(boundCtx_ ? static_cast<double>(boundCtx_->safeLeft) : 0.0);
+    });
+
+    evaluator_.registerFunction("get_safe_right", [this](const std::vector<Value>&, const std::map<std::string, Value>&) -> Value {
+        return Value(boundCtx_ ? static_cast<double>(boundCtx_->safeRight) : 0.0);
     });
 
     evaluator_.registerFunction("schedule_action", [this](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {

@@ -1,6 +1,6 @@
 # =============================================================================
 # SolEngine Game Family: Golf (.eats)
-# Consolidated variants: Golf, TriPeaks, Clockwork Dial
+# Consolidated variants: Golf, TriPeaks, Clockwork Dial, Black Hole
 # =============================================================================
 
 # --- Shared Parameterized Golf Rules ---
@@ -167,6 +167,144 @@ def cd_turn_end():
 def cd_status():
     return golf_status(0, 11)
 
+# --- Black Hole Bindings ---
+# Zones 0..6   = Inner Ring (7 fans of 3 cards, all face-up)
+# Zones 7..16  = Outer Ring (10 fans of 3 cards, all face-up)
+# Zone  17     = Center Black Hole Foundation (starts with Ace of Spades)
+
+def bh_eval():
+    rem = 0
+    deep_pen = 0
+    z = 0
+    while z <= 16:
+        sz = zone_size(z)
+        rem = rem + sz
+        if sz > 1:
+            deep_pen = deep_pen + sz * sz * 12
+        z = z + 1
+    return (51 - rem) * 200 - deep_pen
+
+def bh_deal():
+    # Ensure the Ace of Spades (suit 0, rank 1) starts in the center Black Hole (zone 17).
+    if zone_size(17) > 0 and card_suit(17, 0) == 0 and card_rank(17, 0) == 1:
+        return True
+    z = 0
+    while z <= 16:
+        sz = zone_size(z)
+        i = 0
+        while i < sz:
+            if card_suit(z, i) == 0 and card_rank(z, i) == 1:
+                if i < sz - 1:
+                    move_cards(z, i + 1, 17)
+                move_cards_bottom(z, i, 17)
+                move_cards(17, 1, z)
+                return True
+            i = i + 1
+        z = z + 1
+    return True
+
+def bh_pick(z, i):
+    return golf_can_pick(0, 16, True, False, z, i)
+
+def bh_drop(from_z, i, to_z):
+    return golf_can_drop(0, 16, 17, True, True, True, False, from_z, i, to_z)
+
+def bh_click(z, i):
+    if not bh_drop(z, i, 17):
+        return False
+    move_cards(z, i, 17)
+    add_score(10)
+    return True
+
+def bh_status():
+    return golf_status(0, 16)
+
+def bh_victory():
+    victory_clear_stages()
+    victory_add_stage("spiral_vortex")
+    return True
+
+def bh_layout(bw, bh):
+    pad_top = max(14.0, get_safe_top() + 10.0)
+    pad_bot = max(44.0, get_safe_bottom() + 40.0)
+    pad_x = max(14.0, max(get_safe_left(), get_safe_right()) + 12.0)
+    avail_w = max(200.0, bw - 2.0 * pad_x)
+    avail_h = max(200.0, bh - pad_top - pad_bot)
+
+    cx = bw * 0.5
+    cy = pad_top + avail_h * 0.5
+
+    # Responsive ellipticity: circular in portrait/square, gently elliptical on widescreen
+    ar = avail_w / avail_h
+    ellip_x = 1.0
+    if ar > 1.05:
+        ellip_x = min(1.38, 1.0 + (ar - 1.0) * 0.48)
+
+    # Dual-ring radial geometry in units of card height (ch):
+    # Inner ring (7 fans) base at 1.24*ch, outer ring (10 fans) base at 2.62*ch,
+    # 3-card outward fan step = 0.16*ch (2 steps = 0.32*ch), half-card = 0.50*ch.
+    r_in_u = 1.24
+    r_out_u = 2.62
+    fan_u = 0.16
+    tip_u = 2.0 * fan_u + 0.50
+
+    ch_from_h = avail_h / (2.0 * (r_out_u + tip_u))
+    ch_from_w = avail_w / (2.0 * (r_out_u * ellip_x + tip_u))
+    ch_target = min(ch_from_h, ch_from_w)
+    cw_target = ch_target / 1.40
+
+    set_card_size(cw_target)
+    cw = get_card_width()
+    ch = get_card_height()
+
+    r_in_y = r_in_u * ch
+    r_in_x = r_in_y * ellip_x
+    r_out_y = r_out_u * ch
+    r_out_x = r_out_y * ellip_x
+    fan_step = fan_u * ch
+
+    # Center Black Hole (zone 17): upright Ace of Spades
+    set_zone_pose(17, cx - cw * 0.5, cy - ch * 0.5, 0.0, 20)
+    set_zone_fan(17, 0.0, 0.0)
+
+    pi = 3.14159265
+    rad_to_deg = 180.0 / pi
+
+    # Inner ring: 7 fans (zones 0..6), clockwise from 12 o'clock
+    i = 0
+    while i < 7:
+        theta = -pi * 0.5 + i * (2.0 * pi / 7.0)
+        vx = r_in_x * cos(theta)
+        vy = r_in_y * sin(theta)
+        dist = max(1.0, sqrt(vx * vx + vy * vy))
+        ux = vx / dist
+        uy = vy / dist
+        ang = atan2(vy, vx) * rad_to_deg + 90.0
+        px = cx + vx - cw * 0.5
+        py = cy + vy - ch * 0.5
+        set_zone_pose(i, px, py, ang, i)
+        set_zone_fan(i, ux, uy)
+        set_zone_fan_step(i, fan_step)
+        i = i + 1
+
+    # Outer ring: 10 fans (zones 7..16), clockwise from 12 o'clock
+    j = 0
+    while j < 10:
+        theta = -pi * 0.5 + j * (2.0 * pi / 10.0)
+        vx = r_out_x * cos(theta)
+        vy = r_out_y * sin(theta)
+        dist = max(1.0, sqrt(vx * vx + vy * vy))
+        ux = vx / dist
+        uy = vy / dist
+        ang = atan2(vy, vx) * rad_to_deg + 90.0
+        px = cx + vx - cw * 0.5
+        py = cy + vy - ch * 0.5
+        set_zone_pose(7 + j, px, py, ang, 7 + j)
+        set_zone_fan(7 + j, ux, uy)
+        set_zone_fan_step(7 + j, fan_step)
+        j = j + 1
+    return True
+
 # --- Variant Definitions ---
 
 sol.define_game({
@@ -281,6 +419,44 @@ sol.define_game({
             { index: 0, name: "Clock Spokes (1-12)", desc: "12 radial piles fanning outward. Play exposed top cards +-1 rank (wrapping K <-> A) to the center Foundation." },
             { index: 12, name: "Center Foundation", desc: "Build +-1 in rank regardless of suit.", examples: ["KH", "AS", "2D"] },
             { index: 13, name: "Center Stock", desc: "Click to deal a fresh card onto the center Foundation." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "black_hole",
+    name: "Black Hole",
+    family: "Golf",
+    category: "GOLF",
+    layout: "radial_clock",
+    description: "Pure open-information radial puzzle. 17 face-up fans of 3 cards orbiting the Ace of Spades; pull all 51 cards into the Black Hole +-1 rank.",
+    decks: 1,
+    tableaus: 17,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+    tableau_all_face_up: True,
+    foundation_starter_card: True,
+    stock_deal_mode: "none",
+    max_redeals: 0,
+    demo_seed: 2026,
+    demo_seeds: [1, 2, 3, 4, 5, 7, 13, 2026],
+    eval_heuristic: bh_eval,
+    on_deal: bh_deal,
+    on_layout: bh_layout,
+    can_pick: bh_pick,
+    can_drop: bh_drop,
+    on_card_click: bh_click,
+    on_victory: bh_victory,
+    get_status: bh_status,
+    doc: {
+        meta: [2, "Quick", 1, "Pure Skill", 4, "Tactical"],
+        aliases: ["Black Hole Patience", "Event Horizon"],
+        goal: ["Pull all 51 orbiting cards into the central Black Hole (52 cards total).", "No exposed card is within +-1 rank of the Black Hole."],
+        zones: [
+            { index: 17, name: "Black Hole", desc: "Starts with the Ace of Spades. Build +-1 in rank regardless of suit, wrapping King <-> Ace.", examples: ["AS", "2H", "AC", "KD"] },
+            { index: 0, name: "Inner Ring (7 Fans)", desc: "7 face-up 3-card fans orbiting the Black Hole. Only the outermost card of each fan is playable." },
+            { index: 7, name: "Outer Ring (10 Fans)", desc: "10 face-up 3-card fans in the outer orbit. Clear taller 3-card fans early to avoid trapping needed ranks." }
         ]
     }
 })

@@ -76,6 +76,11 @@ void Evaluator::registerBuiltins() {
     registerMemberFunction("math", "sqrt", [](const std::vector<Value>& args, const auto&) {
         return Value(std::sqrt(args.empty() ? 0.0 : args[0].asNumber()));
     });
+    registerMemberFunction("math", "atan2", [](const std::vector<Value>& args, const auto&) {
+        double y = args.size() > 0 ? args[0].asNumber() : 0.0;
+        double x = args.size() > 1 ? args[1].asNumber() : 1.0;
+        return Value(std::atan2(y, x));
+    });
     registerMemberFunction("math", "exp", [](const std::vector<Value>& args, const auto&) {
         return Value(std::exp(args.empty() ? 0.0 : args[0].asNumber()));
     });
@@ -91,6 +96,14 @@ void Evaluator::registerBuiltins() {
     });
     registerFunction("cos", [](const auto& args, const auto&) {
         return Value(std::cos(args.empty() ? 0.0 : args[0].asNumber()));
+    });
+    registerFunction("sqrt", [](const auto& args, const auto&) {
+        return Value(std::sqrt(args.empty() ? 0.0 : args[0].asNumber()));
+    });
+    registerFunction("atan2", [](const auto& args, const auto&) {
+        double y = args.size() > 0 ? args[0].asNumber() : 0.0;
+        double x = args.size() > 1 ? args[1].asNumber() : 1.0;
+        return Value(std::atan2(y, x));
     });
     registerFunction("tanh", [](const auto& args, const auto&) {
         return Value(std::tanh(args.empty() ? 0.0 : args[0].asNumber()));
