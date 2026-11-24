@@ -27,6 +27,8 @@ void GameBrowserDialog::open(const std::string& activeGameId) {
     activeGameId_ = activeGameId;
     searchQuery_ = "";
     selectedCategory_ = "ALL";
+    selectedMechanic_ = "ALL";
+    selectedVisibility_ = "ALL";
     scrollOffsetY_ = 0.0f;
     highlightedIndex_ = 0;
     lastClickedIndex_ = -1;
@@ -77,7 +79,8 @@ void GameBrowserDialog::handleMouseMove(float mouseX, float mouseY) {
 }
 
 void GameBrowserDialog::updateFilter() {
-    filteredGames_ = GameRegistry::instance().search(searchQuery_, selectedCategory_);
+    filteredGames_ = GameRegistry::instance().search(
+        searchQuery_, selectedCategory_, selectedMechanic_, selectedVisibility_);
     if (highlightedIndex_ >= static_cast<int>(filteredGames_.size())) {
         highlightedIndex_ = std::max(0, static_cast<int>(filteredGames_.size()) - 1);
     }
@@ -188,7 +191,7 @@ void GameBrowserDialog::render(
     const bool showCursor = searchFocused_ && (static_cast<int>(cursorBlinkTimer_ * 2.0f) % 2 == 0);
     if (searchQuery_.empty()) {
         // Place hint text at a fixed position so the cursor never pushes it
-        eatsbits::ui::glyph::drawVectorText(r, "Type to search by name or family (e.g. Golf, Spider, Yukon, FreeCell)...", searchBoxX + 15.0f, curY + 9.5f, 11.0f, 0.55f, 0.52f, 0.48f, 0.85f);
+        eatsbits::ui::glyph::drawVectorText(r, "Search by name, family, mechanic, visibility, or tag (e.g. open, clearing, radial)...", searchBoxX + 15.0f, curY + 9.5f, 11.0f, 0.55f, 0.52f, 0.48f, 0.85f);
         if (showCursor) {
             r.drawRect(searchBoxX + 11.0f, curY + 7.5f, 1.5f, 17.0f, pal.accentR, pal.accentG, pal.accentB, 0.95f);
         }
@@ -254,8 +257,77 @@ void GameBrowserDialog::render(
         chipX += chipW + 8.0f;
     }
 
+    // 5b. Secondary classification bar: Core Mechanic (left) + Visibility (right)
+    curY += chipH + 6.0f;
+    const float subChipH = 20.0f;
+    const float subChipPad = 9.0f;
+    {
+        struct FilterOpt { const char* label; const char* value; };
+        static constexpr FilterOpt kMechOpts[] = {
+            {"ALL", "ALL"}, {"BUILDING", "building"}, {"CLEARING", "clearing"},
+            {"PAIRING", "pairing"}, {"MATCHING", "matching"}, {"RPG", "rpg"}
+        };
+        static constexpr FilterOpt kVisOpts[] = {
+            {"ANY INFO", "ALL"}, {"OPEN", "open"}, {"HALF-OPEN", "half_open"}, {"CLOSED", "closed"}
+        };
+
+        // Compute right-aligned visibility group width first so mechanic chips don't collide
+        float visTotalW = 0.0f;
+        for (const auto& v : kVisOpts) {
+            visTotalW += eatsbits::ui::glyph::getVectorTextWidth(8.5f, v.label) + subChipPad * 2.0f + 5.0f;
+        }
+        const float visStartX = dialogX_ + dialogW_ - 20.0f - visTotalW + 5.0f;
+
+        float mx = dialogX_ + 20.0f;
+        for (const auto& m : kMechOpts) {
+            float tw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, m.label);
+            float cw = tw + subChipPad * 2.0f;
+            if (mx + cw + 10.0f > visStartX) break;
+            bool isSel = (selectedMechanic_ == m.value);
+            bool hov = (mouseX >= mx && mouseX <= mx + cw && mouseY >= curY && mouseY <= curY + subChipH);
+            r.drawRoundedRect(mx, curY, cw, subChipH, 10.0f,
+                              isSel ? (pal.accentR * 0.28f + pal.woodR0 * 0.72f) : (pal.woodR0 + (hov ? 0.07f : 0.02f)),
+                              isSel ? (pal.accentG * 0.28f + pal.woodG0 * 0.72f) : (pal.woodG0 + (hov ? 0.05f : 0.01f)),
+                              isSel ? (pal.accentB * 0.28f + pal.woodB0 * 0.72f) : (pal.woodB0 + (hov ? 0.04f : 0.01f)),
+                              0.92f, 3);
+            r.drawRoundedRectOutline(mx, curY, cw, subChipH, 10.0f,
+                                     isSel ? pal.accentR : pal.trimR,
+                                     isSel ? pal.accentG : pal.trimG,
+                                     isSel ? pal.accentB : pal.trimB,
+                                     isSel ? 0.95f : 0.35f, 1.0f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, m.label, mx + subChipPad, curY + 5.5f, 8.5f,
+                                                isSel ? pal.accentR : 0.80f,
+                                                isSel ? pal.accentG : 0.78f,
+                                                isSel ? pal.accentB : 0.74f, 0.95f);
+            mx += cw + 5.0f;
+        }
+
+        float vx = visStartX;
+        for (const auto& v : kVisOpts) {
+            float tw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, v.label);
+            float cw = tw + subChipPad * 2.0f;
+            bool isSel = (selectedVisibility_ == v.value);
+            bool hov = (mouseX >= vx && mouseX <= vx + cw && mouseY >= curY && mouseY <= curY + subChipH);
+            r.drawRoundedRect(vx, curY, cw, subChipH, 10.0f,
+                              isSel ? 0.12f : (pal.woodR0 + (hov ? 0.07f : 0.02f)),
+                              isSel ? 0.26f : (pal.woodG0 + (hov ? 0.05f : 0.01f)),
+                              isSel ? 0.28f : (pal.woodB0 + (hov ? 0.04f : 0.01f)),
+                              0.92f, 3);
+            r.drawRoundedRectOutline(vx, curY, cw, subChipH, 10.0f,
+                                     isSel ? 0.42f : pal.trimR,
+                                     isSel ? 0.86f : pal.trimG,
+                                     isSel ? 0.88f : pal.trimB,
+                                     isSel ? 0.95f : 0.35f, 1.0f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, v.label, vx + subChipPad, curY + 5.5f, 8.5f,
+                                                isSel ? 0.62f : 0.80f,
+                                                isSel ? 0.96f : 0.78f,
+                                                isSel ? 0.98f : 0.74f, 0.95f);
+            vx += cw + 5.0f;
+        }
+    }
+
     // 6. Cards area (Single Column Layout)
-    curY += chipH + 12.0f;
+    curY += subChipH + 10.0f;
     cardsAreaY_ = curY;
     const float footerH = 46.0f;
     cardsAreaH_ = (dialogY_ + dialogH_ - footerH) - cardsAreaY_;
@@ -373,6 +445,21 @@ void GameBrowserDialog::render(
             r.drawRoundedRect(badgeRightX, cy + 7.0f, famBadgeW, 16.0f, 8.0f, pal.woodR0 + 0.10f, pal.woodG0 + 0.08f, pal.woodB0 + 0.06f, 0.95f, 3);
             r.drawRoundedRectOutline(badgeRightX, cy + 7.0f, famBadgeW, 16.0f, 8.0f, pal.trimR, pal.trimG, pal.trimB, 0.60f, 1.0f, 3);
             eatsbits::ui::glyph::drawVectorText(r, g.family.c_str(), badgeRightX + 5.0f, cy + 3.5f + 7.0f, 8.5f, pal.accentR, pal.accentG, pal.accentB, 0.95f);
+
+            // 1a. Visibility micro-badge (highlights Open / Closed info profile)
+            if (!g.visibility.empty() && g.visibility != "half_open") {
+                const bool isOpen = (g.visibility == "open");
+                const char* visLabel = isOpen ? "OPEN" : "CLOSED";
+                float visTxtW = eatsbits::ui::glyph::getVectorTextWidth(8.0f, visLabel);
+                float visBadgeW = visTxtW + 10.0f;
+                badgeRightX -= (visBadgeW + 6.0f);
+                r.drawRoundedRect(badgeRightX, cy + 7.0f, visBadgeW, 16.0f, 8.0f,
+                                  isOpen ? 0.10f : 0.22f, isOpen ? 0.24f : 0.16f, isOpen ? 0.26f : 0.28f, 0.95f, 3);
+                r.drawRoundedRectOutline(badgeRightX, cy + 7.0f, visBadgeW, 16.0f, 8.0f,
+                                         isOpen ? 0.38f : 0.68f, isOpen ? 0.84f : 0.56f, isOpen ? 0.86f : 0.88f, 0.75f, 1.0f, 3);
+                eatsbits::ui::glyph::drawVectorText(r, visLabel, badgeRightX + 5.0f, cy + 10.5f, 8.0f,
+                                                    isOpen ? 0.60f : 0.84f, isOpen ? 0.96f : 0.76f, isOpen ? 0.98f : 0.98f, 1.0f);
+            }
 
             // 1b. Per-game custom setup badge
             if (SettingsManager::instance().hasGameProfile(g.id)) {
@@ -615,6 +702,58 @@ bool GameBrowserDialog::handleMouseButton(
                 return true;
             }
             chipX += chipW + 8.0f;
+        }
+
+        // 3b. Check secondary Mechanic & Visibility filter chips
+        {
+            const float subChipY = chipY + chipH + 6.0f;
+            const float subChipH = 20.0f;
+            const float subChipPad = 9.0f;
+            if (mouseY >= subChipY && mouseY <= subChipY + subChipH) {
+                struct FilterOpt { const char* label; const char* value; };
+                static constexpr FilterOpt kMechOpts[] = {
+                    {"ALL", "ALL"}, {"BUILDING", "building"}, {"CLEARING", "clearing"},
+                    {"PAIRING", "pairing"}, {"MATCHING", "matching"}, {"RPG", "rpg"}
+                };
+                static constexpr FilterOpt kVisOpts[] = {
+                    {"ANY INFO", "ALL"}, {"OPEN", "open"}, {"HALF-OPEN", "half_open"}, {"CLOSED", "closed"}
+                };
+
+                float visTotalW = 0.0f;
+                for (const auto& v : kVisOpts) {
+                    visTotalW += eatsbits::ui::glyph::getVectorTextWidth(8.5f, v.label) + subChipPad * 2.0f + 5.0f;
+                }
+                const float visStartX = dialogX_ + dialogW_ - 20.0f - visTotalW + 5.0f;
+
+                float mx = dialogX_ + 20.0f;
+                for (const auto& m : kMechOpts) {
+                    float cw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, m.label) + subChipPad * 2.0f;
+                    if (mx + cw + 10.0f > visStartX) break;
+                    if (mouseX >= mx && mouseX <= mx + cw) {
+                        selectedMechanic_ = m.value;
+                        scrollOffsetY_ = 0.0f;
+                        highlightedIndex_ = 0;
+                        updateFilter();
+                        foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                        return true;
+                    }
+                    mx += cw + 5.0f;
+                }
+
+                float vx = visStartX;
+                for (const auto& v : kVisOpts) {
+                    float cw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, v.label) + subChipPad * 2.0f;
+                    if (mouseX >= vx && mouseX <= vx + cw) {
+                        selectedVisibility_ = v.value;
+                        scrollOffsetY_ = 0.0f;
+                        highlightedIndex_ = 0;
+                        updateFilter();
+                        foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                        return true;
+                    }
+                    vx += cw + 5.0f;
+                }
+            }
         }
 
         // 4. Check footer controls ("Solvable" toggle + "► Play" button)

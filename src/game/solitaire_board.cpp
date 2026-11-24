@@ -2031,6 +2031,12 @@ void SolitaireBoard::finalizeScriptTurn(ScriptBoardContext& ctx, TurnTransaction
         txRedoStack_.clear();
     }
     ++moveCount_;
+    if (activeDef_.dynamicLayout && scriptEngine_.hasOnLayout()) {
+        auto layoutCtx = makeScriptContext(nullptr);
+        scriptEngine_.invokeOnLayout(layoutCtx, viewportW_, viewportH_);
+        cardW_ = layoutCtx.cardW;
+        cardH_ = layoutCtx.cardH;
+    }
     updateCardTargets();
 }
 
@@ -2317,7 +2323,7 @@ bool SolitaireBoard::canMoveCards(uint8_t fromPileIdx, size_t startCardIdx, uint
             if (dst.cards.empty()) return lead.rank == Rank::King;
             const Card& top = dst.cards.back();
             if (!top.faceUp) return false;
-            if (activeDef_.id == "russian_solitaire" || activeDef_.name.find("Russian") != std::string::npos) {
+            if (activeDef_.tableauBuild == "same_suit") {
                 return (lead.suit == top.suit) && (static_cast<int>(top.rank) == static_cast<int>(lead.rank) + 1);
             }
             return (isRedSuit(lead.suit) != isRedSuit(top.suit)) && (static_cast<int>(top.rank) == static_cast<int>(lead.rank) + 1);
@@ -2369,7 +2375,7 @@ bool SolitaireBoard::canMoveCards(uint8_t fromPileIdx, size_t startCardIdx, uint
         for (size_t i = startCardIdx; i + 1 < src.cards.size(); ++i) {
             const Card& upper = src.cards[i];
             const Card& lower = src.cards[i + 1];
-            if (activeDef_.id == "bakers_game" || activeDef_.name.find("Baker") != std::string::npos) {
+            if (activeDef_.tableauBuild == "same_suit") {
                 if (upper.suit != lower.suit || static_cast<int>(upper.rank) != static_cast<int>(lower.rank) + 1) {
                     return false;
                 }
@@ -2405,7 +2411,7 @@ bool SolitaireBoard::canMoveCards(uint8_t fromPileIdx, size_t startCardIdx, uint
         }
         const Card& top = dst.cards.back();
         if (!top.faceUp) return false;
-        if (activeDef_.id == "bakers_game" || activeDef_.name.find("Baker") != std::string::npos) {
+        if (activeDef_.tableauBuild == "same_suit") {
             return (lead.suit == top.suit) && (static_cast<int>(top.rank) == static_cast<int>(lead.rank) + 1);
         }
         return (isRedSuit(lead.suit) != isRedSuit(top.suit)) &&
@@ -2982,6 +2988,12 @@ bool SolitaireBoard::undo() {
         ScriptRuleEngine::revertTransaction(ctx, tx);
         txRedoStack_.push_back(std::move(tx));
         if (moveCount_ > 0) --moveCount_;
+        if (activeDef_.dynamicLayout && scriptEngine_.hasOnLayout()) {
+            auto layoutCtx = makeScriptContext(nullptr);
+            scriptEngine_.invokeOnLayout(layoutCtx, viewportW_, viewportH_);
+            cardW_ = layoutCtx.cardW;
+            cardH_ = layoutCtx.cardH;
+        }
         updateCardTargets();
         return true;
     }
@@ -3077,6 +3089,12 @@ bool SolitaireBoard::redo() {
         ScriptRuleEngine::applyTransaction(ctx, tx);
         txUndoStack_.push_back(std::move(tx));
         ++moveCount_;
+        if (activeDef_.dynamicLayout && scriptEngine_.hasOnLayout()) {
+            auto layoutCtx = makeScriptContext(nullptr);
+            scriptEngine_.invokeOnLayout(layoutCtx, viewportW_, viewportH_);
+            cardW_ = layoutCtx.cardW;
+            cardH_ = layoutCtx.cardH;
+        }
         updateCardTargets();
         return true;
     }

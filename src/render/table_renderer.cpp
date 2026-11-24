@@ -5967,6 +5967,18 @@ struct InteractiveContext {
         asyncManager.solvableDef = def;
         asyncManager.opType = AsyncOp::SolvableDeal;
         asyncManager.silent = silent;
+        // Ultra-low-win-rate games (e.g. Accordion): pick instantly from curated verified demo_seeds (0ms wait)
+        if (def.preferCuratedSolvable && !def.demoSeeds.empty()) {
+            size_t idx = static_cast<size_t>(startSeed) % def.demoSeeds.size();
+            if (def.demoSeeds.size() > 1 && def.demoSeeds[idx] == board.seed()) {
+                idx = (idx + 1) % def.demoSeeds.size();
+            }
+            asyncManager.solvableSeed = def.demoSeeds[idx];
+            asyncManager.solvableSeedReady = true;
+            asyncManager.isBusy.store(false);
+            return;
+        }
+
         asyncManager.dialogTitle = "SEEKING SOLVABLE DEAL";
         asyncManager.dialogInitialStatus = "Searching for guaranteed winnable seed...";
         asyncManager.dialogCancellable = true;

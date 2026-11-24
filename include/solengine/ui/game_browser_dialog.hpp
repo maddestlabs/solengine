@@ -78,6 +78,8 @@ private:
     std::string activeGameId_{""};
     std::string searchQuery_{""};
     std::string selectedCategory_{"ALL"};
+    std::string selectedMechanic_{"ALL"};
+    std::string selectedVisibility_{"ALL"};
     int highlightedIndex_{0};
     int lastClickedIndex_{-1};
     std::chrono::steady_clock::time_point lastClickTime_{};

@@ -129,4 +129,4 @@ SolEngine is published under a **Split-License Model**:
 
 * **Engine & Source Code:** Free Software released under the [GNU General Public License v3.0 (GPLv3)](file:///c:/git/solengine/LICENSE.md).
 * **Art, Vector Decks, Foley Synthesis & Lore:** **All Rights Reserved** (or authorized non-commercial use only) to prevent unauthorized commercial asset-flipping and commercial cloning.
-* **Trademarks:** *SolEngine*, is a proprietary trademarks of Maddest Labs.
+* **Trademarks:** *SolEngine*, *Solitaire Engine*, are proprietary trademarks of Maddest Labs.

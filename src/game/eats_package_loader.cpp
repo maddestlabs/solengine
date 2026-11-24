@@ -110,7 +110,22 @@ bool EatsPackageLoader::loadSource(const std::string& source,
             def.family = d.get("family").asString();
             def.category = d.get("category").asString();
             if (def.category.empty()) def.category = "CUSTOM";
+            def.mechanic = toLowerAscii(d.get("mechanic").asString());
+            def.visibility = toLowerAscii(d.get("visibility").asString());
+            if (d.hasKey("tags") && d.get("tags").isList()) {
+                for (const auto& t : d.get("tags").listVal) {
+                    std::string ts = toLowerAscii(t.asString());
+                    if (!ts.empty()) def.tags.push_back(std::move(ts));
+                }
+            }
             def.layout = d.get("layout", Value("columns")).asString();
+            def.wrapRanks = d.get("wrap_ranks", Value(false)).asBoolean(false);
+            def.kingDeadEnd = d.get("king_dead_end", Value(false)).asBoolean(false);
+            def.tableauBuild = toLowerAscii(d.get("tableau_build").asString());
+            def.emptyTableau = toLowerAscii(d.get("empty_tableau").asString());
+            def.moveGroup = toLowerAscii(d.get("move_group").asString());
+            def.foundationMode = toLowerAscii(d.get("foundation_mode").asString());
+            def.ribbonRule = toLowerAscii(d.get("ribbon_rule").asString());
             def.description = d.get("description").asString();
             def.decks = static_cast<uint8_t>(std::clamp(d.get("decks", Value(1)).asInt(1), 1, 8));
             def.deckCards = static_cast<uint16_t>(std::max(0, d.get("deck_cards", Value(0)).asInt(0)));
@@ -119,6 +134,8 @@ bool EatsPackageLoader::loadSource(const std::string& source,
             def.jokers = static_cast<uint8_t>(std::clamp(d.get("jokers", Value(0)).asInt(0), 0, 2));
             def.gridCols = static_cast<uint8_t>(std::clamp(d.get("grid_cols", Value(0)).asInt(0), 0, 20));
             def.supportsSolver = d.get("supports_solver", Value(true)).asBoolean(true);
+            def.preferCuratedSolvable = d.get("prefer_curated_solvable", Value(false)).asBoolean(false);
+            def.dynamicLayout = d.get("dynamic_layout", Value(false)).asBoolean(false);
             def.allowUndo = d.get("allow_undo", Value(true)).asBoolean(true);
             if (d.hasKey("exclude_ranks") && d.get("exclude_ranks").isList()) {
                 for (const auto& v : d.get("exclude_ranks").listVal) {

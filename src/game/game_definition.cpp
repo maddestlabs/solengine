@@ -415,9 +415,16 @@ void GameRegistry::registerBuiltins() {
     games_.push_back(lbl);
 }
 
+namespace {
+void inferClassificationDefaults(SolitaireGameDef& entry);
+}
+
 void GameRegistry::initialize(const std::string& gamesDir) {
     if (initialized_) return;
     registerBuiltins();
+    for (auto& g : games_) {
+        inferClassificationDefaults(g);
+    }
     scanDirectory(gamesDir);
     initialized_ = true;
 }
@@ -573,7 +580,25 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
 
         outDef.family = ev.hasVariable("family") ? ev.getVariable("family").asString() : outDef.name;
         outDef.category = ev.hasVariable("category") ? ev.getVariable("category").asString() : outDef.family;
+        if (ev.hasVariable("mechanic")) outDef.mechanic = toLowerStr(ev.getVariable("mechanic").asString());
+        if (ev.hasVariable("visibility")) outDef.visibility = toLowerStr(ev.getVariable("visibility").asString());
+        if (ev.hasVariable("tags")) {
+            auto tv = ev.getVariable("tags");
+            if (tv.isList()) {
+                for (const auto& t : tv.listVal) {
+                    std::string ts = toLowerStr(t.asString());
+                    if (!ts.empty()) outDef.tags.push_back(std::move(ts));
+                }
+            }
+        }
         outDef.layout = ev.hasVariable("layout") ? ev.getVariable("layout").asString() : "";
+        outDef.wrapRanks = ev.getVariable("wrap_ranks").asBoolean(false);
+        outDef.kingDeadEnd = ev.getVariable("king_dead_end").asBoolean(false);
+        if (ev.hasVariable("tableau_build")) outDef.tableauBuild = toLowerStr(ev.getVariable("tableau_build").asString());
+        if (ev.hasVariable("empty_tableau")) outDef.emptyTableau = toLowerStr(ev.getVariable("empty_tableau").asString());
+        if (ev.hasVariable("move_group")) outDef.moveGroup = toLowerStr(ev.getVariable("move_group").asString());
+        if (ev.hasVariable("foundation_mode")) outDef.foundationMode = toLowerStr(ev.getVariable("foundation_mode").asString());
+        if (ev.hasVariable("ribbon_rule")) outDef.ribbonRule = toLowerStr(ev.getVariable("ribbon_rule").asString());
         outDef.description = ev.hasVariable("description") ? ev.getVariable("description").asString() : "";
         outDef.decks = static_cast<uint8_t>(std::clamp(ev.getVariable("decks").asInt(1), 1, 4));
         outDef.excludeRedRoyals = ev.getVariable("exclude_red_royals").asBoolean(false);
@@ -583,6 +608,12 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
         outDef.gridCols = static_cast<uint8_t>(std::clamp(ev.getVariable("grid_cols").asInt(0), 0, 20));
         if (ev.hasVariable("supports_solver")) {
             outDef.supportsSolver = ev.getVariable("supports_solver").asBoolean(true);
+        }
+        if (ev.hasVariable("prefer_curated_solvable")) {
+            outDef.preferCuratedSolvable = ev.getVariable("prefer_curated_solvable").asBoolean(false);
+        }
+        if (ev.hasVariable("dynamic_layout")) {
+            outDef.dynamicLayout = ev.getVariable("dynamic_layout").asBoolean(false);
         }
         if (ev.hasVariable("allow_undo")) {
             outDef.allowUndo = ev.getVariable("allow_undo").asBoolean(true);
@@ -691,8 +722,101 @@ bool GameRegistry::loadGameFile(const std::string& filePath, SolitaireGameDef& o
     return true;
 }
 
+namespace {
+void inferClassificationDefaults(SolitaireGameDef& entry) {
+    auto lower = [](std::string s) {
+        for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    const std::string fam = lower(entry.family);
+    const std::string cat = lower(entry.category);
+    const std::string lay = lower(entry.layout);
+
+    if (entry.mechanic.empty()) {
+        if (lay == "pyramid" || fam == "pyramid" || cat == "adding") {
+            entry.mechanic = "pairing";
+        } else if (fam == "golf" || cat == "golf" || lay == "tripeaks" || lay == "radial_clock") {
+            entry.mechanic = "clearing";
+        } else if (fam == "memory" || cat == "matching") {
+            entry.mechanic = "matching";
+        } else if (fam == "scoundrel" || cat == "rpg") {
+            entry.mechanic = "rpg";
+        } else {
+            entry.mechanic = "building";
+        }
+    }
+    if (entry.visibility.empty()) {
+        if (entry.mechanic == "matching" || entry.mechanic == "rpg") {
+            entry.visibility = "closed";
+        } else if (entry.tableauAllFaceUp && entry.stockDealMode == "none") {
+            entry.visibility = "open";
+        } else {
+            entry.visibility = "half_open";
+        }
+    }
+    if (entry.mechanic == "clearing" && !entry.wrapRanks && !entry.kingDeadEnd) {
+        if (lay == "tripeaks" || lay == "radial_clock" || entry.id == "black_hole") {
+            entry.wrapRanks = true;
+        } else if (entry.id == "golf") {
+            entry.kingDeadEnd = true;
+        }
+    }
+    if (entry.foundationMode.empty()) {
+        if (fam == "spider" || entry.id == "spiderette" || entry.id == "scorpion" || entry.id == "wasp") {
+            entry.foundationMode = "completed_run";
+        } else if (lay == "canfield" || fam == "canfield") {
+            entry.foundationMode = "canfield_wrap";
+        } else {
+            entry.foundationMode = "suit_up";
+        }
+    }
+    if (entry.tableauBuild.empty()) {
+        if (entry.mechanic != "building") {
+            entry.tableauBuild = "none";
+        } else if (entry.foundationMode == "completed_run" && entry.id != "scorpion" && entry.id != "wasp") {
+            entry.tableauBuild = "any_suit";
+        } else if (entry.id == "bakers_dozen" || entry.id == "rainbow") {
+            entry.tableauBuild = "any_suit";
+        } else if (entry.id == "bakers_game" || entry.id == "eight_off" || entry.id == "seahaven_towers" ||
+                   entry.id == "la_belle_lucie" || entry.id == "the_fan" || entry.id == "russian_solitaire" ||
+                   fam == "fortythieves" || entry.id == "scorpion" || entry.id == "wasp") {
+            entry.tableauBuild = "same_suit";
+        } else {
+            entry.tableauBuild = "alt_color";
+        }
+    }
+    if (entry.emptyTableau.empty()) {
+        if (entry.mechanic != "building") {
+            entry.emptyTableau = "none";
+        } else if (entry.id == "bakers_dozen" || entry.id == "la_belle_lucie") {
+            entry.emptyTableau = "none";
+        } else if (entry.id == "freecell" || entry.id == "bakers_game" || fam == "fortythieves" ||
+                   entry.id == "wasp" || entry.id == "easthaven" ||
+                   (entry.foundationMode == "completed_run" && entry.id != "scorpion")) {
+            entry.emptyTableau = "any";
+        } else {
+            entry.emptyTableau = "king";
+        }
+    }
+    if (entry.moveGroup.empty()) {
+        if (entry.mechanic != "building") {
+            entry.moveGroup = "single";
+        } else if (entry.foundationMode == "canfield_wrap") {
+            entry.moveGroup = "whole_column";
+        } else if (fam == "yukon" || entry.id == "scorpion" || entry.id == "wasp") {
+            entry.moveGroup = "any_face_up";
+        } else if (fam == "fortythieves" || fam == "fan" || lay == "fan_grid" || entry.id == "bakers_dozen") {
+            entry.moveGroup = "single";
+        } else {
+            entry.moveGroup = "ordered";
+        }
+    }
+}
+} // namespace
+
 void GameRegistry::registerGame(const SolitaireGameDef& def) {
     SolitaireGameDef entry = def;
+    inferClassificationDefaults(entry);
     for (const auto& s : series_) {
         for (size_t idx = 0; idx < s.gameIds.size(); ++idx) {
             if (s.gameIds[idx] == entry.id) {
@@ -769,10 +893,17 @@ const SolitaireGameDef* GameRegistry::findByVariant(GameVariant v) const noexcep
     return games_.empty() ? nullptr : &games_[0];
 }
 
-std::vector<SolitaireGameDef> GameRegistry::search(const std::string& query, const std::string& category) const {
+std::vector<SolitaireGameDef> GameRegistry::search(
+    const std::string& query,
+    const std::string& category,
+    const std::string& mechanic,
+    const std::string& visibility
+) const {
     std::vector<SolitaireGameDef> results;
     std::string q = toLowerStr(query);
     std::string cat = toLowerStr(category);
+    std::string mech = toLowerStr(mechanic);
+    std::string vis = toLowerStr(visibility);
 
     for (const auto& g : games_) {
         if (cat == "favorites") {
@@ -789,14 +920,34 @@ std::vector<SolitaireGameDef> GameRegistry::search(const std::string& query, con
             std::string gSer = toLowerStr(g.seriesName);
             if (gCat != cat && gFam != cat && gSer != cat && toLowerStr(g.seriesId) != cat) continue;
         }
+        if (mech != "all" && !mech.empty() && toLowerStr(g.mechanic) != mech) {
+            continue;
+        }
+        if (vis != "all" && vis != "any" && !vis.empty() && toLowerStr(g.visibility) != vis) {
+            continue;
+        }
         if (q.empty()) {
             results.push_back(g);
             continue;
         }
-        if (toLowerStr(g.name).find(q) != std::string::npos ||
+        bool matched =
+            toLowerStr(g.name).find(q) != std::string::npos ||
             toLowerStr(g.family).find(q) != std::string::npos ||
             toLowerStr(g.seriesName).find(q) != std::string::npos ||
-            toLowerStr(g.description).find(q) != std::string::npos) {
+            toLowerStr(g.mechanic).find(q) != std::string::npos ||
+            toLowerStr(g.visibility).find(q) != std::string::npos ||
+            toLowerStr(g.description).find(q) != std::string::npos;
+        if (!matched) {
+            for (const auto& alt : g.alternateNames) {
+                if (toLowerStr(alt).find(q) != std::string::npos) { matched = true; break; }
+            }
+        }
+        if (!matched) {
+            for (const auto& tag : g.tags) {
+                if (toLowerStr(tag).find(q) != std::string::npos) { matched = true; break; }
+            }
+        }
+        if (matched) {
             results.push_back(g);
         }
     }

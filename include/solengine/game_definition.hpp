@@ -17,7 +17,18 @@ struct SolitaireGameDef {
     std::string name;            // Display title (e.g. "Klondike (Draw 1)", "Golf", "Yukon")
     std::string family;          // Classification family (e.g. "Klondike", "FreeCell", "Spider", "Golf", "Yukon", "FortyThieves")
     std::string category;        // Filter category for browser (e.g. "Popular", "Spider", "Golf", "FreeCell", "Adding")
+    std::string mechanic;        // Core mechanic: "building", "clearing", "pairing", "matching", "rpg"
+    std::string visibility;      // Information profile: "open", "half_open", "closed"
+    std::vector<std::string> tags; // Discovery tags (e.g. "radial", "pure_skill", "wrapping", "no_stock")
     std::string layout{"columns"}; // Layout archetype: "columns", "pyramid", "canfield", "fan_grid", "radial_clock", "tripeaks"
+    // Declarative rule traits (orthogonal solver/engine rules shared across variants)
+    bool wrapRanks{false};       // King <-> Ace rank wrapping (Black Hole, TriPeaks, Clockwork Dial, Canfield, etc.)
+    bool kingDeadEnd{false};     // Clearing games where Kings stop chains (Classic Golf)
+    std::string tableauBuild;    // "alt_color", "same_suit", "any_suit", "none"
+    std::string emptyTableau;    // "king", "any", "none"
+    std::string moveGroup;       // "single", "ordered", "any_face_up", "whole_column"
+    std::string foundationMode;  // "suit_up", "completed_run", "canfield_wrap"
+    std::string ribbonRule;      // Ribbon solver archetype: "compress_1_3" (Accordion), "sandwich_1_2" (Betrothal)
     std::string description;     // Rules summary / how to play
     uint8_t decks{1};            // Deck count (1, 2, etc.)
     uint16_t deckCards{0};       // Optional explicit card count (0 = default decks * 52)
@@ -27,6 +38,8 @@ struct SolitaireGameDef {
     uint8_t jokers{0};           // Number of jokers per deck (0-2)
     uint8_t gridCols{0};         // Optional column count for "grid" layout (0 = auto-fit)
     bool supportsSolver{true};   // False for hidden-information or non-deterministic games (e.g. Memory)
+    bool preferCuratedSolvable{false}; // True for ultra-low-win-rate games (e.g. Accordion): instant curated demo_seeds in Solvable mode
+    bool dynamicLayout{false};   // True to re-run on_layout() after every move/undo/redo as tableau expands/shrinks
     bool allowUndo{true};        // False to disable Undo/Redo for strict modes
     uint8_t tableaus{7};         // Tableau column/slot count
     uint8_t foundations{4};      // Foundation pile count
@@ -86,7 +99,12 @@ public:
     [[nodiscard]] const SolitaireGameDef* findByVariant(GameVariant v) const noexcept;
     [[nodiscard]] const GameSeriesDef* findSeriesById(const std::string& id) const noexcept;
 
-    [[nodiscard]] std::vector<SolitaireGameDef> search(const std::string& query, const std::string& category = "ALL") const;
+    [[nodiscard]] std::vector<SolitaireGameDef> search(
+        const std::string& query,
+        const std::string& category = "ALL",
+        const std::string& mechanic = "ALL",
+        const std::string& visibility = "ALL"
+    ) const;
     [[nodiscard]] std::vector<std::string> categories() const;
 
 private:
