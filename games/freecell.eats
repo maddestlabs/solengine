@@ -1,75 +1,81 @@
 # =============================================================================
-# SolEngine Game Variant: FreeCell (.eats)
+# SolEngine Game Family: FreeCell (.eats)
+# Consolidated variants:
+#   - FreeCell
+#   - Baker's Game
+#   - Eight Off
+#   - Seahaven Towers
 # =============================================================================
-# Open tableau game of pure skill with 4 reserve FreeCells.
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(3, "Medium", 1, "Pure Skill", 4, "Strategic")
-doc_aliases(["Baker's Alternating", "Eight-Column FreeCell"])
-doc_goal("Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain.")
-doc_zone(0, "FreeCells (1-4)", "4 temporary single-card holding cells.", [], ["Each cell holds any 1 card at a time."])
-doc_zone(4, "Foundations (1-4)", "Build up by same suit from Ace to King.", ["AS", "2S", "3S"])
-doc_zone(8, "Tableau Columns (1-8)", "Build down in alternating colors; any card may fill an empty column.", ["KH", "QS", "JD"])
+# --- Shared Parameterized FreeCell Rules ---
 
-def eval_heuristic():
+def fc_eval(fc_end, f_start, f_end, t_start, t_end, same_suit, fc_wt, empty_wt, seq_wt):
     score = 0
-    z = 4
-    while z <= 7:
+    z = f_start
+    while z <= f_end:
         score = score + zone_size(z) * 150
         z = z + 1
     z = 0
-    while z <= 3:
+    while z <= fc_end:
         if zone_size(z) == 0:
-            score = score + 25
+            score = score + fc_wt
         z = z + 1
-    z = 8
-    while z <= 15:
+    z = t_start
+    while z <= t_end:
         sz = zone_size(z)
         if sz == 0:
-            score = score + 30
+            score = score + empty_wt
         else:
             i = 0
             while i < sz - 1:
-                if card_is_red(z, i) != card_is_red(z, i + 1) and card_rank(z, i) == card_rank(z, i + 1) + 1:
-                    score = score + 20
+                match = False
+                if same_suit:
+                    match = card_suit(z, i) == card_suit(z, i + 1)
+                else:
+                    match = card_is_red(z, i) != card_is_red(z, i + 1)
+                if match and card_rank(z, i) == card_rank(z, i + 1) + 1:
+                    score = score + seq_wt
                 i = i + 1
         z = z + 1
     return score
 
-def can_pick(z, i):
-    sz = zone_size(z)
-    if sz == 0 or i < 0 or i >= sz:
-        return False
-    if z >= 0 and z <= 3:
-        return i == sz - 1
-    if z >= 8 and z <= 15:
-        if i == sz - 1:
-            return True
-        # Allow ordered alternating sequence if enough empty freecells/columns
-        k = i
-        while k < sz - 1:
-            if card_is_red(z, k) == card_is_red(z, k + 1) or card_rank(z, k) != card_rank(z, k + 1) + 1:
-                return False
-            k = k + 1
-        return (sz - i) <= max_supermove(-1)
-    return False
-
-def max_supermove(exclude_z):
+def fc_max_supermove(fc_end, t_start, t_end, exclude_z):
     empty_fc = 0
     f = 0
-    while f <= 3:
+    while f <= fc_end:
         if zone_size(f) == 0:
             empty_fc = empty_fc + 1
         f = f + 1
     mult = 1
-    t = 8
-    while t <= 15:
+    t = t_start
+    while t <= t_end:
         if t != exclude_z and zone_size(t) == 0:
             mult = mult * 2
         t = t + 1
     return (empty_fc + 1) * mult
 
-def can_drop(from_z, i, to_z):
+def fc_can_pick(fc_end, t_start, t_end, same_suit, z, i):
+    sz = zone_size(z)
+    if sz == 0 or i < 0 or i >= sz:
+        return False
+    if z >= 0 and z <= fc_end:
+        return i == sz - 1
+    if z >= t_start and z <= t_end:
+        if i == sz - 1:
+            return True
+        k = i
+        while k < sz - 1:
+            if same_suit:
+                if card_suit(z, k) != card_suit(z, k + 1) or card_rank(z, k) != card_rank(z, k + 1) + 1:
+                    return False
+            else:
+                if card_is_red(z, k) == card_is_red(z, k + 1) or card_rank(z, k) != card_rank(z, k + 1) + 1:
+                    return False
+            k = k + 1
+        return (sz - i) <= fc_max_supermove(fc_end, t_start, t_end, -1)
+    return False
+
+def fc_can_drop(fc_end, f_start, f_end, t_start, t_end, same_suit, king_only, from_z, i, to_z):
     if from_z == to_z or zone_size(from_z) == 0:
         return False
     sz = zone_size(from_z)
@@ -77,10 +83,10 @@ def can_drop(from_z, i, to_z):
     s = card_suit(from_z, i)
     red = card_is_red(from_z, i)
 
-    if to_z >= 0 and to_z <= 3:
+    if to_z >= 0 and to_z <= fc_end:
         return i == sz - 1 and zone_size(to_z) == 0
 
-    if to_z >= 4 and to_z <= 7:
+    if to_z >= f_start and to_z <= f_end:
         if i != sz - 1:
             return False
         fsz = zone_size(to_z)
@@ -88,28 +94,93 @@ def can_drop(from_z, i, to_z):
             return r == 1
         return card_suit(to_z, fsz - 1) == s and r == card_rank(to_z, fsz - 1) + 1
 
-    if to_z >= 8 and to_z <= 15:
-        if (sz - i) > max_supermove(to_z):
+    if to_z >= t_start and to_z <= t_end:
+        if (sz - i) > fc_max_supermove(fc_end, t_start, t_end, to_z):
             return False
         tsz = zone_size(to_z)
         if tsz == 0:
+            if king_only:
+                return r == 13
             return True
+        if same_suit:
+            return (card_suit(to_z, tsz - 1) == s) and (card_rank(to_z, tsz - 1) == r + 1)
         return (card_is_red(to_z, tsz - 1) != red) and (card_rank(to_z, tsz - 1) == r + 1)
 
     return False
 
-def get_status():
-    total = zone_size(4) + zone_size(5) + zone_size(6) + zone_size(7)
+def fc_status(f_start, f_end):
+    total = 0
+    z = f_start
+    while z <= f_end:
+        total = total + zone_size(z)
+        z = z + 1
     if total == 52:
         return "victory"
     return "playing"
+
+# --- FreeCell Bindings (4 cells: 0..3, 4 founds: 4..7, 8 tabs: 8..15, alt color, any empty) ---
+def freecell_eval():
+    return fc_eval(3, 4, 7, 8, 15, False, 25, 30, 20)
+
+def freecell_pick(z, i):
+    return fc_can_pick(3, 8, 15, False, z, i)
+
+def freecell_drop(fz, i, tz):
+    return fc_can_drop(3, 4, 7, 8, 15, False, False, fz, i, tz)
+
+def fc4_status():
+    return fc_status(4, 7)
+
+# --- Baker's Game Bindings (4 cells: 0..3, 4 founds: 4..7, 8 tabs: 8..15, same suit, any empty) ---
+def bakers_eval():
+    return fc_eval(3, 4, 7, 8, 15, True, 20, 25, 25)
+
+def bakers_pick(z, i):
+    return fc_can_pick(3, 8, 15, True, z, i)
+
+def bakers_drop(fz, i, tz):
+    return fc_can_drop(3, 4, 7, 8, 15, True, False, fz, i, tz)
+
+# --- Eight Off Bindings (8 cells: 0..7, 4 founds: 8..11, 8 tabs: 12..19, same suit, king empty) ---
+def eight_off_eval():
+    return fc_eval(7, 8, 11, 12, 19, True, 20, 20, 25)
+
+def eight_off_pick(z, i):
+    return fc_can_pick(7, 12, 19, True, z, i)
+
+def eight_off_drop(fz, i, tz):
+    return fc_can_drop(7, 8, 11, 12, 19, True, True, fz, i, tz)
+
+def eight_off_status():
+    return fc_status(8, 11)
+
+# --- Seahaven Towers Bindings (4 cells: 0..3, 4 founds: 4..7, 10 tabs: 8..17, same suit, king empty) ---
+def seahaven_eval():
+    return fc_eval(3, 4, 7, 8, 17, True, 20, 20, 25)
+
+def seahaven_pick(z, i):
+    return fc_can_pick(3, 8, 17, True, z, i)
+
+def seahaven_drop(fz, i, tz):
+    return fc_can_drop(3, 4, 7, 8, 17, True, True, fz, i, tz)
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
 
 sol.define_game({
     id: "freecell",
     name: "FreeCell",
     family: "FreeCell",
     category: "FREECELL",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["classic", "open", "pure_skill", "cells", "single_deck"],
     layout: "columns",
+    tableau_build: "alt_color",
+    empty_tableau: "any",
+    move_group: "ordered",
+    foundation_mode: "suit_up",
     description: "Open tableau game of skill. 4 reserve free cells; nearly every deal is winnable.",
     decks: 1,
     tableaus: 8,
@@ -123,8 +194,144 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 2,
     demo_seeds: [2, 17, 18, 21, 25, 29, 41, 45],
-    eval_heuristic: eval_heuristic,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    get_status: get_status
+    eval_heuristic: freecell_eval,
+    can_pick: freecell_pick,
+    can_drop: freecell_drop,
+    get_status: fc4_status,
+    doc: {
+        meta: [3, "Medium", 1, "Pure Skill", 4, "Strategic"],
+        aliases: ["Baker's Alternating", "Eight-Column FreeCell"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "FreeCells (1-4)", desc: "4 temporary single-card holding cells.", bullets: ["Each cell holds any 1 card at a time."] },
+            { index: 4, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 8, name: "Tableau Columns (1-8)", desc: "Build down in alternating colors; any card may fill an empty column.", examples: ["KH", "QS", "JD"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "bakers_game",
+    name: "Baker's Game",
+    family: "FreeCell",
+    category: "FREECELL",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["open", "pure_skill", "same_suit", "cells", "single_deck"],
+    layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "any",
+    move_group: "ordered",
+    foundation_mode: "suit_up",
+    description: "The historical predecessor to FreeCell. Strict same-suit tableau building; pure intellect.",
+    decks: 1,
+    tableaus: 8,
+    foundations: 4,
+    freecells: 4,
+    tableau_deal_counts: [7, 7, 7, 7, 6, 6, 6, 6],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 5,
+    demo_seeds: [5, 21, 23, 29, 30, 33, 37, 38],
+    eval_heuristic: bakers_eval,
+    can_pick: bakers_pick,
+    can_drop: bakers_drop,
+    get_status: fc4_status,
+    doc: {
+        meta: [3, "Medium", 1, "Pure Skill", 5, "Master"],
+        aliases: ["Baker's FreeCell", "Same-Suit FreeCell"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "FreeCells (1-4)", desc: "4 temporary single-card holding cells." },
+            { index: 4, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 8, name: "Tableau Columns (1-8)", desc: "Build down in the SAME SUIT; any card may fill an empty column.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "eight_off",
+    name: "Eight Off",
+    family: "FreeCell",
+    category: "FREECELL",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["open", "pure_skill", "same_suit", "cells", "single_deck"],
+    layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "king",
+    move_group: "ordered",
+    foundation_mode: "suit_up",
+    description: "8 FreeCells (4 pre-filled). Build down in the SAME SUIT; only Kings may fill empty columns.",
+    decks: 1,
+    tableaus: 8,
+    foundations: 4,
+    freecells: 8,
+    tableau_deal_counts: [6, 6, 6, 6, 6, 6, 6, 6],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 2,
+    demo_seeds: [2, 5, 13, 17, 21, 25, 37, 45],
+    eval_heuristic: eight_off_eval,
+    can_pick: eight_off_pick,
+    can_drop: eight_off_drop,
+    get_status: eight_off_status,
+    doc: {
+        meta: [3, "Medium", 1, "Pure Skill", 4, "Tactical"],
+        aliases: ["Eight Cells"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "FreeCells (1-8)", desc: "8 temporary single-card cells; 4 start occupied.", bullets: ["Each cell holds 1 card."] },
+            { index: 8, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 12, name: "Tableau Columns (1-8)", desc: "Build down in the SAME SUIT; only Kings fill empty columns.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "seahaven_towers",
+    name: "Seahaven Towers",
+    family: "FreeCell",
+    category: "FREECELL",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["open", "pure_skill", "same_suit", "cells", "single_deck"],
+    layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "king",
+    move_group: "ordered",
+    foundation_mode: "suit_up",
+    description: "10 columns of 5 cards, 4 FreeCells (2 pre-filled). Build down in suit; Kings only to empty.",
+    decks: 1,
+    tableaus: 10,
+    foundations: 4,
+    freecells: 4,
+    tableau_deal_counts: [5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 2,
+    demo_seeds: [2, 9, 13, 17, 21, 37, 41, 45],
+    eval_heuristic: seahaven_eval,
+    can_pick: seahaven_pick,
+    can_drop: seahaven_drop,
+    get_status: fc4_status,
+    doc: {
+        meta: [3, "Medium", 1, "Pure Skill", 4, "Strategic"],
+        aliases: ["Seahaven"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "FreeCells (1-4)", desc: "4 temporary single-card cells; 2 start occupied.", bullets: ["Each cell holds 1 card."] },
+            { index: 4, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 8, name: "Tableau Columns (1-10)", desc: "Build down in the SAME SUIT; only Kings fill empty columns.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
 })

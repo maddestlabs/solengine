@@ -1,31 +1,21 @@
 # =============================================================================
-# SolEngine Game Variant: Pyramid Solitaire (.eats)
+# SolEngine Game Family: Pyramid (.eats)
+# Consolidated variants:
+#   - Pyramid
+#   - Giza
 # =============================================================================
-# Ancient Egypt-inspired adding solitaire. Pair uncovered cards totaling 13.
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(2, "Quick", 4, "High Luck", 2, "Casual")
-doc_aliases(["Tut's Tomb", "Solitaire 13"])
-doc_goal("Clear all 28 cards from the Pyramid by pairing ranks totaling 13.", "No pairs remain and redeals are exhausted.")
-doc_zone(0, "Stock", "24 remaining cards. Click to turn 1 card into the Waste (2 redeals allowed).")
-doc_zone(1, "Waste", "Top card may pair with uncovered Pyramid cards or Stock.")
-doc_zone(2, "Foundation", "Cleared Kings and paired cards totaling 13.", ["KS", "7H", "6C"])
-doc_zone(3, "Pyramid (28 Cards)", "Cards are playable when neither of the two cards below them remains.", ["10D", "3S"])
+# --- Shared Parameterized Pyramid (Pair-to-13) Rules ---
 
-def eval_heuristic():
-    rem = 0
-    z = 3
-    while z <= 30:
-        if zone_size(z) > 0:
-            rem = rem + 1
-        z = z + 1
-    return (28 - rem) * 120 - get_stat("REDEALS", 0) * 20
-
-def is_uncovered(z):
+def pyr_is_uncovered(is_giza, z):
     if zone_size(z) == 0:
         return False
-    if z == 0 or z == 1:
-        return True
+    if is_giza:
+        if z >= 31 and z <= 38:
+            return True
+    else:
+        if z == 0 or z == 1:
+            return True
     if z < 3 or z > 30:
         return False
     idx = z - 3
@@ -40,44 +30,77 @@ def is_uncovered(z):
     lc = 3 + start + row + 1 + col
     return zone_size(lc) == 0 and zone_size(lc + 1) == 0
 
-def on_deal():
-    set_stat("REDEALS", 0)
-    return True
+def pyr_remaining():
+    rem = 0
+    z = 3
+    while z <= 30:
+        if zone_size(z) > 0:
+            rem = rem + 1
+        z = z + 1
+    return rem
 
-def can_pick(z, i):
+def pyr_can_pick(is_giza, z, i):
     sz = zone_size(z)
     if sz == 0 or i != sz - 1:
         return False
-    return is_uncovered(z)
+    return pyr_is_uncovered(is_giza, z)
 
-def can_drop(from_z, i, to_z):
-    if to_z != 2 or not can_pick(from_z, i):
+def pyr_can_drop(is_giza, from_z, i, to_z):
+    if to_z != 2 or not pyr_can_pick(is_giza, from_z, i):
         return False
     return card_rank(from_z, i) == 13
 
-def can_target(fz, fi, tz, ti):
+def pyr_can_target(is_giza, fz, fi, tz, ti):
     if fz == tz:
         return False
-    if not can_pick(fz, fi) or not can_pick(tz, ti):
+    if not pyr_can_pick(is_giza, fz, fi) or not pyr_can_pick(is_giza, tz, ti):
         return False
     return card_rank(fz, fi) + card_rank(tz, ti) == 13
 
-def on_target(fz, fi, tz, ti):
-    if not can_target(fz, fi, tz, ti):
+def pyr_on_target(is_giza, fz, fi, tz, ti):
+    if not pyr_can_target(is_giza, fz, fi, tz, ti):
         return False
     move_cards(fz, fi, 2)
     move_cards(tz, ti, 2)
     add_score(20)
     return True
 
-def on_card_click(z, i):
-    if can_pick(z, i) and card_rank(z, i) == 13:
+def pyr_on_click(is_giza, z, i):
+    if pyr_can_pick(is_giza, z, i) and card_rank(z, i) == 13:
         move_cards(z, i, 2)
         add_score(10)
         return True
     return False
 
-def on_stock_click():
+def pyr_status():
+    if pyr_remaining() == 0:
+        return "victory"
+    return "playing"
+
+# --- Pyramid Bindings ---
+def pyramid_eval():
+    return (28 - pyr_remaining()) * 120 - get_stat("REDEALS", 0) * 20
+
+def pyramid_deal():
+    set_stat("REDEALS", 0)
+    return True
+
+def pyramid_pick(z, i):
+    return pyr_can_pick(False, z, i)
+
+def pyramid_drop(fz, i, tz):
+    return pyr_can_drop(False, fz, i, tz)
+
+def pyramid_can_target(fz, fi, tz, ti):
+    return pyr_can_target(False, fz, fi, tz, ti)
+
+def pyramid_on_target(fz, fi, tz, ti):
+    return pyr_on_target(False, fz, fi, tz, ti)
+
+def pyramid_click(z, i):
+    return pyr_on_click(False, z, i)
+
+def pyramid_stock():
     if zone_size(0) > 0:
         top = zone_size(0) - 1
         move_cards(0, top, 1)
@@ -92,19 +115,37 @@ def on_stock_click():
         return True
     return False
 
-def get_status():
-    z = 3
-    while z <= 30:
-        if zone_size(z) > 0:
-            return "playing"
-        z = z + 1
-    return "victory"
+# --- Giza Bindings ---
+def giza_eval():
+    return (28 - pyr_remaining()) * 120
+
+def giza_pick(z, i):
+    return pyr_can_pick(True, z, i)
+
+def giza_drop(fz, i, tz):
+    return pyr_can_drop(True, fz, i, tz)
+
+def giza_can_target(fz, fi, tz, ti):
+    return pyr_can_target(True, fz, fi, tz, ti)
+
+def giza_on_target(fz, fi, tz, ti):
+    return pyr_on_target(True, fz, fi, tz, ti)
+
+def giza_click(z, i):
+    return pyr_on_click(True, z, i)
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
 
 sol.define_game({
     id: "pyramid",
     name: "Pyramid",
     family: "Pyramid",
     category: "ADDING",
+    mechanic: "clearing",
+    visibility: "half_open",
+    tags: ["classic", "adding", "pairing", "pyramid", "single_deck"],
     layout: "pyramid",
     description: "Pair uncovered pyramid cards totaling 13 (Ace=1, J=11, Q=12, K=13 alone). 2 redeals.",
     decks: 1,
@@ -119,13 +160,65 @@ sol.define_game({
     max_redeals: 2,
     demo_seed: 1,
     demo_seeds: [1, 2, 21, 29, 30, 33, 34, 2026],
-    eval_heuristic: eval_heuristic,
-    on_deal: on_deal,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    can_target: can_target,
-    on_target: on_target,
-    on_card_click: on_card_click,
-    on_stock_click: on_stock_click,
-    get_status: get_status
+    eval_heuristic: pyramid_eval,
+    on_deal: pyramid_deal,
+    can_pick: pyramid_pick,
+    can_drop: pyramid_drop,
+    can_target: pyramid_can_target,
+    on_target: pyramid_on_target,
+    on_card_click: pyramid_click,
+    on_stock_click: pyramid_stock,
+    get_status: pyr_status,
+    doc: {
+        meta: [2, "Quick", 4, "High Luck", 2, "Casual"],
+        aliases: ["Tut's Tomb", "Solitaire 13"],
+        goal: ["Clear all 28 cards from the Pyramid by pairing ranks totaling 13.", "No pairs remain and redeals are exhausted."],
+        zones: [
+            { index: 0, name: "Stock", desc: "24 remaining cards. Click to turn 1 card into the Waste (2 redeals allowed)." },
+            { index: 1, name: "Waste", desc: "Top card may pair with uncovered Pyramid cards or Stock." },
+            { index: 2, name: "Foundation", desc: "Cleared Kings and paired cards totaling 13.", examples: ["KS", "7H", "6C"] },
+            { index: 3, name: "Pyramid (28 Cards)", desc: "Cards are playable when neither of the two cards below them remains.", examples: ["10D", "3S"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "giza",
+    name: "Giza",
+    family: "Pyramid",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "open",
+    tags: ["open", "adding", "pairing", "pyramid", "no_stock", "single_deck"],
+    layout: "pyramid",
+    description: "Open Pyramid variant. All 24 reserve cards are visible in 8 columns of 3; pair uncovered cards totaling 13.",
+    decks: 1,
+    tableaus: 28,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 10,
+    demo_seeds: [10, 14, 17, 18, 29, 42, 45, 2026],
+    eval_heuristic: giza_eval,
+    can_pick: giza_pick,
+    can_drop: giza_drop,
+    can_target: giza_can_target,
+    on_target: giza_on_target,
+    on_card_click: giza_click,
+    get_status: pyr_status,
+    doc: {
+        meta: [2, "Quick", 2, "Low Luck", 4, "Strategic"],
+        aliases: ["Open Pyramid"],
+        goal: ["Clear all 28 cards from the Pyramid by pairing ranks totaling 13.", "No pairs remain."],
+        zones: [
+            { index: 2, name: "Foundation", desc: "Cleared Kings and paired cards totaling 13.", examples: ["KS", "8H", "5D"] },
+            { index: 3, name: "Pyramid (28 Cards)", desc: "Cards are playable when neither of the two cards below them remains." },
+            { index: 31, name: "Reserve Columns (1-8)", desc: "8 open columns of 3 cards; top card of each column is playable." }
+        ]
+    }
 })

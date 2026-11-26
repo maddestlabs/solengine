@@ -68,6 +68,9 @@ struct Chunk {
     std::vector<std::string> localNames;
 
     size_t addConstant(double val) {
+        for (size_t i = 0; i < constants.size(); ++i) {
+            if (constants[i] == val) return i;
+        }
         constants.push_back(val);
         return constants.size() - 1;
     }

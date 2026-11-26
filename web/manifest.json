@@ -2,7 +2,7 @@
   "id": "solengine-pwa",
   "name": "Solitaire Engine",
   "short_name": "SolEngine",
-  "description": "High-fidelity procedural Solitaire board game built in C++20 and WebGPU.",
+  "description": "Procedural Solitaire Sandbox built in C++20 and WebGPU.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

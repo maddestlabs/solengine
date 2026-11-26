@@ -55,12 +55,21 @@ inline double evalSuitSdf(double x, double y, int suitInt) noexcept {
         // Diamonds (0=spades, 1=hearts, 2=diamonds, 3=clubs): slightly concave Star-of-Bethlehem diamond
         return (ax * 1.15 + std::abs(y) * 0.92 - 0.55) * 0.75;
     } else if (suitInt == 1) {
-        // Hearts: classic upper dual lobes + pointed lower tip
-        double hy = -y + 0.12; // flip so +hy is up
-        if (hy + ax > 0.52) {
-            return std::hypot(ax - 0.26, hy - 0.26) - 0.30;
+        // Hearts: C1-smooth analytical heart SDF (tip at bottom +y, lobes at top -y)
+        constexpr double sc = 1.28;
+        double px = ax * sc;
+        double py = (0.44 - y) * sc;
+        double d = 0.0;
+        if (py + px > 1.0) {
+            d = std::hypot(px - 0.25, py - 0.75) - 0.3535533905932738;
+        } else {
+            double d1 = std::hypot(px, py - 1.0);
+            double t = 0.5 * std::max(px + py, 0.0);
+            double d2 = std::hypot(px - t, py - t);
+            double s = (px - py >= 0.0) ? 1.0 : -1.0;
+            d = std::min(d1, d2) * s;
         }
-        return ((ax - 0.52 * (hy + 0.48)) * 0.85);
+        return d / sc;
     } else if (suitInt == 3) {
         // Clubs: three trefoil lobes + flared stem
         double dTop = std::hypot(x, y + 0.25) - 0.24;
@@ -68,15 +77,26 @@ inline double evalSuitSdf(double x, double y, int suitInt) noexcept {
         double dStem = std::max(ax - 0.07 - std::max(0.0, y - 0.05) * 0.22, std::abs(y - 0.26) - 0.22);
         return std::min({dTop, dSides, dStem});
     } else {
-        // Spades (default 0): inverted heart body + flared stem
-        double sy = y + 0.10; // inverted
+        // Spades (default 0): C1-smooth inverted heart body + curved flared stem
+        constexpr double sc = 1.42;
+        double px = ax * sc;
+        double py = (y + 0.48) * sc;
         double body = 0.0;
-        if (sy + ax > 0.48) {
-            body = std::hypot(ax - 0.24, sy - 0.24) - 0.27;
+        if (py + px > 1.0) {
+            body = std::hypot(px - 0.25, py - 0.75) - 0.3535533905932738;
         } else {
-            body = (ax - 0.52 * (sy + 0.46)) * 0.85;
+            double d1 = std::hypot(px, py - 1.0);
+            double t = 0.5 * std::max(px + py, 0.0);
+            double d2 = std::hypot(px - t, py - t);
+            double s = (px - py >= 0.0) ? 1.0 : -1.0;
+            body = std::min(d1, d2) * s;
         }
-        double dStem = std::max(ax - 0.07 - std::max(0.0, y - 0.08) * 0.24, std::abs(y - 0.28) - 0.20);
+        body /= sc;
+
+        // Curved trumpet-flared stem from cleft (y = 0.16) to foot (y = 0.48)
+        double st = std::clamp((y - 0.16) / 0.32, 0.0, 1.0);
+        double halfW = 0.042 + 0.135 * st * st;
+        double dStem = std::max(ax - halfW, std::abs(y - 0.32) - 0.16);
         return std::min(body, dStem);
     }
 }
@@ -935,7 +955,7 @@ void VM::executePixelShader(const ShaderPixelContext& ctx,
     uint32_t rng = h1 ^ (h1 >> 16);
 
     // Hard instruction budget prevents any infinite loop from stalling a worker thread
-    constexpr size_t kMaxPixelOps = 1024;
+    constexpr size_t kMaxPixelOps = 4096;
     size_t ops = 0;
 
     while (ip < codeSize && ops++ < kMaxPixelOps) {

@@ -1,0 +1,444 @@
+# =============================================================================
+# SolEngine Game Family: Simple Pairs (.eats)
+# Consolidated variants:
+#   - Simple Pairs (3x3 Equal-Rank Grid with Auto-Refill)
+#   - Monte Carlo (5x5 Adjacent Equal-Rank Grid with Compact & Refill)
+#   - Nestor (8 Open Columns of 6 + 4-Card Reserve)
+#   - Doublets (12 Face-Down Piles of 4 + 4-Card Auto-Refill Stock)
+# =============================================================================
+
+# --- Shared Equal-Rank Pairing Helpers ---
+
+def pair_refill(max_z, stock_z):
+    z = 1
+    while z <= max_z and zone_size(stock_z) > 0:
+        if zone_size(z) == 0:
+            top = zone_size(stock_z) - 1
+            move_cards(stock_z, top, z)
+            flip_card(z, 0, True)
+        z = z + 1
+    return True
+
+def pair_flip_tops(start_z, end_z):
+    z = start_z
+    while z <= end_z:
+        sz = zone_size(z)
+        if sz > 0 and not card_face_up(z, sz - 1):
+            flip_card(z, sz - 1, True)
+        z = z + 1
+    return True
+
+def pair_status_z(found_z):
+    if zone_size(found_z) >= 52:
+        return "victory"
+    return "playing"
+
+def pair_status_0():
+    return pair_status_z(0)
+
+def pair_no_drop(fz, i, tz):
+    return False
+
+# =============================================================================
+# 1. Simple Pairs (3x3 Grid: Zone 0 = Discard, Zones 1..9 = Grid, Zone 10 = Stock)
+# =============================================================================
+
+def sp_eval():
+    return zone_size(0) * 120
+
+def sp_pick(z, i):
+    if z < 1 or z > 9 or zone_size(z) == 0:
+        return False
+    return i == zone_size(z) - 1
+
+def sp_can_target(fz, fi, tz, ti):
+    if fz == tz or not sp_pick(fz, fi) or not sp_pick(tz, ti):
+        return False
+    return card_rank(fz, fi) == card_rank(tz, ti)
+
+def sp_on_target(fz, fi, tz, ti):
+    if not sp_can_target(fz, fi, tz, ti):
+        return False
+    move_cards(fz, fi, 0)
+    move_cards(tz, ti, 0)
+    pair_refill(9, 10)
+    add_score(20)
+    return True
+
+def sp_turn_end():
+    return pair_refill(9, 10)
+
+# =============================================================================
+# 2. Monte Carlo (5x5 Grid: Zone 0 = Discard, Zones 1..25 = Grid, Zone 26 = Stock)
+# =============================================================================
+
+def mc_eval():
+    pairs = 0
+    z = 1
+    while z <= 25:
+        if zone_size(z) > 0:
+            r = card_rank(z, 0)
+            c = (z - 1) % 5
+            if c < 4 and zone_size(z + 1) > 0 and card_rank(z + 1, 0) == r:
+                pairs = pairs + 1
+            if z <= 20:
+                if zone_size(z + 5) > 0 and card_rank(z + 5, 0) == r:
+                    pairs = pairs + 1
+                if c < 4 and zone_size(z + 6) > 0 and card_rank(z + 6, 0) == r:
+                    pairs = pairs + 1
+                if c > 0 and zone_size(z + 4) > 0 and card_rank(z + 4, 0) == r:
+                    pairs = pairs + 1
+        z = z + 1
+    return zone_size(0) * 120 + pairs * 15
+
+def mc_pick(z, i):
+    if z < 1 or z > 25 or zone_size(z) == 0:
+        return False
+    return i == zone_size(z) - 1
+
+def mc_is_adjacent(z1, z2):
+    a = z1 - 1
+    b = z2 - 1
+    r1 = math.floor(a / 5)
+    c1 = a - r1 * 5
+    r2 = math.floor(b / 5)
+    c2 = b - r2 * 5
+    dr = r1 - r2
+    if dr < 0:
+        dr = -dr
+    dc = c1 - c2
+    if dc < 0:
+        dc = -dc
+    return dr <= 1 and dc <= 1
+
+def mc_can_target(fz, fi, tz, ti):
+    if fz == tz or not mc_pick(fz, fi) or not mc_pick(tz, ti):
+        return False
+    if not mc_is_adjacent(fz, tz):
+        return False
+    return card_rank(fz, fi) == card_rank(tz, ti)
+
+def mc_on_target(fz, fi, tz, ti):
+    if not mc_can_target(fz, fi, tz, ti):
+        return False
+    move_cards(fz, fi, 0)
+    move_cards(tz, ti, 0)
+    add_score(20)
+    return True
+
+def mc_on_stock():
+    changed = False
+    w = 1
+    r = 1
+    while r <= 25:
+        if zone_size(r) > 0:
+            if r != w:
+                move_cards(r, 0, w)
+                changed = True
+            w = w + 1
+        r = r + 1
+    while w <= 25 and zone_size(26) > 0:
+        top = zone_size(26) - 1
+        move_cards(26, top, w)
+        flip_card(w, 0, True)
+        w = w + 1
+        changed = True
+    return changed
+
+# =============================================================================
+# 3. Nestor (Zones 0..3 = 4 Reserve Cells, Zone 4 = Discard, Zones 5..12 = 8 Columns)
+# =============================================================================
+
+def nestor_col_has_rank(col, rank, skip_idx):
+    sz = zone_size(col)
+    k = 0
+    while k < sz:
+        if k != skip_idx and card_rank(col, k) == rank:
+            return True
+        k = k + 1
+    return False
+
+def nestor_on_deal():
+    # Rectify deal: ensure no column 5..12 contains duplicate ranks
+    # (Classic Nestor rule; prevents trivial self-deadlocks.)
+    # Uses Discard (zone 4) temporarily as a scratch stack.
+    passes = 0
+    while passes < 4:
+        c = 5
+        while c <= 12:
+            sz = zone_size(c)
+            i = 0
+            while i < sz:
+                r = card_rank(c, i)
+                if nestor_col_has_rank(c, r, i):
+                    other = 5
+                    swapped = False
+                    while other <= 12 and not swapped:
+                        if other != c and zone_size(other) > 0:
+                            osz = zone_size(other)
+                            orank = card_rank(other, osz - 1)
+                            if not nestor_col_has_rank(other, r, -1) and not nestor_col_has_rank(c, orank, i):
+                                move_cards(other, osz - 1, 4)
+                                if i < sz - 1:
+                                    move_cards(c, i + 1, 4)
+                                move_cards(c, i, other)
+                                move_cards(4, 0, c)
+                                swapped = True
+                        other = other + 1
+                i = i + 1
+            c = c + 1
+        passes = passes + 1
+    return True
+
+def nestor_eval():
+    res = 0
+    z = 0
+    while z <= 3:
+        if zone_size(z) > 0:
+            res = res + 1
+        z = z + 1
+    max_h = 0
+    z = 5
+    while z <= 12:
+        sz = zone_size(z)
+        if sz > max_h:
+            max_h = sz
+        z = z + 1
+    return zone_size(4) * 140 + res * 25 - max_h * 20
+
+def nestor_pick(z, i):
+    if z == 4 or z < 0 or z > 12 or zone_size(z) == 0:
+        return False
+    return i == zone_size(z) - 1
+
+def nestor_can_target(fz, fi, tz, ti):
+    if fz == tz or not nestor_pick(fz, fi) or not nestor_pick(tz, ti):
+        return False
+    return card_rank(fz, fi) == card_rank(tz, ti)
+
+def nestor_on_target(fz, fi, tz, ti):
+    if not nestor_can_target(fz, fi, tz, ti):
+        return False
+    move_cards(fz, fi, 4)
+    move_cards(tz, ti, 4)
+    add_score(20)
+    return True
+
+def nestor_status():
+    return pair_status_z(4)
+
+# =============================================================================
+# 4. Doublets (4x3 Grid: Zone 0 = Discard, Zones 1..12 = 12 Piles of 4, Zone 13 = Stock)
+# =============================================================================
+
+def dbl_eval():
+    hidden = 0
+    z = 1
+    while z <= 12:
+        sz = zone_size(z)
+        i = 0
+        while i < sz:
+            if not card_face_up(z, i):
+                hidden = hidden + 1
+            i = i + 1
+        z = z + 1
+    return zone_size(0) * 120 - hidden * 15
+
+def dbl_on_deal():
+    return pair_flip_tops(1, 12)
+
+def dbl_pick(z, i):
+    if z < 1 or z > 12 or zone_size(z) == 0:
+        return False
+    return i == zone_size(z) - 1 and card_face_up(z, i)
+
+def dbl_can_target(fz, fi, tz, ti):
+    if fz == tz or not dbl_pick(fz, fi) or not dbl_pick(tz, ti):
+        return False
+    return card_rank(fz, fi) == card_rank(tz, ti)
+
+def dbl_on_target(fz, fi, tz, ti):
+    if not dbl_can_target(fz, fi, tz, ti):
+        return False
+    move_cards(fz, fi, 0)
+    move_cards(tz, ti, 0)
+    pair_refill(12, 13)
+    pair_flip_tops(1, 12)
+    add_score(20)
+    return True
+
+def dbl_turn_end():
+    pair_refill(12, 13)
+    pair_flip_tops(1, 12)
+    return True
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "simple_pairs",
+    name: "Simple Pairs",
+    family: "Simple Pairs",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "half_open",
+    tags: ["classic", "pairing", "grid", "auto_refill", "quick", "single_deck"],
+    layout: "grid",
+    description: "Fast 3x3 pairing game. Match any two cards of equal rank to clear them; empty spaces automatically refill from Stock.",
+    decks: 1,
+    tableaus: 9,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 3,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "custom",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    prefer_curated_solvable: True,
+    demo_seed: 3,
+    demo_seeds: [3, 5, 11, 18, 19, 22, 23, 24, 33, 40, 41, 45],
+    eval_heuristic: sp_eval,
+    can_pick: sp_pick,
+    can_target: sp_can_target,
+    on_target: sp_on_target,
+    on_turn_end: sp_turn_end,
+    get_status: pair_status_0,
+    doc: {
+        meta: [1, "Very Quick", 5, "High Luck", 1, "Casual"],
+        aliases: ["Jamestown", "Pairs", "Nine-Card Pairs"],
+        goal: ["Clear all 52 cards by removing pairs of matching rank.", "No matching pairs remain in the 3x3 grid."],
+        zones: [
+            { index: 0, name: "Cleared Pairs", desc: "Discarded pairs of matching rank.", examples: ["7S", "7H"] },
+            { index: 1, name: "3x3 Grid (9 Cards)", desc: "Drag any card onto another card of the same rank to discard both. Empty spaces automatically refill from Stock." },
+            { index: 10, name: "Stock", desc: "Remaining deck; automatically refills vacated grid spaces after each pair." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "monte_carlo",
+    name: "Monte Carlo",
+    family: "Simple Pairs",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "half_open",
+    tags: ["classic", "pairing", "grid", "adjacent", "compact", "single_deck"],
+    layout: "grid",
+    description: "Beloved 5x5 grid pairing game. Remove horizontally, vertically, or diagonally adjacent pairs of equal rank; click Stock to compact and refill.",
+    decks: 1,
+    tableaus: 25,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 5,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "custom",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    prefer_curated_solvable: True,
+    demo_seed: 11,
+    demo_seeds: [11, 23, 31, 42, 588, 595, 1180, 1184, 1186, 1194, 1198, 2026],
+    eval_heuristic: mc_eval,
+    can_pick: mc_pick,
+    can_target: mc_can_target,
+    on_target: mc_on_target,
+    on_stock_click: mc_on_stock,
+    get_status: pair_status_0,
+    doc: {
+        meta: [2, "Quick", 3, "Moderate", 3, "Tactical"],
+        aliases: ["Good Neighbors", "Weddings"],
+        goal: ["Clear all 52 cards by removing adjacent pairs of matching rank.", "No adjacent pairs remain after compacting and Stock is empty."],
+        zones: [
+            { index: 0, name: "Cleared Pairs", desc: "Discarded pairs of equal rank.", examples: ["9D", "9C"] },
+            { index: 1, name: "5x5 Grid (25 Cards)", desc: "Drag any card onto an immediately adjacent card (orthogonal or diagonal) of the same rank to discard both." },
+            { index: 26, name: "Stock (Compact & Refill)", desc: "Click at any time to slide remaining grid cards left and up to close gaps, then refill empty trailing spaces from Stock." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "nestor",
+    name: "Nestor",
+    family: "Simple Pairs",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "open",
+    tags: ["classic", "open", "pairing", "reserve", "pure_skill", "single_deck"],
+    layout: "columns",
+    description: "Pure-skill open pairing puzzle. 8 columns of 6 face-up cards plus 4 Reserve cards; clear pairs of matching rank.",
+    decks: 1,
+    tableaus: 8,
+    foundations: 1,
+    freecells: 4,
+    tableau_deal_counts: [6, 6, 6, 6, 6, 6, 6, 6],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 19,
+    demo_seeds: [19, 24, 35, 37, 49, 99, 108, 124, 130, 138, 152, 186],
+    eval_heuristic: nestor_eval,
+    on_deal: nestor_on_deal,
+    can_pick: nestor_pick,
+    can_target: nestor_can_target,
+    on_target: nestor_on_target,
+    get_status: nestor_status,
+    doc: {
+        meta: [2, "Quick", 1, "Pure Skill", 4, "Strategic"],
+        aliases: ["Vertical Pairs"],
+        goal: ["Clear all 52 cards by pairing exposed cards of matching rank.", "No matching pairs remain among the column tops and Reserve."],
+        zones: [
+            { index: 0, name: "Reserve (4 Cards)", desc: "4 open reserve cards available to pair at any time; save them to unblock trapped columns." },
+            { index: 4, name: "Cleared Pairs", desc: "Discarded pairs of matching rank.", examples: ["JS", "JH"] },
+            { index: 5, name: "Tableau Columns (1-8)", desc: "8 open columns of 6 cards; only the top card of each column is playable, and empty columns remain empty." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "doublets",
+    name: "Doublets",
+    family: "Simple Pairs",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "half_open",
+    tags: ["classic", "pairing", "grid", "auto_refill", "single_deck"],
+    layout: "grid",
+    description: "12 piles of 4 cards (top card face-up) plus a 4-card reserve Stock. Pair exposed equal ranks; empty piles auto-refill from Stock.",
+    decks: 1,
+    tableaus: 12,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 4,
+    tableau_deal_counts: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
+    tableau_all_face_up: False,
+    foundation_starter_card: False,
+    stock_deal_mode: "custom",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    prefer_curated_solvable: True,
+    demo_seed: 1,
+    demo_seeds: [1, 2, 10, 14, 17, 18, 21, 30, 391, 392, 394, 400],
+    eval_heuristic: dbl_eval,
+    on_deal: dbl_on_deal,
+    can_pick: dbl_pick,
+    can_target: dbl_can_target,
+    on_target: dbl_on_target,
+    on_turn_end: dbl_turn_end,
+    get_status: pair_status_0,
+    doc: {
+        meta: [2, "Quick", 4, "High Luck", 2, "Casual"],
+        aliases: ["Twelve Piles Pairing", "Pairs of Four"],
+        goal: ["Clear all 52 cards by pairing exposed top cards of equal rank.", "No matching pairs remain among the exposed pile tops."],
+        zones: [
+            { index: 0, name: "Cleared Pairs", desc: "Discarded pairs of equal rank.", examples: ["QD", "QS"] },
+            { index: 1, name: "12 Piles (4 Cards Each)", desc: "Only the top face-up card of each pile may be paired. Uncovered face-down cards flip up automatically; empty piles refill from Stock." },
+            { index: 13, name: "Stock (4 Cards)", desc: "4 reserve cards that automatically refill any completely cleared pile." }
+        ]
+    }
+})

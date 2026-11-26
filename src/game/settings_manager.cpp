@@ -183,7 +183,7 @@ bool SettingsManager::load() {
             settings_.aaMode = 4; // Enforce 4x MSAA permanently
             settings_.lightingPreset = static_cast<LightingPreset>(std::clamp(a["lightingPreset"].asInt(static_cast<int>(LightingPreset::StudioSteady)), 0, 8));
             settings_.lightAngle = static_cast<LightAngle>(std::clamp(a["lightAngle"].asInt(0), 0, 3));
-            settings_.shadowGobo = static_cast<ShadowGobo>(std::clamp(a["shadowGobo"].asInt(0), 0, 2));
+            settings_.shadowGobo = static_cast<ShadowGobo>(std::clamp(a["shadowGobo"].asInt(0), 0, 3));
             settings_.lightWaver = std::clamp(a["lightWaver"].asFloat(0.0f), 0.0f, 1.0f);
             settings_.lightWaverSpeed = std::clamp(a["lightWaverSpeed"].asFloat(0.35f), 0.0f, 1.0f);
             settings_.lightFlicker = std::clamp(a["lightFlicker"].asFloat(0.0f), 0.0f, 1.0f);
@@ -292,7 +292,7 @@ bool SettingsManager::load() {
                     prof.lightAngle = static_cast<LightAngle>(std::clamp(pVal["lightAngle"].asInt(0), 0, 3));
                 }
                 if (pVal.contains("shadowGobo") && pVal["shadowGobo"].isNumber()) {
-                    prof.shadowGobo = static_cast<ShadowGobo>(std::clamp(pVal["shadowGobo"].asInt(0), 0, 2));
+                    prof.shadowGobo = static_cast<ShadowGobo>(std::clamp(pVal["shadowGobo"].asInt(0), 0, 3));
                 }
                 if (pVal.contains("lightWaver") && pVal["lightWaver"].isNumber()) prof.lightWaver = std::clamp(pVal["lightWaver"].asFloat(0.5f), 0.0f, 1.0f);
                 if (pVal.contains("lightWaverSpeed") && pVal["lightWaverSpeed"].isNumber()) prof.lightWaverSpeed = std::clamp(pVal["lightWaverSpeed"].asFloat(0.35f), 0.0f, 1.0f);
@@ -857,7 +857,7 @@ bool parsePresetEatsFile(const std::string& filePath, bool isBuiltin, ScenePrese
             else if (key == "show_table_markings") out.profile.showTableMarkings = parseBoolStr(val);
             else if (key == "lighting_preset") out.profile.lightingPreset = static_cast<LightingPreset>(std::clamp(std::stoi(val), 0, 8));
             else if (key == "light_angle") out.profile.lightAngle = static_cast<LightAngle>(std::clamp(std::stoi(val), 0, 3));
-            else if (key == "shadow_gobo") out.profile.shadowGobo = static_cast<ShadowGobo>(std::clamp(std::stoi(val), 0, 2));
+            else if (key == "shadow_gobo") out.profile.shadowGobo = static_cast<ShadowGobo>(std::clamp(std::stoi(val), 0, 3));
             else if (key == "light_waver") out.profile.lightWaver = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "light_waver_speed") out.profile.lightWaverSpeed = std::clamp(std::stof(val), 0.0f, 1.0f);
             else if (key == "light_flicker") out.profile.lightFlicker = std::clamp(std::stof(val), 0.0f, 1.0f);

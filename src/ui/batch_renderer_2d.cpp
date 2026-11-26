@@ -420,9 +420,20 @@ public:
                 for (int py = minY; py <= maxY; ++py) {
                     int srcY = py - static_cast<int>(std::floor(y));
                     if (srcY >= 0 && srcY < imgH) {
-                        const uint32_t* srcRow = reinterpret_cast<const uint32_t*>(rgba) + (srcY * imgW + srcStartX);
+                        const uint8_t* srcRow = rgba + static_cast<size_t>(srcY * imgW + srcStartX) * 4u;
                         uint32_t* dstRow = &framebuffer_[py * viewportWidth_ + minX];
-                        std::memcpy(dstRow, srcRow, static_cast<size_t>(copyW) * sizeof(uint32_t));
+                        for (int i = 0; i < copyW; ++i) {
+                            const uint8_t sr = srcRow[i * 4 + 0];
+                            const uint8_t sg = srcRow[i * 4 + 1];
+                            const uint8_t sb = srcRow[i * 4 + 2];
+                            const uint8_t sa = srcRow[i * 4 + 3];
+                            if (sa == 255) {
+                                dstRow[i] = (0xFFu << 24) | (static_cast<uint32_t>(sr) << 16) |
+                                            (static_cast<uint32_t>(sg) << 8) | static_cast<uint32_t>(sb);
+                            } else if (sa > 0) {
+                                dstRow[i] = blendPixel(dstRow[i], sr, sg, sb, sa);
+                            }
+                        }
                     }
                 }
                 return;
@@ -3955,13 +3966,59 @@ private:
                     let frameDist = max(abs(rp.x - 0.5) * 1.15, abs(rp.y - 0.5) * 1.35);
                     let outer = 1.0 - smoothstep(0.46 - pen * 1.5, 0.56 + pen * 1.5, frameDist);
                     goboMask = clamp(mx * my * outer, 0.0, 1.0);
-                } else if (goboType >= 1.5) {
+                } else if (goboType >= 1.5 && goboType < 2.5) {
                     // 2: Venetian Blinds (angled parallel slats)
                     let pen = mix(0.025, 0.16, soft);
                     let p = proj - vec2<f32>(0.5, 0.5);
                     let slatCoord = dot(p, vec2<f32>(0.42, 0.91)) * 8.5;
                     let slat = abs(fract(slatCoord) - 0.5);
                     goboMask = smoothstep(0.18 - pen, 0.18 + pen, slat);
+                } else if (goboType >= 2.5) {
+                    // 3: Animated Tree Canopy (2-layer swaying branches & dappled foliage)
+                    let t = uniforms.time;
+                    // Gentle natural breeze gust envelope (~10-12s period)
+                    let gust = 0.62 + 0.38 * sin(t * 0.52 + sin(t * 0.23) * 1.4);
+
+                    // Upper canopy: slower, broader branch sway + subtle local flex
+                    let sway1 = vec2<f32>(
+                        sin(t * 0.66) * 0.015 + sin(t * 1.48) * 0.0042,
+                        cos(t * 0.49) * 0.010 + sin(t * 1.19) * 0.0032
+                    ) * gust;
+                    let flex1 = vec2<f32>(
+                        sin(proj.y * 7.2 + t * 1.80),
+                        cos(proj.x * 6.5 + t * 1.58)
+                    ) * (0.0030 * gust);
+                    let uv1 = proj * vec2<f32>(1.12, 0.90) + sway1 + flex1;
+
+                    // Lower canopy: rotated scale, distinct phase, livelier twig flutter
+                    let c2 = cos(0.58);
+                    let s2 = sin(0.58);
+                    let rp2 = vec2<f32>(proj.x * c2 - proj.y * s2, proj.x * s2 + proj.y * c2);
+                    let sway2 = vec2<f32>(
+                        sin(t * 0.91 + 1.7) * 0.011 + sin(t * 2.28 + 0.6) * 0.0038,
+                        cos(t * 0.74 + 2.4) * 0.0085 + cos(t * 1.98) * 0.0028
+                    ) * gust;
+                    let flex2 = vec2<f32>(
+                        cos(proj.x * 10.8 - t * 2.55),
+                        sin(proj.y * 10.2 + t * 2.25)
+                    ) * (0.0026 * gust);
+                    let uv2 = rp2 * vec2<f32>(1.36, 1.16) + vec2<f32>(0.37, 0.61) + sway2 + flex2;
+
+                    // Hardware trilinear mip-LOD blur: soft even at minimum, ultra-dreamy at max
+                    let softT = clamp((soft - 0.05) / 0.95, 0.0, 1.0);
+                    let lodUpper = mix(1.55, 4.55, softT);
+                    let lodLower = mix(1.30, 4.25, softT);
+                    let lodFine  = mix(1.20, 4.00, softT);
+
+                    let upperOcc = textureSampleLevel(cloudTexture, cloudSampler, uv1, lodUpper).g;
+                    let lowerOcc = textureSampleLevel(cloudTexture, cloudSampler, uv2, lodLower).b;
+                    let fineOcc  = textureSampleLevel(cloudTexture, cloudSampler, uv2 * 1.48 - sway1 * 0.45, lodFine).a;
+
+                    // Combined leaf/branch occlusion so sunlit dapples organically open & shimmer
+                    let occ = clamp(max(upperOcc, lowerOcc * 0.88) + fineOcc * 0.22, 0.0, 1.0);
+                    let thresh = mix(0.42, 0.34, softT);
+                    let pen = mix(0.18, 0.42, softT);
+                    goboMask = 1.0 - smoothstep(thresh - pen, thresh + pen, occ);
                 }
 
                 if (includeClouds && cloudOpacity > 0.005) {
@@ -4070,18 +4127,8 @@ private:
                             col = vec4<f32>(col.rgb * sepiaTint, col.a);
                         }
 
-                        // 3. Vintage Foxing Specks & Handling Crease
+                        // 3. Vintage Handling Crease (organic foxing/grime is baked per-card in CardTextureCache)
                         if (wearLvl >= 1.8) {
-                            let foxCell = floor(in.localUV * 24.0);
-                            let foxH = fract(sin(dot(foxCell, vec2<f32>(37.17, 71.93))) * 23421.631);
-                            if (foxH > 0.94) {
-                                let dSpot = length(fract(in.localUV * 24.0) - vec2<f32>(0.5));
-                                if (dSpot < 0.26) {
-                                    let spotCore = (1.0 - dSpot / 0.26) * 0.24;
-                                    let spotTint = vec3<f32>(1.0 - spotCore * 0.40, 1.0 - spotCore * 0.65, 1.0 - spotCore * 0.92);
-                                    col = vec4<f32>(col.rgb * spotTint, col.a);
-                                }
-                            }
                             let creaseDist = abs(in.localUV.y - 0.44 - (in.localUV.x - 0.5) * 0.18);
                             if (creaseDist < 0.009) {
                                 let fold = (1.0 - creaseDist / 0.009) * 0.05;
@@ -4421,23 +4468,25 @@ private:
         sampDesc.maxAnisotropy = 1;
         fontSampler_ = wgpuDeviceCreateSampler(device_, &sampDesc);
 
-        // 4. Create seamless tileable 256x256 R8Unorm cloud noise texture + Repeat sampler
+        // 4. Create seamless tileable 512x512 RGBA8Unorm mipmapped atmosphere texture + Repeat sampler
+        //    R = drifting cloud noise, G = upper tree canopy, B = lower branches/leaves, A = connected lower twig filigree
         {
-            constexpr uint32_t kCloudSize = 256;
+            constexpr uint32_t kAtmoSize = 512;
+            constexpr uint32_t kAtmoMips = 6; // 512 -> 256 -> 128 -> 64 -> 32 -> 16 for free trilinear softness
             WGPUTextureDescriptor cDesc{};
             cDesc.dimension = WGPUTextureDimension_2D;
-            cDesc.size = WGPUExtent3D{ kCloudSize, kCloudSize, 1 };
-            cDesc.format = WGPUTextureFormat_R8Unorm;
+            cDesc.size = WGPUExtent3D{ kAtmoSize, kAtmoSize, 1 };
+            cDesc.format = WGPUTextureFormat_RGBA8Unorm;
             cDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
-            cDesc.mipLevelCount = 1;
+            cDesc.mipLevelCount = kAtmoMips;
             cDesc.sampleCount = 1;
             cloudTexture_ = wgpuDeviceCreateTexture(device_, &cDesc);
 
             WGPUTextureViewDescriptor cViewDesc{};
-            cViewDesc.format = WGPUTextureFormat_R8Unorm;
+            cViewDesc.format = WGPUTextureFormat_RGBA8Unorm;
             cViewDesc.dimension = WGPUTextureViewDimension_2D;
             cViewDesc.baseMipLevel = 0;
-            cViewDesc.mipLevelCount = 1;
+            cViewDesc.mipLevelCount = kAtmoMips;
             cViewDesc.baseArrayLayer = 0;
             cViewDesc.arrayLayerCount = 1;
             cViewDesc.aspect = WGPUTextureAspect_All;
@@ -4447,6 +4496,9 @@ private:
             cSampDesc.addressModeU = WGPUAddressMode_Repeat;
             cSampDesc.addressModeV = WGPUAddressMode_Repeat;
             cSampDesc.addressModeW = WGPUAddressMode_Repeat;
+            cSampDesc.mipmapFilter = WGPUMipmapFilterMode_Linear;
+            cSampDesc.lodMinClamp = 0.0f;
+            cSampDesc.lodMaxClamp = static_cast<float>(kAtmoMips - 1);
             cloudSampler_ = wgpuDeviceCreateSampler(device_, &cSampDesc);
 
             auto hash2 = [](int x, int y, int period) noexcept -> float {
@@ -4474,28 +4526,201 @@ private:
                 return nx0 + (nx1 - nx0) * sy;
             };
 
-            std::vector<uint8_t> cloudBytes(kCloudSize * kCloudSize);
-            for (uint32_t y = 0; y < kCloudSize; ++y) {
-                float v = static_cast<float>(y) / static_cast<float>(kCloudSize);
-                for (uint32_t x = 0; x < kCloudSize; ++x) {
-                    float u = static_cast<float>(x) / static_cast<float>(kCloudSize);
+            // Toroidal foliage & branch rasterizer for seamless dappled canopy gobos
+            auto wrapIdx = [](int i) noexcept -> uint32_t {
+                int m = i % static_cast<int>(kAtmoSize);
+                return static_cast<uint32_t>(m < 0 ? m + static_cast<int>(kAtmoSize) : m);
+            };
+            auto stampLeaf = [&](std::vector<float>& buf, float cx, float cy, float rx, float ry, float angle, float weight) {
+                float ca = std::cos(angle);
+                float sa = std::sin(angle);
+                float bound = std::max(rx, ry) * 1.15f;
+                int minX = static_cast<int>(std::floor((cx - bound) * kAtmoSize));
+                int maxX = static_cast<int>(std::ceil((cx + bound) * kAtmoSize));
+                int minY = static_cast<int>(std::floor((cy - bound) * kAtmoSize));
+                int maxY = static_cast<int>(std::ceil((cy + bound) * kAtmoSize));
+                for (int py = minY; py <= maxY; ++py) {
+                    float dy = (static_cast<float>(py) + 0.5f) / kAtmoSize - cy;
+                    uint32_t wy = wrapIdx(py);
+                    for (int px = minX; px <= maxX; ++px) {
+                        float dx = (static_cast<float>(px) + 0.5f) / kAtmoSize - cx;
+                        float lx = (dx * ca + dy * sa) / rx;
+                        float ly = (-dx * sa + dy * ca) / ry;
+                        // Pointed ovate leaf profile (pinches gently toward both ends)
+                        float pinch = 1.0f - 0.32f * lx * lx;
+                        float d2 = lx * lx + (ly * ly) / std::max(0.25f, pinch * pinch);
+                        if (d2 < 1.0f) {
+                            float edge = 1.0f - d2;
+                            float val = std::min(1.0f, edge * 2.2f) * weight;
+                            uint32_t idx = wy * kAtmoSize + wrapIdx(px);
+                            buf[idx] = std::max(buf[idx], val);
+                        }
+                    }
+                }
+            };
+            auto stampBranch = [&](std::vector<float>& buf, float x0, float y0, float cx, float cy, float x1, float y1, float r0, float r1, float weight) {
+                constexpr int kSteps = 32;
+                for (int s = 0; s <= kSteps; ++s) {
+                    float t = static_cast<float>(s) / static_cast<float>(kSteps);
+                    float it = 1.0f - t;
+                    float bx = it * it * x0 + 2.0f * it * t * cx + t * t * x1;
+                    float by = it * it * y0 + 2.0f * it * t * cy + t * t * y1;
+                    float rad = r0 + (r1 - r0) * t;
+                    int minX = static_cast<int>(std::floor((bx - rad) * kAtmoSize));
+                    int maxX = static_cast<int>(std::ceil((bx + rad) * kAtmoSize));
+                    int minY = static_cast<int>(std::floor((by - rad) * kAtmoSize));
+                    int maxY = static_cast<int>(std::ceil((by + rad) * kAtmoSize));
+                    float invR = 1.0f / std::max(rad, 0.0005f);
+                    for (int py = minY; py <= maxY; ++py) {
+                        float dy = (static_cast<float>(py) + 0.5f) / kAtmoSize - by;
+                        uint32_t wy = wrapIdx(py);
+                        for (int px = minX; px <= maxX; ++px) {
+                            float dx = (static_cast<float>(px) + 0.5f) / kAtmoSize - bx;
+                            float d = std::sqrt(dx * dx + dy * dy) * invR;
+                            if (d < 1.0f) {
+                                float val = std::min(1.0f, (1.0f - d) * 2.4f) * weight;
+                                uint32_t idx = wy * kAtmoSize + wrapIdx(px);
+                                buf[idx] = std::max(buf[idx], val);
+                            }
+                        }
+                    }
+                }
+            };
+            auto blurToroidal = [&](std::vector<float>& buf, int radius) {
+                std::vector<float> tmp(kAtmoSize * kAtmoSize, 0.0f);
+                const float invW = 1.0f / static_cast<float>(radius * 2 + 1);
+                for (uint32_t y = 0; y < kAtmoSize; ++y) {
+                    const uint32_t row = y * kAtmoSize;
+                    for (uint32_t x = 0; x < kAtmoSize; ++x) {
+                        float sum = 0.0f;
+                        for (int dx = -radius; dx <= radius; ++dx) {
+                            sum += buf[row + wrapIdx(static_cast<int>(x) + dx)];
+                        }
+                        tmp[row + x] = sum * invW;
+                    }
+                }
+                for (uint32_t y = 0; y < kAtmoSize; ++y) {
+                    const uint32_t row = y * kAtmoSize;
+                    for (uint32_t x = 0; x < kAtmoSize; ++x) {
+                        float sum = 0.0f;
+                        for (int dy = -radius; dy <= radius; ++dy) {
+                            sum += tmp[wrapIdx(static_cast<int>(y) + dy) * kAtmoSize + x];
+                        }
+                        buf[row + x] = sum * invW;
+                    }
+                }
+            };
+            auto bakeCanopyLayer = [&](std::vector<float>& buf, uint32_t seed, int branchCount, int clusterCount, int leavesPerCluster, float leafScale, float branchThick, int blurRadius) {
+                uint32_t rng = seed;
+                auto nextF = [&]() noexcept -> float {
+                    rng = rng * 1664525u + 1013904223u;
+                    return static_cast<float>((rng >> 8) & 0x00FFFFFFu) / 16777215.0f;
+                };
+                // Organic sweeping branches with clustered foliage along their length
+                for (int b = 0; b < branchCount; ++b) {
+                    float x0 = nextF();
+                    float y0 = nextF();
+                    float ang = nextF() * 6.2831853f;
+                    float len = 0.24f + nextF() * 0.26f;
+                    float x1 = x0 + std::cos(ang) * len;
+                    float y1 = y0 + std::sin(ang) * len;
+                    float perp = ang + 1.5707963f;
+                    float bend = (nextF() - 0.5f) * 0.14f;
+                    float cx = 0.5f * (x0 + x1) + std::cos(perp) * bend;
+                    float cy = 0.5f * (y0 + y1) + std::sin(perp) * bend;
+                    stampBranch(buf, x0, y0, cx, cy, x1, y1, branchThick, branchThick * 0.28f, 0.95f);
+
+                    // Twig offshoots & leaf clusters along the branch
+                    for (int c = 0; c < clusterCount; ++c) {
+                        float t = 0.22f + 0.78f * nextF();
+                        float it = 1.0f - t;
+                        float px = it * it * x0 + 2.0f * it * t * cx + t * t * x1;
+                        float py = it * it * y0 + 2.0f * it * t * cy + t * t * y1;
+                        float offAng = ang + (nextF() - 0.5f) * 2.4f;
+                        float offDist = (0.02f + nextF() * 0.065f) * leafScale;
+                        float clx = px + std::cos(offAng) * offDist;
+                        float cly = py + std::sin(offAng) * offDist;
+                        for (int l = 0; l < leavesPerCluster; ++l) {
+                            float la = nextF() * 6.2831853f;
+                            float lr = nextF() * 0.055f * leafScale;
+                            float lx = clx + std::cos(la) * lr;
+                            float ly = cly + std::sin(la) * lr;
+                            float rx = (0.020f + nextF() * 0.024f) * leafScale;
+                            float ry = rx * (0.42f + nextF() * 0.26f);
+                            float rot = offAng + (nextF() - 0.5f) * 1.9f;
+                            stampLeaf(buf, lx, ly, rx, ry, rot, 0.78f + nextF() * 0.22f);
+                        }
+                    }
+                }
+                blurToroidal(buf, blurRadius);
+                blurToroidal(buf, std::max(1, blurRadius - 1));
+            };
+
+            std::vector<float> upperCanopy(kAtmoSize * kAtmoSize, 0.0f);
+            std::vector<float> lowerCanopy(kAtmoSize * kAtmoSize, 0.0f);
+            std::vector<float> fineCanopy(kAtmoSize * kAtmoSize, 0.0f);
+            bakeCanopyLayer(upperCanopy, 0xA17C3E29u, 9,  4, 7, 1.05f, 0.0085f, 4);
+            bakeCanopyLayer(lowerCanopy, 0x5B92D417u, 11, 4, 6, 0.80f, 0.0060f, 3);
+            bakeCanopyLayer(fineCanopy,  0xD34F8A61u, 14, 3, 4, 0.52f, 0.0038f, 2);
+
+            std::vector<uint8_t> mipBytes(kAtmoSize * kAtmoSize * 4u);
+            for (uint32_t y = 0; y < kAtmoSize; ++y) {
+                float v = static_cast<float>(y) / static_cast<float>(kAtmoSize);
+                for (uint32_t x = 0; x < kAtmoSize; ++x) {
+                    float u = static_cast<float>(x) / static_cast<float>(kAtmoSize);
                     float n = tileNoise(u, v, 4) * 0.50f
                             + tileNoise(u, v, 8) * 0.28f
                             + tileNoise(u, v, 16) * 0.14f
                             + tileNoise(u, v, 32) * 0.08f;
-                    cloudBytes[y * kCloudSize + x] = static_cast<uint8_t>(std::clamp(n * 255.0f, 0.0f, 255.0f));
+                    const uint32_t idx = y * kAtmoSize + x;
+                    mipBytes[idx * 4u + 0u] = static_cast<uint8_t>(std::clamp(n * 255.0f, 0.0f, 255.0f));
+                    mipBytes[idx * 4u + 1u] = static_cast<uint8_t>(std::clamp(upperCanopy[idx] * 255.0f, 0.0f, 255.0f));
+                    mipBytes[idx * 4u + 2u] = static_cast<uint8_t>(std::clamp(lowerCanopy[idx] * 255.0f, 0.0f, 255.0f));
+                    mipBytes[idx * 4u + 3u] = static_cast<uint8_t>(std::clamp(fineCanopy[idx] * 255.0f, 0.0f, 255.0f));
                 }
             }
-            WGPUTexelCopyTextureInfo dst{};
-            dst.texture = cloudTexture_;
-            dst.mipLevel = 0;
-            dst.origin = WGPUOrigin3D{ 0, 0, 0 };
-            dst.aspect = WGPUTextureAspect_All;
-            WGPUTexelCopyBufferLayout layout{};
-            layout.bytesPerRow = kCloudSize;
-            layout.rowsPerImage = kCloudSize;
-            WGPUExtent3D writeSize{ kCloudSize, kCloudSize, 1 };
-            wgpuQueueWriteTexture(queue_, &dst, cloudBytes.data(), cloudBytes.size(), &layout, &writeSize);
+
+            // Upload mip 0 and generate toroidal 2x2 downsampled mips 1..(kAtmoMips-1)
+            uint32_t mipW = kAtmoSize;
+            uint32_t mipH = kAtmoSize;
+            for (uint32_t mip = 0; mip < kAtmoMips; ++mip) {
+                WGPUTexelCopyTextureInfo dst{};
+                dst.texture = cloudTexture_;
+                dst.mipLevel = mip;
+                dst.origin = WGPUOrigin3D{ 0, 0, 0 };
+                dst.aspect = WGPUTextureAspect_All;
+                WGPUTexelCopyBufferLayout layout{};
+                layout.bytesPerRow = mipW * 4u;
+                layout.rowsPerImage = mipH;
+                WGPUExtent3D writeSize{ mipW, mipH, 1 };
+                wgpuQueueWriteTexture(queue_, &dst, mipBytes.data(), mipBytes.size(), &layout, &writeSize);
+
+                if (mip + 1 < kAtmoMips) {
+                    const uint32_t nextW = std::max(1u, mipW / 2u);
+                    const uint32_t nextH = std::max(1u, mipH / 2u);
+                    std::vector<uint8_t> nextBytes(nextW * nextH * 4u);
+                    for (uint32_t y = 0; y < nextH; ++y) {
+                        const uint32_t sy0 = (y * 2u) % mipH;
+                        const uint32_t sy1 = (y * 2u + 1u) % mipH;
+                        for (uint32_t x = 0; x < nextW; ++x) {
+                            const uint32_t sx0 = (x * 2u) % mipW;
+                            const uint32_t sx1 = (x * 2u + 1u) % mipW;
+                            const size_t i00 = (sy0 * mipW + sx0) * 4u;
+                            const size_t i10 = (sy0 * mipW + sx1) * 4u;
+                            const size_t i01 = (sy1 * mipW + sx0) * 4u;
+                            const size_t i11 = (sy1 * mipW + sx1) * 4u;
+                            const size_t outI = (y * nextW + x) * 4u;
+                            for (size_t c = 0; c < 4u; ++c) {
+                                uint32_t sum = mipBytes[i00 + c] + mipBytes[i10 + c] + mipBytes[i01 + c] + mipBytes[i11 + c];
+                                nextBytes[outI + c] = static_cast<uint8_t>((sum + 2u) >> 2u);
+                            }
+                        }
+                    }
+                    mipBytes.swap(nextBytes);
+                    mipW = nextW;
+                    mipH = nextH;
+                }
+            }
         }
 
         wgpuShaderModuleRelease(shaderModule);
@@ -5352,6 +5577,12 @@ void BatchRenderer2D::setGlobalLight(const LightSource2D& light,
                                     float colR, float colG, float colB,
                                     float ambR, float ambG, float ambB,
                                     float sceneDarkness, float lightStrength) {
+    hasGlobalLight_ = true;
+    globalLight_ = light;
+    globalLightColR_ = colR;
+    globalLightColG_ = colG;
+    globalLightColB_ = colB;
+    globalLightStrength_ = lightStrength;
     if (backend_) {
         backend_->setGlobalLight(light, colR, colG, colB, ambR, ambG, ambB, sceneDarkness, lightStrength);
     }

@@ -292,6 +292,7 @@ public:
     [[nodiscard]] const std::string& currentCardBackId() const noexcept { return activeCardBackId_; }
     void setActiveCardBack(const std::string& backId);
     [[nodiscard]] std::string getCardBackDisplayName(const std::string& backId) const;
+    [[nodiscard]] bool cardBackSupportsSeed(const std::string& backId) const;
     void cycleCardBack(std::string& inOutId, int stepDelta);
 
     static inline size_t cardIndex(Suit s, Rank r) noexcept {

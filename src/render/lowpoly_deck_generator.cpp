@@ -1,12 +1,12 @@
 #include "solengine/lowpoly_deck_generator.hpp"
 #include "solengine/classic_deck_symbols.hpp"
+#include "solengine/deterministic_rng.hpp"
 #include "solengine/vector_binary.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
-#include <random>
 #include <utility>
 #include <vector>
 
@@ -62,14 +62,12 @@ Vec3 rotZ(Vec3 p, float deg) {
     return {p.x * c - p.y * s, p.x * s + p.y * c, p.z};
 }
 
-float randRange(std::mt19937& rng, float lo, float hi) {
-    std::uniform_real_distribution<float> dist(lo, hi);
-    return dist(rng);
+float randRange(DeterministicRng& rng, float lo, float hi) noexcept {
+    return rng.rangeFloat(lo, hi);
 }
 
-int randInt(std::mt19937& rng, int lo, int hi) {
-    std::uniform_int_distribution<int> dist(lo, hi);
-    return dist(rng);
+int randInt(DeterministicRng& rng, int lo, int hi) noexcept {
+    return rng.rangeInt(lo, hi);
 }
 
 // ---------------------------------------------------------------------------
@@ -523,7 +521,7 @@ std::vector<Tri3> buildSuitTris(Suit suit, const Ramp4& ramp) {
     return tris;
 }
 
-void emitClassicCourt(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng, const LowPolyDeckOptions& opts) {
+void emitClassicCourt(VectorImage& img, Suit suit, Rank rank, DeterministicRng& rng, const LowPolyDeckOptions& opts) {
     const bool darkBg = (opts.bg == LowPolyBg::Dark);
     const Ramp4 skin   = {0xFFB9836Bu, 0xFFCF9982u, 0xFFE2B29Du, 0xFFF0CAB8u};
     const Ramp4 silver = {0xFF475569u, 0xFF64748Bu, 0xFF94A3B8u, 0xFFCBD5E1u};
@@ -588,7 +586,7 @@ void emitClassicCourt(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng,
 // ---------------------------------------------------------------------------
 // Scoundrel 3D Generators: Weapons (Diamonds), Potions (Hearts), Monsters (Spades/Clubs)
 // ---------------------------------------------------------------------------
-void emitScoundrelWeapon(VectorImage& img, int rnum, std::mt19937& rng) {
+void emitScoundrelWeapon(VectorImage& img, int rnum, DeterministicRng& rng) {
     static const std::array<std::array<Ramp4, 4>, 3> kPalettes = {{
         {{ {0xFF283B5Bu, 0xFF39567Du, 0xFF4F74A3u, 0xFF6E96C7u}, {0xFF0284C7u, 0xFF0EA5E9u, 0xFF38BDF8u, 0xFF7DD3FCu}, {0xFFB45309u, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u}, {0xFF1E293Bu, 0xFF334155u, 0xFF475569u, 0xFF64748Bu} }},
         {{ {0xFF1F242Du, 0xFF2E3542u, 0xFF404959u, 0xFF5B667Au}, {0xFF991B1Bu, 0xFFDC2626u, 0xFFEF4444u, 0xFFFCA5A5u}, {0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFEF08Au}, {0xFF18181Bu, 0xFF27272Au, 0xFF3F3F46u, 0xFF52525Bu} }},
@@ -653,7 +651,7 @@ void emitScoundrelWeapon(VectorImage& img, int rnum, std::mt19937& rng) {
     emitTris(img, tris, 50.0f, 72.0f);
 }
 
-void emitScoundrelPotion(VectorImage& img, int rnum, std::mt19937& rng) {
+void emitScoundrelPotion(VectorImage& img, int rnum, DeterministicRng& rng) {
     static const std::array<std::array<Ramp4, 3>, 3> kPalettes = {{
         {{ {0xFF881337u, 0xFFBE123Cu, 0xFFE11D48u, 0xFFFB7185u}, {0xFF9F1239u, 0xFFE11D48u, 0xFFFB7185u, 0xFFFDA4AFu}, {0xFF78350Fu, 0xFF92400Eu, 0xFFB45309u, 0xFFD97706u} }},
         {{ {0xFF701A75u, 0xFFA21CAFu, 0xFFD946EFu, 0xFFF0ABFCu}, {0xFF86198Fu, 0xFFC026D3u, 0xFFE879F9u, 0xFFF5D0FEu}, {0xFF78350Fu, 0xFF92400Eu, 0xFFB45309u, 0xFFD97706u} }},
@@ -703,7 +701,7 @@ void emitScoundrelPotion(VectorImage& img, int rnum, std::mt19937& rng) {
     emitTris(img, tris, 50.0f, 74.0f, 1.0f, false, true);
 }
 
-void emitScoundrelMonster(VectorImage& img, Suit suit, int rnum, std::mt19937& rng) {
+void emitScoundrelMonster(VectorImage& img, Suit suit, int rnum, DeterministicRng& rng) {
     static const std::array<std::array<Ramp4, 3>, 2> kSpadePalettes = {{
         {{ {0xFF57534Eu, 0xFF78716Cu, 0xFFA8A29Eu, 0xFFE7E5E4u}, {0xFF334155u, 0xFF475569u, 0xFF64748Bu, 0xFF94A3B8u}, {0xFF11141Cu, 0xFF11141Cu, 0xFF181C26u, 0xFF181C26u} }},
         {{ {0xFF475569u, 0xFF64748Bu, 0xFF94A3B8u, 0xFFCBD5E1u}, {0xFF3B0764u, 0xFF581C87u, 0xFF7E22CEu, 0xFFA855F7u}, {0xFF0F1219u, 0xFF0F1219u, 0xFF171C28u, 0xFF171C28u} }},
@@ -824,7 +822,7 @@ std::vector<std::pair<float, float>> makeGearPts(
     return pts;
 }
 
-void emitClockworkCourt(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng, const LowPolyDeckOptions& /*opts*/) {
+void emitClockworkCourt(VectorImage& img, Suit suit, Rank rank, DeterministicRng& rng, const LowPolyDeckOptions& /*opts*/) {
     const ClockworkPalette p = getClockworkPalette(suit);
 
     // Map 252x388 court space into 100x140 card space centered at (50, 70)
@@ -1088,7 +1086,7 @@ void addClassicSuitShape(
     }
 }
 
-void emitMobileSuitBg(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng, LowPolyBg /*bg*/) {
+void emitMobileSuitBg(VectorImage& img, Suit suit, Rank rank, DeterministicRng& rng, LowPolyBg /*bg*/) {
     const bool isAce = (rank == Rank::Ace);
     const bool isRed = (suit == Suit::Hearts || suit == Suit::Diamonds);
     const uint32_t suitCol = isRed ? 0xFFCC1D24u : 0xFF14161Eu;
@@ -1117,7 +1115,7 @@ void emitMobileSuitBg(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng,
     addClassicSuitShape(img, suit, bgCx, bgCy, bgRadius, tiltDeg, suitCol);
 }
 
-void emitMobileCourtBust(VectorImage& img, Suit suit, Rank rank, std::mt19937& rng) {
+void emitMobileCourtBust(VectorImage& img, Suit suit, Rank rank, DeterministicRng& rng) {
     // High-contrast monochrome silver/slate low-poly cameo bust sitting in front of the massive suit
     const Ramp4 silverHi  = {0xFF94A3B8u, 0xFFCBD5E1u, 0xFFE2E8F0u, 0xFFF8FAFCu};
     const Ramp4 silverMid = {0xFF475569u, 0xFF64748Bu, 0xFF94A3B8u, 0xFFCBD5E1u};
@@ -1218,7 +1216,7 @@ void addPlateAndBevel(VectorImage& img, LowPolyBg bg) {
     addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, bevel);
 }
 
-void emitLowPolyHelmet(VectorImage& img, Suit suit, std::mt19937& rng) {
+void emitLowPolyHelmet(VectorImage& img, Suit suit, DeterministicRng& rng) {
     const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
     const Ramp4 steel = {0xFF334155u, 0xFF475569u, 0xFF64748Bu, 0xFFCBD5E1u};
     const Ramp4 trim  = red ? Ramp4{0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u}
@@ -1255,7 +1253,7 @@ void emitLowPolyHelmet(VectorImage& img, Suit suit, std::mt19937& rng) {
     emitTris(img, tris, 50.0f, 72.0f);
 }
 
-void emitLowPolyShield(VectorImage& img, Suit suit, std::mt19937& rng) {
+void emitLowPolyShield(VectorImage& img, Suit suit, DeterministicRng& rng) {
     const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
     const Ramp4 field = red ? Ramp4{0xFF7F1D1Du, 0xFF9E1B24u, 0xFFC8202Au, 0xFFEF4444u}
                             : Ramp4{0xFF0369A1u, 0xFF0284C7u, 0xFF38BDF8u, 0xFF7DD3FCu};
@@ -1290,7 +1288,7 @@ void emitLowPolyShield(VectorImage& img, Suit suit, std::mt19937& rng) {
     emitTris(img, tris, 50.0f, 72.0f);
 }
 
-void emitLowPolyMace(VectorImage& img, Suit suit, std::mt19937& rng) {
+void emitLowPolyMace(VectorImage& img, Suit suit, DeterministicRng& rng) {
     const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
     const Ramp4 head = {0xFF334155u, 0xFF475569u, 0xFF94A3B8u, 0xFFE2E8F0u};
     const Ramp4 trim = red ? Ramp4{0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u}
@@ -1323,7 +1321,7 @@ void emitLowPolyMace(VectorImage& img, Suit suit, std::mt19937& rng) {
     emitTris(img, tris, 50.0f, 72.0f);
 }
 
-void emitLowPolyBow(VectorImage& img, Suit suit, std::mt19937& rng) {
+void emitLowPolyBow(VectorImage& img, Suit suit, DeterministicRng& rng) {
     const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
     const Ramp4 wood  = {0xFF451A03u, 0xFF78350Fu, 0xFFB45309u, 0xFFD97706u};
     const Ramp4 arrow = {0xFF334155u, 0xFF64748Bu, 0xFF94A3B8u, 0xFFE2E8F0u};
@@ -1360,7 +1358,7 @@ void emitLowPolyBow(VectorImage& img, Suit suit, std::mt19937& rng) {
     emitTris(img, tris, 50.0f, 72.0f);
 }
 
-void emitLowPolyGauntlet(VectorImage& img, Suit suit, std::mt19937& rng) {
+void emitLowPolyGauntlet(VectorImage& img, Suit suit, DeterministicRng& rng) {
     const bool red = (suit == Suit::Hearts || suit == Suit::Diamonds);
     const Ramp4 plate = {0xFF334155u, 0xFF475569u, 0xFF64748Bu, 0xFFCBD5E1u};
     const Ramp4 trim  = red ? Ramp4{0xFF92400Eu, 0xFFD97706u, 0xFFF59E0Bu, 0xFFFDE047u}
@@ -1393,7 +1391,7 @@ void emitLowPolyGauntlet(VectorImage& img, Suit suit, std::mt19937& rng) {
     emitTris(img, tris, 50.0f, 72.0f);
 }
 
-void emitLowPolyGem(VectorImage& img, Suit suit, std::mt19937& rng) {
+void emitLowPolyGem(VectorImage& img, Suit suit, DeterministicRng& rng) {
     const Ramp4 ruby    = {0xFF881337u, 0xFFBE123Cu, 0xFFE11D48u, 0xFFFB7185u};
     const Ramp4 emerald = {0xFF065F46u, 0xFF059669u, 0xFF10B981u, 0xFF6EE7B7u};
     const Ramp4 sapph   = {0xFF1E3A8Au, 0xFF1D4ED8u, 0xFF3B82F6u, 0xFF93C5FDu};
@@ -1461,8 +1459,8 @@ struct WarPalette {
     uint32_t steelShadow;
 };
 
-WarPalette makeWarPalette(Suit suit, uint32_t deckSeed, std::mt19937& cardRng) {
-    std::mt19937 globalRng(deckSeed ^ 0x57415231u);
+WarPalette makeWarPalette(Suit suit, uint32_t deckSeed, DeterministicRng& cardRng) {
+    DeterministicRng globalRng(deckSeed ^ 0x57415231u);
     const int bgShiftR = randInt(globalRng, -10, 12);
     const int bgShiftG = randInt(globalRng, -8, 10);
     const int bgShiftB = randInt(globalRng, -10, 14);
@@ -1488,7 +1486,7 @@ WarPalette makeWarPalette(Suit suit, uint32_t deckSeed, std::mt19937& cardRng) {
     return p;
 }
 
-void addWarChamferWindow(VectorImage& img, const WarPalette& p, std::mt19937& rng) {
+void addWarChamferWindow(VectorImage& img, const WarPalette& p, DeterministicRng& rng) {
     // Chamfered portrait window: x in [19, 81], y in [15.5, 124.5], chamfer = 7.2
     constexpr float wx = 19.0f, wy = 15.5f, ww = 62.0f, wh = 109.0f, ch = 7.2f;
     addPolyShape(img, {
@@ -1544,7 +1542,7 @@ void addWarFacetedPip(VectorImage& img, Suit suit, float cx, float cy, float siz
     }
 }
 
-void emitWarCourt(VectorImage& img, Suit suit, Rank rank, const LowPolyDeckOptions& opts, std::mt19937& rng) {
+void emitWarCourt(VectorImage& img, Suit suit, Rank rank, const LowPolyDeckOptions& opts, DeterministicRng& rng) {
     const WarPalette p = makeWarPalette(suit, opts.seed, rng);
     addWarChamferWindow(img, p, rng);
 
@@ -1678,7 +1676,7 @@ void emitWarCourt(VectorImage& img, Suit suit, Rank rank, const LowPolyDeckOptio
     }
 }
 
-void emitWarPips(VectorImage& img, Suit suit, Rank rank, const LowPolyDeckOptions& opts, std::mt19937& rng) {
+void emitWarPips(VectorImage& img, Suit suit, Rank rank, const LowPolyDeckOptions& opts, DeterministicRng& rng) {
     if (rank == Rank::Ace) {
         const WarPalette p = makeWarPalette(suit, opts.seed, rng);
         const float tilt = randRange(rng, -3.0f, 3.0f);
@@ -1724,7 +1722,7 @@ VectorImage buildCardFaceVector(Suit suit, Rank rank, const LowPolyDeckOptions& 
         addPlateAndBevel(img, opts.bg);
     }
 
-    std::mt19937 rng(cardSeed);
+    DeterministicRng rng(cardSeed);
     if (opts.style == LowPolyStyle::War) {
         if (rank == Rank::Jack || rank == Rank::Queen || rank == Rank::King) {
             emitWarCourt(img, suit, rank, opts, rng);
@@ -1822,7 +1820,7 @@ VectorImage buildJokerVector(bool red, const LowPolyDeckOptions& opts) {
     if (opts.style == LowPolyStyle::War) {
         addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFF4F2E6u);
         addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, 0xFFE8E4D4u);
-        std::mt19937 rng(opts.seed ^ (red ? 0x4A4F4B31u : 0x4A4F4B32u));
+        DeterministicRng rng(opts.seed ^ (red ? 0x4A4F4B31u : 0x4A4F4B32u));
         const WarPalette p = makeWarPalette(red ? Suit::Hearts : Suit::Spades, opts.seed, rng);
         addWarChamferWindow(img, p, rng);
 
@@ -1876,13 +1874,114 @@ VectorImage buildJokerVector(bool red, const LowPolyDeckOptions& opts) {
     return img;
 }
 
+// Helper: 4-way mirrored jittered-grid triangulated low-poly mosaic (used by SolPoly & SolPoly Dark)
+void emitMirroredLowPolyMosaic(
+    VectorImage& img,
+    float minX, float minY, float maxX, float maxY,
+    int colsHalf, int rowsHalf,
+    const Ramp4& ramp,
+    DeterministicRng& rng
+) {
+    const float midX = 0.5f * (minX + maxX);
+    const float midY = 0.5f * (minY + maxY);
+    const float cellW = (midX - minX) / static_cast<float>(colsHalf);
+    const float cellH = (midY - minY) / static_cast<float>(rowsHalf);
+
+    // Build quadrant vertex grid (0..colsHalf x 0..rowsHalf)
+    std::vector<std::vector<std::pair<float, float>>> grid(
+        static_cast<size_t>(rowsHalf + 1),
+        std::vector<std::pair<float, float>>(static_cast<size_t>(colsHalf + 1))
+    );
+    for (int r = 0; r <= rowsHalf; ++r) {
+        for (int c = 0; c <= colsHalf; ++c) {
+            float x = minX + static_cast<float>(c) * cellW;
+            float y = minY + static_cast<float>(r) * cellH;
+            if (c > 0 && c < colsHalf) x += randRange(rng, -cellW * 0.34f, cellW * 0.34f);
+            if (r > 0 && r < rowsHalf) y += randRange(rng, -cellH * 0.34f, cellH * 0.34f);
+            grid[static_cast<size_t>(r)][static_cast<size_t>(c)] = {x, y};
+        }
+    }
+
+    const float lightAng = randRange(rng, 0.0f, 2.0f * kPi);
+    const float lx = std::cos(lightAng);
+    const float ly = std::sin(lightAng);
+
+    auto emitQuadMirrored = [&](std::pair<float, float> a, std::pair<float, float> b, std::pair<float, float> c) {
+        const float cx = (a.first + b.first + c.first) / 3.0f;
+        const float cy = (a.second + b.second + c.second) / 3.0f;
+        const float nx = (cx - minX) / std::max(midX - minX, 1.0f);
+        const float ny = (cy - minY) / std::max(midY - minY, 1.0f);
+        const float lit = 0.5f + 0.35f * (nx * lx + ny * ly) + randRange(rng, -0.22f, 0.22f);
+        const int idx = std::clamp(static_cast<int>(lit * 4.0f), 0, 3);
+        const uint32_t col = ramp[static_cast<size_t>(idx)];
+
+        // Mirror across all 4 quadrants around (midX, midY)
+        const float sx[2] = {1.0f, -1.0f};
+        const float sy[2] = {1.0f, -1.0f};
+        for (float mx : sx) {
+            for (float my : sy) {
+                auto mp = [&](std::pair<float, float> p) -> std::pair<float, float> {
+                    return {midX + (p.first - midX) * mx, midY + (p.second - midY) * my};
+                };
+                addPolyShape(img, {mp(a), mp(b), mp(c)}, col);
+            }
+        }
+    };
+
+    for (int r = 0; r < rowsHalf; ++r) {
+        for (int c = 0; c < colsHalf; ++c) {
+            auto p00 = grid[static_cast<size_t>(r)][static_cast<size_t>(c)];
+            auto p10 = grid[static_cast<size_t>(r)][static_cast<size_t>(c + 1)];
+            auto p01 = grid[static_cast<size_t>(r + 1)][static_cast<size_t>(c)];
+            auto p11 = grid[static_cast<size_t>(r + 1)][static_cast<size_t>(c + 1)];
+            if ((r + c + randInt(rng, 0, 1)) % 2 == 0) {
+                emitQuadMirrored(p00, p10, p11);
+                emitQuadMirrored(p00, p11, p01);
+            } else {
+                emitQuadMirrored(p00, p10, p01);
+                emitQuadMirrored(p10, p11, p01);
+            }
+        }
+    }
+}
+
+// Helper: 3D-projected faceted crystal/octahedron centerpiece
+void emitFacetedCrystalMedallion(
+    VectorImage& img,
+    float cx, float cy,
+    float radiusX, float radiusY,
+    int sides,
+    float yawDeg,
+    float pitchDeg,
+    const Ramp4& ramp
+) {
+    std::vector<Tri3> tris;
+    const float zDepth = radiusX * 0.85f;
+    auto xform = [&](Vec3 p) -> Vec3 {
+        return rotX(rotY(p, yawDeg), pitchDeg);
+    };
+    Vec3 topV = xform({0.0f, -radiusY, 0.0f});
+    Vec3 botV = xform({0.0f,  radiusY, 0.0f});
+
+    for (int i = 0; i < sides; ++i) {
+        const float a0 = (static_cast<float>(i) / static_cast<float>(sides)) * 2.0f * kPi;
+        const float a1 = (static_cast<float>(i + 1) / static_cast<float>(sides)) * 2.0f * kPi;
+        Vec3 r0 = xform({std::cos(a0) * radiusX, 0.0f, std::sin(a0) * zDepth});
+        Vec3 r1 = xform({std::cos(a1) * radiusX, 0.0f, std::sin(a1) * zDepth});
+        tris.push_back({topV, r0, r1, ramp});
+        tris.push_back({botV, r1, r0, ramp});
+    }
+    emitTris(img, tris, cx, cy, 1.0f);
+}
+
 VectorImage buildCardBackVector(const LowPolyDeckOptions& opts) {
     VectorImage img{};
     img.width = 100.0f;
     img.height = 140.0f;
 
+    DeterministicRng rng(opts.seed ^ 0x4241434Bu);
+
     if (opts.style == LowPolyStyle::War) {
-        std::mt19937 rng(opts.seed ^ 0x4241434Bu);
         const WarPalette p = makeWarPalette(Suit::Hearts, opts.seed, rng);
         const float tilt = randRange(rng, -4.0f, 4.0f);
 
@@ -1905,13 +2004,273 @@ VectorImage buildCardBackVector(const LowPolyDeckOptions& opts) {
         return img;
     }
 
-    const bool isWarmGem = (opts.style == LowPolyStyle::Scoundrel || opts.style == LowPolyStyle::Clockwork);
+    // -----------------------------------------------------------------------
+    // 1. SolPoly Classic (LowPolyStyle::Clockwork): Horological Brass & Gears
+    // -----------------------------------------------------------------------
+    if (opts.style == LowPolyStyle::Clockwork) {
+        // Seed-selected horological palette (Obsidian/Brass, Crimson/Gold, Navy/Bronze)
+        const int palIdx = randInt(rng, 0, 2);
+        const uint32_t bgDark  = (palIdx == 0) ? 0xFF18181Bu : (palIdx == 1 ? 0xFF450A0Au : 0xFF0F1E36u);
+        const uint32_t bgMid   = (palIdx == 0) ? 0xFF27272Au : (palIdx == 1 ? 0xFF6B1418u : 0xFF1A3154u);
+        const uint32_t brass   = 0xFFD49B35u;
+        const uint32_t brassHi = 0xFFF3C969u;
+        const uint32_t brassLo = 0xFF9A6B1Au;
+        const uint32_t ink     = 0xFF09090Bu;
+
+        // Warm ivory card stock border
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFF5EFE6u);
+        addPolyShape(img, {{100, 92}, {62, 140}, {100, 140}}, 0xFFEAE2D3u);
+
+        // Inner panel with subtle diagonal faceted split
+        addPolyShape(img, {{7, 7}, {93, 7}, {93, 133}, {7, 133}}, bgDark);
+        addPolyShape(img, {{7, 7}, {93, 7}, {7, 133}}, bgMid);
+
+        // Seed-randomized radial clockwork spokes behind gears
+        const int spokeCount = randInt(rng, 8, 12);
+        const float spokePhase = randRange(rng, 0.0f, 360.0f / static_cast<float>(spokeCount));
+        for (int i = 0; i < spokeCount; ++i) {
+            const float ang = (spokePhase + static_cast<float>(i) * (360.0f / static_cast<float>(spokeCount))) * (kPi / 180.0f);
+            addLineShape(img, 50.0f, 70.0f, 50.0f + std::cos(ang) * 38.0f, 70.0f + std::sin(ang) * 48.0f, brassLo, 0.45f);
+        }
+
+        // Mirrored top/bottom satellite pinion gears (seed-varied teeth & vertical offset)
+        const int satTeeth = randInt(rng, 8, 12);
+        const float satOffsetY = randRange(rng, 32.0f, 39.0f);
+        const float satPhase = randRange(rng, 0.0f, 45.0f);
+        for (float dir : {-1.0f, 1.0f}) {
+            const float gy = 70.0f + dir * satOffsetY;
+            addPolyEx(img, makeGearPts(50.0f, gy, 13.5f, 10.5f, satTeeth, satPhase), brassLo, ink, 0.45f);
+            addCircleApprox(img, 50.0f, gy, 7.2f, bgDark, brass, 0.55f, 16);
+            addCircleApprox(img, 50.0f, gy, 3.0f, brassHi, ink, 0.35f, 12);
+        }
+
+        // Main central horological gear (seed-varied teeth & phase)
+        const int mainTeeth = randInt(rng, 14, 20);
+        const float mainPhase = randRange(rng, 0.0f, 30.0f);
+        addPolyEx(img, makeGearPts(50.0f, 70.0f, 26.5f, 22.0f, mainTeeth, mainPhase), brass, ink, 0.55f);
+        addCircleApprox(img, 50.0f, 70.0f, 17.5f, bgDark, brassHi, 0.70f, 24);
+        addCircleApprox(img, 50.0f, 70.0f, 13.5f, bgMid, brassLo, 0.45f, 20);
+
+        // 3D-projected faceted brass astrolabe gem in center
+        const Ramp4 brassRamp = {brassLo, brass, brassHi, 0xFFFFF0B8u};
+        const int coreSides = randInt(rng, 4, 6);
+        emitFacetedCrystalMedallion(img, 50.0f, 70.0f, 10.5f, 12.5f, coreSides,
+                                    randRange(rng, -22.0f, 22.0f), randRange(rng, -15.0f, 15.0f), brassRamp);
+
+        // 4-way mirrored chamfered brass corner brackets
+        for (float sx : {-1.0f, 1.0f}) {
+            for (float sy : {-1.0f, 1.0f}) {
+                const float x0 = 50.0f + sx * 41.0f;
+                const float y0 = 70.0f + sy * 61.0f;
+                addPolyEx(img, {
+                    {x0, y0},
+                    {x0 - sx * 12.0f, y0},
+                    {x0 - sx * 8.0f, y0 - sy * 4.0f},
+                    {x0 - sx * 4.0f, y0 - sy * 8.0f},
+                    {x0, y0 - sy * 12.0f}
+                }, brass, ink, 0.40f);
+            }
+        }
+
+        addStrokeRectShape(img, 7.0f, 7.0f, 86.0f, 126.0f, brass, 1.1f);
+        addStrokeRectShape(img, 10.0f, 10.0f, 80.0f, 120.0f, brassLo, 0.5f);
+        return img;
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. SolPoly Mobile (LowPolyStyle::Mobile): Bold High-Contrast Graphic
+    // -----------------------------------------------------------------------
+    if (opts.style == LowPolyStyle::Mobile) {
+        const int palIdx = randInt(rng, 0, 3);
+        const uint32_t fieldMain = (palIdx == 0) ? 0xFFCC1D24u : (palIdx == 1 ? 0xFF14161Eu : (palIdx == 2 ? 0xFF1D4ED8u : 0xFF065F46u));
+        const uint32_t fieldDark = (palIdx == 0) ? 0xFF991B1Bu : (palIdx == 1 ? 0xFF0A0C12u : (palIdx == 2 ? 0xFF1E3A8Au : 0xFF064E3Bu));
+        const uint32_t watermark = (palIdx == 0) ? 0xFFB0161Cu : (palIdx == 1 ? 0xFF1E2230u : (palIdx == 2 ? 0xFF1A42B8u : 0xFF05523Cu));
+
+        // Clean crisp white card border
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFF8FAFCu);
+        // Bold inner graphic panel
+        addPolyShape(img, {{6.5f, 6.5f}, {93.5f, 6.5f}, {93.5f, 133.5f}, {6.5f, 133.5f}}, fieldMain);
+
+        // Seed-tilted high-contrast diagonal slash
+        const float slashShift = randRange(rng, -14.0f, 14.0f);
+        addPolyShape(img, {
+            {6.5f, 78.0f + slashShift},
+            {93.5f, 52.0f - slashShift},
+            {93.5f, 133.5f},
+            {6.5f, 133.5f}
+        }, fieldDark);
+
+        // Oversized tilted graphic suit watermark (signature Mobile deck motif)
+        const Suit wmSuit = static_cast<Suit>(randInt(rng, 0, 3));
+        const float wmTilt = randRange(rng, -14.0f, 14.0f);
+        addClassicSuitShape(img, wmSuit, 50.0f, 70.0f, 44.0f, wmTilt, watermark);
+
+        // Bold monochrome silver/slate 3D faceted diamond badge in center
+        const Ramp4 silverRamp = {0xFF475569u, 0xFF94A3B8u, 0xFFE2E8F0u, 0xFFFFFFFFu};
+        const int sides = randInt(rng, 4, 6);
+        // Crisp dark halo diamond behind badge
+        addPolyShape(img, {{50.0f, 44.0f}, {70.0f, 70.0f}, {50.0f, 96.0f}, {30.0f, 70.0f}}, 0xFF0F172Au);
+        emitFacetedCrystalMedallion(img, 50.0f, 70.0f, 15.0f, 20.0f, sides,
+                                    randRange(rng, -25.0f, 25.0f), randRange(rng, -15.0f, 15.0f), silverRamp);
+
+        addStrokeRectShape(img, 6.5f, 6.5f, 87.0f, 127.0f, 0xFF0F172Au, 1.0f);
+        addStrokeRectShape(img, 10.5f, 10.5f, 79.0f, 119.0f, 0xFFF8FAFCu, 0.7f);
+        return img;
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. SolPoly (Classic + White/Ivory) & SolPoly Dark (Classic + Dark):
+    //    4-way Mirrored Procedural Low-Poly Origami Mosaic + 3D Crystal Core
+    // -----------------------------------------------------------------------
+    if (opts.style == LowPolyStyle::Classic) {
+        const bool isDark = (opts.bg == LowPolyBg::Dark);
+        const int palIdx = randInt(rng, 0, 3);
+
+        if (isDark) {
+            // SolPoly Dark: Obsidian border + midnight slate mosaic + glowing jewel crystal core
+            addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFF141821u);
+            const Ramp4 bgRamp = {0xFF181E2Bu, 0xFF222A3Bu, 0xFF2E394Fu, 0xFF3D4B66u};
+            const int cols = randInt(rng, 3, 4);
+            const int rows = randInt(rng, 4, 6);
+            emitMirroredLowPolyMosaic(img, 7.0f, 7.0f, 93.0f, 133.0f, cols, rows, bgRamp, rng);
+
+            // Seed-selected luminous jewel ramp (Cyan, Amber, Emerald, Amethyst)
+            static const Ramp4 kJewels[4] = {
+                {0xFF0369A1u, 0xFF0284C7u, 0xFF38BDF8u, 0xFFBAE6FDu},
+                {0xFF92400Eu, 0xFFD97706u, 0xFFFBBF24u, 0xFFFEF08Au},
+                {0xFF065F46u, 0xFF059669u, 0xFF34D399u, 0xFFA7F3D0u},
+                {0xFF5B21B6u, 0xFF7C3AEDu, 0xFFA78BFAu, 0xFFDDD6FEu}
+            };
+            const Ramp4& gemRamp = kJewels[palIdx];
+            const uint32_t borderCol = gemRamp[2];
+
+            // Dark chamfered backing diamond + glowing 3D crystal core
+            addPolyShape(img, {{50.0f, 38.0f}, {72.0f, 70.0f}, {50.0f, 102.0f}, {28.0f, 70.0f}}, 0xFF0F131Cu);
+            emitFacetedCrystalMedallion(img, 50.0f, 70.0f, 16.0f, 24.0f, randInt(rng, 4, 6),
+                                        randRange(rng, -28.0f, 28.0f), randRange(rng, -18.0f, 18.0f), gemRamp);
+
+            addStrokeRectShape(img, 7.0f, 7.0f, 86.0f, 126.0f, borderCol, 0.85f);
+            addStrokeRectShape(img, 10.5f, 10.5f, 79.0f, 119.0f, 0xFF334155u, 0.55f);
+        } else {
+            // SolPoly (White): Crisp Alabaster border + architectural color mosaic + 3D prism core
+            addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFF4F2ECu);
+            addPolyShape(img, {{100, 88}, {58, 140}, {100, 140}}, 0xFFE6E2D8u);
+
+            // Seed-selected crisp architectural palette (Arctic Sapphire, Vermilion Coral, Mint Slate, Warm Gold)
+            static const Ramp4 kLightMosaics[4] = {
+                {0xFF1E3A8Au, 0xFF2563EBu, 0xFF60A5FAu, 0xFFDBEAFEu},
+                {0xFF991B1Bu, 0xFFDC2626u, 0xFFF87171u, 0xFFFEE2E2u},
+                {0xFF0F766Eu, 0xFF14B8A6u, 0xFF5EEAD4u, 0xFFCCFBF1u},
+                {0xFF334155u, 0xFF475569u, 0xFF94A3B8u, 0xFFE2E8F0u}
+            };
+            const Ramp4& bgRamp = kLightMosaics[palIdx];
+            const int cols = randInt(rng, 3, 4);
+            const int rows = randInt(rng, 4, 6);
+            emitMirroredLowPolyMosaic(img, 7.5f, 7.5f, 92.5f, 132.5f, cols, rows, bgRamp, rng);
+
+            // Crisp alabaster diamond frame + 3D faceted centerpiece
+            addPolyEx(img, {{50.0f, 38.0f}, {72.0f, 70.0f}, {50.0f, 102.0f}, {28.0f, 70.0f}}, 0xFFF8FAFCu, bgRamp[0], 0.8f);
+            emitFacetedCrystalMedallion(img, 50.0f, 70.0f, 15.0f, 23.0f, randInt(rng, 4, 6),
+                                        randRange(rng, -28.0f, 28.0f), randRange(rng, -18.0f, 18.0f), bgRamp);
+
+            addStrokeRectShape(img, 7.5f, 7.5f, 85.0f, 125.0f, bgRamp[0], 0.9f);
+            addStrokeRectShape(img, 10.5f, 10.5f, 79.0f, 119.0f, 0xFFF8FAFCu, 0.55f);
+        }
+        return img;
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. Scoundrel Prism (LowPolyStyle::Scoundrel): Dungeon Basalt, Crossed
+    //    Forged Blades & Torchlight Relic Crystal (Seed-Randomized)
+    // -----------------------------------------------------------------------
+    if (opts.style == LowPolyStyle::Scoundrel) {
+        const int palIdx = randInt(rng, 0, 3);
+        // Curated dungeon torchlight crystal ramps (Torch Amber, Bloodstone Ruby, Venom Jade, Cursed Amethyst)
+        static const Ramp4 kRelics[4] = {
+            {0xFF92400Eu, 0xFFD97706u, 0xFFFBBF24u, 0xFFFEF3C7u},
+            {0xFF7F1D1Du, 0xFFDC2626u, 0xFFF87171u, 0xFFFECACAu},
+            {0xFF065F46u, 0xFF059669u, 0xFF34D399u, 0xFFA7F3D0u},
+            {0xFF581C87u, 0xFF9333EAu, 0xFFC084FCu, 0xFFF3E8FFu}
+        };
+        const Ramp4& relicRamp = kRelics[palIdx];
+        const uint32_t ironHi   = 0xFF64748Bu;
+        const uint32_t ironMid  = 0xFF334155u;
+        const uint32_t ironDark = 0xFF1E293Bu;
+
+        // Deep basalt obsidian outer frame
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFF10131Bu);
+        addPolyShape(img, {{100, 86}, {54, 140}, {100, 140}}, 0xFF0A0C12u);
+
+        // 4-way mirrored jagged basalt dungeon mosaic
+        const Ramp4 stoneRamp = {0xFF141924u, 0xFF1C2332u, 0xFF252E42u, 0xFF2F3A52u};
+        const int cols = randInt(rng, 3, 4);
+        const int rows = randInt(rng, 4, 6);
+        emitMirroredLowPolyMosaic(img, 7.0f, 7.0f, 93.0f, 133.0f, cols, rows, stoneRamp, rng);
+
+        // Seed-angled torchlight beam cutting across the chamber
+        const float beamTilt = randRange(rng, -12.0f, 12.0f);
+        addPolyShape(img, {
+            {32.0f + beamTilt, 7.0f},
+            {68.0f + beamTilt, 7.0f},
+            {62.0f - beamTilt, 133.0f},
+            {38.0f - beamTilt, 133.0f}
+        }, 0x18FBBF24u);
+
+        // Crossed forged-steel low-poly daggers behind the central crystal (seed-varied splay angle)
+        const float bladeSpread = randRange(rng, 28.0f, 38.0f) * (kPi / 180.0f);
+        const float bLen = 40.0f;
+        const float bWid = 4.6f;
+        for (float dir : {-1.0f, 1.0f}) {
+            const float ang = dir * bladeSpread;
+            const float dx = std::sin(ang);
+            const float dy = -std::cos(ang);
+            const float px = -dy;
+            const float py = dx;
+            // Upper & lower blade halves (split down spine for 3D bevel)
+            addPolyShape(img, {
+                {50.0f + dx * bLen, 70.0f + dy * bLen},
+                {50.0f + px * bWid, 70.0f + py * bWid},
+                {50.0f - dx * bLen, 70.0f - dy * bLen}
+            }, ironHi);
+            addPolyShape(img, {
+                {50.0f + dx * bLen, 70.0f + dy * bLen},
+                {50.0f - px * bWid, 70.0f - py * bWid},
+                {50.0f - dx * bLen, 70.0f - dy * bLen}
+            }, ironMid);
+        }
+
+        // Chamfered obsidian shield backing + glowing 3D-projected Scoundrel Relic Crystal
+        addPolyEx(img, {{50.0f, 36.0f}, {74.0f, 70.0f}, {50.0f, 104.0f}, {26.0f, 70.0f}}, 0xFF0E121Bu, relicRamp[1], 0.9f);
+        emitFacetedCrystalMedallion(img, 50.0f, 70.0f, 17.0f, 25.0f, randInt(rng, 4, 6),
+                                    randRange(rng, -26.0f, 26.0f), randRange(rng, -16.0f, 16.0f), relicRamp);
+
+        // 4-way mirrored ironbound dungeon corner brackets + ember rivets
+        for (float sx : {-1.0f, 1.0f}) {
+            for (float sy : {-1.0f, 1.0f}) {
+                const float x0 = 50.0f + sx * 43.0f;
+                const float y0 = 70.0f + sy * 63.0f;
+                addPolyEx(img, {
+                    {x0, y0},
+                    {x0 - sx * 14.0f, y0},
+                    {x0 - sx * 10.0f, y0 - sy * 5.0f},
+                    {x0 - sx * 5.0f,  y0 - sy * 10.0f},
+                    {x0, y0 - sy * 14.0f}
+                }, ironDark, ironHi, 0.55f);
+                addCircleApprox(img, x0 - sx * 5.2f, y0 - sy * 5.2f, 1.6f, relicRamp[2], 0, 0.0f, 8);
+            }
+        }
+
+        addStrokeRectShape(img, 7.0f, 7.0f, 86.0f, 126.0f, ironHi, 0.95f);
+        addStrokeRectShape(img, 10.5f, 10.5f, 79.0f, 119.0f, relicRamp[1], 0.65f);
+        return img;
+    }
+
+    // Fallback for Memory low-poly deck
     const bool isMemoryGem = (opts.style == LowPolyStyle::Memory);
-    const bool isMobile = (opts.style == LowPolyStyle::Mobile);
-    const uint32_t gemBright = isMemoryGem ? 0xFF34D399u : (isWarmGem ? 0xFFFBBF24u : (isMobile ? 0xFFEF4444u : 0xFF38BDF8u));
-    const uint32_t gemMid    = isMemoryGem ? 0xFF059669u : (isWarmGem ? 0xFFD97706u : (isMobile ? 0xFFC8202Au : 0xFF0284C7u));
-    const uint32_t gemLight  = isMemoryGem ? 0xFFA7F3D0u : (isWarmGem ? 0xFFFDE68Au : (isMobile ? 0xFFFCA5A5u : 0xFF7DD3FCu));
-    const uint32_t gemDark   = isMemoryGem ? 0xFF065F46u : (isWarmGem ? 0xFF92400Eu : (isMobile ? 0xFF7F1D1Du : 0xFF0369A1u));
+    const uint32_t gemBright = isMemoryGem ? 0xFF34D399u : 0xFF38BDF8u;
+    const uint32_t gemMid    = isMemoryGem ? 0xFF059669u : 0xFF0284C7u;
+    const uint32_t gemLight  = isMemoryGem ? 0xFFA7F3D0u : 0xFF7DD3FCu;
+    const uint32_t gemDark   = isMemoryGem ? 0xFF065F46u : 0xFF0369A1u;
 
     addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFF1E2430u);
     addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, 0xFF171C26u);
@@ -1982,6 +2341,17 @@ bool LowPolyDeckGenerator::generateDeckTextures(
 
     if (onProgress) onProgress(1.0f, "Low-Poly deck ready.");
     return true;
+}
+
+bool LowPolyDeckGenerator::generateCardBackTexture(
+    const LowPolyDeckOptions& opts,
+    int cardW,
+    int cardH,
+    CardTexture& outTex
+) {
+    if (cardW <= 0 || cardH <= 0) return false;
+    rasterizeVectorIntoTexture(buildCardBackVector(opts), cardW, cardH, outTex);
+    return !outTex.rgba.empty();
 }
 
 } // namespace solengine

@@ -2,8 +2,10 @@
 #define SOLENGINE_SEED_DIALOG_HPP
 
 #include "eatsbits/ui/batch_renderer_2d.hpp"
+#include "solengine/replay_track.hpp"
 #include <functional>
 #include <string>
+#include <vector>
 #include <cstdint>
 
 namespace solengine {
@@ -12,14 +14,24 @@ class SolitaireBoard;
 class AudioFoleyEngine;
 struct ThemePalette;
 
+struct SeedHistoryEntry {
+    uint32_t seed{0u};
+    std::string gameId;
+    std::string gameName;
+};
+
 class SeedDialog {
 public:
     SeedDialog();
     ~SeedDialog() = default;
 
-    void open(uint32_t currentSeed, const std::string& variantName);
+    void open(uint32_t currentSeed, const std::string& variantName, const std::string& gameId = "");
     void close() noexcept;
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
+
+    /// Record a generated or dealt seed into the in-memory session history (most recent first).
+    void recordHistory(uint32_t seed, const std::string& gameId, const std::string& gameName);
+    [[nodiscard]] const std::vector<SeedHistoryEntry>& history() const noexcept { return history_; }
 
     void render(
         eatsbits::ui::BatchRenderer2D& r,
@@ -43,6 +55,7 @@ public:
     );
 
     bool handleMouseMove(float mouseX, float mouseY);
+    bool handleScroll(float yoffset);
 
     bool handleKey(
         int key,
@@ -56,20 +69,38 @@ public:
     bool handleChar(unsigned int codepoint);
 
     std::function<void(uint32_t newSeed)> onDealSeed;
+    std::function<void(uint32_t newSeed, const std::string& gameId)> onReplayHistory;
+    std::function<void(const ReplayTrack& track, bool guided)> onLaunchReplay;
 
 private:
+    static constexpr size_t kMaxHistory = 64;
+
     void randomizeSeed();
+    void copyTextToClipboard(const std::string& text, void* nativeWindow);
     void copyToClipboard(void* nativeWindow);
-    void pasteFromClipboard(void* nativeWindow);
+    void copyReplayToClipboard(const SolitaireBoard& board, void* nativeWindow);
+    bool pasteFromClipboard(void* nativeWindow, SolitaireBoard& board, AudioFoleyEngine& foley);
     void commitDeal(SolitaireBoard& board, AudioFoleyEngine& foley);
+    void commitHistoryReplay(uint32_t seed, const std::string& gameId, const std::string& gameName,
+                             SolitaireBoard& board, AudioFoleyEngine& foley);
+    [[nodiscard]] int computeVisibleHistoryRows(float screenH) const noexcept;
+    void clampHistoryScroll() noexcept;
 
     bool isOpen_{false};
     uint32_t seed_{2026u};
     std::string seedText_{"2026"};
     std::string variantName_{"Klondike"};
+    std::string targetGameId_;
+    uint32_t activeBoardSeed_{2026u};
+    std::string activeBoardGameId_;
     bool editingSeed_{true};
     float cursorBlink_{0.0f};
     float copyFeedbackTimer_{0.0f};
+    float replayCopyFeedbackTimer_{0.0f};
+
+    std::vector<SeedHistoryEntry> history_;
+    int historyScrollOffset_{0};
+    int visibleHistoryRows_{0};
 
     // Dialog layout bounds
     float dialogX_{0.0f};

@@ -1,3 +1,4 @@
+#include "solengine/eats_package_loader.hpp"
 #include "solengine/game_definition.hpp"
 #include "solengine/solitaire_board.hpp"
 #include "solengine/solitaire_solver.hpp"
@@ -157,6 +158,15 @@ std::vector<SolitaireGameDef> loadAllEatsGames(const std::string& gamesDir) {
 
     GameRegistry& reg = GameRegistry::instance();
     for (const auto& p : paths) {
+        EatsLoadResult pkgRes;
+        if (EatsPackageLoader::loadFile(p.string(), pkgRes) && !pkgRes.gameIds.empty()) {
+            for (const auto& gid : pkgRes.gameIds) {
+                if (const auto* g = reg.findById(gid)) {
+                    defs.push_back(*g);
+                }
+            }
+            continue;
+        }
         SolitaireGameDef def{};
         if (reg.loadGameFile(p.string(), def)) {
             defs.push_back(std::move(def));
@@ -181,7 +191,21 @@ bool startsWithKey(const std::string& line, const std::string& key) {
     return pos < t.size() && t[pos] == '=';
 }
 
-bool writeSeedsToEatsFile(const std::string& filePath, const std::vector<uint32_t>& seeds) {
+bool startsWithDictKey(const std::string& line, const std::string& key) {
+    std::string t = trimLeft(line);
+    if (t.rfind(key, 0) != 0) return false;
+    size_t pos = key.size();
+    while (pos < t.size() && (t[pos] == ' ' || t[pos] == '\t')) ++pos;
+    return pos < t.size() && t[pos] == ':';
+}
+
+bool lineMatchesGameId(const std::string& line, const std::string& gameId) {
+    if (!startsWithDictKey(line, "id")) return false;
+    return line.find("\"" + gameId + "\"") != std::string::npos ||
+           line.find("'" + gameId + "'") != std::string::npos;
+}
+
+bool writeSeedsToEatsFile(const std::string& filePath, const std::string& gameId, const std::vector<uint32_t>& seeds) {
     if (seeds.empty() || filePath.empty()) return false;
 
     std::ifstream in(filePath, std::ios::binary);
@@ -212,53 +236,115 @@ bool writeSeedsToEatsFile(const std::string& filePath, const std::vector<uint32_
         }
     }
 
-    std::ostringstream listOss;
-    listOss << "demo_seeds = [";
-    for (size_t i = 0; i < seeds.size(); ++i) {
-        if (i > 0) listOss << ", ";
-        listOss << seeds[i];
-    }
-    listOss << "]";
-    const std::string demoSeedLine = "demo_seed = " + std::to_string(seeds.front());
-    const std::string demoSeedsLine = listOss.str();
-
-    // Remove existing demo_seeds line if present so we place it cleanly right after demo_seed
-    std::vector<std::string> filtered;
-    filtered.reserve(lines.size() + 2);
-    for (const auto& l : lines) {
-        if (startsWithKey(l, "demo_seeds")) continue;
-        filtered.push_back(l);
-    }
-
-    bool replacedDemoSeed = false;
     std::vector<std::string> outLines;
-    outLines.reserve(filtered.size() + 2);
-    for (const auto& l : filtered) {
-        if (!replacedDemoSeed && startsWithKey(l, "demo_seed")) {
-            outLines.push_back(demoSeedLine);
-            outLines.push_back(demoSeedsLine);
-            replacedDemoSeed = true;
-        } else {
-            outLines.push_back(l);
+
+    // Bundle-aware patching for sol.define_game({ id: "<gameId>", ... })
+    size_t idLine = lines.size();
+    if (!gameId.empty()) {
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (lineMatchesGameId(lines[i], gameId)) {
+                idLine = i;
+                break;
+            }
         }
     }
 
-    if (!replacedDemoSeed) {
-        // Insert after max_redeals or before first function / section header
-        size_t insertIdx = outLines.size();
-        for (size_t i = 0; i < outLines.size(); ++i) {
-            if (startsWithKey(outLines[i], "max_redeals")) {
-                insertIdx = i + 1;
-                break;
-            }
-            std::string t = trimLeft(outLines[i]);
-            if (t.rfind("def ", 0) == 0 || t.rfind("doc_", 0) == 0) {
-                insertIdx = i;
+    if (idLine < lines.size()) {
+        // Find end of this sol.define_game({ ... }) block
+        size_t blockEnd = lines.size();
+        for (size_t i = idLine + 1; i < lines.size(); ++i) {
+            if (lines[i] == "})" || trimLeft(lines[i]).rfind("sol.define_game(", 0) == 0) {
+                blockEnd = i;
                 break;
             }
         }
-        outLines.insert(outLines.begin() + static_cast<std::ptrdiff_t>(insertIdx), demoSeedsLine);
-        outLines.insert(outLines.begin() + static_cast<std::ptrdiff_t>(insertIdx), demoSeedLine);
+
+        // Preserve leading indentation from the id line
+        size_t indentLen = 0;
+        while (indentLen < lines[idLine].size() &&
+               (lines[idLine][indentLen] == ' ' || lines[idLine][indentLen] == '\t')) {
+            ++indentLen;
+        }
+        const std::string indent = lines[idLine].substr(0, indentLen);
+
+        std::ostringstream listOss;
+        listOss << indent << "demo_seeds: [";
+        for (size_t i = 0; i < seeds.size(); ++i) {
+            if (i > 0) listOss << ", ";
+            listOss << seeds[i];
+        }
+        listOss << "],";
+        const std::string demoSeedLine = indent + "demo_seed: " + std::to_string(seeds.front()) + ",";
+        const std::string demoSeedsLine = listOss.str();
+
+        bool replacedDemoSeed = false;
+        outLines.reserve(lines.size() + 2);
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (i > idLine && i < blockEnd) {
+                if (startsWithDictKey(lines[i], "demo_seeds")) {
+                    continue;
+                }
+                if (!replacedDemoSeed && startsWithDictKey(lines[i], "demo_seed")) {
+                    outLines.push_back(demoSeedLine);
+                    outLines.push_back(demoSeedsLine);
+                    replacedDemoSeed = true;
+                    continue;
+                }
+            }
+            if (i == blockEnd && !replacedDemoSeed) {
+                outLines.push_back(demoSeedLine);
+                outLines.push_back(demoSeedsLine);
+                replacedDemoSeed = true;
+            }
+            outLines.push_back(lines[i]);
+        }
+    } else {
+        // Legacy single-game top-level format
+        std::ostringstream listOss;
+        listOss << "demo_seeds = [";
+        for (size_t i = 0; i < seeds.size(); ++i) {
+            if (i > 0) listOss << ", ";
+            listOss << seeds[i];
+        }
+        listOss << "]";
+        const std::string demoSeedLine = "demo_seed = " + std::to_string(seeds.front());
+        const std::string demoSeedsLine = listOss.str();
+
+        std::vector<std::string> filtered;
+        filtered.reserve(lines.size() + 2);
+        for (const auto& l : lines) {
+            if (startsWithKey(l, "demo_seeds")) continue;
+            filtered.push_back(l);
+        }
+
+        bool replacedDemoSeed = false;
+        outLines.reserve(filtered.size() + 2);
+        for (const auto& l : filtered) {
+            if (!replacedDemoSeed && startsWithKey(l, "demo_seed")) {
+                outLines.push_back(demoSeedLine);
+                outLines.push_back(demoSeedsLine);
+                replacedDemoSeed = true;
+            } else {
+                outLines.push_back(l);
+            }
+        }
+
+        if (!replacedDemoSeed) {
+            size_t insertIdx = outLines.size();
+            for (size_t i = 0; i < outLines.size(); ++i) {
+                if (startsWithKey(outLines[i], "max_redeals")) {
+                    insertIdx = i + 1;
+                    break;
+                }
+                std::string t = trimLeft(outLines[i]);
+                if (t.rfind("def ", 0) == 0 || t.rfind("doc_", 0) == 0) {
+                    insertIdx = i;
+                    break;
+                }
+            }
+            outLines.insert(outLines.begin() + static_cast<std::ptrdiff_t>(insertIdx), demoSeedsLine);
+            outLines.insert(outLines.begin() + static_cast<std::ptrdiff_t>(insertIdx), demoSeedLine);
+        }
     }
 
     std::ofstream out;
@@ -502,7 +588,7 @@ int cmdFind(
         std::cout << "]";
 
         if (writeFiles && !seeds.empty()) {
-            if (writeSeedsToEatsFile(def.filePath, seeds)) {
+            if (writeSeedsToEatsFile(def.filePath, def.id, seeds)) {
                 std::cout << " -> written";
             } else {
                 std::cout << " -> WRITE FAILED";

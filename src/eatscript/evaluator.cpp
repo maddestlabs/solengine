@@ -1,11 +1,11 @@
 #include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/eatscript/lexer.hpp"
 #include "eatsbits/eatscript/parser.hpp"
+#include "solengine/deterministic_rng.hpp"
 #include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <sstream>
-#include <random>
 #include <iostream>
 
 namespace eatsbits::eatscript {
@@ -84,10 +84,8 @@ void Evaluator::registerBuiltins() {
     registerMemberFunction("math", "exp", [](const std::vector<Value>& args, const auto&) {
         return Value(std::exp(args.empty() ? 0.0 : args[0].asNumber()));
     });
-    registerMemberFunction("math", "random", [](const auto&, const auto&) {
-        static std::mt19937 rng(42);
-        static std::uniform_real_distribution<double> dist(0.0, 1.0);
-        return Value(dist(rng));
+    registerMemberFunction("math", "random", [rng = solengine::DeterministicRng{42u}](const auto&, const auto&) mutable {
+        return Value(rng.nextDouble01());
     });
 
     // Global Math Helpers

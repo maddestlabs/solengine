@@ -160,6 +160,7 @@ struct DirectorOptions {
     uint32_t exportFps{60};
     std::string ffmpegBin;
     std::string recordMovesPath;
+    std::vector<uint8_t>* exportSingleFrameRgba{nullptr}; // Native-only: capture 1 offscreen WebGPU RGBA frame and exit
 };
 
 class MagicParticleSystem {
@@ -252,6 +253,17 @@ public:
         const std::vector<GhostCardCue>* ghostCards = nullptr,
         const HelpVideoThumb* helpVideoThumb = nullptr,
         const VictoryGatherState* victoryGather = nullptr
+    );
+
+    static void renderMiniBoard(
+        eatsbits::ui::BatchRenderer2D& r,
+        const SolitaireBoard& board,
+        float stageX,
+        float stageY,
+        float stageW,
+        float stageH,
+        const ThemePalette& pal,
+        const class AutoPlayController* autoPlay = nullptr
     );
 
     static bool renderToPng(

@@ -1,57 +1,21 @@
 # =============================================================================
-# SolEngine RPG Solitaire: Scoundrel (.eats)
+# SolEngine Game Family: Scoundrel (.eats)
+# Consolidated variants:
+#   - Scoundrel (44-Card Classic Dungeon Crawl)
+#   - Scoundrel in Training (52-Card Beginner Variant)
 # =============================================================================
-# Classic 44-card dungeon-crawl solitaire by Zach Gage & Kurt Bieg.
-# Removes Red Face Cards (J/Q/K) and Red Aces; supports 1 potion per room,
-# Flee Room (bottom of deck, no consecutive flees), <= durability cap,
-# and barehanded vs. armed combat choice.
 
-default_deck = "scoundrel_lowpoly"
+# --- Shared Scoundrel Dungeon-Crawl Helpers ---
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(2, "Quick", 3, "25%-55%", 3, "Tactical")
-doc_aliases(["Dungeon Solitaire", "Scoundrel Card Game"])
-doc_goal("Clear the entire 44-card Dungeon deck and Room without falling to 0 HP.", "Your HP drops to 0 during combat.")
-doc_zone(0, "Dungeon Deck", "44-card deck (no Red Face Cards or Red Aces). Click when all 4 Room cards are untouched to Flee.", ["AS", "KC"], ["Deals 3 cards when 1 [[Room]] card remains.", "Click with 4 untouched Room cards to [[Flee]] (once per room; not twice in a row)."])
-doc_zone(1, "Graveyard", "Slain monsters, consumed potions, and replaced weapons.", [], ["Drag an eligible [[Monster]] here to fight BAREHANDED (preserves weapon [[CAP]])."])
-doc_zone(2, "Equipped Weapon", "Active Diamond weapon (2-10).", ["7D", "4D"], ["Equipping a new Diamond replaces your current weapon (discards the old one) and resets [[CAP]].", "Subtracts weapon value from monster value (minimum 0 damage)."])
-doc_zone(3, "Room Slot 1", "Active dungeon encounter card.", ["10S", "5H", "7D"], ["Click to resolve (uses Weapon if <= [[CAP]]), or drag a [[Monster]] to [[Graveyard]] to fight barehanded."])
-doc_zone(4, "Room Slot 2", "Active dungeon encounter card.", [], ["Resolve 3 of 4 cards; the 4th carries over into the next [[Room]]."])
-doc_zone(5, "Room Slot 3", "Active dungeon encounter card.")
-doc_zone(6, "Room Slot 4", "Active dungeon encounter card.")
-doc_rule("Resolving Monsters", ["Barehanded: Take damage equal to the monster's value (Ace = 14) and discard it to [[Graveyard]].", "With a Weapon: Subtract your weapon's value from the monster's value; take only the difference as damage (minimum 0).", "Drag an eligible [[Monster]] to [[Graveyard]] to fight barehanded instead of using your weapon."])
-doc_rule("Weapon Limit (CAP)", ["A fresh [[Weapon]] has no limit and can fight any monster once.", "After killing a monster with a weapon, [[CAP]] drops to that monster's value.", "Subsequent fights with that weapon can only target monsters with value <= [[CAP]] (stronger monsters must be fought barehanded)."])
-doc_rule("Weapons & Potions", ["Equipping a new Diamond replaces your current weapon, discarding the old one and resetting [[CAP]].", "[[Potion]] cards (Hearts) heal HP up to 20, but only 1 potion heals per [[Room]]; extra potions are discarded with no effect."])
-doc_rule("Fleeing", ["Click [[Dungeon Deck]] when all 4 Room cards are untouched to move them to the bottom and deal 4 new cards. Cannot flee two Rooms in a row."])
-doc_stat("HP", "Hit Points", "Starts at 20 (max 20). Reaching 0 ends the run in defeat.")
-doc_stat("WEAPON", "Weapon Power", "Attack value of your currently equipped Diamond weapon (2-10).")
-doc_stat("CAP", "Weapon Durability Cap", "Maximum monster value your current weapon can still block (<= CAP; 99 when fresh).")
-doc_stat("POTION_USED", "Room Potion Limit", "Only 1 Heart potion may heal per Room; extra potions are discarded with no effect.")
-doc_stat("FLEE_USED", "Flee Cooldown", "1 if you fled the previous Room (cannot flee two Rooms in a row).")
-doc_tag("monster", "Monsters (Spades & Clubs 2-A)", "Value equals rank (Ace = 14). Click to fight with Weapon (if <= [[CAP]]) or barehanded; drag to [[Graveyard]] to force barehanded.")
-doc_tag("weapon", "Weapons (Diamonds 2-10)", "Equip to subtract weapon value from monster damage; replaces any existing weapon.")
-doc_tag("potion", "Potions (Hearts 2-10)", "Restores HP up to 20 (max 1 healing potion per [[Room]]).")
-
-def eval_heuristic():
-    hp = get_stat("HP", 20)
-    wpn = get_stat("WEAPON", 0)
-    cap = get_stat("CAP", 99)
-    eff_cap = cap
-    if cap >= 99:
-        eff_cap = 14
-    flee = get_stat("FLEE_USED", 0)
-    remaining = zone_size(0) + room_card_count()
-    return hp * 90 + wpn * 30 + eff_cap * 10 - remaining * 220 - flee * 40
-
-def card_power(z, i):
+def sc_card_power(z, i):
     r = card_rank(z, i)
     if r == 1:
         return 14
     return r
 
-def tag_card_rpg(z, i):
+def sc_tag_card_rpg(z, i):
     s = card_suit(z, i)
-    p = card_power(z, i)
+    p = sc_card_power(z, i)
     if s == 0 or s == 3:
         set_card_stat(z, i, "attack", p)
         add_card_tag(z, i, "monster")
@@ -62,7 +26,7 @@ def tag_card_rpg(z, i):
         set_card_stat(z, i, "hp", p)
         add_card_tag(z, i, "potion")
 
-def room_card_count():
+def sc_room_card_count():
     cnt = 0
     z = 3
     while z <= 6:
@@ -71,23 +35,23 @@ def room_card_count():
         z = z + 1
     return cnt
 
-def deal_empty_room_slots():
+def sc_deal_empty_room_slots():
     z = 3
     while z <= 6:
         if zone_size(z) == 0 and zone_size(0) > 0:
             top = zone_size(0) - 1
             move_cards(0, top, z)
             flip_card(z, 0, True)
-            tag_card_rpg(z, 0)
+            sc_tag_card_rpg(z, 0)
         z = z + 1
 
-def refill_room():
-    deal_empty_room_slots()
+def sc_refill_room():
+    sc_deal_empty_room_slots()
     set_stat("POTION_USED", 0)
     set_stat("FLEE_USED", 0)
 
-def resolve_potion(z, i):
-    p = card_power(z, i)
+def sc_resolve_potion(z, i):
+    p = sc_card_power(z, i)
     if get_stat("POTION_USED", 0) == 0:
         hp = get_stat("HP", 20)
         new_hp = hp + p
@@ -99,8 +63,8 @@ def resolve_potion(z, i):
     move_cards(z, i, 1)
     return True
 
-def resolve_weapon(z, i):
-    p = card_power(z, i)
+def sc_resolve_weapon(z, i):
+    p = sc_card_power(z, i)
     if zone_size(2) > 0:
         move_cards(2, 0, 1)
     move_cards(z, i, 2)
@@ -110,8 +74,8 @@ def resolve_weapon(z, i):
     add_score(p * 5)
     return True
 
-def resolve_monster(z, i, use_weapon):
-    p = card_power(z, i)
+def sc_resolve_monster(z, i, use_weapon):
+    p = sc_card_power(z, i)
     hp = get_stat("HP", 20)
     wpn = get_stat("WEAPON", 0)
     cap = get_stat("CAP", 99)
@@ -132,7 +96,24 @@ def resolve_monster(z, i, use_weapon):
     add_score(p * 15)
     return True
 
-def on_deal():
+def sc_eval(hp_wt, wpn_wt, cap_wt, rem_wt):
+    hp = get_stat("HP", 20)
+    wpn = get_stat("WEAPON", 0)
+    cap = get_stat("CAP", 99)
+    eff_cap = cap
+    if cap >= 99:
+        eff_cap = 14
+    flee = get_stat("FLEE_USED", 0)
+    remaining = zone_size(0) + sc_room_card_count()
+    return hp * hp_wt + wpn * wpn_wt + eff_cap * cap_wt - remaining * rem_wt - flee * 40
+
+def sc_classic_eval():
+    return sc_eval(90, 30, 10, 220)
+
+def sc_rookie_eval():
+    return sc_eval(70, 35, 30, 180)
+
+def sc_on_deal():
     set_stat("HP", 20)
     set_stat("WEAPON", 0)
     set_stat("CAP", 99)
@@ -141,14 +122,14 @@ def on_deal():
     z = 3
     while z <= 6:
         if zone_size(z) > 0:
-            tag_card_rpg(z, 0)
+            sc_tag_card_rpg(z, 0)
         z = z + 1
     return True
 
-def can_pick(z, i):
+def sc_can_pick(z, i):
     return z >= 3 and z <= 6 and card_face_up(z, i)
 
-def can_drop(from_z, i, to_z):
+def sc_can_drop(from_z, i, to_z):
     if from_z < 3 or from_z > 6:
         return False
     if not card_face_up(from_z, i):
@@ -161,40 +142,30 @@ def can_drop(from_z, i, to_z):
         if s == 0 or s == 3:
             wpn = get_stat("WEAPON", 0)
             cap = get_stat("CAP", 99)
-            return wpn > 0 and card_power(from_z, i) <= cap
+            return wpn > 0 and sc_card_power(from_z, i) <= cap
     return False
 
-def on_drop(from_z, i, to_z):
-    if not can_drop(from_z, i, to_z):
+def sc_on_drop(from_z, i, to_z):
+    if not sc_can_drop(from_z, i, to_z):
         return False
-    s = card_suit(from_z, i)
-    if s == 1:
-        return resolve_potion(from_z, i)
-    if s == 2:
-        if to_z == 2:
-            return resolve_weapon(from_z, i)
-        move_cards(from_z, i, 1)
-        return True
-    if to_z == 2:
-        return resolve_monster(from_z, i, True)
-    return resolve_monster(from_z, i, False)
+    return sc_resolve_monster(from_z, i, False)
 
-def on_card_click(z, i):
+def sc_on_card_click(z, i):
     if z < 3 or z > 6:
         return False
     if zone_size(z) == 0:
         return False
     s = card_suit(z, i)
     if s == 1:
-        return resolve_potion(z, i)
+        return sc_resolve_potion(z, i)
     if s == 2:
-        return resolve_weapon(z, i)
-    return resolve_monster(z, i, True)
+        return sc_resolve_weapon(z, i)
+    return sc_resolve_monster(z, i, True)
 
-def on_stock_click():
+def sc_on_stock_click():
     if zone_size(0) == 0:
         return False
-    cnt = room_card_count()
+    cnt = sc_room_card_count()
     if cnt == 4:
         if get_stat("FLEE_USED", 0) != 0:
             return False
@@ -204,32 +175,39 @@ def on_stock_click():
                 flip_card(z, 0, False)
                 move_cards_bottom(z, 0, 0)
             z = z + 1
-        deal_empty_room_slots()
+        sc_deal_empty_room_slots()
         set_stat("POTION_USED", 0)
         set_stat("FLEE_USED", 1)
         return True
     if cnt <= 1:
-        refill_room()
+        sc_refill_room()
         return True
     return False
 
-def on_turn_end():
-    if room_card_count() <= 1 and zone_size(0) > 0:
-        refill_room()
+def sc_on_turn_end():
+    if sc_room_card_count() <= 1 and zone_size(0) > 0:
+        sc_refill_room()
     return True
 
-def get_status():
+def sc_get_status():
     if get_stat("HP", 20) <= 0:
         return "defeat"
-    if zone_size(0) == 0 and room_card_count() == 0:
+    if zone_size(0) == 0 and sc_room_card_count() == 0:
         return "victory"
     return "playing"
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
 
 sol.define_game({
     id: "scoundrel",
     name: "Scoundrel",
     family: "Scoundrel",
     category: "RPG",
+    mechanic: "rpg",
+    visibility: "half_open",
+    tags: ["rpg", "dungeon", "combat", "modern", "single_deck"],
     layout: "columns",
     description: "44-card dungeon-crawl solitaire. Spades/Clubs are monsters, Diamonds are weapons, Hearts are potions. Survive the deck!",
     decks: 1,
@@ -246,13 +224,112 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 6,
     demo_seeds: [6, 13, 53, 79, 142, 179, 237, 238],
-    eval_heuristic: eval_heuristic,
-    on_deal: on_deal,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    on_drop: on_drop,
-    on_card_click: on_card_click,
-    on_stock_click: on_stock_click,
-    on_turn_end: on_turn_end,
-    get_status: get_status
+    default_deck: "scoundrel_lowpoly",
+    eval_heuristic: sc_classic_eval,
+    on_deal: sc_on_deal,
+    can_pick: sc_can_pick,
+    can_drop: sc_can_drop,
+    on_drop: sc_on_drop,
+    on_card_click: sc_on_card_click,
+    on_stock_click: sc_on_stock_click,
+    on_turn_end: sc_on_turn_end,
+    get_status: sc_get_status,
+    doc: {
+        meta: [2, "Quick", 3, "25%-55%", 3, "Tactical"],
+        aliases: ["Dungeon Solitaire", "Scoundrel Card Game"],
+        goal: ["Clear the entire 44-card Dungeon deck and Room without falling to 0 HP.", "Your HP drops to 0 during combat."],
+        zones: [
+            { index: 0, name: "Dungeon Deck", desc: "44-card deck (no Red Face Cards or Red Aces). Click when all 4 Room cards are untouched to Flee.", examples: ["AS", "KC"], bullets: ["Deals 3 cards when 1 [[Room]] card remains.", "Click with 4 untouched Room cards to [[Flee]] (once per room; not twice in a row)."] },
+            { index: 1, name: "Graveyard", desc: "Slain monsters, consumed potions, and replaced weapons.", bullets: ["Drag an eligible [[Monster]] here to fight BAREHANDED (preserves weapon [[CAP]])."] },
+            { index: 2, name: "Equipped Weapon", desc: "Active Diamond weapon (2-10).", examples: ["7D", "4D"], bullets: ["Equipping a new Diamond replaces your current weapon (discards the old one) and resets [[CAP]].", "Subtracts weapon value from monster value (minimum 0 damage)."] },
+            { index: 3, name: "Room Slot 1", desc: "Active dungeon encounter card.", examples: ["10S", "5H", "7D"], bullets: ["Click to resolve (uses Weapon if <= [[CAP]]), or drag a [[Monster]] to [[Graveyard]] to fight barehanded."] },
+            { index: 4, name: "Room Slot 2", desc: "Active dungeon encounter card.", bullets: ["Resolve 3 of 4 cards; the 4th carries over into the next [[Room]]."] },
+            { index: 5, name: "Room Slot 3", desc: "Active dungeon encounter card." },
+            { index: 6, name: "Room Slot 4", desc: "Active dungeon encounter card." }
+        ],
+        rules: [
+            { title: "Resolving Monsters", bullets: ["Barehanded: Take damage equal to the monster's value (Ace = 14) and discard it to [[Graveyard]].", "With a Weapon: Subtract your weapon's value from the monster's value; take only the difference as damage (minimum 0).", "Drag an eligible [[Monster]] to [[Graveyard]] to fight barehanded instead of using your weapon."] },
+            { title: "Weapon Limit (CAP)", bullets: ["A fresh [[Weapon]] has no limit and can fight any monster once.", "After killing a monster with a weapon, [[CAP]] drops to that monster's value.", "Subsequent fights with that weapon can only target monsters with value <= [[CAP]] (stronger monsters must be fought barehanded)."] },
+            { title: "Weapons & Potions", bullets: ["Equipping a new Diamond replaces your current weapon, discarding the old one and resetting [[CAP]].", "[[Potion]] cards (Hearts) heal HP up to 20, but only 1 potion heals per [[Room]]; extra potions are discarded with no effect."] },
+            { title: "Fleeing", bullets: ["Click [[Dungeon Deck]] when all 4 Room cards are untouched to move them to the bottom and deal 4 new cards. Cannot flee two Rooms in a row."] }
+        ],
+        stats: [
+            { key: "HP", name: "Hit Points", desc: "Starts at 20 (max 20). Reaching 0 ends the run in defeat." },
+            { key: "WEAPON", name: "Weapon Power", desc: "Attack value of your currently equipped Diamond weapon (2-10)." },
+            { key: "CAP", name: "Weapon Durability Cap", desc: "Maximum monster value your current weapon can still block (<= CAP; 99 when fresh)." },
+            { key: "POTION_USED", name: "Room Potion Limit", desc: "Only 1 Heart potion may heal per Room; extra potions are discarded with no effect." },
+            { key: "FLEE_USED", name: "Flee Cooldown", desc: "1 if you fled the previous Room (cannot flee two Rooms in a row)." }
+        ],
+        tags: [
+            { tag: "monster", name: "Monsters (Spades & Clubs 2-A)", desc: "Value equals rank (Ace = 14). Click to fight with Weapon (if <= [[CAP]]) or barehanded; drag to [[Graveyard]] to force barehanded." },
+            { tag: "weapon", name: "Weapons (Diamonds 2-10)", desc: "Equip to subtract weapon value from monster damage; replaces any existing weapon." },
+            { tag: "potion", name: "Potions (Hearts 2-10)", desc: "Restores HP up to 20 (max 1 healing potion per [[Room]])." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "scoundrel_in_training",
+    name: "Scoundrel in Training",
+    family: "Scoundrel",
+    category: "RPG",
+    mechanic: "rpg",
+    visibility: "half_open",
+    tags: ["rpg", "dungeon", "combat", "modern", "relaxed", "single_deck"],
+    layout: "columns",
+    description: "52-card beginner Scoundrel. Includes Red Court weapons & potions (11-14) with standard Scoundrel rules.",
+    decks: 1,
+    tableaus: 4,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 17,
+    demo_seeds: [17, 18, 19, 21, 22, 30, 33, 45],
+    default_deck: "scoundrel_lowpoly",
+    eval_heuristic: sc_rookie_eval,
+    on_deal: sc_on_deal,
+    can_pick: sc_can_pick,
+    can_drop: sc_can_drop,
+    on_drop: sc_on_drop,
+    on_card_click: sc_on_card_click,
+    on_stock_click: sc_on_stock_click,
+    on_turn_end: sc_on_turn_end,
+    get_status: sc_get_status,
+    doc: {
+        meta: [1, "Quick", 4, "55%-85%", 2, "Tactical"],
+        aliases: ["Scoundrel Rookie", "Scoundrel Easy", "52-Card Scoundrel", "Dungeon Solitaire Easy"],
+        goal: ["Clear the entire 52-card Dungeon deck and Room without falling to 0 HP.", "Your HP drops to 0 during combat."],
+        zones: [
+            { index: 0, name: "Dungeon Deck", desc: "Full 52-card deck (includes Red Court Weapons & Potions 11-14). Click when all 4 Room cards are untouched to Flee.", examples: ["AH", "KD"], bullets: ["Deals 3 cards when 1 [[Room]] card remains.", "Click with 4 untouched Room cards to [[Flee]] (once per room; not twice in a row)."] },
+            { index: 1, name: "Graveyard", desc: "Slain monsters, consumed potions, and replaced weapons.", bullets: ["Drag an eligible [[Monster]] here to fight BAREHANDED (preserves weapon [[CAP]])."] },
+            { index: 2, name: "Equipped Weapon", desc: "Active Diamond weapon (2-14).", examples: ["JD", "7D"], bullets: ["Equipping a new Diamond replaces your current weapon (discards the old one) and resets [[CAP]].", "Subtracts weapon value from monster value (minimum 0 damage)."] },
+            { index: 3, name: "Room Slot 1", desc: "Active dungeon encounter card.", examples: ["10S", "KH", "QD"], bullets: ["Click to resolve (uses Weapon if <= [[CAP]]), or drag a [[Monster]] to [[Graveyard]] to fight barehanded."] },
+            { index: 4, name: "Room Slot 2", desc: "Active dungeon encounter card.", bullets: ["Resolve 3 of 4 cards; the 4th carries over into the next [[Room]]."] },
+            { index: 5, name: "Room Slot 3", desc: "Active dungeon encounter card." },
+            { index: 6, name: "Room Slot 4", desc: "Active dungeon encounter card." }
+        ],
+        rules: [
+            { title: "Resolving Monsters", bullets: ["Barehanded: Take damage equal to the monster's value (Ace = 14) and discard it to [[Graveyard]].", "With a Weapon: Subtract your weapon's value from the monster's value; take only the difference as damage (minimum 0).", "Drag an eligible [[Monster]] to [[Graveyard]] to fight barehanded instead of using your weapon."] },
+            { title: "Weapon Limit (CAP)", bullets: ["A fresh [[Weapon]] has no limit and can fight any monster once.", "After killing a monster with a weapon, [[CAP]] drops to that monster's value.", "Subsequent fights with that weapon can only target monsters with value <= [[CAP]] (stronger monsters must be fought barehanded)."] },
+            { title: "Weapons & Potions", bullets: ["Equipping a new Diamond replaces your current weapon, discarding the old one and resetting [[CAP]].", "[[Potion]] cards (Hearts) heal HP up to 20, but only 1 potion heals per [[Room]]; extra potions are discarded with no effect."] },
+            { title: "Fleeing", bullets: ["Click [[Dungeon Deck]] when all 4 Room cards are untouched to move them to the bottom and deal 4 new cards. Cannot flee two Rooms in a row."] }
+        ],
+        stats: [
+            { key: "HP", name: "Hit Points", desc: "Starts at 20 (max 20). Reaching 0 ends the run in defeat." },
+            { key: "WEAPON", name: "Weapon Power", desc: "Attack value of your currently equipped Diamond weapon (2-14)." },
+            { key: "CAP", name: "Weapon Durability Cap", desc: "Maximum monster value your current weapon can still block (<= CAP; 99 when fresh)." },
+            { key: "POTION_USED", name: "Room Potion Limit", desc: "Only 1 Heart potion may heal per Room; extra potions are discarded with no effect." },
+            { key: "FLEE_USED", name: "Flee Cooldown", desc: "1 if you fled the previous Room (cannot flee two Rooms in a row)." }
+        ],
+        tags: [
+            { tag: "monster", name: "Monsters (Spades & Clubs 2-A)", desc: "Value equals rank (Ace = 14). Click to fight with Weapon (if <= [[CAP]]) or barehanded; drag to [[Graveyard]] to force barehanded." },
+            { tag: "weapon", name: "Weapons (Diamonds 2-A)", desc: "Equip to subtract weapon value from monster damage; J=11, Q=12, K=13, A=14. Replaces any existing weapon." },
+            { tag: "potion", name: "Potions (Hearts 2-A)", desc: "Restores HP up to 20 (J=11, Q=12, K=13, A=14; max 1 healing potion per [[Room]])." }
+        ]
+    }
 })

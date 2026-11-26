@@ -1,6 +1,6 @@
 # SolEngine
 
-> *"The Solitaire Engine. Bake your new Sol into existence with the power of Python-based scripting in Eatscript."*
+> **Procedural Solitaire Sandbox** — craft your own solitaire games, tabletops, decks, and audio with Eatscript and WebGPU.
 
 [![Play Online](https://img.shields.io/badge/Play%20Online-solitaireengine.org-brightgreen?style=flat-square&logo=github)](https://solitaireengine.org/)
 [![Repository](https://img.shields.io/badge/Repository-maddestlabs%2Fsolengine-blue?style=flat-square&logo=github)](https://github.com/maddestlabs/solengine)
@@ -13,7 +13,7 @@
 
 ---
 
-**SolEngine** is an ode to solitaire classics like *Hardwood Solitaire III* and the boundless monolith of *PySolFC*, remixed through modern **WebGPU** compute and fragment sorcery and a hybrid of procedural, vector and bitmap assets.
+**SolEngine** is an ode to solitaire classics like *Hardwood Solitaire III* and the boundless monolith of *PySolFC*, remixed through modern **WebGPU** compute and fragment sorcery and a focus on procedural content while still supporting static vector and bitmap assets.
 
 To minimize runtime, SolEngine leans heavily into procedural generation and desperately wants to draw everything in code, never relying on external assets. Alas, it doth protest.
 
@@ -112,6 +112,7 @@ Compile into WebAssembly using Emscripten and host locally:
 ### Menus, Quick Variants & Scene Hotkeys
 | Action | Key |
 | :--- | :--- |
+| **Command Palette** | **`Ctrl + K`** or **`Ctrl + P`** (fuzzy-search all actions, games, themes, decks & settings; `Tab` filters category, `Shift + Enter` keeps open) |
 | **Game Browser** | **`G`** (`Up`/`Down` to select, `Enter` to launch, `Backspace` to edit search, `Esc` to close) |
 | **Settings Dialog** | **`O`** or **`M`** (`Tab` to switch tabs, `Enter` to apply, `Esc` to cancel) |
 | **Deal Seed Dialog** | **`Shift + 3`** (`#`) (`Ctrl+C` / `Ctrl+V` to copy/paste seed, `Enter` to deal) |

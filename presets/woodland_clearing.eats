@@ -1,0 +1,34 @@
+# SolEngine User Preset (.eats)
+
+sol.define_preset({
+    id: "woodland_clearing",
+    name: "Woodland Clearing",
+    description: "Leaf-strewn forest floor with swaying dappled tree canopy shadows, floating pollen motes, and woodlands birdsong.",
+    deck: "classic",
+    card_back: "classic_emerald",
+    card_wear: 3,
+    card_stock: 4,
+    card_corners: 3,
+    card_deviation: 0.4,
+    theme: "pastel",
+    table_tint: "auto",
+    postfx: "realism",
+    postfx_intensity: 1,
+    show_table_markings: false,
+    sound_pack: "default",
+    ambience: "woodlands",
+    ambience_volume: 0.230496,
+    lighting: {
+        preset: 8,
+        angle: 2,
+        shadow_gobo: 2,
+        waver: 1,
+        waver_speed: 0.25,
+        flicker: 0,
+        gobo_softness: 0.819925,
+        cloud_opacity: 0.212766,
+        dust_motes: 0,
+        scene_darkness: 0.759574,
+        light_strength: 2
+    }
+})

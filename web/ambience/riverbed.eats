@@ -1,6 +1,7 @@
 # ==============================================================================
 # SolEngine Procedural Ambience: Riverbed (.eats)
-# Broad turbulent rushing current, whitewater surface riffle, and light spray.
+# Flowing woodland stream with liquid stone babble, occasional soft splashes,
+# sparkling surface spray, and subtle streamside birds.
 # ==============================================================================
 
 sol.define_ambience({
@@ -8,64 +9,76 @@ sol.define_ambience({
     name: "Riverbed",
     master_gain: 1.0,
     layers: [
-        # Deep river body rumble
+        # 1. Deep river body rumble
         {
             type: "noise_bed",
             color: "brown",
             filter: "lowpass",
-            cutoff: 400.0,
+            cutoff: 360.0,
             q: 0.707,
-            gain: 0.42,
-            lfo_rate: 0.14,
-            lfo_depth: 70.0,
-            amp_mod: 0.10
-        },
-        # Main rushing current (wide-band pink noise)
-        {
-            type: "noise_bed",
-            color: "pink",
-            filter: "bandpass",
-            cutoff: 1050.0,
-            q: 0.55,
-            gain: 0.36,
-            lfo_rate: 0.19,
-            lfo_depth: 220.0,
-            amp_mod: 0.12
-        },
-        # Surface whitewater riffle over stones
-        {
-            type: "noise_bed",
-            color: "pink",
-            filter: "bandpass",
-            cutoff: 3100.0,
-            q: 0.65,
-            gain: 0.15,
-            lfo_rate: 0.26,
-            lfo_depth: 450.0,
+            gain: 0.34,
+            lfo_rate: 0.13,
+            lfo_depth: 65.0,
             amp_mod: 0.14
         },
-        # Subtle water spray & pebble splashes (non-tonal)
+        # 2. Undulating mid-stream current over stones
         {
-            type: "stochastic_grains",
-            rate: 9.0,
-            freq_min: 1800.0,
-            freq_max: 4800.0,
-            decay: 0.012,
-            q: 1.4,
-            gain: 0.11,
-            stereo_spread: 0.85
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 1150.0,
+            q: 0.65,
+            gain: 0.27,
+            lfo_rate: 0.21,
+            lfo_depth: 320.0,
+            amp_mod: 0.18
         },
-        # Very sparse, quiet air-pocket pops
+        # 3. Liquid babbling & Minnaert water-bubble resonances
         {
             type: "stochastic_grains",
             tonal: true,
-            rate: 1.4,
-            freq_min: 480.0,
-            freq_max: 980.0,
-            freq_sweep: 1.45,
-            decay: 0.022,
-            gain: 0.04,
-            stereo_spread: 0.75
+            rate: 6.5,
+            freq_min: 380.0,
+            freq_max: 1150.0,
+            freq_sweep: 1.72,
+            decay: 0.036,
+            gain: 0.14,
+            stereo_spread: 0.85
+        },
+        # 4. Crisp surface riffle & fine water spray
+        {
+            type: "stochastic_grains",
+            rate: 11.0,
+            freq_min: 1900.0,
+            freq_max: 5200.0,
+            decay: 0.014,
+            q: 1.6,
+            gain: 0.11,
+            stereo_spread: 0.88
+        },
+        # 5. Occasional soft water splashes & bank laps
+        {
+            type: "stochastic_grains",
+            rate: 0.42,
+            freq_min: 520.0,
+            freq_max: 1450.0,
+            freq_sweep: 0.62,
+            decay: 0.15,
+            q: 0.85,
+            gain: 0.19,
+            stereo_spread: 0.90
+        },
+        # 6. Subtle, sparse river-dwelling birds
+        {
+            type: "chirp_spawner",
+            tonal: true,
+            rate: 0.28,
+            freq_min: 1950.0,
+            freq_max: 3750.0,
+            freq_sweep: 1.24,
+            decay: 0.16,
+            gain: 0.14,
+            stereo_spread: 0.88
         }
     ]
 })

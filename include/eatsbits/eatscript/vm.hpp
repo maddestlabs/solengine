@@ -93,7 +93,7 @@ private:
 
     // Pre-allocated runtime evaluation environment (Zero runtime allocations)
     static constexpr size_t STACK_MAX = 256;
-    static constexpr size_t LOCALS_MAX = 64;
+    static constexpr size_t LOCALS_MAX = 256;
     static constexpr size_t PARAMS_MAX = 64;
 
     alignas(64) std::array<double, STACK_MAX> stack_{};

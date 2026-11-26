@@ -1,4 +1,5 @@
 #include "solengine/ui/settings_dialog.hpp"
+#include "solengine/deterministic_rng.hpp"
 #include "solengine/ui/svg_icon_renderer.hpp"
 #include "solengine/ui/clockwork_theme.hpp"
 #include "solengine/table_renderer.hpp"
@@ -30,10 +31,7 @@ const char* cornerStyleCleanName(CardCornerStyle style) noexcept {
 SettingsDialog::SettingsDialog() = default;
 
 void SettingsDialog::randomizeSeed() {
-    std::random_device rd;
-    auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-    uint32_t seed = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(now)) & 0x7FFFFFFFu;
-    if (seed == 0) seed = 2026u;
+    const uint32_t seed = generateRandomSeed();
     tempSettings_.lastSeed = seed;
     seedText_ = std::to_string(seed);
 }
@@ -657,7 +655,7 @@ void SettingsDialog::render(
         drawStepper(backStr);
         curY += rowH + rowGap;
 
-        // 2b. Low-Poly Seed (when SolPoly / Scoundrel Low-Poly is active)
+        // 2b. Low-Poly Seed (when a low-poly deck or seeded card back is active)
         const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
                                     tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly ||
@@ -665,7 +663,9 @@ void SettingsDialog::render(
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyClassic ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyMobile ||
                                     tempSettings_.deckTheme == DeckThemeId::LowPolyWar);
-        if (isLowPolyDeck) {
+        const bool showSeedOption = isLowPolyDeck ||
+                                    CardTextureCache::instance().cardBackSupportsSeed(tempSettings_.cardBackId);
+        if (showSeedOption) {
             std::string seedStr = "Low-Poly Seed: " + std::to_string(tempSettings_.lowPolySeed);
             drawStepper(seedStr);
             curY += rowH + rowGap;
@@ -988,9 +988,9 @@ void SettingsDialog::render(
         drawSceneStepper(std::string("Light Angle: ") + kAngleNames[angIdx]);
         curY += rowH + rowGap;
 
-        static const char* kGoboNames[3] = { "None (Open)", "Window Frame", "Venetian Blinds" };
-        int goboIdx = std::clamp(static_cast<int>(tempSettings_.shadowGobo), 0, 2);
-        drawSceneStepper(std::string("Window Shadows: ") + kGoboNames[goboIdx]);
+        static const char* kGoboNames[4] = { "None (Open)", "Window Frame", "Venetian Blinds", "Tree Canopy" };
+        int goboIdx = std::clamp(static_cast<int>(tempSettings_.shadowGobo), 0, 3);
+        drawSceneStepper(std::string("Cast Shadows: ") + kGoboNames[goboIdx]);
         curY += rowH + rowGap;
 
         const float sliderGap = 12.0f;
@@ -1828,7 +1828,7 @@ bool SettingsDialog::handleMouseButton(
         }
         curY += rowH + rowGap;
 
-        // 2b. Low-Poly Seed (when SolPoly / Scoundrel Low-Poly is active)
+        // 2b. Low-Poly Seed (when a low-poly deck or seeded card back is active)
         const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
                                     tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly ||
@@ -1836,7 +1836,9 @@ bool SettingsDialog::handleMouseButton(
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyClassic ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyMobile ||
                                     tempSettings_.deckTheme == DeckThemeId::LowPolyWar);
-        if (isLowPolyDeck) {
+        const bool showSeedOption = isLowPolyDeck ||
+                                    CardTextureCache::instance().cardBackSupportsSeed(tempSettings_.cardBackId);
+        if (showSeedOption) {
             if (testStepper(stepDelta)) {
                 int nextSeed = static_cast<int>(tempSettings_.lowPolySeed) + stepDelta;
                 if (nextSeed < 1) nextSeed = 999;
@@ -1844,7 +1846,9 @@ bool SettingsDialog::handleMouseButton(
                 tempSettings_.lowPolySeed = static_cast<uint32_t>(nextSeed);
                 auto& cache = CardTextureCache::instance();
                 cache.setLowPolySeed(tempSettings_.lowPolySeed);
-                cache.updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+                if (isLowPolyDeck) {
+                    cache.updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+                }
                 foley.triggerSound(FoleySound::CardSlide, 0.8f);
                 return true;
             }
@@ -2128,8 +2132,8 @@ bool SettingsDialog::handleMouseButton(
 
             // Shadow Gobo stepper
             if (testSceneStepper(stepDelta)) {
-                int cur = static_cast<int>(tempSettings_.shadowGobo) % 3;
-                cur = (stepDelta < 0) ? ((cur + 2) % 3) : ((cur + 1) % 3);
+                int cur = static_cast<int>(tempSettings_.shadowGobo) % 4;
+                cur = (stepDelta < 0) ? ((cur + 3) % 4) : ((cur + 1) % 4);
                 tempSettings_.shadowGobo = static_cast<ShadowGobo>(cur);
                 foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 return true;

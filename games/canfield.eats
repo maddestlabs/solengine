@@ -1,19 +1,13 @@
 # =============================================================================
-# SolEngine Game Variant: Canfield (.eats)
+# SolEngine Game Family: Canfield (.eats)
+# Consolidated variants:
+#   - Canfield
+#   - Rainbow
 # =============================================================================
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(2, "Quick", 4, "High Luck", 3, "Tactical")
-doc_aliases(["Demon", "Fascination"])
-doc_goal("Build all 4 Foundations up in suit wrapping K->A from the starter rank.", "No legal moves remain.")
-doc_stat("BASE_RANK", "Foundation Base Rank", "Rank of the initial starter card; all 4 Foundations begin on this rank.")
-doc_zone(0, "Stock", "Click to turn 3 cards into Waste; unlimited redeals.")
-doc_zone(1, "Waste", "Top card may be played to Foundations or Tableau.")
-doc_zone(2, "Foundations (1-4)", "Build up in suit wrapping from King to Ace, starting at BASE_RANK.")
-doc_zone(6, "Reserve (13 Cards)", "Top card is playable; automatically refills empty Tableau columns.")
-doc_zone(7, "Tableau Columns (1-4)", "Build down in alternating colors (wrapping Ace->King); whole columns move together.")
+# --- Shared Parameterized Canfield Rules ---
 
-def eval_heuristic():
+def canfield_eval():
     score = 0
     z = 2
     while z <= 5:
@@ -21,14 +15,14 @@ def eval_heuristic():
         z = z + 1
     return score - zone_size(6) * 30
 
-def on_deal():
+def canfield_on_deal():
     if zone_size(2) > 0:
         set_stat("BASE_RANK", card_rank(2, 0))
     else:
         set_stat("BASE_RANK", 1)
     return True
 
-def can_pick(z, i):
+def canfield_can_pick(z, i):
     sz = zone_size(z)
     if sz == 0 or i < 0 or i >= sz:
         return False
@@ -38,7 +32,7 @@ def can_pick(z, i):
         return i == 0 or i == sz - 1
     return False
 
-def can_drop(from_z, i, to_z):
+def canfield_can_drop(alt_color, from_z, i, to_z):
     if from_z == to_z or zone_size(from_z) == 0:
         return False
     sz = zone_size(from_z)
@@ -57,7 +51,6 @@ def can_drop(from_z, i, to_z):
         return card_suit(to_z, fsz - 1) == s and r == next_r
 
     if to_z >= 7 and to_z <= 10:
-        # Whole column moves when dragging from tableau onto tableau
         if from_z >= 7 and from_z <= 10 and i != 0:
             return False
         tsz = zone_size(to_z)
@@ -67,20 +60,22 @@ def can_drop(from_z, i, to_z):
             return zone_size(6) == 0 and (from_z == 1 or (from_z >= 7 and from_z <= 10))
         top_r = card_rank(to_z, tsz - 1)
         next_down = (r % 13) + 1
-        return (card_is_red(to_z, tsz - 1) != red) and (top_r == next_down)
+        if alt_color:
+            return (card_is_red(to_z, tsz - 1) != red) and (top_r == next_down)
+        return top_r == next_down
 
     return False
 
-def on_stock_click():
+def canfield_stock(draw_count, allow_redeal):
     if zone_size(0) > 0:
         k = 0
-        while k < 3 and zone_size(0) > 0:
+        while k < draw_count and zone_size(0) > 0:
             top = zone_size(0) - 1
             move_cards(0, top, 1)
             flip_card(1, zone_size(1) - 1, True)
             k = k + 1
         return True
-    if zone_size(1) > 0:
+    if allow_redeal and zone_size(1) > 0:
         while zone_size(1) > 0:
             top = zone_size(1) - 1
             move_cards(1, top, 0)
@@ -88,7 +83,7 @@ def on_stock_click():
         return True
     return False
 
-def on_turn_end():
+def canfield_on_turn_end():
     z = 7
     while z <= 10:
         if zone_size(z) == 0 and zone_size(6) > 0:
@@ -101,18 +96,41 @@ def on_turn_end():
         flip_card(6, rsz - 1, True)
     return True
 
-def get_status():
+def canfield_status():
     total = zone_size(2) + zone_size(3) + zone_size(4) + zone_size(5)
     if total == 52:
         return "victory"
     return "playing"
+
+def canfield_drop_alt(fz, i, tz):
+    return canfield_can_drop(True, fz, i, tz)
+
+def rainbow_drop_any(fz, i, tz):
+    return canfield_can_drop(False, fz, i, tz)
+
+def canfield_stock_3():
+    return canfield_stock(3, True)
+
+def rainbow_stock_1():
+    return canfield_stock(1, False)
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
 
 sol.define_game({
     id: "canfield",
     name: "Canfield",
     family: "Canfield",
     category: "POPULAR",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["classic", "casino", "reserve", "wrapping", "single_deck"],
     layout: "canfield",
+    tableau_build: "alt_color",
+    empty_tableau: "any",
+    move_group: "whole_column",
+    foundation_mode: "canfield_wrap",
     description: "Famous Saratoga casino classic. 13-card reserve, wrapping alternating cascades, and foundation starter card.",
     decks: 1,
     tableaus: 4,
@@ -126,11 +144,76 @@ sol.define_game({
     max_redeals: -1,
     demo_seed: 19,
     demo_seeds: [19, 22, 33, 58, 64, 106, 113, 301],
-    eval_heuristic: eval_heuristic,
-    on_deal: on_deal,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    on_stock_click: on_stock_click,
-    on_turn_end: on_turn_end,
-    get_status: get_status
+    eval_heuristic: canfield_eval,
+    on_deal: canfield_on_deal,
+    can_pick: canfield_can_pick,
+    can_drop: canfield_drop_alt,
+    on_stock_click: canfield_stock_3,
+    on_turn_end: canfield_on_turn_end,
+    get_status: canfield_status,
+    doc: {
+        meta: [2, "Quick", 4, "High Luck", 3, "Tactical"],
+        aliases: ["Demon", "Fascination"],
+        goal: ["Build all 4 Foundations up in suit wrapping K->A from the starter rank.", "No legal moves remain."],
+        stats: [
+            { key: "BASE_RANK", name: "Foundation Base Rank", desc: "Rank of the initial starter card; all 4 Foundations begin on this rank." }
+        ],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to turn 3 cards into Waste; unlimited redeals." },
+            { index: 1, name: "Waste", desc: "Top card may be played to Foundations or Tableau." },
+            { index: 2, name: "Foundations (1-4)", desc: "Build up in suit wrapping from King to Ace, starting at BASE_RANK." },
+            { index: 6, name: "Reserve (13 Cards)", desc: "Top card is playable; automatically refills empty Tableau columns." },
+            { index: 7, name: "Tableau Columns (1-4)", desc: "Build down in alternating colors (wrapping Ace->King); whole columns move together." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "rainbow",
+    name: "Rainbow",
+    family: "Canfield",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["reserve", "wrapping", "relaxed", "single_deck"],
+    layout: "canfield",
+    tableau_build: "any_suit",
+    empty_tableau: "any",
+    move_group: "whole_column",
+    foundation_mode: "canfield_wrap",
+    description: "Forgiving Canfield cousin. Build tableau down regardless of suit; single-card stock draws; 0 redeals.",
+    decks: 1,
+    tableaus: 4,
+    foundations: 4,
+    freecells: 1,
+    tableau_deal_counts: [1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: True,
+    stock_deal_mode: "waste_draw_1",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 2,
+    demo_seeds: [2, 18, 49, 58, 91, 102, 137, 171],
+    eval_heuristic: canfield_eval,
+    on_deal: canfield_on_deal,
+    can_pick: canfield_can_pick,
+    can_drop: rainbow_drop_any,
+    on_stock_click: rainbow_stock_1,
+    on_turn_end: canfield_on_turn_end,
+    get_status: canfield_status,
+    doc: {
+        meta: [2, "Quick", 3, "Moderate", 2, "Casual"],
+        aliases: ["Rainbow Canfield"],
+        goal: ["Build all 4 Foundations up in suit wrapping K->A from the starter rank.", "No legal moves remain."],
+        stats: [
+            { key: "BASE_RANK", name: "Foundation Base Rank", desc: "Rank of the initial starter card; all 4 Foundations begin on this rank." }
+        ],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to turn 1 card into Waste; 0 redeals." },
+            { index: 1, name: "Waste", desc: "Top card may be played to Foundations or Tableau." },
+            { index: 2, name: "Foundations (1-4)", desc: "Build up in suit wrapping from King to Ace, starting at BASE_RANK." },
+            { index: 6, name: "Reserve (13 Cards)", desc: "Top card is playable; automatically refills empty Tableau columns." },
+            { index: 7, name: "Tableau Columns (1-4)", desc: "Build down regardless of suit (wrapping Ace->King); whole columns move together." }
+        ]
+    }
 })

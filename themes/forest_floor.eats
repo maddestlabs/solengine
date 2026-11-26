@@ -1,0 +1,283 @@
+# SolEngine Procedural Background Theme — Forest Floor
+# Pure Eatscript Bytecode Shader: Tactile woodland loam with slender twigs,
+# compacted forest dirt path, and earthy woodland clearing grass.
+
+sol.define_theme({
+    id: "forest_floor",
+    name: "Forest Floor",
+    author: "Maddest Labs",
+    description: "Pure procedural woodland surfaces: tactile forest loam with slender twigs, compacted dirt trail, and earthy woodland clearing grass",
+    version: 1,
+    procedural: true,
+    lacquer: 1.0,
+    relief_bump: 2.2,
+    option_label: "Terrain",
+    options: [
+        { id: "leaf_litter",  name: "Forest Floor",   u: [0.34, 0.25, 0.16, 0.0] },
+        { id: "dirt_path",    name: "Dirt Path",      u: [0.48, 0.37, 0.25, 0.0] },
+        { id: "meadow_grass", name: "Woodland Grass", u: [0.22, 0.30, 0.15, 0.0] }
+    ]
+})
+
+def leaf_litter_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    # Fine Beach-inspired tactile woodland soil/loam + very slender scattered twigs & rare fallen sticks.
+
+    # 1. Softly undulating woodland earth heightfield + crisp directional slope (Fine Beach foundation)
+    h0 = fbm(nx * 2.2 + 3.4, ny * 2.2 + 7.1, 3)
+    h1 = fbm((nx + 0.018) * 2.2 + 3.4, (ny + 0.018) * 2.2 + 7.1, 3)
+    slope = clamp((h0 - h1) * 4.2, -0.20, 0.24)
+
+    # 2. Crisp fine soil grain with soft-blurred dark humus pockets & subtle warm mineral highlights
+    grain_fine = fract(sin(px * 12.9898 + py * 78.233) * 43758.5453)
+    grain_med = fbm(px * 0.18, py * 0.18, 2)
+    dark_blur = smoothstep(0.66, 0.90, fbm(px * 0.36 + 13.7, py * 0.36 + 7.1, 2))
+    light_soft = smoothstep(0.56, 0.88, fbm(px * 0.28 + 3.1, py * 0.28 + 19.4, 2))
+    speck_light = smoothstep(0.950, 0.995, fract(sin(px * 73.11 + py * 19.43) * 18392.3))
+
+    # Rich dark woodland loam palette (#2a1f15 to #483726)
+    t_soil = clamp(h0 * 0.80 + slope * 0.60 + (grain_med - 0.5) * 0.16, 0.0, 1.0)
+    base_r = mix(0.20, 0.34, t_soil)
+    base_g = mix(0.15, 0.26, t_soil)
+    base_b = mix(0.10, 0.17, t_soil)
+
+    micro = (grain_fine - 0.46) * 0.044 + (grain_med - 0.5) * 0.028
+    light_var = light_soft * 0.040 + speck_light * 0.048
+    r = base_r + micro - dark_blur * 0.055 + light_var
+    g = base_g + micro * 0.92 - dark_blur * 0.048 + light_var * 0.92
+    b = base_b + micro * 0.78 - dark_blur * 0.038 + light_var * 0.80
+
+    # Subtle damp forest moss undertones in low pockets
+    moss_patch = smoothstep(0.58, 0.82, fbm(nx * 3.4 + 9.4, ny * 3.4 + 2.1, 3))
+    r = mix(r, 0.18, moss_patch * 0.34)
+    g = mix(g, 0.27, moss_patch * 0.40)
+    b = mix(b, 0.11, moss_patch * 0.28)
+
+    # 3. Very slender scattered twigs & pine needles (card-scaled length, much thinner on average)
+    # Layer A: slender twigs
+    gx1 = nx * 3.6 + 1.4
+    gy1 = ny * 3.6 + 2.8
+    cx1 = floor(gx1)
+    cy1 = floor(gy1)
+    h_n1 = fract(sin(cx1 * 127.1 + cy1 * 311.7) * 43758.5453)
+    h_n2 = fract(sin(cx1 * 269.5 + cy1 * 183.3) * 19283.71)
+    ang1 = h_n1 * 6.283185
+    dx1 = fract(gx1) - (0.30 + h_n2 * 0.40)
+    dy1 = fract(gy1) - (0.30 + h_n1 * 0.40)
+    rx1 = dx1 * cos(ang1) + dy1 * sin(ang1)
+    ry1 = -dx1 * sin(ang1) + dy1 * cos(ang1)
+    bend1 = sin(rx1 * 5.2 + h_n2 * 6.28) * 0.020
+    tlen1 = 0.28 + h_n2 * 0.14
+    seg1 = hypot(max(abs(rx1) - tlen1, 0.0), ry1 - bend1)
+    twig1 = (1.0 - smoothstep(0.0022, 0.0068, seg1)) * step(0.32, h_n1)
+    twig1_sh = (1.0 - smoothstep(0.004, 0.016, hypot(max(abs(rx1) - tlen1, 0.0), ry1 - bend1 - 0.006))) * step(0.32, h_n1)
+
+    # Layer B: ultra-fine pine needles / wispy twigs
+    gx2 = nx * 5.2 + 13.4
+    gy2 = ny * 5.2 + 7.9
+    cx2 = floor(gx2)
+    cy2 = floor(gy2)
+    h_m1 = fract(sin(cx2 * 91.7 + cy2 * 241.3) * 31847.23)
+    h_m2 = fract(sin(cx2 * 173.3 + cy2 * 71.9) * 24917.61)
+    ang2 = h_m1 * 6.283185
+    dx2 = fract(gx2) - (0.28 + h_m2 * 0.44)
+    dy2 = fract(gy2) - (0.28 + h_m1 * 0.44)
+    rx2 = dx2 * cos(ang2) + dy2 * sin(ang2)
+    ry2 = -dx2 * sin(ang2) + dy2 * cos(ang2)
+    seg2 = hypot(max(abs(rx2) - (0.26 + h_m1 * 0.14), 0.0), ry2)
+    twig2 = (1.0 - smoothstep(0.0018, 0.0055, seg2)) * step(0.28, h_m2)
+
+    r = r * (1.0 - twig1_sh * 0.22)
+    g = g * (1.0 - twig1_sh * 0.22)
+    b = b * (1.0 - twig1_sh * 0.22)
+    twig_mask = clamp(twig1 * 0.65 + twig2 * 0.46, 0.0, 0.78)
+    r = mix(r, mix(0.36, 0.48, h_n2), twig_mask)
+    g = mix(g, mix(0.25, 0.34, h_n2), twig_mask)
+    b = mix(b, mix(0.14, 0.19, h_n2), twig_mask)
+
+    # 4. Rare larger fallen branches/sticks (sparse across table, curved with bark shading)
+    bx = nx * 1.15 + 2.3
+    by = ny * 1.15 + 5.7
+    bcx = floor(bx)
+    bcy = floor(by)
+    bh1 = fract(sin(bcx * 131.7 + bcy * 277.3) * 43758.5453)
+    bh2 = fract(sin(bcx * 293.1 + bcy * 107.9) * 28471.93)
+    bh3 = fract(sin(bcx * 61.3 + bcy * 389.7) * 19381.47)
+    bang = bh1 * 6.283185
+    bdx = fract(bx) - (0.36 + bh2 * 0.28)
+    bdy = fract(by) - (0.36 + bh3 * 0.28)
+    brx = bdx * cos(bang) + bdy * sin(bang)
+    bry = -bdx * sin(bang) + bdy * cos(bang)
+    bbend = sin(brx * 3.8 + bh3 * 6.28) * 0.036
+    blen = 0.30 + bh2 * 0.14
+    bthick = (0.011 + bh3 * 0.009) * (1.0 - 0.35 * clamp(abs(brx) / blen, 0.0, 1.0))
+    bdist = hypot(max(abs(brx) - blen, 0.0), bry - bbend)
+    branch_present = step(0.78, bh1)
+    branch_mask = (1.0 - smoothstep(bthick * 0.60, bthick * 1.20, bdist)) * branch_present
+    bdist_sh = hypot(max(abs(brx) - blen, 0.0), bry - bbend - 0.014)
+    branch_sh = (1.0 - smoothstep(bthick * 0.5, bthick * 2.1, bdist_sh)) * branch_present
+    bark_cyl = clamp(0.56 - (bry - bbend) / max(bthick, 0.004) * 0.32, 0.22, 1.0)
+    bark_grain = (fbm(brx * 26.0 + bh2 * 10.0, bry * 90.0, 2) - 0.5) * 0.08
+    r = r * (1.0 - branch_sh * 0.34)
+    g = g * (1.0 - branch_sh * 0.34)
+    b = b * (1.0 - branch_sh * 0.34)
+    r = mix(r, (0.35 + bark_grain) * bark_cyl, branch_mask * 0.85)
+    g = mix(g, (0.26 + bark_grain * 0.85) * bark_cyl, branch_mask * 0.85)
+    b = mix(b, (0.17 + bark_grain * 0.70) * bark_cyl, branch_mask * 0.85)
+
+    # 5. Gentle elliptical table vignette
+    d_vig = hypot((u - 0.5) * 1.30, (v - 0.5) * 1.30)
+    vig = 1.0 - smoothstep(0.46, 1.12, d_vig) * 0.16
+
+    return [
+        clamp(r * vig, 0.0, 1.0),
+        clamp(g * vig, 0.0, 1.0),
+        clamp(b * vig, 0.0, 1.0)
+    ]
+
+def dirt_path_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    # Fine Beach-inspired tactile packed earth trail with subtle mossy green verges & patches.
+
+    # 1. Gently meandering woodland trail mask
+    meander = (fbm(nx * 1.4 + 2.2, ny * 1.4 + 5.1, 2) - 0.5) * 0.22
+    trail_d = hypot((u - 0.5) * 1.15 + meander, (v - 0.5) * 0.95)
+    verge = smoothstep(0.32, 0.76, trail_d)
+
+    # 2. Softly undulating compacted earth heightfield + crisp directional slope (Fine Beach style)
+    h0 = fbm(nx * 2.2 + 3.4, ny * 2.2 + 7.1, 3)
+    h1 = fbm((nx + 0.018) * 2.2 + 3.4, (ny + 0.018) * 2.2 + 7.1, 3)
+    slope = clamp((h0 - h1) * 4.2, -0.20, 0.24)
+
+    # 3. Crisp fine mineral/soil grain + soft-blurred dark pockets + warm highlights
+    grain_fine = fract(sin(px * 12.9898 + py * 78.233) * 43758.5453)
+    grain_med = fbm(px * 0.18, py * 0.18, 2)
+    dark_blur = smoothstep(0.66, 0.90, fbm(px * 0.36 + 13.7, py * 0.36 + 7.1, 2))
+    light_soft = smoothstep(0.56, 0.88, fbm(px * 0.28 + 3.1, py * 0.28 + 19.4, 2))
+    speck_light = smoothstep(0.945, 0.995, fract(sin(px * 73.11 + py * 19.43) * 18392.3))
+
+    # Warm packed woodland dirt/clay palette (#69523b to #876c50)
+    t_e = clamp(h0 * 0.80 + slope * 0.60 + (grain_med - 0.5) * 0.14, 0.0, 1.0)
+    base_r = mix(0.41, 0.56, t_e)
+    base_g = mix(0.32, 0.45, t_e)
+    base_b = mix(0.22, 0.32, t_e)
+
+    micro = (grain_fine - 0.46) * 0.050 + (grain_med - 0.5) * 0.030
+    light_var = light_soft * 0.048 + speck_light * 0.068
+    r = base_r + micro - dark_blur * 0.062 + light_var
+    g = base_g + micro * 0.92 - dark_blur * 0.056 + light_var * 0.94
+    b = base_b + micro * 0.78 - dark_blur * 0.046 + light_var * 0.84
+
+    # 4. Subtle patches of green moss along outer verges & occasional soft trailside tufts
+    moss_noise = fbm(nx * 4.8 + 7.1, ny * 4.8 + 3.4, 3)
+    moss_verge = smoothstep(0.44, 0.78, moss_noise) * verge
+    moss_tuft = smoothstep(0.68, 0.86, fbm(nx * 6.4 + 2.3, ny * 6.4 + 11.7, 3)) * 0.42
+    moss_amt = clamp(moss_verge * 0.60 + moss_tuft, 0.0, 0.68)
+    r = mix(r, r * 0.68, verge * 0.28)
+    g = mix(g, g * 0.72, verge * 0.26)
+    b = mix(b, b * 0.66, verge * 0.28)
+    r = mix(r, 0.22 + micro * 0.5, moss_amt)
+    g = mix(g, 0.33 + micro * 0.6, moss_amt)
+    b = mix(b, 0.14 + micro * 0.4, moss_amt)
+
+    # 5. Embedded tiny trail gravel / pebbles (scaled down ~2.5x for fine natural grit variety)
+    gx = px * 0.090 + 5.3
+    gy = py * 0.090 + 2.7
+    cx = floor(gx)
+    cy = floor(gy)
+    ph1 = fract(sin(cx * 127.1 + cy * 311.7) * 43758.5453)
+    ph2 = fract(sin(cx * 269.5 + cy * 183.3) * 19283.71)
+    pang = ph1 * 6.283185
+    pdx = fract(gx) - (0.30 + ph2 * 0.40)
+    pdy = fract(gy) - (0.30 + ph1 * 0.40)
+    prx = (pdx * cos(pang) + pdy * sin(pang)) / (0.14 + ph2 * 0.10)
+    pry = (-pdx * sin(pang) + pdy * cos(pang)) / (0.11 + ph1 * 0.08)
+    pd = hypot(prx, pry)
+    pebble = (1.0 - smoothstep(0.66, 1.02, pd)) * step(0.74, ph1) * (1.0 - moss_amt * 0.7)
+    peb_shade = clamp(0.5 - (pdx + pdy) * 1.6, 0.0, 1.0)
+    peb_tone = mix(0.36, 0.58, ph2) * mix(0.80, 1.12, peb_shade)
+    r = mix(r, peb_tone * 1.04, pebble * 0.46)
+    g = mix(g, peb_tone * 0.96, pebble * 0.46)
+    b = mix(b, peb_tone * 0.84, pebble * 0.46)
+
+    # 6. Gentle elliptical edge vignette
+    d_vig = hypot((u - 0.5) * 1.30, (v - 0.5) * 1.30)
+    vig = 1.0 - smoothstep(0.48, 1.12, d_vig) * 0.12
+
+    return [
+        clamp(r * vig, 0.0, 1.0),
+        clamp(g * vig, 0.0, 1.0),
+        clamp(b * vig, 0.0, 1.0)
+    ]
+
+def meadow_grass_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    # 1. Softly undulating clearing heightfield + subtle directional slope
+    h0 = fbm(nx * 2.3 + 3.2, ny * 2.3 + 6.7, 3)
+    h1 = fbm((nx + 0.018) * 2.3 + 3.2, (ny + 0.018) * 2.3 + 6.7, 3)
+    slope = clamp((h0 - h1) * 3.6, -0.18, 0.20)
+    patch = fbm(nx * 6.0 + h0 * 0.7, ny * 6.0 - h0 * 0.5, 3)
+
+    # 2. Anisotropic directional grass-blade nap following a gentle growth field
+    flow = (fbm(nx * 3.0 + 8.1, ny * 3.0 + 1.4, 2) - 0.5) * 1.8
+    ca = cos(flow)
+    sa = sin(flow)
+    bx = px * ca + py * sa
+    by = -px * sa + py * ca
+    blades_a = fbm(bx * 0.09, by * 0.42, 2)
+    blades_b = fbm((px * 0.85 - py * 0.52) * 0.14, (px * 0.52 + py * 0.85) * 0.55, 2)
+    nap = (blades_a * 0.58 + blades_b * 0.42 - 0.5) * 0.16
+
+    # Fine tactile ground grain (shared with Forest Floor / Fine Beach)
+    grain_fine = fract(sin(px * 12.9898 + py * 78.233) * 43758.5453)
+    grain_med = fbm(px * 0.18, py * 0.18, 2)
+    dark_blur = smoothstep(0.66, 0.90, fbm(px * 0.36 + 13.7, py * 0.36 + 7.1, 2))
+    light_soft = smoothstep(0.58, 0.88, fbm(px * 0.28 + 3.1, py * 0.28 + 19.4, 2))
+
+    # 3. Restrained, earthy woodland olive-sage grass palette (less saturated green)
+    t_g = clamp(h0 * 0.46 + patch * 0.44 + slope * 0.35 + nap, 0.0, 1.0)
+    r = mix(0.15, 0.25, t_g)
+    g = mix(0.20, 0.31, t_g)
+    b = mix(0.10, 0.16, t_g)
+
+    # 4. Natural ground variety: sun-dried straw/olive patches + peeking loam earth pockets
+    dry_patch = smoothstep(0.54, 0.82, fbm(nx * 3.6 + 14.2, ny * 3.6 + 5.8, 3))
+    r = mix(r, mix(0.27, 0.34, patch), dry_patch * 0.42)
+    g = mix(g, mix(0.26, 0.32, patch), dry_patch * 0.38)
+    b = mix(b, mix(0.14, 0.18, patch), dry_patch * 0.38)
+
+    soil_patch = smoothstep(0.60, 0.84, fbm(nx * 3.1 + 1.9, ny * 3.1 + 11.4, 3))
+    soil_r = mix(0.22, 0.32, grain_med) - dark_blur * 0.045 + light_soft * 0.032
+    soil_g = mix(0.17, 0.25, grain_med) - dark_blur * 0.040 + light_soft * 0.028
+    soil_b = mix(0.11, 0.16, grain_med) - dark_blur * 0.032 + light_soft * 0.024
+    r = mix(r, soil_r, soil_patch * 0.62)
+    g = mix(g, soil_g, soil_patch * 0.62)
+    b = mix(b, soil_b, soil_patch * 0.62)
+
+    # Subtle cool mossy clover pockets
+    clover = smoothstep(0.66, 0.86, fbm(nx * 8.5 + 4.4, ny * 8.5 + 12.1, 2)) * (1.0 - soil_patch)
+    r = mix(r, r * 0.88, clover * 0.30)
+    g = mix(g, g * 1.05, clover * 0.30)
+    b = mix(b, b * 1.08, clover * 0.24)
+
+    # 5. Micro-grain, subtle dark pockets & soft vignette
+    micro = (grain_fine - 0.48) * 0.034 - dark_blur * 0.028 + light_soft * 0.022
+    d_vig = hypot((u - 0.5) * 1.28, (v - 0.5) * 1.28)
+    vig = 1.0 - smoothstep(0.45, 1.12, d_vig) * 0.18
+
+    return [
+        clamp((r + micro) * vig, 0.0, 1.0),
+        clamp((g + micro * 0.98) * vig, 0.0, 1.0),
+        clamp((b + micro * 0.82) * vig, 0.0, 1.0)
+    ]
+
+def on_draw_background(ctx, w, h):
+    if (option_id == "dirt_path"):
+        ctx.set_lacquer(0.06, 2.3)
+        ctx.fill_rect(0, 0, w, h, "#5c4732")
+        ctx.apply_shader("dirt_path_shader", intensity=1.0)
+    elif (option_id == "meadow_grass"):
+        ctx.set_lacquer(0.0, 2.2)
+        ctx.fill_rect(0, 0, w, h, "#2c381f")
+        ctx.apply_shader("meadow_grass_shader", intensity=1.0)
+    else:
+        ctx.set_lacquer(0.05, 2.5)
+        ctx.fill_rect(0, 0, w, h, "#2c2015")
+        ctx.apply_shader("leaf_litter_shader", intensity=1.0)

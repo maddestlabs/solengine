@@ -1,17 +1,12 @@
 # =============================================================================
-# SolEngine Game Variant: Forty Thieves (.eats)
+# SolEngine Game Family: Forty Thieves (.eats)
+# Consolidated variants:
+#   - Forty Thieves
 # =============================================================================
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(4, "Long", 3, "Moderate", 5, "Master")
-doc_aliases(["Napoleon at St. Helena", "Big Forty"])
-doc_goal("Build all 8 Foundations up in suit from Ace to King.", "No legal moves remain.")
-doc_zone(0, "Stock", "Click to turn 1 card into the Waste; 0 redeals.")
-doc_zone(1, "Waste", "Top card may be played to Foundations or Tableau.")
-doc_zone(2, "Foundations (1-8)", "Build up by same suit from Ace to King.", ["AS", "2S", "3S"])
-doc_zone(10, "Tableau Columns (1-10)", "Build down in the SAME SUIT; only the top card may move; any card fills empty columns.", ["KS", "QS", "JS"])
+# --- Shared Forty Thieves Rules ---
 
-def eval_heuristic():
+def ft_eval():
     score = 0
     z = 2
     while z <= 9:
@@ -31,7 +26,7 @@ def eval_heuristic():
         z = z + 1
     return score - zone_size(1) * 5
 
-def can_pick(z, i):
+def ft_can_pick(z, i):
     sz = zone_size(z)
     if sz == 0 or i < 0 or i >= sz:
         return False
@@ -39,7 +34,7 @@ def can_pick(z, i):
         return i == sz - 1
     return False
 
-def can_drop(from_z, i, to_z):
+def ft_can_drop(from_z, i, to_z):
     if from_z == to_z or zone_size(from_z) == 0:
         return False
     sz = zone_size(from_z)
@@ -62,7 +57,7 @@ def can_drop(from_z, i, to_z):
 
     return False
 
-def on_stock_click():
+def ft_on_stock():
     if zone_size(0) > 0:
         top = zone_size(0) - 1
         move_cards(0, top, 1)
@@ -70,7 +65,7 @@ def on_stock_click():
         return True
     return False
 
-def get_status():
+def ft_status():
     total = 0
     z = 2
     while z <= 9:
@@ -80,12 +75,23 @@ def get_status():
         return "victory"
     return "playing"
 
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
 sol.define_game({
     id: "forty_thieves",
     name: "Forty Thieves",
-    family: "FortyThieves",
+    family: "Forty Thieves",
     category: "POPULAR",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["classic", "two_deck", "same_suit", "single_card", "master"],
     layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "any",
+    move_group: "single",
+    foundation_mode: "suit_up",
     description: "Classic 2-deck skill game. Build down by same suit; single card movement; 8 foundations.",
     decks: 2,
     tableaus: 10,
@@ -99,9 +105,20 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 60,
     demo_seeds: [60, 72, 103, 105, 110, 131, 155, 178],
-    eval_heuristic: eval_heuristic,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    on_stock_click: on_stock_click,
-    get_status: get_status
+    eval_heuristic: ft_eval,
+    can_pick: ft_can_pick,
+    can_drop: ft_can_drop,
+    on_stock_click: ft_on_stock,
+    get_status: ft_status,
+    doc: {
+        meta: [4, "Long", 3, "Moderate", 5, "Master"],
+        aliases: ["Napoleon at St. Helena", "Big Forty"],
+        goal: ["Build all 8 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to turn 1 card into the Waste; 0 redeals." },
+            { index: 1, name: "Waste", desc: "Top card may be played to Foundations or Tableau." },
+            { index: 2, name: "Foundations (1-8)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 10, name: "Tableau Columns (1-10)", desc: "Build down in the SAME SUIT; only the top card may move; any card fills empty columns.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
 })

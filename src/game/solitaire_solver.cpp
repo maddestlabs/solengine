@@ -243,59 +243,62 @@ SolveResult solveScriptedBoard(
 
         // 2. Enumerate pile-to-pile moves (can_pick + can_drop)
         if (simBoard.hasScriptCanDrop()) {
+            simBoard.restoreSnapshot(curSnap);
             for (size_t p = 0; p < pCount; ++p) {
                 const size_t cCount = curSnap.piles[p].cards.size();
                 for (size_t cIdx = 0; cIdx < cCount; ++cIdx) {
-                    if (simBoard.hasScriptCanPick()) {
-                        simBoard.restoreSnapshot(curSnap);
-                        if (!simBoard.canPickScriptCard(static_cast<uint8_t>(p), cIdx)) {
-                            continue;
-                        }
+                    if (simBoard.hasScriptCanPick() && !simBoard.canPickScriptCard(static_cast<uint8_t>(p), cIdx)) {
+                        continue;
                     }
                     for (size_t dst = 0; dst < pCount; ++dst) {
                         if (dst == p) continue;
-                        simBoard.restoreSnapshot(curSnap);
+                        if (!simBoard.canMoveCards(static_cast<uint8_t>(p), cIdx, static_cast<uint8_t>(dst))) {
+                            continue;
+                        }
                         SolverMove mv{};
                         mv.action = SolverMove::Action::MoveCards;
                         mv.fromPile = static_cast<uint8_t>(p);
                         mv.cardIndex = static_cast<uint8_t>(cIdx);
                         mv.toPile = static_cast<uint8_t>(dst);
-                        std::string note = buildMoveNotation(simBoard, mv);
+                        mv.notation = buildMoveNotation(simBoard, mv);
                         if (simBoard.executeMove(static_cast<uint8_t>(p), cIdx, static_cast<uint8_t>(dst), false)) {
-                            mv.notation = std::move(note);
                             if (tryPushChild(std::move(mv))) {
                                 auto end = std::chrono::high_resolution_clock::now();
                                 result.solveTimeMs = std::chrono::duration<float, std::milli>(end - startTime).count();
                                 return result;
                             }
+                            simBoard.restoreSnapshot(curSnap);
                         }
                     }
                 }
             }
         }
 
-        // 3. Enumerate card-on-card targeting (Pyramid / Giza pairing)
+        // 3. Enumerate card-on-card targeting (Pyramid / Giza / Simple Pairs / Simple Addition)
         if (simBoard.hasScriptCanTarget()) {
+            simBoard.restoreSnapshot(curSnap);
             for (size_t p = 0; p < pCount; ++p) {
                 const size_t cCount = curSnap.piles[p].cards.size();
                 if (cCount == 0) continue;
                 const size_t cIdx = cCount - 1;
-                for (size_t dst = 0; dst < pCount; ++dst) {
-                    if (dst == p || curSnap.piles[dst].cards.empty()) continue;
-                    simBoard.restoreSnapshot(curSnap);
-                    SolverMove mv{};
-                    mv.action = SolverMove::Action::MoveCards;
-                    mv.fromPile = static_cast<uint8_t>(p);
-                    mv.cardIndex = static_cast<uint8_t>(cIdx);
-                    mv.toPile = static_cast<uint8_t>(dst);
-                    std::string note = buildMoveNotation(simBoard, mv);
-                    if (simBoard.executeMove(static_cast<uint8_t>(p), cIdx, static_cast<uint8_t>(dst), false)) {
-                        mv.notation = std::move(note);
+                if (simBoard.hasScriptCanPick() && !simBoard.canPickScriptCard(static_cast<uint8_t>(p), cIdx)) {
+                    continue;
+                }
+                for (size_t dst = p + 1; dst < pCount; ++dst) {
+                    if (curSnap.piles[dst].cards.empty()) continue;
+                    const size_t dstTop = curSnap.piles[dst].cards.size() - 1;
+                    if (simBoard.executeCardTarget(static_cast<uint8_t>(p), cIdx, static_cast<uint8_t>(dst), dstTop, false)) {
+                        SolverMove mv{};
+                        mv.action = SolverMove::Action::MoveCards;
+                        mv.fromPile = static_cast<uint8_t>(p);
+                        mv.cardIndex = static_cast<uint8_t>(cIdx);
+                        mv.toPile = static_cast<uint8_t>(dst);
                         if (tryPushChild(std::move(mv))) {
                             auto end = std::chrono::high_resolution_clock::now();
                             result.solveTimeMs = std::chrono::duration<float, std::milli>(end - startTime).count();
                             return result;
                         }
+                        simBoard.restoreSnapshot(curSnap);
                     }
                 }
             }
@@ -1954,7 +1957,8 @@ SolveResult SolitaireSolver::solve(
 
     const bool useScriptSolver = initialBoard.hasScriptHooks() &&
         (initialBoard.activeGameDef().category == "RPG" ||
-         (initialBoard.hasScriptCardClick() && !initialBoard.isGolf() && !initialBoard.isPyramidGame()));
+         ((initialBoard.hasScriptCardClick() || initialBoard.hasScriptCanTarget()) &&
+          !initialBoard.isGolf() && !initialBoard.isPyramidGame()));
     if (useScriptSolver) {
         return solveScriptedBoard(initialBoard, maxStates, timeoutMs, cancelSignal);
     }

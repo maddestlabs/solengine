@@ -1,0 +1,398 @@
+# =============================================================================
+# SolEngine Game Family: Simple Addition (.eats)
+# Consolidated variants:
+#   - Block Ten (3x3 Sum-to-10 with Permanent Ten Blockers)
+#   - Elevens (3x3 Sum-to-11 & J-Q-K Triples)
+#   - Thirteens (5x2 Sum-to-13 & Solo Kings)
+#   - Fourteens (12 Open Columns Sum-to-14)
+# =============================================================================
+
+# --- Shared Simple Addition Helpers ---
+
+def sa_refill(max_z, stock_z):
+    z = 1
+    while z <= max_z and zone_size(stock_z) > 0:
+        if zone_size(z) == 0:
+            top = zone_size(stock_z) - 1
+            move_cards(stock_z, top, z)
+            flip_card(z, 0, True)
+        z = z + 1
+    return True
+
+def sa_eval():
+    return zone_size(0) * 120
+
+def sa_can_pick(max_z, z, i):
+    if z < 1 or z > max_z or zone_size(z) == 0:
+        return False
+    return i == zone_size(z) - 1
+
+def sa_clear_pair(fz, fi, tz, ti, max_z, stock_z):
+    move_cards(fz, fi, 0)
+    move_cards(tz, ti, 0)
+    if stock_z > 0:
+        sa_refill(max_z, stock_z)
+    add_score(20)
+    return True
+
+def sa_find_rank(max_z, target_rank):
+    z = 1
+    while z <= max_z:
+        if zone_size(z) > 0 and card_rank(z, 0) == target_rank:
+            return z
+        z = z + 1
+    return 0
+
+def sa_no_drop(fz, i, tz):
+    return False
+
+def sa_status_52():
+    if zone_size(0) >= 52:
+        return "victory"
+    return "playing"
+
+def sa_status_48():
+    if zone_size(0) >= 48:
+        return "victory"
+    return "playing"
+
+# =============================================================================
+# 1. Block Ten (3x3 Grid: Zones 1..9, Stock 10; 10s are permanent blockers)
+# =============================================================================
+
+def bt_pick(z, i):
+    if not sa_can_pick(9, z, i):
+        return False
+    return card_rank(z, i) != 10
+
+def bt_can_target(fz, fi, tz, ti):
+    if fz == tz or not bt_pick(fz, fi) or not bt_pick(tz, ti):
+        return False
+    r1 = card_rank(fz, fi)
+    r2 = card_rank(tz, ti)
+    if r1 >= 11 and r2 >= 11:
+        return r1 == r2
+    if r1 <= 9 and r2 <= 9:
+        return r1 + r2 == 10
+    return False
+
+def bt_on_target(fz, fi, tz, ti):
+    if not bt_can_target(fz, fi, tz, ti):
+        return False
+    return sa_clear_pair(fz, fi, tz, ti, 9, 10)
+
+def bt_turn_end():
+    return sa_refill(9, 10)
+
+# =============================================================================
+# 2. Elevens (3x3 Grid: Zones 1..9, Stock 10; Sum-to-11 + J-Q-K Triple)
+# =============================================================================
+
+def el_pick(z, i):
+    return sa_can_pick(9, z, i)
+
+def el_has_jqk():
+    return sa_find_rank(9, 11) > 0 and sa_find_rank(9, 12) > 0 and sa_find_rank(9, 13) > 0
+
+def el_clear_jqk():
+    jz = sa_find_rank(9, 11)
+    qz = sa_find_rank(9, 12)
+    kz = sa_find_rank(9, 13)
+    if jz == 0 or qz == 0 or kz == 0:
+        return False
+    move_cards(jz, 0, 0)
+    move_cards(qz, 0, 0)
+    move_cards(kz, 0, 0)
+    sa_refill(9, 10)
+    add_score(30)
+    return True
+
+def el_can_target(fz, fi, tz, ti):
+    if fz == tz or not el_pick(fz, fi) or not el_pick(tz, ti):
+        return False
+    r1 = card_rank(fz, fi)
+    r2 = card_rank(tz, ti)
+    if r1 <= 10 and r2 <= 10:
+        return r1 + r2 == 11
+    if r1 >= 11 and r2 >= 11 and r1 != r2:
+        return el_has_jqk()
+    return False
+
+def el_on_target(fz, fi, tz, ti):
+    if not el_can_target(fz, fi, tz, ti):
+        return False
+    r1 = card_rank(fz, fi)
+    if r1 >= 11:
+        return el_clear_jqk()
+    return sa_clear_pair(fz, fi, tz, ti, 9, 10)
+
+def el_click(z, i):
+    if el_pick(z, i) and card_rank(z, i) >= 11 and el_has_jqk():
+        return el_clear_jqk()
+    return False
+
+def el_turn_end():
+    return sa_refill(9, 10)
+
+# =============================================================================
+# 3. Thirteens / Simple Addition (5x2 Grid: Zones 1..10, Stock 11)
+# =============================================================================
+
+def th_pick(z, i):
+    return sa_can_pick(10, z, i)
+
+def th_can_drop(fz, i, tz):
+    if tz != 0 or not th_pick(fz, i):
+        return False
+    return card_rank(fz, i) == 13
+
+def th_on_drop(fz, i, tz):
+    if not th_can_drop(fz, i, tz):
+        return False
+    move_cards(fz, i, 0)
+    sa_refill(10, 11)
+    add_score(10)
+    return True
+
+def th_can_target(fz, fi, tz, ti):
+    if fz == tz or not th_pick(fz, fi) or not th_pick(tz, ti):
+        return False
+    return card_rank(fz, fi) + card_rank(tz, ti) == 13
+
+def th_on_target(fz, fi, tz, ti):
+    if not th_can_target(fz, fi, tz, ti):
+        return False
+    return sa_clear_pair(fz, fi, tz, ti, 10, 11)
+
+def th_click(z, i):
+    if th_pick(z, i) and card_rank(z, i) == 13:
+        move_cards(z, i, 0)
+        sa_refill(10, 11)
+        add_score(10)
+        return True
+    return False
+
+def th_turn_end():
+    return sa_refill(10, 11)
+
+# =============================================================================
+# 4. Fourteens (12 Open Columns: Zone 2 = Discard, Zones 3..14 = Columns, Sum 14)
+# =============================================================================
+
+def f14_eval():
+    sum_sq = 0
+    z = 3
+    while z <= 14:
+        sz = zone_size(z)
+        sum_sq = sum_sq + sz * sz
+        z = z + 1
+    pairs = 0
+    a = 3
+    while a <= 14:
+        sza = zone_size(a)
+        if sza > 0:
+            ra = card_rank(a, sza - 1)
+            b = a + 1
+            while b <= 14:
+                szb = zone_size(b)
+                if szb > 0 and ra + card_rank(b, szb - 1) == 14:
+                    pairs = pairs + 1
+                b = b + 1
+        a = a + 1
+    return zone_size(2) * 160 - sum_sq * 18 + pairs * 35
+
+def f14_pick(z, i):
+    if z < 3 or z > 14 or zone_size(z) == 0:
+        return False
+    return i == zone_size(z) - 1
+
+def f14_can_target(fz, fi, tz, ti):
+    if fz == tz or not f14_pick(fz, fi) or not f14_pick(tz, ti):
+        return False
+    return card_rank(fz, fi) + card_rank(tz, ti) == 14
+
+def f14_on_target(fz, fi, tz, ti):
+    if not f14_can_target(fz, fi, tz, ti):
+        return False
+    move_cards(fz, fi, 2)
+    move_cards(tz, ti, 2)
+    add_score(20)
+    return True
+
+def f14_status():
+    if zone_size(2) >= 52:
+        return "victory"
+    return "playing"
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "block_ten",
+    name: "Block Ten",
+    family: "Simple Addition",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "half_open",
+    tags: ["classic", "adding", "pairing", "grid", "auto_refill", "blockers", "single_deck"],
+    layout: "grid",
+    description: "Pair cards totaling 10 (A-9) or matching Court pairs (J-J, Q-Q, K-K). Tens permanently block their grid slots!",
+    decks: 1,
+    tableaus: 9,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 3,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "custom",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    prefer_curated_solvable: True,
+    demo_seed: 3,
+    demo_seeds: [3, 63, 100, 156, 180, 225, 243, 249, 286, 295, 335, 375],
+    eval_heuristic: sa_eval,
+    can_pick: bt_pick,
+    can_target: bt_can_target,
+    on_target: bt_on_target,
+    on_turn_end: bt_turn_end,
+    get_status: sa_status_48,
+    doc: {
+        meta: [1, "Very Quick", 4, "High Luck", 2, "Casual"],
+        aliases: ["Tens Block", "Block 10"],
+        goal: ["Clear all 48 non-Ten cards so only the four 10s remain.", "No valid sum-to-10 or Court pairs remain in the grid."],
+        zones: [
+            { index: 0, name: "Cleared Pairs", desc: "Discarded pairs totaling 10 (A+9, 2+8, 3+7, 4+6, 5+5) or matching Court pairs (J+J, Q+Q, K+K).", examples: ["7H", "3S", "QD", "QC"] },
+            { index: 1, name: "3x3 Grid (9 Cards)", desc: "Drag cards onto a partner summing to 10 (or matching J/Q/K). Tens cannot be moved or removed and permanently block their slots." },
+            { index: 10, name: "Stock", desc: "Remaining deck; automatically refills vacated grid spaces after each pair." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "elevens",
+    name: "Elevens",
+    family: "Simple Addition",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "half_open",
+    tags: ["classic", "adding", "pairing", "triples", "grid", "auto_refill", "single_deck"],
+    layout: "grid",
+    description: "Beloved 3x3 totals puzzle. Pair cards totaling 11 (A+10..5+6), or click any J/Q/K when all three are present to clear the royal trio.",
+    decks: 1,
+    tableaus: 9,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 3,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "custom",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    prefer_curated_solvable: True,
+    demo_seed: 1,
+    demo_seeds: [1, 24, 34, 41, 42, 48, 54, 97, 122, 133, 588, 591],
+    eval_heuristic: sa_eval,
+    can_pick: el_pick,
+    can_target: el_can_target,
+    on_target: el_on_target,
+    on_card_click: el_click,
+    on_turn_end: el_turn_end,
+    get_status: sa_status_52,
+    doc: {
+        meta: [1, "Very Quick", 4, "High Luck", 2, "Casual"],
+        aliases: ["Eleven Up", "Simple Elevens"],
+        goal: ["Clear all 52 cards by pairing ranks totaling 11 and clearing Jack-Queen-King triples.", "No sum-to-11 pairs or complete J-Q-K trios remain in the 3x3 grid."],
+        zones: [
+            { index: 0, name: "Cleared Cards", desc: "Discarded pairs totaling 11 (A+10, 2+9, 3+8, 4+7, 5+6) and J-Q-K royal triples.", examples: ["8S", "3D", "JH", "QC", "KS"] },
+            { index: 1, name: "3x3 Grid (9 Cards)", desc: "Drag two cards summing to 11 onto each other. When a Jack, Queen, and King are all visible, click any of them (or drag one onto another) to clear all three." },
+            { index: 10, name: "Stock", desc: "Remaining deck; automatically refills vacated grid spaces." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "thirteens",
+    name: "Thirteens",
+    family: "Simple Addition",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "half_open",
+    tags: ["classic", "adding", "pairing", "grid", "auto_refill", "single_deck"],
+    layout: "grid",
+    description: "Classic 5x2 Simple Addition. Pair cards totaling 13 (A+Q, 2+J, 3+10, 4+9, 5+8, 6+7) or click Kings alone to clear.",
+    decks: 1,
+    tableaus: 10,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 5,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "custom",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    prefer_curated_solvable: True,
+    demo_seed: 399,
+    demo_seeds: [399, 400, 587, 592, 1580, 1596, 1599, 1600],
+    eval_heuristic: sa_eval,
+    can_pick: th_pick,
+    can_drop: th_can_drop,
+    on_drop: th_on_drop,
+    can_target: th_can_target,
+    on_target: th_on_target,
+    on_card_click: th_click,
+    on_turn_end: th_turn_end,
+    get_status: sa_status_52,
+    doc: {
+        meta: [1, "Very Quick", 4, "High Luck", 2, "Casual"],
+        aliases: ["Simple Addition", "Good Thirteen", "Ten-Card Thirteens"],
+        goal: ["Clear all 52 cards by pairing ranks totaling 13 and discarding solo Kings.", "No Kings or pairs totaling 13 remain in the 5x2 grid."],
+        zones: [
+            { index: 0, name: "Cleared Cards", desc: "Discarded Kings and pairs totaling 13 (Ace=1, J=11, Q=12, K=13).", examples: ["KS", "9H", "4D"] },
+            { index: 1, name: "5x2 Grid (10 Cards)", desc: "Drag two cards totaling 13 onto each other, or single-click any King to clear it. Empty slots automatically refill from Stock." },
+            { index: 11, name: "Stock", desc: "Remaining deck; automatically refills vacated grid spaces." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "fourteens",
+    name: "Fourteens",
+    family: "Simple Addition",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "open",
+    tags: ["classic", "open", "adding", "pairing", "pure_skill", "no_stock", "single_deck"],
+    layout: "columns",
+    description: "Open-information totals puzzle. 12 face-up columns; clear top-card pairs summing to 14 (K+A, Q+2, J+3, 10+4, 9+5, 8+6, 7+7).",
+    decks: 1,
+    tableaus: 12,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    prefer_curated_solvable: True,
+    demo_seed: 1,
+    demo_seeds: [1, 6, 8, 13, 14, 21, 23, 26, 31, 33, 37, 46],
+    eval_heuristic: f14_eval,
+    can_pick: f14_pick,
+    can_target: f14_can_target,
+    on_target: f14_on_target,
+    get_status: f14_status,
+    doc: {
+        meta: [2, "Quick", 1, "Pure Skill", 4, "Strategic"],
+        aliases: ["Fourteen Out", "Take Fourteen", "Block Fourteen"],
+        goal: ["Clear all 52 cards by pairing exposed column tops summing to 14.", "No pairs totaling 14 remain among the 12 column tops."],
+        zones: [
+            { index: 2, name: "Cleared Pairs", desc: "Discarded pairs totaling 14 (K+A, Q+2, J+3, 10+4, 9+5, 8+6, 7+7).", examples: ["KS", "AH", "7D", "7C"] },
+            { index: 3, name: "Tableau Columns (1-12)", desc: "12 open columns (four of 5 cards, eight of 4 cards). Only top cards are playable; empty columns stay empty." }
+        ]
+    }
+})

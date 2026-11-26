@@ -762,7 +762,7 @@ void inferClassificationDefaults(SolitaireGameDef& entry) {
         }
     }
     if (entry.foundationMode.empty()) {
-        if (fam == "spider" || entry.id == "spiderette" || entry.id == "scorpion" || entry.id == "wasp") {
+        if (fam == "spider" || fam == "scorpion" || entry.id == "spiderette" || entry.id == "scorpion" || entry.id == "wasp") {
             entry.foundationMode = "completed_run";
         } else if (lay == "canfield" || fam == "canfield") {
             entry.foundationMode = "canfield_wrap";
@@ -773,13 +773,13 @@ void inferClassificationDefaults(SolitaireGameDef& entry) {
     if (entry.tableauBuild.empty()) {
         if (entry.mechanic != "building") {
             entry.tableauBuild = "none";
-        } else if (entry.foundationMode == "completed_run" && entry.id != "scorpion" && entry.id != "wasp") {
+        } else if (entry.foundationMode == "completed_run" && fam != "scorpion" && entry.id != "scorpion" && entry.id != "wasp") {
             entry.tableauBuild = "any_suit";
         } else if (entry.id == "bakers_dozen" || entry.id == "rainbow") {
             entry.tableauBuild = "any_suit";
         } else if (entry.id == "bakers_game" || entry.id == "eight_off" || entry.id == "seahaven_towers" ||
                    entry.id == "la_belle_lucie" || entry.id == "the_fan" || entry.id == "russian_solitaire" ||
-                   fam == "fortythieves" || entry.id == "scorpion" || entry.id == "wasp") {
+                   fam == "fortythieves" || fam == "forty thieves" || fam == "scorpion" || entry.id == "scorpion" || entry.id == "wasp") {
             entry.tableauBuild = "same_suit";
         } else {
             entry.tableauBuild = "alt_color";
@@ -790,7 +790,7 @@ void inferClassificationDefaults(SolitaireGameDef& entry) {
             entry.emptyTableau = "none";
         } else if (entry.id == "bakers_dozen" || entry.id == "la_belle_lucie") {
             entry.emptyTableau = "none";
-        } else if (entry.id == "freecell" || entry.id == "bakers_game" || fam == "fortythieves" ||
+        } else if (entry.id == "freecell" || entry.id == "bakers_game" || fam == "fortythieves" || fam == "forty thieves" ||
                    entry.id == "wasp" || entry.id == "easthaven" ||
                    (entry.foundationMode == "completed_run" && entry.id != "scorpion")) {
             entry.emptyTableau = "any";
@@ -803,9 +803,9 @@ void inferClassificationDefaults(SolitaireGameDef& entry) {
             entry.moveGroup = "single";
         } else if (entry.foundationMode == "canfield_wrap") {
             entry.moveGroup = "whole_column";
-        } else if (fam == "yukon" || entry.id == "scorpion" || entry.id == "wasp") {
+        } else if (fam == "yukon" || fam == "scorpion" || entry.id == "scorpion" || entry.id == "wasp") {
             entry.moveGroup = "any_face_up";
-        } else if (fam == "fortythieves" || fam == "fan" || lay == "fan_grid" || entry.id == "bakers_dozen") {
+        } else if (fam == "fortythieves" || fam == "forty thieves" || fam == "fan" || lay == "fan_grid" || entry.id == "bakers_dozen") {
             entry.moveGroup = "single";
         } else {
             entry.moveGroup = "ordered";

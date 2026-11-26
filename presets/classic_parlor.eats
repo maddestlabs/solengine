@@ -1,4 +1,4 @@
-# SolEngine Scene & Deck Preset: Classic Parlor
+# SolEngine User Preset (.eats)
 
 sol.define_preset({
     id: "classic_parlor",
@@ -8,12 +8,12 @@ sol.define_preset({
     card_back: "classic_sapphire",
     card_wear: 1,
     card_stock: 1,
-    card_corners: 0,
+    card_corners: 3,
     card_deviation: 0.35,
     theme: "shader_royal_velvet",
     table_tint: "auto",
     postfx: "none",
-    postfx_intensity: 1.0,
+    postfx_intensity: 1,
     show_table_markings: true,
     sound_pack: "vintage_bicycle",
     ambience: "off",
@@ -23,13 +23,12 @@ sol.define_preset({
         angle: 0,
         shadow_gobo: 1,
         waver: 0.45,
-        waver_speed: 0.30,
-        flicker: 0.0,
-        gobo_softness: 0.50,
+        waver_speed: 0.3,
+        flicker: 0,
+        gobo_softness: 0.5,
         cloud_opacity: 0.15,
-        god_rays: 0.25,
         dust_motes: 0.35,
         scene_darkness: 0.22,
-        light_strength: 1.20
+        light_strength: 1.2
     }
 })

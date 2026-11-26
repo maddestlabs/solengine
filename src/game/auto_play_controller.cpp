@@ -101,10 +101,128 @@ void AutoPlayController::startDemo(SolitaireBoard& board) {
     allowPartialDemo_ = true;
 }
 
+void AutoPlayController::startPreview(SolitaireBoard& board, uint32_t maxStates, float maxTimeMs) {
+    stop();
+    demoFallbackToSeed_ = false;
+    allowPartialDemo_ = true;
+    isReplayMode_ = false;
+    guidedMode_ = false;
+    replayTitle_.clear();
+    replayNotes_.clear();
+    pausedForNoteIdx_ = static_cast<size_t>(-1);
+    branchMoveIdx_ = 0;
+    branchExtraMoves_ = 0;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
+
+    currentDealSeed_ = board.seed();
+    cancelSignal_.store(false, std::memory_order_release);
+    state_ = AutoPlayState::Solving;
+    moves_.clear();
+    currentMoveIdx_ = 0;
+    historyCount_ = 0;
+    historyTransactions_.clear();
+    pendingHistoryMoves_.clear();
+    pendingHistoryTxs_.clear();
+    moveTimer_ = 0.0f;
+    failReason_.clear();
+    hasResult_ = false;
+    isPartialDemo_ = false;
+
+    SolitaireBoard boardCopy = board;
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+    // Single-threaded WebAssembly: keep preview solve strictly bounded so UI stays responsive
+    const uint32_t wasmMaxStates = std::min<uint32_t>(maxStates, 1800u);
+    const float wasmMaxMs = std::min<float>(maxTimeMs, 55.0f);
+    try {
+        SolitaireSolver solver;
+        SolveResult res = solver.solve(boardCopy, wasmMaxStates, wasmMaxMs, &cancelSignal_);
+        {
+            std::lock_guard<std::mutex> lock(resultMutex_);
+            asyncResult_ = std::move(res);
+            pendingHistoryMoves_.clear();
+            pendingHistoryTxs_.clear();
+            hasResult_ = true;
+        }
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        asyncResult_ = SolveResult{};
+        pendingHistoryMoves_.clear();
+        pendingHistoryTxs_.clear();
+        hasResult_ = true;
+    }
+#else
+    try {
+        solveThread_ = std::thread([this, boardCopy, maxStates, maxTimeMs]() {
+            try {
+                SolitaireSolver solver;
+                SolveResult res = solver.solve(boardCopy, maxStates, maxTimeMs, &cancelSignal_);
+                {
+                    std::lock_guard<std::mutex> lock(resultMutex_);
+                    asyncResult_ = std::move(res);
+                    pendingHistoryMoves_.clear();
+                    pendingHistoryTxs_.clear();
+                    hasResult_ = true;
+                }
+            } catch (...) {
+                std::lock_guard<std::mutex> lock(resultMutex_);
+                asyncResult_ = SolveResult{};
+                pendingHistoryMoves_.clear();
+                pendingHistoryTxs_.clear();
+                hasResult_ = true;
+            }
+        });
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(resultMutex_);
+        asyncResult_ = SolveResult{};
+        pendingHistoryMoves_.clear();
+        pendingHistoryTxs_.clear();
+        hasResult_ = true;
+    }
+#endif
+}
+
+void AutoPlayController::startCachedMoves(const std::vector<SolverMove>& moves, uint32_t dealSeed) {
+    stop();
+    demoFallbackToSeed_ = false;
+    allowPartialDemo_ = true;
+    isPartialDemo_ = false;
+    isReplayMode_ = false;
+    guidedMode_ = false;
+    replayTitle_.clear();
+    replayNotes_.clear();
+    pausedForNoteIdx_ = static_cast<size_t>(-1);
+    branchMoveIdx_ = 0;
+    branchExtraMoves_ = 0;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
+
+    currentDealSeed_ = dealSeed;
+    moves_ = moves;
+    currentMoveIdx_ = 0;
+    historyCount_ = 0;
+    historyTransactions_.clear();
+    pendingHistoryMoves_.clear();
+    pendingHistoryTxs_.clear();
+    moveTimer_ = 0.0f;
+    failReason_.clear();
+    hasResult_ = false;
+    state_ = moves_.empty() ? AutoPlayState::Completed : AutoPlayState::Playing;
+}
+
 void AutoPlayController::start(SolitaireBoard& board) {
     stop();
     demoFallbackToSeed_ = false;
     allowPartialDemo_ = false;
+    isReplayMode_ = false;
+    guidedMode_ = false;
+    replayTitle_.clear();
+    replayNotes_.clear();
+    pausedForNoteIdx_ = static_cast<size_t>(-1);
+    branchMoveIdx_ = 0;
+    branchExtraMoves_ = 0;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
 
     currentDealSeed_ = board.seed();
     cancelSignal_.store(false, std::memory_order_release);
@@ -182,6 +300,54 @@ void AutoPlayController::start(SolitaireBoard& board) {
 #endif
 }
 
+void AutoPlayController::startReplay(SolitaireBoard& board, const ReplayTrack& track, bool guidedOverride) {
+    stop();
+    demoFallbackToSeed_ = false;
+    allowPartialDemo_ = false;
+    isPartialDemo_ = false;
+    isReplayMode_ = true;
+    guidedMode_ = guidedOverride || track.isGuided();
+    replayTitle_ = track.title;
+    currentDealSeed_ = board.seed();
+    moves_ = track.moves;
+    currentMoveIdx_ = 0;
+    historyCount_ = 0;
+    historyTransactions_.clear();
+    pendingHistoryMoves_.clear();
+    pendingHistoryTxs_.clear();
+    replayNotes_.clear();
+    for (const auto& n : track.notes) {
+        replayNotes_[static_cast<size_t>(n.moveIndex)] = n;
+    }
+    pausedForNoteIdx_ = static_cast<size_t>(-1);
+    branchMoveIdx_ = 0;
+    branchExtraMoves_ = 0;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
+    moveTimer_ = 0.0f;
+    failReason_.clear();
+    hasResult_ = false;
+
+    if (moves_.empty()) {
+        state_ = AutoPlayState::Completed;
+        return;
+    }
+
+    if (moves_[0].notation.empty()) {
+        moves_[0].notation = buildMoveNotation(board, moves_[0]);
+    }
+
+    const ReplayNote* firstNote = activeNote();
+    if (guidedMode_ || (firstNote && (firstNote->flags & ReplayNote_GuidedStep) != 0)) {
+        state_ = AutoPlayState::WaitingForMove;
+    } else if (firstNote && (firstNote->flags & ReplayNote_PauseBeforeMove) != 0) {
+        pausedForNoteIdx_ = 0;
+        state_ = AutoPlayState::Paused;
+    } else {
+        state_ = AutoPlayState::Playing;
+    }
+}
+
 void AutoPlayController::stop() {
     cancelSignal_.store(true, std::memory_order_release);
 #if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
@@ -190,21 +356,156 @@ void AutoPlayController::stop() {
     }
 #endif
     state_ = AutoPlayState::Inactive;
+    isReplayMode_ = false;
+    guidedMode_ = false;
+    replayTitle_.clear();
+    replayNotes_.clear();
+    pausedForNoteIdx_ = static_cast<size_t>(-1);
+    branchMoveIdx_ = 0;
+    branchExtraMoves_ = 0;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
+}
+
+const ReplayNote* AutoPlayController::activeNote() const noexcept {
+    if (!isReplayMode_) return nullptr;
+    if (state_ != AutoPlayState::Playing && state_ != AutoPlayState::Paused &&
+        state_ != AutoPlayState::WaitingForMove && state_ != AutoPlayState::Completed) {
+        return nullptr;
+    }
+    auto it = replayNotes_.find(currentMoveIdx_);
+    return (it != replayNotes_.end()) ? &it->second : nullptr;
+}
+
+void AutoPlayController::toggleGuidedMode() noexcept {
+    if (!isReplayMode_) return;
+    guidedMode_ = !guidedMode_;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
+    if (guidedMode_ && (state_ == AutoPlayState::Playing || state_ == AutoPlayState::Paused) &&
+        currentMoveIdx_ < moves_.size()) {
+        state_ = AutoPlayState::WaitingForMove;
+    } else if (!guidedMode_ && state_ == AutoPlayState::WaitingForMove) {
+        state_ = AutoPlayState::Paused;
+    }
+}
+
+bool AutoPlayController::onPlayerMove(
+    const SolverMove& performedMove,
+    SolitaireBoard& board,
+    AudioFoleyEngine* foley
+) {
+    if (state_ == AutoPlayState::Branched) {
+        ++branchExtraMoves_;
+        return true;
+    }
+    if (state_ != AutoPlayState::WaitingForMove || currentMoveIdx_ >= moves_.size()) {
+        return false;
+    }
+
+    const auto& expected = moves_[currentMoveIdx_];
+    bool matched = false;
+    if (expected.action == SolverMove::Action::DrawStock) {
+        matched = (performedMove.action == SolverMove::Action::DrawStock);
+    } else if (expected.action == SolverMove::Action::PairPyramid) {
+        matched = (performedMove.action == SolverMove::Action::PairPyramid) &&
+                  ((performedMove.fromPile == expected.fromPile && performedMove.secondFromPile == expected.secondFromPile) ||
+                   (performedMove.fromPile == expected.secondFromPile && performedMove.secondFromPile == expected.fromPile));
+    } else if (expected.action == SolverMove::Action::ClickCard) {
+        matched = (performedMove.fromPile == expected.fromPile && performedMove.cardIndex == expected.cardIndex);
+    } else {
+        matched = (performedMove.action == SolverMove::Action::MoveCards &&
+                   performedMove.fromPile == expected.fromPile &&
+                   performedMove.toPile == expected.toPile &&
+                   performedMove.cardIndex == expected.cardIndex);
+    }
+
+    if (matched) {
+        ++currentMoveIdx_;
+        pausedForNoteIdx_ = static_cast<size_t>(-1);
+        nudgeText_.clear();
+        nudgeTimer_ = 0.0f;
+        moveTimer_ = 0.0f;
+
+        if (currentMoveIdx_ >= moves_.size() || board.isVictory()) {
+            state_ = AutoPlayState::Completed;
+            if (foley && board.isVictory()) {
+                foley->triggerSound(FoleySound::FoundationChime, 0.9f);
+            }
+            return true;
+        }
+
+        if (moves_[currentMoveIdx_].notation.empty()) {
+            moves_[currentMoveIdx_].notation = buildMoveNotation(board, moves_[currentMoveIdx_]);
+        }
+
+        const ReplayNote* nextNote = activeNote();
+        if (guidedMode_ || (nextNote && (nextNote->flags & ReplayNote_GuidedStep) != 0)) {
+            state_ = AutoPlayState::WaitingForMove;
+        } else if (nextNote && (nextNote->flags & ReplayNote_PauseBeforeMove) != 0) {
+            pausedForNoteIdx_ = currentMoveIdx_;
+            state_ = AutoPlayState::Paused;
+        } else {
+            state_ = AutoPlayState::Playing;
+        }
+        return true;
+    }
+
+    // Off-script move during a guided step: either strict snap-back or soft-branch
+    const ReplayNote* note = activeNote();
+    const bool strict = (note != nullptr) && ((note->flags & ReplayNote_StrictStep) != 0);
+    if (strict) {
+        board.undo();
+        std::string desc = expected.notation.empty() ? buildMoveNotation(board, expected) : expected.notation;
+        nudgeText_ = "Try " + desc + " (or click Stop for Free Play)";
+        nudgeTimer_ = 3.5f;
+        if (foley) {
+            foley->triggerSound(FoleySound::WoodClick, 0.75f);
+        }
+        return false;
+    }
+
+    // Soft branch: let the player explore freely with 1-click Rewind to Lesson
+    branchMoveIdx_ = currentMoveIdx_;
+    branchExtraMoves_ = 1;
+    state_ = AutoPlayState::Branched;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
+    return true;
+}
+
+bool AutoPlayController::rewindToBranch(SolitaireBoard& board, AudioFoleyEngine* foley) {
+    if (state_ != AutoPlayState::Branched) return false;
+    while (branchExtraMoves_ > 0) {
+        if (!board.undo()) break;
+        --branchExtraMoves_;
+    }
+    currentMoveIdx_ = branchMoveIdx_;
+    state_ = AutoPlayState::WaitingForMove;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
+    moveTimer_ = 0.0f;
+    if (foley) {
+        foley->triggerSound(FoleySound::Flip, 0.8f);
+    }
+    return true;
 }
 
 void AutoPlayController::togglePlayPause() {
     if (state_ == AutoPlayState::Playing) {
         pause();
-    } else if (state_ == AutoPlayState::Paused) {
+    } else if (state_ == AutoPlayState::Paused || state_ == AutoPlayState::WaitingForMove) {
         play();
     }
 }
 
 void AutoPlayController::play() {
-    if (state_ == AutoPlayState::Paused || state_ == AutoPlayState::Completed) {
+    if (state_ == AutoPlayState::Paused || state_ == AutoPlayState::WaitingForMove ||
+        state_ == AutoPlayState::Completed) {
         if (currentMoveIdx_ >= moves_.size()) {
             currentMoveIdx_ = 0;
         }
+        pausedForNoteIdx_ = currentMoveIdx_;
         state_ = AutoPlayState::Playing;
         moveTimer_ = 0.0f;
     }
@@ -242,6 +543,8 @@ bool AutoPlayController::stepForward(SolitaireBoard& board, AudioFoleyEngine* fo
 
     if (ok) {
         ++currentMoveIdx_;
+        nudgeText_.clear();
+        nudgeTimer_ = 0.0f;
         if (foley) {
             float pan = 0.0f;
             if (static_cast<size_t>(m.toPile) < board.piles().size() && board.cardWidth() > 0.0f) {
@@ -256,6 +559,19 @@ bool AutoPlayController::stepForward(SolitaireBoard& board, AudioFoleyEngine* fo
             if (foley && board.isVictory()) {
                 foley->triggerSound(FoleySound::FoundationChime, 0.9f);
             }
+        } else if (isReplayMode_) {
+            if (moves_[currentMoveIdx_].notation.empty()) {
+                moves_[currentMoveIdx_].notation = buildMoveNotation(board, moves_[currentMoveIdx_]);
+            }
+            const ReplayNote* nextNote = activeNote();
+            if (guidedMode_ || (nextNote && (nextNote->flags & ReplayNote_GuidedStep) != 0)) {
+                state_ = AutoPlayState::WaitingForMove;
+            } else if (state_ == AutoPlayState::Playing &&
+                       nextNote && (nextNote->flags & ReplayNote_PauseBeforeMove) != 0 &&
+                       pausedForNoteIdx_ != currentMoveIdx_) {
+                pausedForNoteIdx_ = currentMoveIdx_;
+                state_ = AutoPlayState::Paused;
+            }
         }
         return true;
     }
@@ -264,13 +580,19 @@ bool AutoPlayController::stepForward(SolitaireBoard& board, AudioFoleyEngine* fo
 }
 
 bool AutoPlayController::stepBackward(SolitaireBoard& board, AudioFoleyEngine* foley) {
+    if (state_ == AutoPlayState::Branched) {
+        return rewindToBranch(board, foley);
+    }
     if (currentMoveIdx_ == 0) {
         return false;
     }
 
     if (board.undo()) {
         --currentMoveIdx_;
-        state_ = AutoPlayState::Paused;
+        pausedForNoteIdx_ = static_cast<size_t>(-1);
+        nudgeText_.clear();
+        nudgeTimer_ = 0.0f;
+        state_ = (isReplayMode_ && guidedMode_) ? AutoPlayState::WaitingForMove : AutoPlayState::Paused;
         if (foley) {
             foley->triggerSound(FoleySound::Flip, 0.72f);
         }
@@ -284,7 +606,12 @@ void AutoPlayController::restart(SolitaireBoard& board, AudioFoleyEngine* foley)
     board.restartDeal();
     currentMoveIdx_ = 0;
     moveTimer_ = 0.0f;
-    state_ = AutoPlayState::Paused;
+    pausedForNoteIdx_ = static_cast<size_t>(-1);
+    branchMoveIdx_ = 0;
+    branchExtraMoves_ = 0;
+    nudgeText_.clear();
+    nudgeTimer_ = 0.0f;
+    state_ = (isReplayMode_ && guidedMode_) ? AutoPlayState::WaitingForMove : AutoPlayState::Paused;
     if (foley) {
         foley->triggerSound(FoleySound::Shuffle, 0.85f);
     }
@@ -393,7 +720,28 @@ void AutoPlayController::update(float dt, SolitaireBoard& board, AudioFoleyEngin
         return;
     }
 
+    if (nudgeTimer_ > 0.0f) {
+        nudgeTimer_ -= dt;
+        if (nudgeTimer_ <= 0.0f) {
+            nudgeTimer_ = 0.0f;
+            nudgeText_.clear();
+        }
+    }
+
     if (state_ == AutoPlayState::Playing) {
+        if (isReplayMode_ && currentMoveIdx_ < moves_.size()) {
+            const ReplayNote* note = activeNote();
+            if (note && (note->flags & ReplayNote_GuidedStep) != 0) {
+                state_ = AutoPlayState::WaitingForMove;
+                return;
+            }
+            if (note && (note->flags & ReplayNote_PauseBeforeMove) != 0 &&
+                pausedForNoteIdx_ != currentMoveIdx_) {
+                pausedForNoteIdx_ = currentMoveIdx_;
+                state_ = AutoPlayState::Paused;
+                return;
+            }
+        }
         moveTimer_ += dt;
         if (moveTimer_ >= moveInterval()) {
             moveTimer_ = 0.0f;
@@ -411,19 +759,28 @@ void AutoPlayController::update(float dt, SolitaireBoard& board, AudioFoleyEngin
 }
 
 std::string AutoPlayController::getStatusText() const {
+    const std::string prefix = !replayTitle_.empty() ? (replayTitle_ + " | ") : "";
     switch (state_) {
         case AutoPlayState::Inactive:
             return "Inactive";
         case AutoPlayState::Solving:
             return "Oracle Analyzing Game Tree...";
         case AutoPlayState::Playing:
-            return std::string(isPartialDemo_ ? "Demoing Best Moves (" : "Playing (") +
+            return prefix + std::string(isReplayMode_ ? "Replay (" : (isPartialDemo_ ? "Demoing Best Moves (" : "Playing (")) +
                    std::string(speedLabel()) + ") - Move " +
                    std::to_string(currentMoveIdx_) + " / " + std::to_string(moves_.size());
         case AutoPlayState::Paused:
-            return "Paused - Move " + std::to_string(currentMoveIdx_) + " / " + std::to_string(moves_.size());
+            return prefix + std::string(isReplayMode_ ? "Replay Paused - Move " : "Paused - Move ") +
+                   std::to_string(currentMoveIdx_) + " / " + std::to_string(moves_.size());
+        case AutoPlayState::WaitingForMove:
+            return prefix + "Your Turn - Step " +
+                   std::to_string(currentMoveIdx_ + 1) + " / " + std::to_string(moves_.size());
+        case AutoPlayState::Branched:
+            return prefix + "Free Play Branch (+" + std::to_string(branchExtraMoves_) +
+                   " moves from Step " + std::to_string(branchMoveIdx_ + 1) + ")";
         case AutoPlayState::Completed:
-            return "Demo Complete (" + std::to_string(moves_.size()) + " moves)";
+            return prefix + std::string(isReplayMode_ ? "Replay Complete (" : "Demo Complete (") +
+                   std::to_string(moves_.size()) + " moves)";
         case AutoPlayState::Failed:
             return failReason_.empty() ? "No solution found (Game may be unwinnable)" : failReason_;
     }

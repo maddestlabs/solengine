@@ -18,6 +18,10 @@ namespace solengine {
 
 GameBrowserDialog::GameBrowserDialog() = default;
 
+GameBrowserDialog::~GameBrowserDialog() {
+    close();
+}
+
 void GameBrowserDialog::open(const std::string& activeGameId) {
     GameRegistry::instance().initialize();
     isOpen_ = true;
@@ -33,6 +37,9 @@ void GameBrowserDialog::open(const std::string& activeGameId) {
     highlightedIndex_ = 0;
     lastClickedIndex_ = -1;
     cursorBlinkTimer_ = 0.0f;
+    previewGameId_.clear();
+    previewSeedCursor_ = 0;
+    previewUserPaused_ = false;
     updateFilter();
 
     for (size_t i = 0; i < filteredGames_.size(); ++i) {
@@ -42,12 +49,18 @@ void GameBrowserDialog::open(const std::string& activeGameId) {
             break;
         }
     }
+    syncPreviewToSelection(false);
 }
 
 void GameBrowserDialog::close() noexcept {
     isOpen_ = false;
     isMouseDown_ = false;
     isDragging_ = false;
+    previewAutoPlay_.stop();
+    previewSolvePending_ = false;
+    previewHeuristicMode_ = false;
+    previewHasBoard_ = false;
+    previewGameId_.clear();
 #if defined(__EMSCRIPTEN__)
     EM_ASM({
         if (window.closeMobileKeyboard) {
@@ -55,6 +68,169 @@ void GameBrowserDialog::close() noexcept {
         }
     });
 #endif
+}
+
+void GameBrowserDialog::syncPreviewToSelection(bool forceNextSeed) {
+    if (filteredGames_.empty() || highlightedIndex_ < 0 ||
+        highlightedIndex_ >= static_cast<int>(filteredGames_.size())) {
+        previewAutoPlay_.stop();
+        previewSolvePending_ = false;
+        previewHeuristicMode_ = false;
+        previewHasBoard_ = false;
+        previewGameId_.clear();
+        return;
+    }
+
+    const SolitaireGameDef& def = filteredGames_[static_cast<size_t>(highlightedIndex_)];
+    const bool sameGame = (def.id == previewGameId_ && previewHasBoard_);
+    if (sameGame && !forceNextSeed) {
+        return;
+    }
+
+    if (!sameGame) {
+        previewGameId_ = def.id;
+        previewSeedCursor_ = 0;
+    } else {
+        ++previewSeedCursor_;
+    }
+
+    previewDef_ = def;
+    if (!def.demoSeeds.empty()) {
+        previewSeed_ = def.demoSeeds[previewSeedCursor_ % def.demoSeeds.size()];
+    } else if (def.demoSeed != 0) {
+        previewSeed_ = def.demoSeed + static_cast<uint32_t>(previewSeedCursor_);
+    } else {
+        previewSeed_ = 2026u + static_cast<uint32_t>(previewSeedCursor_);
+    }
+
+    previewAutoPlay_.stop();
+    previewAutoPlay_.setSpeed(previewSpeed_);
+    previewSolvePending_ = false;
+    previewHeuristicMode_ = false;
+    previewHeuristicTimer_ = 0.0f;
+    previewLoopTimer_ = 0.0f;
+
+    // Deal immediately on an isolated preview board (Frame 0 instant layout!)
+    previewBoard_.setLayoutMode(ResponsiveLayoutMode::DesktopStandard);
+    previewBoard_.newDeal(previewSeed_, def);
+    previewBoard_.computeLayout(640.0f, 400.0f);
+    previewBoard_.triggerDealAnimation();
+    previewHasBoard_ = true;
+
+    const std::string cacheKey = def.id + "#" + std::to_string(previewSeed_);
+    auto it = previewMoveCache_.find(cacheKey);
+    if (it != previewMoveCache_.end() && !it->second.empty()) {
+        previewAutoPlay_.startCachedMoves(it->second, previewSeed_);
+        previewAutoPlay_.setSpeed(previewSpeed_);
+        if (previewUserPaused_) {
+            previewAutoPlay_.pause();
+        }
+    } else {
+        previewSolvePending_ = true;
+        previewDebounceTimer_ = forceNextSeed ? 0.05f : 0.22f;
+    }
+}
+
+bool GameBrowserDialog::stepPreviewHeuristic() {
+    if (!previewHasBoard_ || previewBoard_.isVictory()) return false;
+
+    const HintMove hint = previewBoard_.findBestHint();
+    previewBoard_.clearHint();
+    if (hint.valid) {
+        const auto& piles = previewBoard_.piles();
+        if (hint.fromPile < piles.size() && piles[hint.fromPile].type == PileType::Stock &&
+            hint.fromPile == hint.toPile) {
+            if (previewBoard_.drawFromStock()) return true;
+        }
+        if (previewBoard_.executeMove(hint.fromPile, hint.cardIndex, hint.toPile, true)) {
+            return true;
+        }
+        if (previewBoard_.smartMove(hint.fromPile, hint.cardIndex)) {
+            return true;
+        }
+    }
+
+    if (previewBoard_.drawFromStock()) {
+        return true;
+    }
+    return false;
+}
+
+void GameBrowserDialog::update(float dt) {
+    if (!isOpen_) return;
+    const float clampedDt = std::clamp(dt, 0.0f, 0.05f);
+
+    if (!previewHasBoard_) {
+        syncPreviewToSelection(false);
+    }
+    if (!previewHasBoard_) return;
+
+    previewBoard_.updateAnimations(clampedDt);
+
+    if (previewSolvePending_) {
+        previewDebounceTimer_ -= clampedDt;
+        if (previewDebounceTimer_ <= 0.0f) {
+            previewSolvePending_ = false;
+            if (previewDef_.supportsSolver) {
+                previewAutoPlay_.setSpeed(previewSpeed_);
+                const uint32_t maxStates = (previewDef_.decks >= 2) ? 20000u : 12000u;
+                previewAutoPlay_.startPreview(previewBoard_, maxStates, 450.0f);
+            } else {
+                previewHeuristicMode_ = true;
+                previewHeuristicTimer_ = 0.35f;
+            }
+        }
+        return;
+    }
+
+    if (previewHeuristicMode_) {
+        if (previewUserPaused_) return;
+        const float iv = previewAutoPlay_.moveInterval();
+        previewHeuristicTimer_ += clampedDt;
+        if (previewHeuristicTimer_ >= iv) {
+            previewHeuristicTimer_ = 0.0f;
+            if (!stepPreviewHeuristic() || previewBoard_.isVictory()) {
+                previewLoopTimer_ += iv;
+                if (previewLoopTimer_ >= 1.8f) {
+                    syncPreviewToSelection(true);
+                }
+            } else {
+                previewLoopTimer_ = 0.0f;
+            }
+        }
+        return;
+    }
+
+    if (previewAutoPlay_.isActive()) {
+        const AutoPlayState prevState = previewAutoPlay_.state();
+        previewAutoPlay_.update(clampedDt, previewBoard_, /*foley=*/nullptr);
+        const AutoPlayState curState = previewAutoPlay_.state();
+
+        if (prevState == AutoPlayState::Solving && curState == AutoPlayState::Playing) {
+            if (!previewAutoPlay_.moves().empty()) {
+                if (previewMoveCache_.size() >= 64) {
+                    previewMoveCache_.clear();
+                }
+                const std::string cacheKey = previewGameId_ + "#" + std::to_string(previewSeed_);
+                previewMoveCache_[cacheKey] = previewAutoPlay_.moves();
+            }
+            previewAutoPlay_.setSpeed(previewSpeed_);
+            if (previewUserPaused_) {
+                previewAutoPlay_.pause();
+            }
+        } else if (curState == AutoPlayState::Failed) {
+            previewAutoPlay_.stop();
+            previewHeuristicMode_ = true;
+            previewHeuristicTimer_ = 0.35f;
+        } else if (curState == AutoPlayState::Completed || previewBoard_.isVictory()) {
+            if (!previewUserPaused_) {
+                previewLoopTimer_ += clampedDt;
+                if (previewLoopTimer_ >= 1.8f) {
+                    syncPreviewToSelection(true);
+                }
+            }
+        }
+    }
 }
 
 void GameBrowserDialog::setSearchQuery(const std::string& text) {
@@ -84,6 +260,7 @@ void GameBrowserDialog::updateFilter() {
     if (highlightedIndex_ >= static_cast<int>(filteredGames_.size())) {
         highlightedIndex_ = std::max(0, static_cast<int>(filteredGames_.size()) - 1);
     }
+    syncPreviewToSelection(false);
 }
 
 void GameBrowserDialog::ensureVisible(int index) {
@@ -138,19 +315,26 @@ void GameBrowserDialog::render(
     // 1. Semi-transparent backdrop overlay
     r.drawRect(0.0f, 0.0f, screenW, screenH, 0.0f, 0.0f, 0.0f, 0.65f);
 
-    // 2. Responsive chassis sizing (single-column layout with room for future auto-play sidebar)
-    const bool isMobile = (screenW < 680.0f) || (screenW < screenH);
+    // 2. Responsive chassis sizing (Desktop split master-detail / Mobile pinned top stage)
+    isMobileLayout_ = (screenW < 720.0f) || (screenW < screenH);
+    const bool isMobile = isMobileLayout_;
     if (isMobile) {
         dialogX_ = 0.0f;
         dialogY_ = 0.0f;
         dialogW_ = screenW;
-        dialogH_ = std::min(screenH * 0.96f, 660.0f);
+        dialogH_ = std::min(screenH * 0.96f, 760.0f);
     } else {
-        dialogW_ = std::clamp(screenW * 0.72f, 540.0f, 760.0f);
-        dialogH_ = std::clamp(screenH * 0.84f, 480.0f, 640.0f);
+        dialogW_ = std::clamp(screenW * 0.86f, 760.0f, 1080.0f);
+        dialogH_ = std::clamp(screenH * 0.86f, 520.0f, 680.0f);
         dialogX_ = (screenW - dialogW_) * 0.5f;
         dialogY_ = (screenH - dialogH_) * 0.5f;
     }
+
+    stageRect_ = {};
+    pauseBtnRect_ = {};
+    speedBtnRect_ = {};
+    nextSeedBtnRect_ = {};
+    collapseBtnRect_ = {};
 
     eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 1.0f};
     r.drawRectDropShadow(dialogX_, dialogY_, dialogW_, dialogH_, 12.0f, 22.0f, light, 0.68f);
@@ -326,20 +510,249 @@ void GameBrowserDialog::render(
         }
     }
 
-    // 6. Cards area (Single Column Layout)
+    // 6. Body layout: Desktop Master-Detail Split vs Mobile Pinned Top Demo Stage
     curY += subChipH + 10.0f;
-    cardsAreaY_ = curY;
+    const float bodyY = curY;
     const float footerH = 46.0f;
-    cardsAreaH_ = (dialogY_ + dialogH_ - footerH) - cardsAreaY_;
+    const float bodyH = std::max(120.0f, (dialogY_ + dialogH_ - footerH) - bodyY);
 
-    // Inner background panel for game cards
-    r.drawRoundedRect(dialogX_ + 16.0f, cardsAreaY_, dialogW_ - 32.0f, cardsAreaH_, 6.0f,
+    auto drawMiniCtrlButton = [&](const RectF& rc, const char* label, bool activeHighlight) {
+        const bool hov = rc.contains(mouseX, mouseY);
+        r.drawRoundedRect(
+            rc.x, rc.y, rc.w, rc.h, 4.0f,
+            activeHighlight ? (pal.accentR * 0.30f + 0.06f) : (hov ? 0.18f : 0.08f),
+            activeHighlight ? (pal.accentG * 0.30f + 0.05f) : (hov ? 0.16f : 0.07f),
+            activeHighlight ? (pal.accentB * 0.30f + 0.04f) : (hov ? 0.14f : 0.06f),
+            0.88f, 3
+        );
+        r.drawRoundedRectOutline(
+            rc.x, rc.y, rc.w, rc.h, 4.0f,
+            (hov || activeHighlight) ? pal.accentR : pal.trimR,
+            (hov || activeHighlight) ? pal.accentG : pal.trimG,
+            (hov || activeHighlight) ? pal.accentB : pal.trimB,
+            hov ? 0.95f : 0.60f, 1.0f, 3
+        );
+        const float tw = eatsbits::ui::glyph::getVectorTextWidth(9.0f, label);
+        eatsbits::ui::glyph::drawVectorText(
+            r, label, rc.x + (rc.w - tw) * 0.5f, rc.y + (rc.h - 9.0f) * 0.5f, 9.0f,
+            (hov || activeHighlight) ? pal.accentR : 0.92f,
+            (hov || activeHighlight) ? pal.accentG : 0.90f,
+            (hov || activeHighlight) ? pal.accentB : 0.84f, 0.98f
+        );
+    };
+
+    auto getPreviewStatusLabel = [&]() -> const char* {
+        if (!previewHasBoard_) return "PREVIEW";
+        if (previewUserPaused_ || previewAutoPlay_.isPaused()) return "PAUSED";
+        if (previewSolvePending_ || previewAutoPlay_.isSolving()) return "SOLVING...";
+        return "LIVE DEMO";
+    };
+
+    const bool hasSelection = !filteredGames_.empty() && highlightedIndex_ >= 0 &&
+                              highlightedIndex_ < static_cast<int>(filteredGames_.size());
+
+    if (isMobile) {
+        // Mobile: Pinned Top Live Demo Stage + Scrollable List below
+        listX_ = dialogX_ + 12.0f;
+        listW_ = dialogW_ - 24.0f;
+
+        if (previewCollapsedMobile_) {
+            const float barH = 30.0f;
+            stageRect_ = {listX_, bodyY, listW_, barH};
+            r.drawRoundedRect(stageRect_.x, stageRect_.y, stageRect_.w, stageRect_.h, 6.0f,
+                              pal.woodR0 + 0.03f, pal.woodG0 + 0.025f, pal.woodB0 + 0.02f, 0.94f, 4);
+            r.drawRoundedRectOutline(stageRect_.x, stageRect_.y, stageRect_.w, stageRect_.h, 6.0f,
+                                     pal.trimR, pal.trimG, pal.trimB, 0.55f, 1.0f, 4);
+            std::string barTxt = hasSelection
+                ? ("Live Demo: " + filteredGames_[static_cast<size_t>(highlightedIndex_)].name)
+                : "Live Demo";
+            eatsbits::ui::glyph::drawVectorText(r, barTxt.c_str(), stageRect_.x + 10.0f, stageRect_.y + 9.5f, 10.0f,
+                                                pal.accentR, pal.accentG, pal.accentB, 0.95f);
+            collapseBtnRect_ = {stageRect_.x + stageRect_.w - 64.0f, stageRect_.y + 4.0f, 58.0f, 22.0f};
+            drawMiniCtrlButton(collapseBtnRect_, "SHOW", false);
+
+            cardsAreaY_ = bodyY + barH + 8.0f;
+            cardsAreaH_ = std::max(80.0f, (dialogY_ + dialogH_ - footerH) - cardsAreaY_);
+        } else {
+            const float stageH = std::clamp(bodyH * 0.40f, 136.0f, 210.0f);
+            stageRect_ = {listX_, bodyY, listW_, stageH};
+            if (previewHasBoard_) {
+                TableRenderer::renderMiniBoard(
+                    r, previewBoard_, stageRect_.x, stageRect_.y, stageRect_.w, stageRect_.h, pal,
+                    previewHeuristicMode_ ? nullptr : &previewAutoPlay_
+                );
+            } else {
+                r.drawRoundedRect(stageRect_.x, stageRect_.y, stageRect_.w, stageRect_.h, 6.0f,
+                                  pal.feltR1, pal.feltG1, pal.feltB1, 0.90f, 4);
+                r.drawRoundedRectOutline(stageRect_.x, stageRect_.y, stageRect_.w, stageRect_.h, 6.0f,
+                                         pal.trimR, pal.trimG, pal.trimB, 0.50f, 1.0f, 4);
+            }
+
+            // Compact top-left status & game name pill
+            std::string pillStr = std::string(getPreviewStatusLabel());
+            if (hasSelection) {
+                pillStr += "  |  " + filteredGames_[static_cast<size_t>(highlightedIndex_)].name;
+            }
+            const float maxPillW = std::max(80.0f, stageRect_.w - 154.0f);
+            float pillTw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, pillStr.c_str());
+            while (pillTw > maxPillW - 14.0f && pillStr.size() > 8) {
+                pillStr.resize(pillStr.size() - 4);
+                pillStr += "...";
+                pillTw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, pillStr.c_str());
+            }
+            r.drawRoundedRect(stageRect_.x + 6.0f, stageRect_.y + 6.0f, pillTw + 12.0f, 18.0f, 9.0f,
+                              0.06f, 0.05f, 0.04f, 0.80f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, pillStr.c_str(), stageRect_.x + 12.0f, stageRect_.y + 10.5f, 8.5f,
+                                                pal.accentR, pal.accentG, pal.accentB, 0.96f);
+
+            // Top-right micro-controls (Pause/Play, Next Seed, Hide)
+            const float ctrlH = 20.0f;
+            const float ctrlY = stageRect_.y + 6.0f;
+            collapseBtnRect_ = {stageRect_.x + stageRect_.w - 46.0f, ctrlY, 40.0f, ctrlH};
+            nextSeedBtnRect_ = {collapseBtnRect_.x - 42.0f, ctrlY, 38.0f, ctrlH};
+            pauseBtnRect_ = {nextSeedBtnRect_.x - 36.0f, ctrlY, 32.0f, ctrlH};
+            drawMiniCtrlButton(pauseBtnRect_, (previewUserPaused_ || previewAutoPlay_.isPaused()) ? "PLAY" : "II", previewUserPaused_);
+            drawMiniCtrlButton(nextSeedBtnRect_, "NEXT", false);
+            drawMiniCtrlButton(collapseBtnRect_, "HIDE", false);
+
+            cardsAreaY_ = bodyY + stageH + 8.0f;
+            cardsAreaH_ = std::max(80.0f, (dialogY_ + dialogH_ - footerH) - cardsAreaY_);
+        }
+    } else {
+        // Desktop: Left Scrollable List (~45%) + Right Live Demo & Details Pane (~55%)
+        const float innerX = dialogX_ + 16.0f;
+        const float innerW = dialogW_ - 32.0f;
+        const float splitGap = 12.0f;
+        listX_ = innerX;
+        listW_ = std::floor((innerW - splitGap) * 0.45f);
+        cardsAreaY_ = bodyY;
+        cardsAreaH_ = bodyH;
+
+        const float paneX = listX_ + listW_ + splitGap;
+        const float paneW = (innerX + innerW) - paneX;
+        const float paneY = bodyY;
+        const float paneH = bodyH;
+
+        // Right pane backing panel
+        r.drawRoundedRect(paneX, paneY, paneW, paneH, 6.0f,
+                          pal.woodR0 + 0.02f, pal.woodG0 + 0.015f, pal.woodB0 + 0.01f, 0.90f, 4);
+        r.drawRoundedRectOutline(paneX, paneY, paneW, paneH, 6.0f,
+                                 pal.trimR, pal.trimG, pal.trimB, 0.42f, 1.0f, 4);
+
+        const float stagePad = 8.0f;
+        const float stageH = std::clamp(paneH * 0.62f, 175.0f, 340.0f);
+        stageRect_ = {paneX + stagePad, paneY + stagePad, paneW - stagePad * 2.0f, stageH};
+
+        if (previewHasBoard_) {
+            TableRenderer::renderMiniBoard(
+                r, previewBoard_, stageRect_.x, stageRect_.y, stageRect_.w, stageRect_.h, pal,
+                previewHeuristicMode_ ? nullptr : &previewAutoPlay_
+            );
+        } else {
+            r.drawRoundedRect(stageRect_.x, stageRect_.y, stageRect_.w, stageRect_.h, 6.0f,
+                              pal.feltR1, pal.feltG1, pal.feltB1, 0.90f, 4);
+            r.drawRoundedRectOutline(stageRect_.x, stageRect_.y, stageRect_.w, stageRect_.h, 6.0f,
+                                     pal.trimR, pal.trimG, pal.trimB, 0.50f, 1.0f, 4);
+        }
+
+        // Top-left live status badge inside stage
+        const char* statusLbl = getPreviewStatusLabel();
+        const float statusTw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, statusLbl);
+        r.drawRoundedRect(stageRect_.x + 8.0f, stageRect_.y + 8.0f, statusTw + 14.0f, 18.0f, 9.0f,
+                          0.06f, 0.05f, 0.04f, 0.80f, 3);
+        r.drawRoundedRectOutline(stageRect_.x + 8.0f, stageRect_.y + 8.0f, statusTw + 14.0f, 18.0f, 9.0f,
+                                 pal.accentR, pal.accentG, pal.accentB, 0.65f, 1.0f, 3);
+        eatsbits::ui::glyph::drawVectorText(r, statusLbl, stageRect_.x + 15.0f, stageRect_.y + 12.5f, 8.5f,
+                                            pal.accentR, pal.accentG, pal.accentB, 0.98f);
+
+        // Bottom-right micro transport controls inside stage
+        const float ctrlH = 22.0f;
+        const float ctrlY = stageRect_.y + stageRect_.h - ctrlH - 8.0f;
+        nextSeedBtnRect_ = {stageRect_.x + stageRect_.w - 48.0f, ctrlY, 40.0f, ctrlH};
+        speedBtnRect_ = {nextSeedBtnRect_.x - 36.0f, ctrlY, 32.0f, ctrlH};
+        pauseBtnRect_ = {speedBtnRect_.x - 42.0f, ctrlY, 38.0f, ctrlH};
+        drawMiniCtrlButton(pauseBtnRect_, (previewUserPaused_ || previewAutoPlay_.isPaused()) ? "PLAY" : "II", previewUserPaused_);
+        drawMiniCtrlButton(speedBtnRect_, previewAutoPlay_.speedLabel(), false);
+        drawMiniCtrlButton(nextSeedBtnRect_, "NEXT", false);
+
+        // Selected game details below the stage
+        if (hasSelection) {
+            const auto& sel = filteredGames_[static_cast<size_t>(highlightedIndex_)];
+            const float infoX = paneX + 12.0f;
+            float infoY = stageRect_.y + stageRect_.h + 10.0f;
+            const float infoW = paneW - 24.0f;
+            const float infoBottom = paneY + paneH - 8.0f;
+
+            // Title + seed badge on right
+            eatsbits::ui::glyph::drawVectorText(r, sel.name.c_str(), infoX, infoY, 13.5f,
+                                                pal.accentR, pal.accentG, pal.accentB, 1.0f);
+
+            std::string seedTag = "Seed #" + std::to_string(previewSeed_);
+            if (sel.demoSeeds.size() > 1) {
+                seedTag += " (" + std::to_string((previewSeedCursor_ % sel.demoSeeds.size()) + 1) +
+                           "/" + std::to_string(sel.demoSeeds.size()) + ")";
+            }
+            const float seedTw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, seedTag.c_str());
+            eatsbits::ui::glyph::drawVectorText(r, seedTag.c_str(), infoX + infoW - seedTw, infoY + 3.0f, 8.5f,
+                                                0.72f, 0.70f, 0.65f, 0.88f);
+            infoY += 20.0f;
+
+            // Metadata line
+            std::string metaLine = sel.family + "  *  " + std::to_string(sel.decks) +
+                                   (sel.decks == 1 ? " Deck" : " Decks");
+            if (sel.deckCards > 0) metaLine += " (" + std::to_string(sel.deckCards) + " Cards)";
+            metaLine += "  *  " + std::to_string(sel.tableaus) + " Cols";
+            if (sel.freecells > 0) metaLine += "  *  " + std::to_string(sel.freecells) + " Cells";
+            if (!sel.visibility.empty()) {
+                metaLine += "  *  ";
+                if (sel.visibility == "open") metaLine += "Open Info";
+                else if (sel.visibility == "closed") metaLine += "Hidden Info";
+                else metaLine += "Half-Open";
+            }
+            eatsbits::ui::glyph::drawVectorText(r, metaLine.c_str(), infoX, infoY, 9.2f,
+                                                pal.trimR, pal.trimG, pal.trimB, 0.90f);
+            infoY += 17.0f;
+
+            // Word-wrapped description
+            if (!sel.description.empty() && infoY + 12.0f < infoBottom) {
+                auto descScissor = r.makeScissorScope(infoX - 2.0f, infoY - 2.0f, infoW + 4.0f, infoBottom - infoY + 2.0f);
+                const float fontSize = 9.8f;
+                const float lineH = 14.0f;
+                std::string line;
+                size_t pos = 0;
+                while (pos < sel.description.size() && infoY + lineH <= infoBottom + 2.0f) {
+                    size_t nextSp = sel.description.find(' ', pos);
+                    std::string word = (nextSp == std::string::npos)
+                        ? sel.description.substr(pos)
+                        : sel.description.substr(pos, nextSp - pos);
+                    std::string cand = line.empty() ? word : (line + " " + word);
+                    if (!line.empty() && eatsbits::ui::glyph::getVectorTextWidth(fontSize, cand.c_str()) > infoW) {
+                        eatsbits::ui::glyph::drawVectorText(r, line.c_str(), infoX, infoY, fontSize,
+                                                            0.86f, 0.84f, 0.78f, 0.92f);
+                        infoY += lineH;
+                        line = word;
+                    } else {
+                        line = std::move(cand);
+                    }
+                    if (nextSp == std::string::npos) break;
+                    pos = nextSp + 1;
+                }
+                if (!line.empty() && infoY + lineH <= infoBottom + 2.0f) {
+                    eatsbits::ui::glyph::drawVectorText(r, line.c_str(), infoX, infoY, fontSize,
+                                                        0.86f, 0.84f, 0.78f, 0.92f);
+                }
+            }
+        }
+    }
+
+    // Inner background panel for game list
+    r.drawRoundedRect(listX_, cardsAreaY_, listW_, cardsAreaH_, 6.0f,
                       pal.woodR0 + 0.02f, pal.woodG0 + 0.015f, pal.woodB0 + 0.01f, 0.90f, 4);
-    r.drawRoundedRectOutline(dialogX_ + 16.0f, cardsAreaY_, dialogW_ - 32.0f, cardsAreaH_, 6.0f,
+    r.drawRoundedRectOutline(listX_, cardsAreaY_, listW_, cardsAreaH_, 6.0f,
                              pal.trimR, pal.trimG, pal.trimB, 0.40f, 1.0f, 4);
 
     const float cardPad = 6.0f;
-    const float cardW = dialogW_ - 48.0f;
+    const float cardW = listW_ - 16.0f;
     const float cardH = 50.0f;
 
     const size_t totalCards = filteredGames_.size();
@@ -349,11 +762,11 @@ void GameBrowserDialog::render(
 
     // STRICT SCISSOR CLIPPING: Absolutely no cards can overflow or bleed outside the list bounds
     {
-        auto scissor = r.makeScissorScope(dialogX_ + 16.0f, cardsAreaY_ + 2.0f, dialogW_ - 32.0f, cardsAreaH_ - 4.0f);
+        auto scissor = r.makeScissorScope(listX_, cardsAreaY_ + 2.0f, listW_, cardsAreaH_ - 4.0f);
 
         for (size_t i = 0; i < totalCards; ++i) {
             const auto& g = filteredGames_[i];
-            const float cx = dialogX_ + 24.0f;
+            const float cx = listX_ + 8.0f;
             const float cy = cardsAreaY_ + cardPad + static_cast<float>(i) * (cardH + cardPad) - scrollOffsetY_;
 
             // Skip cards outside the visible clipping area
@@ -401,22 +814,9 @@ void GameBrowserDialog::render(
                                   isActive ? 0.45f : pal.accentB, 1.0f);
             }
 
-            // Title
-            eatsbits::ui::glyph::drawVectorText(r, g.name.c_str(), cx + 14.0f, cy + 9.5f, 12.0f,
-                                                isActive ? 0.40f : ((isHighlighted || isHov) ? pal.accentR : 0.96f),
-                                                isActive ? 1.0f : ((isHighlighted || isHov) ? pal.accentG : 0.93f),
-                                                isActive ? 0.50f : ((isHighlighted || isHov) ? pal.accentB : 0.88f), 1.0f);
-
-            // Description summary
-            if (!g.description.empty()) {
-                std::string desc = g.description;
-                if (desc.size() > 70) desc = desc.substr(0, 67) + "...";
-                eatsbits::ui::glyph::drawVectorText(r, desc.c_str(), cx + 14.0f, cy + 28.5f, 9.2f, 0.78f, 0.76f, 0.70f, 0.90f);
-            }
-
-            // Right-aligned badges and Favorite Star
+            // Right-aligned Favorite Star & Family badge first so we know max title width
             const float starBtnW = 28.0f;
-            const float starBtnX = cx + cardW - starBtnW - 8.0f;
+            const float starBtnX = cx + cardW - starBtnW - 6.0f;
             const float starBtnY = cy + (cardH - starBtnW) * 0.5f;
             const bool isFav = SettingsManager::instance().isFavorite(g.id);
             const bool starHov = (mouseX >= starBtnX && mouseX <= starBtnX + starBtnW && mouseY >= starBtnY && mouseY <= starBtnY + starBtnW);
@@ -436,72 +836,70 @@ void GameBrowserDialog::render(
                                       pal.trimR, pal.trimG, pal.trimB, starHov ? 0.95f : 0.45f, 1.4f);
             }
 
-            float badgeRightX = starBtnX - 10.0f;
+            float badgeRightX = starBtnX - 8.0f;
 
             // 1. Family pill badge
-            float famTxtW = eatsbits::ui::glyph::getVectorTextWidth(8.5f, g.family.c_str());
+            float famTxtW = eatsbits::ui::glyph::getVectorTextWidth(8.2f, g.family.c_str());
             float famBadgeW = famTxtW + 10.0f;
             badgeRightX -= famBadgeW;
             r.drawRoundedRect(badgeRightX, cy + 7.0f, famBadgeW, 16.0f, 8.0f, pal.woodR0 + 0.10f, pal.woodG0 + 0.08f, pal.woodB0 + 0.06f, 0.95f, 3);
             r.drawRoundedRectOutline(badgeRightX, cy + 7.0f, famBadgeW, 16.0f, 8.0f, pal.trimR, pal.trimG, pal.trimB, 0.60f, 1.0f, 3);
-            eatsbits::ui::glyph::drawVectorText(r, g.family.c_str(), badgeRightX + 5.0f, cy + 3.5f + 7.0f, 8.5f, pal.accentR, pal.accentG, pal.accentB, 0.95f);
+            eatsbits::ui::glyph::drawVectorText(r, g.family.c_str(), badgeRightX + 5.0f, cy + 10.5f, 8.2f, pal.accentR, pal.accentG, pal.accentB, 0.95f);
 
-            // 1a. Visibility micro-badge (highlights Open / Closed info profile)
-            if (!g.visibility.empty() && g.visibility != "half_open") {
-                const bool isOpen = (g.visibility == "open");
-                const char* visLabel = isOpen ? "OPEN" : "CLOSED";
-                float visTxtW = eatsbits::ui::glyph::getVectorTextWidth(8.0f, visLabel);
-                float visBadgeW = visTxtW + 10.0f;
-                badgeRightX -= (visBadgeW + 6.0f);
-                r.drawRoundedRect(badgeRightX, cy + 7.0f, visBadgeW, 16.0f, 8.0f,
-                                  isOpen ? 0.10f : 0.22f, isOpen ? 0.24f : 0.16f, isOpen ? 0.26f : 0.28f, 0.95f, 3);
-                r.drawRoundedRectOutline(badgeRightX, cy + 7.0f, visBadgeW, 16.0f, 8.0f,
-                                         isOpen ? 0.38f : 0.68f, isOpen ? 0.84f : 0.56f, isOpen ? 0.86f : 0.88f, 0.75f, 1.0f, 3);
-                eatsbits::ui::glyph::drawVectorText(r, visLabel, badgeRightX + 5.0f, cy + 10.5f, 8.0f,
-                                                    isOpen ? 0.60f : 0.84f, isOpen ? 0.96f : 0.76f, isOpen ? 0.98f : 0.98f, 1.0f);
-            }
-
-            // 1b. Per-game custom setup badge
-            if (SettingsManager::instance().hasGameProfile(g.id)) {
-                const char* custLabel = "CUSTOM";
-                float custTxtW = eatsbits::ui::glyph::getVectorTextWidth(8.0f, custLabel);
-                float custBadgeW = custTxtW + 10.0f;
-                badgeRightX -= (custBadgeW + 6.0f);
-                r.drawRoundedRect(badgeRightX, cy + 7.0f, custBadgeW, 16.0f, 8.0f, 0.14f, 0.24f, 0.18f, 0.95f, 3);
-                r.drawRoundedRectOutline(badgeRightX, cy + 7.0f, custBadgeW, 16.0f, 8.0f, 0.38f, 0.85f, 0.55f, 0.80f, 1.0f, 3);
-                eatsbits::ui::glyph::drawVectorText(r, custLabel, badgeRightX + 5.0f, cy + 10.5f, 8.0f, 0.55f, 0.98f, 0.68f, 1.0f);
-            }
-
-            // 2. Metadata: Decks & Columns
-            std::string metaStr = std::to_string(g.decks) + (g.decks == 1 ? " Deck" : " Decks");
-            if (g.deckCards > 0) metaStr += " (" + std::to_string(g.deckCards) + " Cards)";
-            metaStr += " * " + std::to_string(g.tableaus) + " Cols";
-            if (g.freecells > 0) metaStr += " * " + std::to_string(g.freecells) + " Cells";
-            float metaTxtW = eatsbits::ui::glyph::getVectorTextWidth(9.0f, metaStr.c_str());
-            badgeRightX -= (metaTxtW + 14.0f);
-            eatsbits::ui::glyph::drawVectorText(r, metaStr.c_str(), badgeRightX, cy + 10.5f, 9.0f, pal.accentR, pal.accentG, pal.accentB, 0.85f);
-
-            // 3. Active status tag
+            // 2. Active status tag (compact)
             if (isActive) {
-                float actTxtW = eatsbits::ui::glyph::getVectorTextWidth(8.5f, "ACTIVE");
+                float actTxtW = eatsbits::ui::glyph::getVectorTextWidth(8.0f, "ACTIVE");
                 badgeRightX -= (actTxtW + 12.0f);
                 r.drawRoundedRect(badgeRightX, cy + 7.0f, actTxtW + 8.0f, 16.0f, 3.0f, 0.12f, 0.35f, 0.15f, 0.90f, 2);
-                eatsbits::ui::glyph::drawVectorText(r, "ACTIVE", badgeRightX + 4.0f, cy + 10.5f, 8.5f, 0.45f, 1.0f, 0.55f, 1.0f);
+                eatsbits::ui::glyph::drawVectorText(r, "ACTIVE", badgeRightX + 4.0f, cy + 10.5f, 8.0f, 0.45f, 1.0f, 0.55f, 1.0f);
+            }
+
+            // Title (trimmed cleanly to never collide with badges)
+            const float titleMaxW = std::max(40.0f, badgeRightX - (cx + 12.0f) - 6.0f);
+            std::string titleStr = g.name;
+            while (titleStr.size() > 6 && eatsbits::ui::glyph::getVectorTextWidth(11.5f, titleStr.c_str()) > titleMaxW) {
+                titleStr.resize(titleStr.size() - 4);
+                titleStr += "...";
+            }
+            eatsbits::ui::glyph::drawVectorText(r, titleStr.c_str(), cx + 12.0f, cy + 9.0f, 11.5f,
+                                                isActive ? 0.40f : ((isHighlighted || isHov) ? pal.accentR : 0.96f),
+                                                isActive ? 1.0f : ((isHighlighted || isHov) ? pal.accentG : 0.93f),
+                                                isActive ? 0.50f : ((isHighlighted || isHov) ? pal.accentB : 0.88f), 1.0f);
+
+            // Subtitle line: compact metadata on desktop (full description is in right pane), or short description on mobile
+            std::string subStr;
+            if (!isMobile) {
+                subStr = std::to_string(g.decks) + (g.decks == 1 ? " Deck" : " Decks") +
+                         " * " + std::to_string(g.tableaus) + " Cols";
+                if (g.freecells > 0) subStr += " * " + std::to_string(g.freecells) + " Cells";
+                if (!g.visibility.empty() && g.visibility != "half_open") {
+                    subStr += (g.visibility == "open") ? " * Open" : " * Closed";
+                }
+            } else if (!g.description.empty()) {
+                subStr = g.description;
+            }
+            const float subMaxW = std::max(40.0f, starBtnX - (cx + 12.0f) - 8.0f);
+            while (subStr.size() > 6 && eatsbits::ui::glyph::getVectorTextWidth(8.8f, subStr.c_str()) > subMaxW) {
+                subStr.resize(subStr.size() - 4);
+                subStr += "...";
+            }
+            if (!subStr.empty()) {
+                eatsbits::ui::glyph::drawVectorText(r, subStr.c_str(), cx + 12.0f, cy + 29.0f, 8.8f, 0.78f, 0.76f, 0.70f, 0.88f);
             }
         }
 
         if (filteredGames_.empty()) {
             const char* emptyMsg = (selectedCategory_ == "FAVORITES")
-                ? "No favorites yet. Click the star on any game to pin it to your Quick Switcher!"
+                ? "No favorites yet. Tap the star on any game!"
                 : "No games found matching your search.";
-            float emptyTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, emptyMsg);
-            eatsbits::ui::glyph::drawVectorText(r, emptyMsg, dialogX_ + (dialogW_ - emptyTxtW) * 0.5f, cardsAreaY_ + cardsAreaH_ * 0.45f, 11.0f, 0.70f, 0.65f, 0.58f, 0.85f);
+            float emptyTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, emptyMsg);
+            eatsbits::ui::glyph::drawVectorText(r, emptyMsg, listX_ + (listW_ - emptyTxtW) * 0.5f, cardsAreaY_ + cardsAreaH_ * 0.45f, 10.5f, 0.70f, 0.65f, 0.58f, 0.85f);
         }
     }
 
     // Scrollbar indicator
     if (maxScrollY_ > 0.0f) {
-        const float trackX = dialogX_ + dialogW_ - 20.0f;
+        const float trackX = listX_ + listW_ - 5.0f;
         const float trackY = cardsAreaY_ + 4.0f;
         const float trackW = 4.0f;
         const float trackH = cardsAreaH_ - 8.0f;
@@ -519,8 +917,6 @@ void GameBrowserDialog::render(
     // [ ► Play ] button (bottom right)
     const float playBtnW = 92.0f;
     const float playBtnX = dialogX_ + dialogW_ - playBtnW - 16.0f;
-    const bool hasSelection = !filteredGames_.empty() && highlightedIndex_ >= 0 &&
-                              highlightedIndex_ < static_cast<int>(filteredGames_.size());
     const bool playHov = hasSelection && (mouseX >= playBtnX && mouseX <= playBtnX + playBtnW &&
                                           mouseY >= footerY && mouseY <= footerY + btnH);
     const float playAlpha = hasSelection ? 0.98f : 0.45f;
@@ -785,8 +1181,38 @@ bool GameBrowserDialog::handleMouseButton(
             return true;
         }
 
+        // 4b. Check Live Demo micro-controls (Pause/Play, Speed, Next Seed, Mobile Hide/Show)
+        if (pauseBtnRect_.contains(mouseX, mouseY)) {
+            previewUserPaused_ = !previewUserPaused_;
+            if (previewUserPaused_) {
+                previewAutoPlay_.pause();
+            } else {
+                previewAutoPlay_.play();
+            }
+            foley.triggerSound(FoleySound::WoodClick, 0.65f);
+            return true;
+        }
+        if (speedBtnRect_.contains(mouseX, mouseY)) {
+            previewAutoPlay_.cycleSpeed();
+            previewSpeed_ = previewAutoPlay_.speed();
+            foley.triggerSound(FoleySound::WoodClick, 0.65f);
+            return true;
+        }
+        if (nextSeedBtnRect_.contains(mouseX, mouseY)) {
+            previewUserPaused_ = false;
+            syncPreviewToSelection(true);
+            foley.triggerSound(FoleySound::WoodClick, 0.70f);
+            return true;
+        }
+        if (collapseBtnRect_.contains(mouseX, mouseY)) {
+            previewCollapsedMobile_ = !previewCollapsedMobile_;
+            foley.triggerSound(FoleySound::WoodClick, 0.65f);
+            return true;
+        }
+
         // 5. Initiate drag-to-scroll tracking in cards area
-        if (mouseY >= cardsAreaY_ && mouseY <= cardsAreaY_ + cardsAreaH_) {
+        if (mouseX >= listX_ && mouseX <= listX_ + listW_ &&
+            mouseY >= cardsAreaY_ && mouseY <= cardsAreaY_ + cardsAreaH_) {
             isMouseDown_ = true;
             isDragging_ = false;
             dragStartY_ = mouseY;
@@ -802,11 +1228,12 @@ bool GameBrowserDialog::handleMouseButton(
             }
 
             // Clean click / tap without drag: select the card under cursor
-            if (mouseY >= cardsAreaY_ && mouseY <= cardsAreaY_ + cardsAreaH_) {
+            if (mouseX >= listX_ && mouseX <= listX_ + listW_ &&
+                mouseY >= cardsAreaY_ && mouseY <= cardsAreaY_ + cardsAreaH_) {
                 const float cardPad = 6.0f;
-                const float cardW = dialogW_ - 48.0f;
+                const float cardW = listW_ - 16.0f;
                 const float cardH = 50.0f;
-                const float cx = dialogX_ + 24.0f;
+                const float cx = listX_ + 8.0f;
 
                 for (size_t i = 0; i < filteredGames_.size(); ++i) {
                     const float cy = cardsAreaY_ + cardPad + static_cast<float>(i) * (cardH + cardPad) - scrollOffsetY_;
@@ -816,7 +1243,7 @@ bool GameBrowserDialog::handleMouseButton(
 
                         // Check if star favorite button was clicked
                         const float starBtnW = 28.0f;
-                        const float starBtnX = cx + cardW - starBtnW - 8.0f;
+                        const float starBtnX = cx + cardW - starBtnW - 6.0f;
                         const float starBtnY = cy + (cardH - starBtnW) * 0.5f;
                         if (mouseX >= starBtnX && mouseX <= starBtnX + starBtnW &&
                             mouseY >= starBtnY && mouseY <= starBtnY + starBtnW) {
@@ -839,6 +1266,7 @@ bool GameBrowserDialog::handleMouseButton(
                         } else {
                             lastClickedIndex_ = clickedIdx;
                             lastClickTime_ = now;
+                            syncPreviewToSelection(false);
                             foley.triggerSound(FoleySound::WoodClick, 0.65f);
                         }
                         return true;
@@ -899,6 +1327,7 @@ bool GameBrowserDialog::handleKey(
         if (highlightedIndex_ > 0) {
             --highlightedIndex_;
             ensureVisible(highlightedIndex_);
+            syncPreviewToSelection(false);
             foley.triggerSound(FoleySound::WoodClick, 0.4f);
             return true;
         }
@@ -908,6 +1337,7 @@ bool GameBrowserDialog::handleKey(
         if (highlightedIndex_ + 1 < static_cast<int>(filteredGames_.size())) {
             ++highlightedIndex_;
             ensureVisible(highlightedIndex_);
+            syncPreviewToSelection(false);
             foley.triggerSound(FoleySound::WoodClick, 0.4f);
             return true;
         }

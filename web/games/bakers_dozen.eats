@@ -1,18 +1,12 @@
 # =============================================================================
-# SolEngine Game Variant: Baker's Dozen (.eats)
+# SolEngine Game Family: Baker's Dozen (.eats)
+# Consolidated variants:
+#   - Baker's Dozen
 # =============================================================================
-# Acclaimed historical open solitaire. 13 columns of 4 cards dealt face up.
-# Kings automatically sink to the bottom of their column on deal.
-# Build down in rank regardless of suit; spaces cannot be refilled.
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(2, "Quick", 2, "Low Luck", 4, "Tactical")
-doc_aliases(["Spanish Patience"])
-doc_goal("Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain.")
-doc_zone(0, "Foundations (1-4)", "Build up by same suit from Ace to King.", ["AS", "2S", "3S"])
-doc_zone(4, "Tableau Columns (1-13)", "Build down by rank regardless of suit; Kings sink to bottom; empty spaces cannot be refilled.", ["KH", "QD", "JC"])
+# --- Shared Baker's Dozen Rules ---
 
-def eval_heuristic():
+def bd_eval():
     score = 0
     z = 0
     while z <= 3:
@@ -29,7 +23,7 @@ def eval_heuristic():
         z = z + 1
     return score
 
-def on_deal():
+def bd_on_deal():
     # Sink Kings to the bottom of each column using temporary empty foundations 0 and 1
     z = 4
     while z <= 16:
@@ -46,13 +40,13 @@ def on_deal():
         z = z + 1
     return True
 
-def can_pick(z, i):
+def bd_can_pick(z, i):
     sz = zone_size(z)
     if z < 4 or z > 16 or sz == 0:
         return False
     return i == sz - 1
 
-def can_drop(from_z, i, to_z):
+def bd_can_drop(from_z, i, to_z):
     if from_z == to_z or zone_size(from_z) == 0:
         return False
     if i != zone_size(from_z) - 1:
@@ -74,18 +68,29 @@ def can_drop(from_z, i, to_z):
 
     return False
 
-def get_status():
+def bd_status():
     total = zone_size(0) + zone_size(1) + zone_size(2) + zone_size(3)
     if total == 52:
         return "victory"
     return "playing"
 
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
 sol.define_game({
     id: "bakers_dozen",
     name: "Baker's Dozen",
     family: "Baker's Dozen",
-    category: "FREECELL",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["classic", "open", "no_stock", "any_suit", "single_deck"],
     layout: "fan_grid",
+    tableau_build: "any_suit",
+    empty_tableau: "none",
+    move_group: "single",
+    foundation_mode: "suit_up",
     description: "13 columns of 4 open cards. Build down regardless of suit; Kings sink to column bottom; spaces remain empty.",
     decks: 1,
     tableaus: 13,
@@ -98,9 +103,18 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 14,
     demo_seeds: [14, 19, 24, 27, 29, 35, 39, 45],
-    eval_heuristic: eval_heuristic,
-    on_deal: on_deal,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    get_status: get_status
+    eval_heuristic: bd_eval,
+    on_deal: bd_on_deal,
+    can_pick: bd_can_pick,
+    can_drop: bd_can_drop,
+    get_status: bd_status,
+    doc: {
+        meta: [2, "Quick", 2, "Low Luck", 4, "Tactical"],
+        aliases: ["Spanish Patience"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 4, name: "Tableau Columns (1-13)", desc: "Build down by rank regardless of suit; Kings sink to bottom; empty spaces cannot be refilled.", examples: ["KH", "QD", "JC"] }
+        ]
+    }
 })

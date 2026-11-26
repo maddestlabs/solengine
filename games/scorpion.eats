@@ -1,16 +1,13 @@
 # =============================================================================
-# SolEngine Game Variant: Scorpion (.eats)
+# SolEngine Game Family: Scorpion (.eats)
+# Consolidated variants:
+#   - Scorpion
+#   - Wasp
 # =============================================================================
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(3, "Medium", 3, "Moderate", 4, "Strategic")
-doc_aliases(["Scorpion Patience"])
-doc_goal("Assemble 4 complete King-to-Ace same-suit runs to clear the board.", "No legal moves remain.")
-doc_zone(0, "Stock (3 Reserve Cards)", "Click to deal the 3 remaining cards onto the first 3 Tableau columns.")
-doc_zone(2, "Foundations (1-4)", "Completed King-to-Ace same-suit runs automatically move here.")
-doc_zone(6, "Tableau Columns (1-7)", "Build down in the SAME SUIT; any face-up card and stack on top may move; Kings only fill empty columns.")
+# --- Shared Parameterized Scorpion Rules ---
 
-def eval_heuristic():
+def scorp_eval():
     score = 0
     z = 2
     while z <= 5:
@@ -30,7 +27,7 @@ def eval_heuristic():
         z = z + 1
     return score
 
-def on_deal():
+def scorp_on_deal():
     z = 6
     while z <= 12:
         sz = zone_size(z)
@@ -43,23 +40,25 @@ def on_deal():
         z = z + 1
     return True
 
-def can_pick(z, i):
+def scorp_can_pick(z, i):
     sz = zone_size(z)
     if z < 6 or z > 12 or sz == 0 or i < 0 or i >= sz:
         return False
     return card_face_up(z, i)
 
-def can_drop(from_z, i, to_z):
+def scorp_can_drop(king_only_empty, from_z, i, to_z):
     if from_z == to_z or from_z < 6 or from_z > 12 or to_z < 6 or to_z > 12:
         return False
     if zone_size(from_z) == 0:
         return False
     tsz = zone_size(to_z)
     if tsz == 0:
-        return card_rank(from_z, i) == 13
+        if king_only_empty:
+            return card_rank(from_z, i) == 13
+        return True
     return card_face_up(to_z, tsz - 1) and card_suit(to_z, tsz - 1) == card_suit(from_z, i) and card_rank(to_z, tsz - 1) == card_rank(from_z, i) + 1
 
-def on_stock_click():
+def scorp_on_stock():
     if zone_size(0) == 0:
         return False
     z = 6
@@ -70,7 +69,7 @@ def on_stock_click():
         z = z + 1
     return True
 
-def collect_completed_runs():
+def scorp_collect_runs():
     z = 6
     while z <= 12:
         sz = zone_size(z)
@@ -94,8 +93,8 @@ def collect_completed_runs():
                     f = f + 1
         z = z + 1
 
-def on_turn_end():
-    collect_completed_runs()
+def scorp_on_turn_end():
+    scorp_collect_runs()
     z = 6
     while z <= 12:
         sz = zone_size(z)
@@ -104,7 +103,7 @@ def on_turn_end():
         z = z + 1
     return True
 
-def get_status():
+def scorp_status():
     f = 2
     done = 0
     while f <= 5:
@@ -115,12 +114,29 @@ def get_status():
         return "victory"
     return "playing"
 
+def scorpion_drop(fz, i, tz):
+    return scorp_can_drop(True, fz, i, tz)
+
+def wasp_drop(fz, i, tz):
+    return scorp_can_drop(False, fz, i, tz)
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
 sol.define_game({
     id: "scorpion",
     name: "Scorpion",
-    family: "Spider",
+    family: "Scorpion",
     category: "SPIDER",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["classic", "free_stack", "same_suit", "completed_runs", "single_deck"],
     layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "king",
+    move_group: "any_face_up",
+    foundation_mode: "completed_run",
     description: "Yukon-meets-Spider. Build down in suit; any face-up stack moves; Kings only to empty spaces.",
     decks: 1,
     tableaus: 7,
@@ -134,11 +150,66 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 2,
     demo_seeds: [2, 28, 33, 36, 37, 42, 77, 89],
-    eval_heuristic: eval_heuristic,
-    on_deal: on_deal,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    on_stock_click: on_stock_click,
-    on_turn_end: on_turn_end,
-    get_status: get_status
+    eval_heuristic: scorp_eval,
+    on_deal: scorp_on_deal,
+    can_pick: scorp_can_pick,
+    can_drop: scorpion_drop,
+    on_stock_click: scorp_on_stock,
+    on_turn_end: scorp_on_turn_end,
+    get_status: scorp_status,
+    doc: {
+        meta: [3, "Medium", 3, "Moderate", 4, "Strategic"],
+        aliases: ["Scorpion Patience"],
+        goal: ["Assemble 4 complete King-to-Ace same-suit runs to clear the board.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Stock (3 Reserve Cards)", desc: "Click to deal the 3 remaining cards onto the first 3 Tableau columns." },
+            { index: 2, name: "Foundations (1-4)", desc: "Completed King-to-Ace same-suit runs automatically move here." },
+            { index: 6, name: "Tableau Columns (1-7)", desc: "Build down in the SAME SUIT; any face-up card and stack on top may move; Kings only fill empty columns." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "wasp",
+    name: "Wasp",
+    family: "Scorpion",
+    category: "SPIDER",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["relaxed", "free_stack", "same_suit", "completed_runs", "single_deck"],
+    layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "any",
+    move_group: "any_face_up",
+    foundation_mode: "completed_run",
+    description: "Relaxed Scorpion variant. Build down in suit; any face-up stack can move; any card to empty spaces.",
+    decks: 1,
+    tableaus: 7,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [7, 7, 7, 7, 7, 7, 7],
+    tableau_all_face_up: False,
+    foundation_starter_card: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 3,
+    max_redeals: 0,
+    demo_seed: 5,
+    demo_seeds: [5, 9, 17, 21, 25, 33, 37, 2026],
+    eval_heuristic: scorp_eval,
+    on_deal: scorp_on_deal,
+    can_pick: scorp_can_pick,
+    can_drop: wasp_drop,
+    on_stock_click: scorp_on_stock,
+    on_turn_end: scorp_on_turn_end,
+    get_status: scorp_status,
+    doc: {
+        meta: [3, "Medium", 2, "Low Luck", 3, "Tactical"],
+        aliases: ["Open Scorpion"],
+        goal: ["Assemble 4 complete King-to-Ace same-suit runs to clear the board.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Stock (3 Reserve Cards)", desc: "Click to deal the 3 remaining cards onto the first 3 Tableau columns." },
+            { index: 2, name: "Foundations (1-4)", desc: "Completed King-to-Ace same-suit runs automatically move here." },
+            { index: 6, name: "Tableau Columns (1-7)", desc: "Build down in the SAME SUIT; any face-up stack moves; any card fills empty columns." }
+        ]
+    }
 })

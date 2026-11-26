@@ -149,6 +149,91 @@ struct EdgeNotch {
     float raggedScale{0.3f};
 };
 
+struct DirtSmudge {
+    float cx{0.0f}, cy{0.0f};
+    float rx{1.0f}, ry{1.0f};
+    float cosA{1.0f}, sinA{0.0f};
+    float strength{0.0f};
+    uint32_t seed{0};
+    int minX{0}, maxX{-1}, minY{0}, maxY{-1};
+};
+
+struct FoxingCluster {
+    float cx{0.0f}, cy{0.0f};
+    float rx{1.0f}, ry{1.0f};
+    float strength{0.0f};
+    uint32_t seed{0};
+    int minX{0}, maxX{-1}, minY{0}, maxY{-1};
+};
+
+struct CoffeeStain {
+    bool active{false};
+    bool isRing{false};
+    float cx{0.0f}, cy{0.0f};
+    float radius{1.0f};
+    float ringHalfWidth{6.0f};
+    float strength{0.0f};
+    float phase1{0.0f}, phase2{0.0f}, phase3{0.0f};
+    float gapAngle{0.0f}, gapStrength{0.0f};
+    uint32_t seed{0};
+    int minX{0}, maxX{-1}, minY{0}, maxY{-1};
+};
+
+static inline float wearHash2D(int ix, int iy, uint32_t seed) noexcept {
+    uint32_t h = static_cast<uint32_t>(ix) * 0x27D4EB2Du ^
+                 static_cast<uint32_t>(iy) * 0x165667B1u ^
+                 seed * 0x9E3779B9u;
+    h ^= h >> 15;
+    h *= 0x85EBCA6Bu;
+    h ^= h >> 13;
+    h *= 0xC2B2AE35u;
+    h ^= h >> 16;
+    return static_cast<float>(h & 0xFFFFu) * (1.0f / 65535.0f);
+}
+
+static inline float wearValueNoise2D(float x, float y, uint32_t seed) noexcept {
+    const float fx = std::floor(x);
+    const float fy = std::floor(y);
+    const int ix = static_cast<int>(fx);
+    const int iy = static_cast<int>(fy);
+    const float tx = x - fx;
+    const float ty = y - fy;
+    const float ux = tx * tx * (3.0f - 2.0f * tx);
+    const float uy = ty * ty * (3.0f - 2.0f * ty);
+
+    const float v00 = wearHash2D(ix,     iy,     seed);
+    const float v10 = wearHash2D(ix + 1, iy,     seed);
+    const float v01 = wearHash2D(ix,     iy + 1, seed);
+    const float v11 = wearHash2D(ix + 1, iy + 1, seed);
+
+    const float a = v00 + (v10 - v00) * ux;
+    const float b = v01 + (v11 - v01) * ux;
+    return a + (b - a) * uy;
+}
+
+static inline float wearFbm2D(float x, float y, uint32_t seed, int octaves) noexcept {
+    float sum = 0.0f;
+    float amp = 0.5f;
+    float norm = 0.0f;
+    float freq = 1.0f;
+    for (int o = 0; o < octaves; ++o) {
+        sum += wearValueNoise2D(x * freq, y * freq, seed + static_cast<uint32_t>(o) * 1013u) * amp;
+        norm += amp;
+        freq *= 2.03f;
+        amp *= 0.5f;
+    }
+    return sum / norm;
+}
+
+static inline float wearSmoothstep(float e0, float e1, float x) noexcept {
+    const float t = std::clamp((x - e0) / (e1 - e0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+static inline float wearRand01(uint32_t seed, uint8_t cardId, uint32_t channel) noexcept {
+    return std::clamp((cardHashNoise(seed, cardId, channel) + 1.0f) * 0.5f, 0.0f, 1.0f);
+}
+
 struct WearParams {
     float paperWarmth{0.40f};
     float stockStrength{0.080f};
@@ -159,6 +244,8 @@ struct WearParams {
     float foxingStrength{0.0f};
     float sepiaShift{0.0f};
     float creaseStrength{0.0f};
+    float contentBlur{0.0f};
+    float contentDesat{0.0f};
 };
 
 static WearParams getWearParams(CardWearLevel wearLevel, CardStock cardStock) {
@@ -174,6 +261,8 @@ static WearParams getWearParams(CardWearLevel wearLevel, CardStock cardStock) {
             p.foxingStrength = 0.0f;
             p.sepiaShift     = 0.0f;
             p.creaseStrength = 0.0f;
+            p.contentBlur    = 0.0f;
+            p.contentDesat   = 0.0f;
             break;
         case CardWearLevel::Natural:
             p.paperWarmth    = 0.65f;
@@ -182,9 +271,11 @@ static WearParams getWearParams(CardWearLevel wearLevel, CardStock cardStock) {
             p.edgePatina     = 0.25f;
             p.edgeScuff      = 0.18f;
             p.deckleFray     = 0.20f;
-            p.foxingStrength = 0.10f;
+            p.foxingStrength = 0.0f;
             p.sepiaShift     = 0.08f;
             p.creaseStrength = 0.0f;
+            p.contentBlur    = 0.06f;
+            p.contentDesat   = 0.04f;
             break;
         case CardWearLevel::Played:
             p.paperWarmth    = 0.88f;
@@ -193,9 +284,11 @@ static WearParams getWearParams(CardWearLevel wearLevel, CardStock cardStock) {
             p.edgePatina     = 0.65f;
             p.edgeScuff      = 0.55f;
             p.deckleFray     = 0.50f;
-            p.foxingStrength = 0.40f;
+            p.foxingStrength = 0.0f;
             p.sepiaShift     = 0.35f;
             p.creaseStrength = 0.30f;
+            p.contentBlur    = 0.22f;
+            p.contentDesat   = 0.14f;
             break;
         case CardWearLevel::Vintage:
             p.paperWarmth    = 1.0f;
@@ -207,6 +300,8 @@ static WearParams getWearParams(CardWearLevel wearLevel, CardStock cardStock) {
             p.foxingStrength = 0.85f;
             p.sepiaShift     = 0.75f;
             p.creaseStrength = 0.75f;
+            p.contentBlur    = 0.45f;
+            p.contentDesat   = 0.28f;
             break;
         default:
             break;
@@ -246,6 +341,8 @@ static void conditionSingleCard(
     const float foxingStrength = wp.foxingStrength;
     const float sepiaShift     = wp.sepiaShift;
     const float creaseStrength = wp.creaseStrength;
+    const float contentBlur    = wp.contentBlur;
+    const float contentDesat   = wp.contentDesat;
 
         const int w = dst.width;
         const int h = dst.height;
@@ -424,6 +521,170 @@ static void conditionSingleCard(
         const float effRu = CardTextureCache::instance().effectiveRu();
         const float cornerR = (effRu <= 0.001f) ? 0.0f : std::max(1.0f, effRu * static_cast<float>(w));
 
+        // 3. Precompute Organic Handling Smudges (Played & Vintage) with tight AABBs
+        int numSmudges = 0;
+        if (wearLevel == CardWearLevel::Played) numSmudges = 2;
+        else if (wearLevel == CardWearLevel::Vintage) numSmudges = 4;
+
+        std::array<DirtSmudge, 4> smudges;
+        for (int m = 0; m < numSmudges; ++m) {
+            const uint32_t smSeed = (static_cast<uint32_t>(cardId) * 0x85EBCA6Bu) ^
+                                    (static_cast<uint32_t>(m) * 0xC2B2AE35u) ^ 0x51F3A11Du;
+            // Bias smudges toward margins, corners, and grip zones where fingers/tables transfer grime
+            const int zone = static_cast<int>(wearRand01(smSeed, cardId, 701) * 4.0f) & 3;
+            float uPos = wearRand01(smSeed, cardId, 702);
+            float vPos = wearRand01(smSeed, cardId, 703);
+            if (zone == 0) {
+                // Bottom-right / right thumb-fan zone
+                uPos = 0.68f + 0.28f * uPos;
+                vPos = 0.52f + 0.42f * vPos;
+            } else if (zone == 1) {
+                // Bottom-left / left edge
+                uPos = 0.04f + 0.30f * uPos;
+                vPos = 0.48f + 0.46f * vPos;
+            } else if (zone == 2) {
+                // Top corner/margin
+                uPos = (uPos < 0.5f) ? (0.05f + 0.30f * uPos * 2.0f) : (0.65f + 0.30f * (uPos - 0.5f) * 2.0f);
+                vPos = 0.05f + 0.28f * vPos;
+            } else {
+                // Occasional interior thumb/table scuff
+                uPos = 0.16f + 0.68f * uPos;
+                vPos = 0.16f + 0.68f * vPos;
+            }
+
+            DirtSmudge& sm = smudges[m];
+            sm.cx = static_cast<float>(w) * uPos;
+            sm.cy = static_cast<float>(h) * vPos;
+            const float baseR = static_cast<float>(w) * (0.055f + 0.075f * wearRand01(smSeed, cardId, 704));
+            const float aspect = 1.6f + 1.5f * wearRand01(smSeed, cardId, 705);
+            sm.rx = baseR * aspect;
+            sm.ry = baseR;
+            const float angle = (wearRand01(smSeed, cardId, 706) - 0.5f) * 3.1415926f;
+            sm.cosA = std::cos(angle);
+            sm.sinA = std::sin(angle);
+            const float baseStr = (wearLevel == CardWearLevel::Vintage) ? 0.24f : 0.16f;
+            sm.strength = baseStr * (0.65f + 0.70f * wearRand01(smSeed, cardId, 707));
+            sm.seed = smSeed;
+
+            const float pad = std::max(sm.rx, sm.ry) * 1.35f;
+            sm.minX = std::max(0, static_cast<int>(std::floor(sm.cx - pad)));
+            sm.maxX = std::min(w - 1, static_cast<int>(std::ceil(sm.cx + pad)));
+            sm.minY = std::max(0, static_cast<int>(std::floor(sm.cy - pad)));
+            sm.maxY = std::min(h - 1, static_cast<int>(std::ceil(sm.cy + pad)));
+        }
+
+        // 4. Precompute Clustered Organic Foxing Patches (Vintage only) with tight AABBs
+        int numFoxClusters = 0;
+        std::array<FoxingCluster, 2> foxClusters;
+        if (foxingStrength > 0.05f) {
+            const uint32_t fcBase = static_cast<uint32_t>(cardId) * 0x27D4EB2Du ^ 0x4A1C9E37u;
+            numFoxClusters = (wearRand01(fcBase, cardId, 720) > 0.45f) ? 2 : 1;
+            for (int c = 0; c < numFoxClusters; ++c) {
+                const uint32_t cSeed = fcBase ^ (static_cast<uint32_t>(c) * 0x9E3779B9u);
+                FoxingCluster& fc = foxClusters[c];
+                // Damp oxidation clusters naturally prefer edges/corners with occasional interior drift
+                float u = wearRand01(cSeed, cardId, 721);
+                float v = wearRand01(cSeed, cardId, 722);
+                if (c == 0) {
+                    u = (u < 0.5f) ? (0.08f + u * 0.44f) : (0.70f + (u - 0.5f) * 0.44f);
+                }
+                fc.cx = static_cast<float>(w) * std::clamp(u, 0.06f, 0.94f);
+                fc.cy = static_cast<float>(h) * (0.08f + 0.84f * v);
+                fc.rx = static_cast<float>(w) * (0.16f + 0.16f * wearRand01(cSeed, cardId, 723));
+                fc.ry = static_cast<float>(h) * (0.12f + 0.14f * wearRand01(cSeed, cardId, 724));
+                fc.strength = foxingStrength * (0.65f + 0.45f * wearRand01(cSeed, cardId, 725));
+                fc.seed = cSeed;
+
+                const float padX = fc.rx * 1.25f;
+                const float padY = fc.ry * 1.25f;
+                fc.minX = std::max(0, static_cast<int>(std::floor(fc.cx - padX)));
+                fc.maxX = std::min(w - 1, static_cast<int>(std::ceil(fc.cx + padX)));
+                fc.minY = std::max(0, static_cast<int>(std::floor(fc.cy - padY)));
+                fc.maxY = std::min(h - 1, static_cast<int>(std::ceil(fc.cy + padY)));
+            }
+        }
+
+        // 5. Precompute Rare, Subtle Coffee Stains (Played ~5.5%, Vintage ~10%) with tight AABBs
+        int numCoffeeStains = 0;
+        std::array<CoffeeStain, 3> coffeeStains;
+        if (wearLevel == CardWearLevel::Played || wearLevel == CardWearLevel::Vintage) {
+            const uint32_t cfSeed = static_cast<uint32_t>(cardId) * 0x6C62272Eu ^ 0x1B873593u;
+            const bool isBack = (i >= CardTextureCache::kCardBackIndex);
+            const float chance = (wearLevel == CardWearLevel::Vintage)
+                ? (isBack ? 0.06f : 0.10f)
+                : (isBack ? 0.04f : 0.055f);
+            if (wearRand01(cfSeed, cardId, 740) < chance) {
+                CoffeeStain& cs = coffeeStains[numCoffeeStains++];
+                cs.active = true;
+                cs.isRing = (wearRand01(cfSeed, cardId, 741) < 0.56f);
+                cs.seed = cfSeed;
+                cs.phase1 = wearRand01(cfSeed, cardId, 742) * 6.2831853f;
+                cs.phase2 = wearRand01(cfSeed, cardId, 743) * 6.2831853f;
+                cs.phase3 = wearRand01(cfSeed, cardId, 744) * 6.2831853f;
+                const float baseStr = (wearLevel == CardWearLevel::Vintage) ? 0.38f : 0.25f;
+                cs.strength = baseStr * (0.72f + 0.50f * wearRand01(cfSeed, cardId, 745));
+
+                if (cs.isRing) {
+                    // Mug-bottom arc clipping a corner or edge of the card
+                    cs.radius = static_cast<float>(w) * (0.38f + 0.24f * wearRand01(cfSeed, cardId, 746));
+                    cs.ringHalfWidth = 4.5f + 4.5f * wearRand01(cfSeed, cardId, 747);
+                    cs.gapAngle = wearRand01(cfSeed, cardId, 748) * 6.2831853f;
+                    cs.gapStrength = 0.25f + 0.45f * wearRand01(cfSeed, cardId, 749);
+
+                    const int anchor = static_cast<int>(wearRand01(cfSeed, cardId, 750) * 6.0f) % 6;
+                    const float jitter = (wearRand01(cfSeed, cardId, 751) - 0.5f) * 0.25f;
+                    const float offset = cs.radius * (0.58f + 0.26f * wearRand01(cfSeed, cardId, 752));
+                    switch (anchor) {
+                        case 0: cs.cx = static_cast<float>(w) + offset * 0.65f; cs.cy = static_cast<float>(h) * (0.85f + jitter * 0.4f); break;
+                        case 1: cs.cx = -offset * 0.65f; cs.cy = static_cast<float>(h) * (0.82f + jitter * 0.4f); break;
+                        case 2: cs.cx = static_cast<float>(w) + offset * 0.65f; cs.cy = static_cast<float>(h) * (0.18f + jitter * 0.4f); break;
+                        case 3: cs.cx = -offset * 0.65f; cs.cy = static_cast<float>(h) * (0.20f + jitter * 0.4f); break;
+                        case 4: cs.cx = static_cast<float>(w) * (0.55f + jitter); cs.cy = static_cast<float>(h) + offset * 0.70f; break;
+                        default: cs.cx = static_cast<float>(w) * (0.45f + jitter); cs.cy = -offset * 0.70f; break;
+                    }
+                    const float maxR = cs.radius * 1.15f + cs.ringHalfWidth * 2.5f;
+                    cs.minX = std::max(0, static_cast<int>(std::floor(cs.cx - maxR)));
+                    cs.maxX = std::min(w - 1, static_cast<int>(std::ceil(cs.cx + maxR)));
+                    cs.minY = std::max(0, static_cast<int>(std::floor(cs.cy - maxR)));
+                    cs.maxY = std::min(h - 1, static_cast<int>(std::ceil(cs.cy + maxR)));
+                } else {
+                    // Pooled coffee splash/droplet with capillary tide-line rim
+                    cs.radius = static_cast<float>(w) * (0.055f + 0.075f * wearRand01(cfSeed, cardId, 746));
+                    cs.cx = static_cast<float>(w) * (0.12f + 0.76f * wearRand01(cfSeed, cardId, 747));
+                    cs.cy = static_cast<float>(h) * (0.10f + 0.80f * wearRand01(cfSeed, cardId, 748));
+                    const float maxR = cs.radius * 1.38f;
+                    cs.minX = std::max(0, static_cast<int>(std::floor(cs.cx - maxR)));
+                    cs.maxX = std::min(w - 1, static_cast<int>(std::ceil(cs.cx + maxR)));
+                    cs.minY = std::max(0, static_cast<int>(std::floor(cs.cy - maxR)));
+                    cs.maxY = std::min(h - 1, static_cast<int>(std::ceil(cs.cy + maxR)));
+
+                    // Add 1-2 tiny satellite micro-droplets near the main splash
+                    const int numSat = (wearRand01(cfSeed, cardId, 753) > 0.45f) ? 2 : 1;
+                    for (int sat = 0; sat < numSat && numCoffeeStains < 3; ++sat) {
+                        const uint32_t sSeed = cfSeed ^ (static_cast<uint32_t>(sat + 1) * 0x9E3779B9u);
+                        CoffeeStain& drop = coffeeStains[numCoffeeStains++];
+                        drop.active = true;
+                        drop.isRing = false;
+                        drop.seed = sSeed;
+                        const float ang = wearRand01(sSeed, cardId, 754) * 6.2831853f;
+                        const float dist = cs.radius * (1.35f + 0.95f * wearRand01(sSeed, cardId, 755));
+                        drop.cx = cs.cx + std::cos(ang) * dist;
+                        drop.cy = cs.cy + std::sin(ang) * dist;
+                        drop.radius = 4.0f + 5.5f * wearRand01(sSeed, cardId, 756);
+                        drop.strength = cs.strength * (0.75f + 0.25f * wearRand01(sSeed, cardId, 757));
+                        drop.phase1 = wearRand01(sSeed, cardId, 758) * 6.2831853f;
+                        drop.phase2 = wearRand01(sSeed, cardId, 759) * 6.2831853f;
+                        drop.phase3 = wearRand01(sSeed, cardId, 760) * 6.2831853f;
+                        const float sMaxR = drop.radius * 1.40f;
+                        drop.minX = std::max(0, static_cast<int>(std::floor(drop.cx - sMaxR)));
+                        drop.maxX = std::min(w - 1, static_cast<int>(std::ceil(drop.cx + sMaxR)));
+                        drop.minY = std::max(0, static_cast<int>(std::floor(drop.cy - sMaxR)));
+                        drop.maxY = std::min(h - 1, static_cast<int>(std::ceil(drop.cy + sMaxR)));
+                    }
+                }
+            }
+        }
+
         for (int y = 0; y < h; ++y) {
             const float ny = (static_cast<float>(y) + 0.5f) * invH;
 
@@ -476,6 +737,26 @@ static void conditionSingleCard(
                     dst.rgba[p + 2] = 0;
                     dst.rgba[p + 3] = 0;
                     continue;
+                }
+
+                // Subtle 5-tap alpha-safe ink-diffusion blur (softens crisp digital edges into aged printed cardstock)
+                if (contentBlur > 0.01f && sampleX > 0 && sampleX < w - 1 && sampleY > 0 && sampleY < h - 1) {
+                    const size_t spL = sp - 4;
+                    const size_t spR = sp + 4;
+                    const size_t spU = sp - static_cast<size_t>(w) * 4;
+                    const size_t spD = sp + static_cast<size_t>(w) * 4;
+                    float sumR = 0.0f, sumG = 0.0f, sumB = 0.0f;
+                    float wSum = 0.0f;
+                    if (src.rgba[spL + 3] >= 10) { sumR += src.rgba[spL + 0]; sumG += src.rgba[spL + 1]; sumB += src.rgba[spL + 2]; wSum += 1.0f; }
+                    if (src.rgba[spR + 3] >= 10) { sumR += src.rgba[spR + 0]; sumG += src.rgba[spR + 1]; sumB += src.rgba[spR + 2]; wSum += 1.0f; }
+                    if (src.rgba[spU + 3] >= 10) { sumR += src.rgba[spU + 0]; sumG += src.rgba[spU + 1]; sumB += src.rgba[spU + 2]; wSum += 1.0f; }
+                    if (src.rgba[spD + 3] >= 10) { sumR += src.rgba[spD + 0]; sumG += src.rgba[spD + 1]; sumB += src.rgba[spD + 2]; wSum += 1.0f; }
+                    if (wSum > 0.5f) {
+                        const float invWsum = 1.0f / wSum;
+                        r = r * (1.0f - contentBlur) + (sumR * invWsum) * contentBlur;
+                        g = g * (1.0f - contentBlur) + (sumG * invWsum) * contentBlur;
+                        b = b * (1.0f - contentBlur) + (sumB * invWsum) * contentBlur;
+                    }
                 }
 
                 const float nx = (static_cast<float>(x) + 0.5f) * invW;
@@ -649,38 +930,176 @@ static void conditionSingleCard(
                     b = b * (1.0f - blackBlend) + blackLiftB * blackBlend;
                 }
 
-                // 4. Antique Foxing & Rust Oxidation Specks (Played & Vintage) - reduced realistic frequency
-                if (foxingStrength > 0.01f) {
-                    constexpr int kFoxCell = 68;
-                    const int gx = x / kFoxCell;
-                    const int gy = y / kFoxCell;
-                    const uint32_t cellSeed = (static_cast<uint32_t>(gx) * 0x1F1F1F1Fu) ^
-                                              (static_cast<uint32_t>(gy) * 0x5D5D5D5Du) ^
-                                              (static_cast<uint32_t>(cardId) * 0x9E3779B9u);
-                    uint32_t ch = cellSeed;
-                    ch = (ch ^ 61u) ^ (ch >> 16);
-                    ch += (ch << 3);
-                    ch ^= (ch >> 4);
-                    ch *= 0x27D4EB2Du;
-                    ch ^= (ch >> 15);
+                // 3b. Global Content Desaturation, Sun-Fade & Micro Ink-Rub (affects all colors, court art & backs)
+                if (contentDesat > 0.005f) {
+                    const float curLum = 0.299f * r + 0.587f * g + 0.114f * b;
+                    const float effDesat = std::clamp(contentDesat * (1.0f + cardAgeVariance * 0.35f), 0.0f, 0.45f);
+                    // Blend toward warm-tinted luminance so aged pigments fade warmly rather than cold grey
+                    const float warmGrayR = curLum;
+                    const float warmGrayG = curLum * (1.0f - sepiaShift * 0.025f);
+                    const float warmGrayB = curLum * (1.0f - sepiaShift * 0.075f);
+                    r = r * (1.0f - effDesat) + warmGrayR * effDesat;
+                    g = g * (1.0f - effDesat) + warmGrayG * effDesat;
+                    b = b * (1.0f - effDesat) + warmGrayB * effDesat;
 
-                    if ((ch & 0xFFu) < static_cast<uint32_t>(foxingStrength * 16.0f)) {
-                        const float spotX = static_cast<float>(gx * kFoxCell + 6) + static_cast<float>((ch >> 8) & 0x1F);
-                        const float spotY = static_cast<float>(gy * kFoxCell + 6) + static_cast<float>((ch >> 16) & 0x1F);
-                        const float dxSpot = static_cast<float>(x) - spotX;
-                        const float dySpot = static_cast<float>(y) - spotY;
-                        const float dSpotSq = dxSpot * dxSpot + dySpot * dySpot;
-                        const float radius = 1.6f + static_cast<float>((ch >> 24) & 0x03) * 0.9f;
-                        const float radiusSq = radius * radius;
-                        if (dSpotSq < radiusSq * 4.5f) {
-                            const float dNorm = std::sqrt(dSpotSq) / radius;
-                            const float core = std::exp(-dNorm * dNorm * 2.2f) * (0.45f + 0.40f * foxingStrength);
-                            const float halo = std::exp(-dNorm * 1.5f) * 0.25f * foxingStrength;
-                            const float totalIntensity = std::clamp(core + halo, 0.0f, 0.85f);
-                            r *= (1.0f - totalIntensity * 0.45f);
-                            g *= (1.0f - totalIntensity * 0.65f);
-                            b *= (1.0f - totalIntensity * 0.88f);
+                    // Subtle high-point ink rub-off on raised paper grain peaks (Played & Vintage)
+                    if (whiteMask < 0.85f && stockMod > 1.0f) {
+                        const float rubAmt = std::clamp((stockMod - 1.0f) * contentDesat * 0.65f * (1.0f - whiteMask), 0.0f, 0.14f);
+                        const float subR = 236.0f - sepiaShift * 24.0f;
+                        const float subG = 228.0f - sepiaShift * 34.0f;
+                        const float subB = 212.0f - sepiaShift * 52.0f;
+                        r = r * (1.0f - rubAmt) + subR * rubAmt;
+                        g = g * (1.0f - rubAmt) + subG * rubAmt;
+                        b = b * (1.0f - rubAmt) + subB * rubAmt;
+                    }
+                }
+
+                // Common substrate coupling: grime/stains settle into paper stock valleys and attenuate slightly on dark inks
+                const float grainValleyMod = std::clamp(1.0f - (stockMod - 1.0f) * 1.45f, 0.72f, 1.28f);
+                const float inkGrimeAtten = 0.45f + 0.55f * std::clamp(lum * (1.0f / 255.0f), 0.0f, 1.0f);
+
+                // 4a. Organic Handling Smudges (Played & Vintage) - AABB-culled, domain-warped fBM
+                if (numSmudges > 0) {
+                    float totalSmudge = 0.0f;
+                    const float fx = static_cast<float>(x);
+                    const float fy = static_cast<float>(y);
+                    for (int m = 0; m < numSmudges; ++m) {
+                        const auto& sm = smudges[m];
+                        if (x < sm.minX || x > sm.maxX || y < sm.minY || y > sm.maxY) continue;
+                        const float dxS = fx - sm.cx;
+                        const float dyS = fy - sm.cy;
+                        const float lu = (dxS * sm.cosA + dyS * sm.sinA) / sm.rx;
+                        const float lv = (-dxS * sm.sinA + dyS * sm.cosA) / sm.ry;
+                        const float rSq = lu * lu + lv * lv;
+                        if (rSq < 1.55f) {
+                            const float wx = (wearValueNoise2D(fx * 0.055f, fy * 0.055f, sm.seed ^ 0x11u) - 0.5f) * 0.55f;
+                            const float wy = (wearValueNoise2D(fx * 0.055f + 13.7f, fy * 0.055f - 9.3f, sm.seed ^ 0x22u) - 0.5f) * 0.55f;
+                            const float wDistSq = (lu + wx) * (lu + wx) + (lv + wy) * (lv + wy);
+                            if (wDistSq < 1.0f) {
+                                const float env = (1.0f - wDistSq) * (1.0f - wDistSq);
+                                const float mottle = wearFbm2D(fx * 0.085f + wx * 2.0f, fy * 0.085f + wy * 2.0f, sm.seed ^ 0x33u, 2);
+                                totalSmudge += env * wearSmoothstep(0.28f, 0.85f, mottle) * sm.strength;
+                            }
                         }
+                    }
+                    if (totalSmudge > 0.001f) {
+                        const float smAmt = std::clamp(totalSmudge * grainValleyMod * inkGrimeAtten, 0.0f, 0.42f);
+                        // Warm grey-taupe skin-oil & dust tone (not saturated orange)
+                        r *= (1.0f - smAmt * 0.32f);
+                        g *= (1.0f - smAmt * 0.36f);
+                        b *= (1.0f - smAmt * 0.44f);
+                    }
+                }
+
+                // 4b. Clustered Organic Foxing & Oxidation (Vintage only) - domain-warped fibrous patches, zero grid/circles
+                if (numFoxClusters > 0) {
+                    float totalFox = 0.0f;
+                    const float fx = static_cast<float>(x);
+                    const float fy = static_cast<float>(y);
+                    for (int c = 0; c < numFoxClusters; ++c) {
+                        const auto& fc = foxClusters[c];
+                        if (x < fc.minX || x > fc.maxX || y < fc.minY || y > fc.maxY) continue;
+                        const float ux = (fx - fc.cx) / fc.rx;
+                        const float uy = (fy - fc.cy) / fc.ry;
+                        const float rSq = ux * ux + uy * uy;
+                        if (rSq < 1.35f) {
+                            const float warpX = (wearValueNoise2D(fx * 0.045f, fy * 0.045f, fc.seed ^ 0x41u) - 0.5f) * 14.0f;
+                            const float warpY = (wearValueNoise2D(fx * 0.045f + 7.1f, fy * 0.045f + 19.3f, fc.seed ^ 0x52u) - 0.5f) * 14.0f;
+                            const float wx = fx + warpX;
+                            const float wy = fy + warpY;
+                            const float wUx = (wx - fc.cx) / fc.rx;
+                            const float wUy = (wy - fc.cy) / fc.ry;
+                            const float wRSq = wUx * wUx + wUy * wUy;
+                            if (wRSq < 1.0f) {
+                                const float clusterEnv = (1.0f - wRSq);
+                                // Irregular jagged foxing flecks + faint damp oxidation halo
+                                const float fleckN = wearFbm2D(wx * 0.11f, wy * 0.11f, fc.seed ^ 0x63u, 2);
+                                const float flecks = wearSmoothstep(0.60f, 0.86f, fleckN);
+                                const float cloudN = wearValueNoise2D(wx * 0.032f, wy * 0.032f, fc.seed ^ 0x74u);
+                                const float cloud = wearSmoothstep(0.46f, 0.84f, cloudN) * 0.24f;
+                                totalFox += clusterEnv * (flecks * 0.58f + cloud) * fc.strength;
+                            }
+                        }
+                    }
+                    if (totalFox > 0.001f) {
+                        const float foxAmt = std::clamp(totalFox * grainValleyMod * inkGrimeAtten, 0.0f, 0.52f);
+                        // Authentic warm ochre-amber cellulose oxidation
+                        r *= (1.0f - foxAmt * 0.30f);
+                        g *= (1.0f - foxAmt * 0.48f);
+                        b *= (1.0f - foxAmt * 0.72f);
+                    }
+                }
+
+                // 4c. Rarer Coffee Stains (Played & Vintage) - capillary tide-line rim + translucent amber wash
+                if (numCoffeeStains > 0) {
+                    float totalWash = 0.0f;
+                    float totalRim = 0.0f;
+                    const float fx = static_cast<float>(x);
+                    const float fy = static_cast<float>(y);
+                    for (int csIdx = 0; csIdx < numCoffeeStains; ++csIdx) {
+                        const auto& cs = coffeeStains[csIdx];
+                        if (!cs.active || x < cs.minX || x > cs.maxX || y < cs.minY || y > cs.maxY) continue;
+
+                        const float dxC = fx - cs.cx;
+                        const float dyC = fy - cs.cy;
+                        const float dist = std::sqrt(dxC * dxC + dyC * dyC);
+                        const float theta = std::atan2(dyC, dxC);
+
+                        // Organic angular harmonics + fiber wicking noise to break circularity
+                        const float fiberN = wearValueNoise2D(fx * 0.095f, fy * 0.095f, cs.seed ^ 0x91u) - 0.5f;
+                        const float angWarp = std::sin(theta * 2.0f + cs.phase1) * 0.075f +
+                                              std::sin(theta * 5.0f + cs.phase2) * 0.038f +
+                                              std::sin(theta * 9.0f + cs.phase3) * 0.018f;
+
+                        if (cs.isRing) {
+                            // Mug-bottom arc: thin annulus with double capillary tide-lines and subtle dry gap
+                            const float rPerturbed = cs.radius * (1.0f + angWarp * 0.35f) + fiberN * 3.8f;
+                            const float dFromRing = std::abs(dist - rPerturbed);
+                            if (dFromRing < cs.ringHalfWidth * 2.2f) {
+                                // Subtle angular fade where the cup rim was drier
+                                const float gapCos = 0.5f + 0.5f * std::cos(theta - cs.gapAngle);
+                                const float wetness = 1.0f - cs.gapStrength * gapCos * gapCos;
+                                const float uRing = dFromRing / cs.ringHalfWidth;
+                                if (uRing < 1.35f) {
+                                    const float mottle = 0.65f + 0.55f * wearValueNoise2D(fx * 0.07f, fy * 0.07f, cs.seed ^ 0xA2u);
+                                    // Crisp capillary tide-line along outer & inner edges of the mug rim contact
+                                    const float edgeLine = std::exp(-std::pow((uRing - 0.88f) / 0.22f, 2.0f));
+                                    const float bandWash = wearSmoothstep(1.15f, 0.20f, uRing) * 0.42f;
+                                    totalWash += bandWash * mottle * wetness * cs.strength;
+                                    totalRim  += edgeLine * (0.65f + 0.35f * mottle) * wetness * cs.strength;
+                                }
+                            } else if (dist < rPerturbed) {
+                                // Very faint translucent coffee film inside the mug ring
+                                const float innerFade = wearSmoothstep(rPerturbed * 0.68f, rPerturbed - cs.ringHalfWidth, dist);
+                                if (innerFade > 0.01f) {
+                                    const float filmN = wearValueNoise2D(fx * 0.05f, fy * 0.05f, cs.seed ^ 0xB3u);
+                                    totalWash += innerFade * filmN * 0.14f * cs.strength;
+                                }
+                            }
+                        } else {
+                            // Pooled coffee splash/droplet: pale mottled interior + dark sharp capillary outer rim
+                            const float effR = cs.radius * (1.0f + angWarp + fiberN * 0.16f);
+                            const float rNorm = dist / std::max(1.5f, effR);
+                            if (rNorm < 1.12f) {
+                                const float mottle = 0.55f + 0.70f * wearFbm2D(fx * 0.075f, fy * 0.075f, cs.seed ^ 0xC4u, 2);
+                                // Interior wash thins slightly in the middle and builds toward the pinned rim
+                                const float interiorMask = wearSmoothstep(1.04f, 0.92f, rNorm);
+                                const float radialGrad = 0.58f + 0.42f * std::clamp(rNorm, 0.0f, 1.0f);
+                                const float tideLine = std::exp(-std::pow((rNorm - 0.96f) / 0.068f, 2.0f));
+                                totalWash += interiorMask * radialGrad * mottle * 0.36f * cs.strength;
+                                totalRim  += tideLine * (0.65f + 0.35f * mottle) * 0.82f * cs.strength;
+                            }
+                        }
+                    }
+
+                    if (totalWash > 0.001f || totalRim > 0.001f) {
+                        const float coffeeAtten = (0.50f + 0.50f * std::clamp(lum * (1.0f / 255.0f), 0.0f, 1.0f)) * grainValleyMod;
+                        const float wash = std::clamp(totalWash * coffeeAtten, 0.0f, 0.30f);
+                        const float rim  = std::clamp(totalRim * coffeeAtten, 0.0f, 0.42f);
+                        // Coffee optical absorption: strongest in blue, moderate in green, lightest in red
+                        r *= (1.0f - wash * 0.18f) * (1.0f - rim * 0.42f);
+                        g *= (1.0f - wash * 0.36f) * (1.0f - rim * 0.62f);
+                        b *= (1.0f - wash * 0.58f) * (1.0f - rim * 0.78f);
                     }
                 }
 
@@ -694,9 +1113,19 @@ static void conditionSingleCard(
                     const float thumbBR = std::exp(-((nx - 0.88f) * (nx - 0.88f) * 14.0f + (ny - 0.92f) * (ny - 0.92f) * 10.0f));
                     const float thumbBL = std::exp(-((nx - 0.12f) * (nx - 0.12f) * 14.0f + (ny - 0.92f) * (ny - 0.92f) * 10.0f));
                     const float thumbSide = std::exp(-((nx - 0.96f) * (nx - 0.96f) * 20.0f + (ny - 0.50f) * (ny - 0.50f) * 8.0f)) * 0.6f;
-                    const float thumbPatina = (thumbBR + thumbBL * 0.75f + thumbSide) * 0.18f;
+                    float thumbPatina = (thumbBR + thumbBL * 0.75f + thumbSide) * 0.18f;
 
-                    const float edgeVignette = std::pow(std::clamp(rDist, 0.0f, 1.0f), 2.2f) * (0.16f + cardAgeVariance * 0.10f);
+                    // Break up smooth Gaussian thumb & edge grime with mottled skin-oil noise on Played & Vintage
+                    float patinaMottle = 1.0f;
+                    if (edgePatina > 0.30f && (rDist > 0.42f || thumbPatina > 0.015f)) {
+                        const float nMottle = wearFbm2D(static_cast<float>(x) * 0.042f, static_cast<float>(y) * 0.042f,
+                                                        static_cast<uint32_t>(cardId) * 0x517CC1B7u ^ 0x3D1A9u, 2);
+                        patinaMottle = 0.58f + 0.84f * nMottle;
+                        thumbPatina *= patinaMottle;
+                    }
+
+                    const float edgeVignette = std::pow(std::clamp(rDist, 0.0f, 1.0f), 2.2f) *
+                                               (0.16f + cardAgeVariance * 0.10f) * (0.72f + 0.28f * patinaMottle);
                     float vignette = (edgeVignette + thumbPatina) * edgePatina;
 
                     r *= (1.0f - vignette * 0.55f);
@@ -1249,6 +1678,11 @@ std::string CardTextureCache::getCardBackDisplayName(const std::string& backId) 
     return backId;
 }
 
+bool CardTextureCache::cardBackSupportsSeed(const std::string& backId) const {
+    const auto* desc = CardBackRegistry::instance().findBack(backId, currentDeckSlug());
+    return desc != nullptr && desc->supportsSeed;
+}
+
 void CardTextureCache::cycleCardBack(std::string& inOutId, int stepDelta) {
     std::string slug = currentDeckSlug();
     auto available = CardBackRegistry::instance().getAvailableBacks(slug);
@@ -1333,6 +1767,7 @@ void CardTextureCache::setCardWearLevel(CardWearLevel level) {
 
 bool CardTextureCache::initialize(int cardW, int cardH) {
     CardBackRegistry::instance().initialize(cardW, cardH);
+    CardBackRegistry::instance().scanScriptBacks("card_backs", cardW, cardH);
     CardBackRegistry::instance().scanCompanionBacks("decks", cardW, cardH);
     if (isLoaded_ && cardW_ == cardW && cardH_ == cardH) {
         return true;
@@ -2801,6 +3236,7 @@ bool CardTextureCache::loadBaseDeckTheme(
 
 bool CardTextureCache::loadDeckTheme(DeckThemeId theme, int cardW, int cardH) {
     CardBackRegistry::instance().initialize(cardW, cardH);
+    CardBackRegistry::instance().scanScriptBacks("card_backs", cardW, cardH);
     CardBackRegistry::instance().scanCompanionBacks("decks", cardW, cardH);
     currentTheme_ = theme;
     cardW_ = cardW;
@@ -3290,6 +3726,10 @@ void CardTextureCache::setLowPolySeed(uint32_t seed) {
     sampleDeckCardCache_.erase("solpoly_classic");
     sampleDeckCardCache_.erase("solpoly_mobile");
     sampleDeckCardCache_.erase("low_poly_war");
+    // Re-bake active card back immediately so seed-randomized low-poly backs update live
+    if (isLoaded_) {
+        setActiveCardBack(activeCardBackId_);
+    }
 }
 
 void CardTextureCache::updatePreviewCard(DeckThemeId theme, CardWearLevel wear, CardStock stock) {

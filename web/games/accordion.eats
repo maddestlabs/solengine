@@ -1,0 +1,467 @@
+# =============================================================================
+# SolEngine Game Family: Accordion (.eats)
+# Consolidated variants:
+#   - Betrothal (Royal Marriage / Queen's Wedding)
+#   - Accordion (32-Card Piquet)
+#   - Accordion (Classic 52-Card)
+# =============================================================================
+
+# --- Shared Collapsing-Ribbon Helpers ---
+
+def rib_top_rank(z):
+    sz = zone_size(z)
+    if sz == 0:
+        return 0
+    return card_rank(z, sz - 1)
+
+def rib_top_suit(z):
+    sz = zone_size(z)
+    if sz == 0:
+        return -1
+    return card_suit(z, sz - 1)
+
+def rib_match(z1, z2):
+    if zone_size(z1) == 0 or zone_size(z2) == 0:
+        return False
+    return rib_top_suit(z1) == rib_top_suit(z2) or rib_top_rank(z1) == rib_top_rank(z2)
+
+def rib_collapse(start_z, end_z):
+    w = start_z
+    r = start_z
+    while r <= end_z:
+        if zone_size(r) > 0:
+            if r != w:
+                move_cards(r, 0, w)
+            w = w + 1
+        r = r + 1
+    return True
+
+def rib_layout_grid(start_z, count, cols_land, cols_port, has_top_bar, stock_z, disc_z, bw, bh):
+    pad_top = max(16.0, get_safe_top() + 12.0)
+    pad_bot = max(48.0, get_safe_bottom() + 44.0)
+    pad_x = max(18.0, max(get_safe_left(), get_safe_right()) + 14.0)
+    avail_w = max(200.0, bw - 2.0 * pad_x)
+    avail_h = max(200.0, bh - pad_top - pad_bot)
+
+    # Count currently active (non-empty) ribbon slots for responsive auto-scaling & centering
+    active_n = 0
+    k = 0
+    while k < count:
+        if zone_size(start_z + k) > 0:
+            active_n = k + 1
+        k = k + 1
+    vis_n = max(1, active_n)
+
+    max_cols = cols_land
+    if avail_w < avail_h * 0.95:
+        max_cols = cols_port
+    cols = min(vis_n, max_cols)
+    rows = math.floor((vis_n + cols - 1) / cols)
+
+    gap_x_r = 0.12
+    gap_y_r = 0.14
+    top_units = 0.0
+    if has_top_bar:
+        top_units = 1.0 + gap_y_r * 1.8
+
+    span_w = max(4.0, cols + (cols - 1) * gap_x_r)
+    span_h = 1.40 * (top_units + rows + (rows - 1) * gap_y_r)
+    max_cw = min(150.0, avail_h * 0.27)
+    cw_t = min(max_cw, min(avail_w / span_w, avail_h / span_h))
+    set_card_size(cw_t)
+    cw = get_card_width()
+    ch = get_card_height()
+
+    gx = max(4.0, cw * gap_x_r)
+    gy = max(6.0, ch * gap_y_r)
+    grid_w = cols * cw + (cols - 1) * gx
+    grid_h = rows * ch + (rows - 1) * gy
+    top_h = 0.0
+    if has_top_bar:
+        top_h = ch + gy * 1.8
+    total_h = top_h + grid_h
+
+    sx = (bw - grid_w) * 0.5
+    sy = pad_top + max(0.0, (avail_h - total_h) * 0.5)
+
+    if has_top_bar:
+        # Center Stock and Discarded pair neatly above the ribbon
+        top_pair_w = 2.0 * cw + gx * 2.0
+        top_sx = (bw - top_pair_w) * 0.5
+        set_zone_pose(stock_z, top_sx, sy, 0.0, 2)
+        set_zone_fan(stock_z, 0.0, 0.0)
+        set_zone_pose(disc_z, top_sx + cw + gx * 2.0, sy, 0.0, 2)
+        set_zone_fan(disc_z, 0.0, 0.0)
+
+    ry = sy + top_h
+    i = 0
+    while i < count:
+        r = math.floor(i / cols)
+        c = i - r * cols
+        px = sx + c * (cw + gx)
+        py = ry + r * (ch + gy)
+        # Hide unused empty ribbon slots off-screen so only active cards & frames render
+        if i >= vis_n:
+            px = -cw * 4.0
+            py = -ch * 4.0
+        set_zone_pose(start_z + i, px, py, 0.0, i)
+        set_zone_fan(start_z + i, 0.0, 0.0)
+        i = i + 1
+    return True
+
+# =============================================================================
+# 1. Betrothal (Royal Marriage / Queen's Wedding)
+# Zone 0       = Discard pile
+# Zones 1..52  = Collapsing 1D card ribbon (Q of Hearts anchored at Zone 1)
+# Zone 53      = Stock (K of Hearts anchored at bottom index 0)
+# =============================================================================
+
+def bet_is_royal(z):
+    if zone_size(z) == 0:
+        return False
+    s = rib_top_suit(z)
+    r = rib_top_rank(z)
+    return s == 1 and (r == 12 or r == 13)
+
+def bet_deal():
+    # 1. Extract Queen of Hearts (suit 1, rank 12) from Stock (53) -> Zone 1 face-up
+    sz = zone_size(53)
+    i = 0
+    while i < sz:
+        if card_suit(53, i) == 1 and card_rank(53, i) == 12:
+            if i < sz - 1:
+                move_cards(53, i + 1, 0)
+            move_cards(53, i, 1)
+            flip_card(1, 0, True)
+            if zone_size(0) > 0:
+                move_cards(0, 0, 53)
+            break
+        i = i + 1
+
+    # 2. Place King of Hearts (suit 1, rank 13) at bottom (index 0) of Stock (53)
+    sz = zone_size(53)
+    i = 0
+    while i < sz:
+        if card_suit(53, i) == 1 and card_rank(53, i) == 13:
+            if i > 0:
+                if i < sz - 1:
+                    move_cards(53, i + 1, 0)
+                move_cards(53, i, 2)
+                move_cards_bottom(2, 0, 53)
+                if zone_size(0) > 0:
+                    move_cards(0, 0, 53)
+            break
+        i = i + 1
+    return True
+
+def bet_eval():
+    return zone_size(0) * 100 - zone_size(53) * 15
+
+def bet_stock():
+    sz = zone_size(53)
+    if sz == 0:
+        return False
+    # Find first empty ribbon slot in 1..52
+    z = 1
+    while z <= 52:
+        if zone_size(z) == 0:
+            move_cards(53, sz - 1, z)
+            flip_card(z, 0, True)
+            return True
+        z = z + 1
+    return False
+
+def bet_pick(z, i):
+    if z < 1 or z > 52 or zone_size(z) == 0:
+        return False
+    return i == zone_size(z) - 1
+
+def bet_can_drop(from_z, i, to_z):
+    if from_z < 3 or from_z > 52 or to_z < 1 or to_z >= from_z:
+        return False
+    if zone_size(from_z) == 0 or zone_size(to_z) == 0:
+        return False
+    if i != zone_size(from_z) - 1:
+        return False
+    diff = from_z - to_z
+    if diff != 2 and diff != 3:
+        return False
+    if not rib_match(from_z, to_z):
+        return False
+    if diff == 2:
+        return zone_size(to_z + 1) > 0 and not bet_is_royal(to_z + 1)
+    return (zone_size(to_z + 1) > 0 and zone_size(to_z + 2) > 0 and
+            not bet_is_royal(to_z + 1) and not bet_is_royal(to_z + 2))
+
+def bet_on_drop(from_z, i, to_z):
+    if not bet_can_drop(from_z, i, to_z):
+        return False
+    diff = from_z - to_z
+    if diff == 2:
+        move_cards(to_z + 1, 0, 0)
+        rib_collapse(1, 52)
+        add_score(10)
+        return True
+    move_cards(to_z + 1, 0, 0)
+    move_cards(to_z + 2, 0, 0)
+    rib_collapse(1, 52)
+    add_score(20)
+    return True
+
+def bet_click(z, i):
+    if z < 2 or z > 51 or zone_size(z) == 0:
+        return False
+    if bet_is_royal(z):
+        return False
+    # Prefer discarding a 2-card sandwich if this card is part of one
+    if z + 2 <= 52 and zone_size(z - 1) > 0 and zone_size(z + 1) > 0 and zone_size(z + 2) > 0:
+        if not bet_is_royal(z + 1) and rib_match(z - 1, z + 2):
+            move_cards(z, 0, 0)
+            move_cards(z + 1, 0, 0)
+            rib_collapse(1, 52)
+            add_score(20)
+            return True
+    if z - 2 >= 1 and zone_size(z - 2) > 0 and zone_size(z - 1) > 0 and zone_size(z + 1) > 0:
+        if not bet_is_royal(z - 1) and rib_match(z - 2, z + 1):
+            move_cards(z - 1, 0, 0)
+            move_cards(z, 0, 0)
+            rib_collapse(1, 52)
+            add_score(20)
+            return True
+    # 1-card sandwich
+    if zone_size(z - 1) > 0 and zone_size(z + 1) > 0 and rib_match(z - 1, z + 1):
+        move_cards(z, 0, 0)
+        rib_collapse(1, 52)
+        add_score(10)
+        return True
+    return False
+
+def bet_status():
+    if zone_size(53) == 0 and zone_size(1) > 0 and zone_size(2) > 0 and zone_size(3) == 0:
+        if bet_is_royal(1) and bet_is_royal(2):
+            return "victory"
+    return "playing"
+
+def bet_layout(bw, bh):
+    return rib_layout_grid(1, 52, 13, 8, True, 53, 0, bw, bh)
+
+# =============================================================================
+# 2. Accordion (Shared Rules for Classic 52-Card & 32-Card Piquet)
+# Zones 0..N-1 = Collapsing 1D ribbon of piles (all face-up)
+# =============================================================================
+
+def acc_eval(max_z):
+    piles_left = 0
+    z = 0
+    while z <= max_z:
+        if zone_size(z) > 0:
+            piles_left = piles_left + 1
+        z = z + 1
+    return (max_z + 1 - piles_left) * 150
+
+def acc_pick(max_z, z, i):
+    if z < 0 or z > max_z or zone_size(z) == 0:
+        return False
+    return i == zone_size(z) - 1
+
+def acc_can_drop(max_z, from_z, i, to_z):
+    if from_z < 1 or from_z > max_z or to_z < 0 or to_z >= from_z:
+        return False
+    if zone_size(from_z) == 0 or zone_size(to_z) == 0:
+        return False
+    if i != zone_size(from_z) - 1:
+        return False
+    diff = from_z - to_z
+    if diff != 1 and diff != 3:
+        return False
+    return rib_match(from_z, to_z)
+
+def acc_on_drop(max_z, from_z, i, to_z):
+    if not acc_can_drop(max_z, from_z, i, to_z):
+        return False
+    move_cards(from_z, 0, to_z)
+    rib_collapse(0, max_z)
+    add_score(10)
+    return True
+
+def acc_click(max_z, z, i):
+    if z < 1 or z > max_z or zone_size(z) == 0:
+        return False
+    if z >= 3 and rib_match(z, z - 3):
+        return acc_on_drop(max_z, z, i, z - 3)
+    if rib_match(z, z - 1):
+        return acc_on_drop(max_z, z, i, z - 1)
+    return False
+
+def acc_status():
+    if zone_size(0) > 0 and zone_size(1) == 0:
+        return "victory"
+    return "playing"
+
+# --- Accordion 32-Card Bindings ---
+def acc32_eval():
+    return acc_eval(31)
+
+def acc32_pick(z, i):
+    return acc_pick(31, z, i)
+
+def acc32_drop(fz, i, tz):
+    return acc_can_drop(31, fz, i, tz)
+
+def acc32_on_drop(fz, i, tz):
+    return acc_on_drop(31, fz, i, tz)
+
+def acc32_click(z, i):
+    return acc_click(31, z, i)
+
+def acc32_layout(bw, bh):
+    return rib_layout_grid(0, 32, 8, 6, False, 0, 0, bw, bh)
+
+# --- Accordion 52-Card Bindings ---
+def acc52_eval():
+    return acc_eval(51)
+
+def acc52_pick(z, i):
+    return acc_pick(51, z, i)
+
+def acc52_drop(fz, i, tz):
+    return acc_can_drop(51, fz, i, tz)
+
+def acc52_on_drop(fz, i, tz):
+    return acc_on_drop(51, fz, i, tz)
+
+def acc52_click(z, i):
+    return acc_click(51, z, i)
+
+def acc52_layout(bw, bh):
+    return rib_layout_grid(0, 52, 13, 8, False, 0, 0, bw, bh)
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "betrothal",
+    name: "Betrothal",
+    family: "Accordion",
+    category: "POPULAR",
+    mechanic: "clearing",
+    visibility: "half_open",
+    tags: ["ribbon", "minimal", "relaxed", "royal_marriage"],
+    layout: "grid",
+    ribbon_rule: "sandwich_1_2",
+    dynamic_layout: True,
+    description: "Unite the Queen and King of Hearts! Deal from stock and discard 1 or 2 cards sandwiched between matching suit or rank.",
+    decks: 1,
+    tableaus: 52,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 13,
+    tableau_deal_counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    tableau_all_face_up: True,
+    stock_deal_mode: "custom",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 2026,
+    demo_seeds: [1, 2, 3, 5, 7, 11, 13, 2026],
+    eval_heuristic: bet_eval,
+    on_deal: bet_deal,
+    on_layout: bet_layout,
+    can_pick: bet_pick,
+    can_drop: bet_can_drop,
+    on_drop: bet_on_drop,
+    on_card_click: bet_click,
+    on_stock_click: bet_stock,
+    get_status: bet_status,
+    doc: {
+        meta: [2, "Quick", 2, "Relaxed", 2, "Casual"],
+        aliases: ["Royal Marriage", "Queen's Wedding", "Matrimony"],
+        goal: ["Discard all 50 intervening cards so the Queen and King of Hearts sit side-by-side.", "Stock is empty and no more sandwiched cards can be discarded."],
+        zones: [
+            { index: 53, name: "Stock", desc: "Click to deal the next card onto the right end of the row. The King of Hearts is always the final card." },
+            { index: 0, name: "Discarded", desc: "Removed cards that were sandwiched between two cards of matching suit or rank." },
+            { index: 1, name: "Card Ribbon", desc: "Click any 1 or 2 cards sandwiched between two matching-suit or matching-rank cards to discard them (or drag the right card onto the left match). Never discard Q♥ or K♥.", examples: ["QH", "7S", "3D", "KH"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "accordion_32",
+    name: "Accordion (32-Card)",
+    family: "Accordion",
+    category: "POPULAR",
+    mechanic: "clearing",
+    visibility: "open",
+    tags: ["ribbon", "piquet", "open", "tactical"],
+    layout: "grid",
+    ribbon_rule: "compress_1_3",
+    dynamic_layout: True,
+    description: "Brisk 32-card Piquet Accordion (7 through Ace). Compress matching-suit or matching-rank piles 1 or 3 spaces left into a single stack.",
+    decks: 1,
+    exclude_ranks: [2, 3, 4, 5, 6],
+    tableaus: 32,
+    foundations: 0,
+    freecells: 0,
+    grid_cols: 8,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    stock_deal_mode: "none",
+    prefer_curated_solvable: True,
+    demo_seed: 2,
+    demo_seeds: [2, 3, 38, 48, 70, 74, 82, 86, 100, 104, 107, 115, 121, 127, 128, 151, 163, 178, 193, 198],
+    eval_heuristic: acc32_eval,
+    on_layout: acc32_layout,
+    can_pick: acc32_pick,
+    can_drop: acc32_drop,
+    on_drop: acc32_on_drop,
+    on_card_click: acc32_click,
+    get_status: acc_status,
+    doc: {
+        meta: [2, "Quick", 2, "Pure Skill", 4, "Tactical"],
+        aliases: ["Piquet Accordion", "Mini Accordion"],
+        goal: ["Compress all 32 cards into a single pile on the far left.", "No pile matches the pile 1 space or 3 spaces to its left."],
+        zones: [
+            { index: 0, name: "Accordion Ribbon (32 Piles)", desc: "Drag any pile onto the pile 1 space or 3 spaces to its left if their top cards match in suit or rank (or single-click to jump). Gaps automatically collapse left." }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "accordion",
+    name: "Accordion",
+    family: "Accordion",
+    category: "POPULAR",
+    mechanic: "clearing",
+    visibility: "open",
+    tags: ["ribbon", "classic", "epic", "pure_skill"],
+    layout: "grid",
+    ribbon_rule: "compress_1_3",
+    dynamic_layout: True,
+    description: "Legendary high-difficulty compression puzzle. Merge any pile 1 or 3 spaces left onto a matching suit or rank until only 1 pile remains.",
+    decks: 1,
+    tableaus: 52,
+    foundations: 0,
+    freecells: 0,
+    grid_cols: 13,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    stock_deal_mode: "none",
+    prefer_curated_solvable: True,
+    demo_seed: 7,
+    demo_seeds: [7, 15, 72, 77, 171, 188, 256, 265, 312, 346, 415, 484, 495, 502, 514, 560, 575, 593, 636, 651, 654, 659, 677, 707],
+    eval_heuristic: acc52_eval,
+    on_layout: acc52_layout,
+    can_pick: acc52_pick,
+    can_drop: acc52_drop,
+    on_drop: acc52_on_drop,
+    on_card_click: acc52_click,
+    get_status: acc_status,
+    doc: {
+        meta: [3, "Medium", 1, "Pure Skill", 5, "Master"],
+        aliases: ["Idle Year", "Tower of Babel", "Methuselah"],
+        goal: ["Compress all 52 cards into a single pile on the far left.", "No pile matches the pile 1 space or 3 spaces to its left."],
+        zones: [
+            { index: 0, name: "Accordion Ribbon (52 Piles)", desc: "Drag any pile onto the pile 1 space or 3 spaces to its left if their top cards match in suit or rank (or single-click to jump). Gaps automatically collapse left." }
+        ]
+    }
+})

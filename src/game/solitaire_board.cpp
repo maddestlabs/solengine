@@ -1,4 +1,5 @@
 #include "solengine/solitaire_board.hpp"
+#include "solengine/deterministic_rng.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -13,11 +14,7 @@ SolitaireBoard::SolitaireBoard() {
 }
 
 uint32_t SolitaireBoard::nextRandom() noexcept {
-    // Mulberry32 deterministic PRNG matching Eatsbits & Eatscharted world seeds
-    uint32_t z = (rngState_ += 0x6D2B79F5u);
-    z = (z ^ (z >> 15)) * (z | 1u);
-    z ^= z + (z ^ (z >> 7)) * (z | 61u);
-    return z ^ (z >> 14);
+    return mulberry32Next(rngState_);
 }
 
 const char* SolitaireBoard::variantName(GameVariant v) noexcept {
@@ -2430,6 +2427,9 @@ bool SolitaireBoard::executeMove(uint8_t fromPileIdx, size_t startCardIdx, uint8
             if (scriptEngine_.hasCanTarget() && scriptEngine_.invokeCanTarget(ctx, fromPileIdx, startCardIdx, toPileIdx, dstTop)) {
                 return executeCardTarget(fromPileIdx, startCardIdx, toPileIdx, dstTop, recordUndo);
             }
+        }
+        if (scriptEngine_.hasCanTarget() && !scriptEngine_.hasCanDrop()) {
+            return false;
         }
         if (!canMoveCards(fromPileIdx, startCardIdx, toPileIdx)) {
             return false;

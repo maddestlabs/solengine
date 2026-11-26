@@ -47,6 +47,7 @@ target_include_directories(eats_script PUBLIC
 add_library(solengine_core STATIC
     src/game/solitaire_board.cpp
     src/game/solitaire_solver.cpp
+    src/game/replay_track.cpp
     src/game/auto_play_controller.cpp
     src/game/script_rule_engine.cpp
     src/audio/audio_foley.cpp
@@ -116,12 +117,14 @@ add_library(solengine_render STATIC
     src/game/settings_manager.cpp
     src/game/session_manager.cpp
     src/game/game_definition.cpp
+    src/game/command_registry.cpp
     src/game/eats_package_loader.cpp
     src/ui/svg_icon_renderer.cpp
     src/ui/settings_dialog.cpp
     src/ui/seed_dialog.cpp
     src/ui/loading_dialog.cpp
     src/ui/game_browser_dialog.cpp
+    src/ui/command_palette_dialog.cpp
     src/ui/clockwork_theme.cpp
 )
 target_include_directories(solengine_render PUBLIC
@@ -149,7 +152,7 @@ if(EMSCRIPTEN)
     # Auto-discover all *.eats assets across content directories for Emscripten preloading.
     # CONFIGURE_DEPENDS re-runs CMake when .eats files are added/removed/renamed;
     # LINK_DEPENDS re-links solengine_web (regenerating solengine.data) when any .eats file is edited.
-    set(SOLENGINE_ASSET_DIRS decks themes postfx games sounds ambience presets)
+    set(SOLENGINE_ASSET_DIRS decks themes card_backs postfx games sounds ambience presets)
     set(SOLENGINE_PRELOAD_DEPS "")
     set(SOLENGINE_PRELOAD_FLAGS "")
     set(SOLENGINE_TOTAL_ASSET_BYTES 0)
@@ -254,6 +257,7 @@ else()
     # 6. Pure-CPU Headless Solver & Seed Audit CLI (Zero GPU / Audio / Windowing)
     add_executable(solcli
         src/tools/solcli.cpp
+        src/game/eats_package_loader.cpp
         src/game/game_definition.cpp
         src/game/solitaire_board.cpp
         src/game/solitaire_solver.cpp
@@ -267,5 +271,19 @@ else()
     if(NOT MSVC)
         target_compile_options(solcli PRIVATE -fopenmp)
         target_link_libraries(solcli PRIVATE -fopenmp)
+    endif()
+
+    # 7. Pure-CPU Brand Asset Generator (YouTube Banner 2560x1440 & Icon 800x800)
+    # Standalone build tool — zero bytes added to solengine or solengine_web runtime.
+    add_executable(solbrand
+        src/tools/solbrand.cpp
+    )
+    target_link_libraries(solbrand PRIVATE solengine_render)
+    if(WIN32)
+        add_custom_command(TARGET solbrand POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/wgpu/lib/wgpu_native.dll"
+                "$<TARGET_FILE_DIR:solbrand>/wgpu_native.dll"
+        )
     endif()
 endif()

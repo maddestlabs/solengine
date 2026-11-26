@@ -1,0 +1,79 @@
+# SolEngine Standalone Eatscript Card Back — Highland Moss
+# Reuses the coastal velvety cushion moss shader from themes/moss.eats
+# combined with CardCanvas baroque relief gold trim and an embossed Club crest.
+
+sol.define_card_back({
+    id: "highland_moss",
+    name: "Highland Moss",
+    author: "Maddest Labs",
+    description: "Velvety coastal moss hummocks framed in antique ivory and sculpted botanical gold"
+})
+
+def highland_moss_back_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    ax = abs(nx)
+    ay = abs(ny)
+    aa = 0.006
+
+    # 1. Warm antique parchment border
+    grain = (fbm(px * 0.22, py * 0.22) - 0.5) * 0.026
+    ivory_r = 0.968 + grain
+    ivory_g = 0.954 + grain
+    ivory_b = 0.916 + grain
+
+    qx_o = ax - 0.94
+    qy_o = ay - 1.34
+    d_outer = hypot(max(qx_o, 0.0), max(qy_o, 0.0)) + min(max(qx_o, qy_o), 0.0) - 0.06
+    edge_shade = smoothstep(-0.025, 0.0, d_outer) * 0.11
+    ivory_r = ivory_r - edge_shade
+    ivory_g = ivory_g - edge_shade
+    ivory_b = ivory_b - edge_shade * 0.9
+
+    # 2. Inner moss panel SDF
+    qx = ax - 0.81
+    qy = ay - 1.21
+    d_panel = hypot(max(qx, 0.0), max(qy, 0.0)) + min(max(qx, qy), 0.0) - 0.06
+    in_panel = 1.0 - smoothstep(-aa, aa, d_panel)
+
+    # 3. Velvety moss mounds, cushions & lichen stippling (from themes/moss.eats)
+    macro = fbm(nx * 3.5 + 1.2, ny * 3.5 + 2.4)
+    cushion = fbm(nx * 9.5 + macro * 0.6, ny * 9.5 + macro * 0.6)
+    leaflet = (fbm(nx * 28.0, ny * 28.0) - 0.5) * 0.10
+    spore = (random() - 0.5) * 0.022
+    t = clamp(cushion * 0.68 + macro * 0.32 + leaflet, 0.0, 1.0)
+
+    vig = 1.0 - smoothstep(0.30, 1.35, hypot(nx * 0.85, ny * 0.72)) * 0.30
+    pan_r = (mix(0.11, 0.34, t) + spore) * vig
+    pan_g = (mix(0.16, 0.46, t) + spore) * vig
+    pan_b = (mix(0.08, 0.17, t) + spore) * vig
+
+    out_r = clamp(mix(ivory_r, pan_r, in_panel), 0.0, 1.0)
+    out_g = clamp(mix(ivory_g, pan_g, in_panel), 0.0, 1.0)
+    out_b = clamp(mix(ivory_b, pan_b, in_panel), 0.0, 1.0)
+    return [out_r, out_g, out_b]
+
+def on_draw_card_back(ctx, w, h):
+    # Shader moss substrate + ivory margin
+    ctx.apply_shader("highland_moss_back_shader", intensity=1.0)
+
+    pad = w * 0.065
+    cx = w * 0.5
+    cy = h * 0.5
+
+    # Sculpted antique gold botanical trim & embossed central club medallion
+    ctx.set_material("gold")
+    ctx.set_elevation(0.85, 1.05)
+    ctx.stroke_rounded_rect(pad, pad, w - pad * 2.0, h - pad * 2.0, 4.0, "#D4B66A", 2.2)
+    ctx.repeat_beads(pad + 9.0, 2.0, 9.0, "#D4B66A")
+
+    ctx.begin_symmetry(true, true)
+    ctx.draw_baroque_corner(pad + 6.0, pad + 6.0, w * 0.15, "#D4B66A", "#FFF1C8")
+    ctx.end_symmetry()
+
+    ctx.set_elevation(1.0, 1.15)
+    ctx.stroke_oval(cx, cy, w * 0.23, h * 0.18, "#D4B66A", 2.4)
+    ctx.stroke_oval(cx, cy, w * 0.19, h * 0.15, "#FFF1C8", 1.2)
+    ctx.draw_suit("clubs", cx, cy, w * 0.14, "#E6CC80")
+
+    ctx.reset_material()
+    ctx.reset_elevation()
+    ctx.apply_finish("relief", 135.0, 48.0, 1.15, 2.4, "#0B160C", "#FFF6D8", 0.03, 0.0)

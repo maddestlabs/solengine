@@ -75,7 +75,8 @@ enum class LightAngle : uint8_t {
 enum class ShadowGobo : uint8_t {
     None = 0,       // Unobstructed light
     WindowFrame,    // Angled window panes & mullions
-    VenetianBlinds  // Parallel slatted window blinds
+    VenetianBlinds, // Parallel slatted window blinds
+    TreeCanopy      // Animated dappled woodland foliage & swaying branches
 };
 
 /**

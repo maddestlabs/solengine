@@ -192,6 +192,7 @@ struct ClockworkLogoConfig {
     bool showPipes{true};           // Copper conduit piping and brackets
     bool showGlow{true};            // Warm amber furnace core radiance
     bool highlightWhite{false};     // Crisp white interior highlight on hover
+    bool useSceneLight{true};       // Align facet shading & shadow to the active game board light
     float alpha{1.0f};              // Master opacity multiplier [0, 1]
     float brassTint{1.0f};          // Brightness multiplier for brass plates
 };

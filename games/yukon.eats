@@ -1,15 +1,13 @@
 # =============================================================================
-# SolEngine Game Variant: Yukon Solitaire (.eats)
+# SolEngine Game Family: Yukon (.eats)
+# Consolidated variants:
+#   - Yukon
+#   - Russian Solitaire
 # =============================================================================
 
-# --- Unified Help & Introspection Manifest ---
-doc_meta(3, "Medium", 2, "Low Luck", 4, "Strategic")
-doc_aliases(["Klondike Without Stock"])
-doc_goal("Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain.")
-doc_zone(0, "Foundations (1-4)", "Build up by same suit from Ace to King.", ["AS", "2S", "3S"])
-doc_zone(4, "Tableau Columns (1-7)", "Build down in alternating colors; any face-up card and all cards on top of it move together; Kings only fill empty columns.", ["KH", "QS", "JD"])
+# --- Shared Parameterized Yukon Rules ---
 
-def eval_heuristic():
+def yukon_eval():
     score = 0
     z = 0
     while z <= 3:
@@ -33,13 +31,13 @@ def eval_heuristic():
         z = z + 1
     return score
 
-def can_pick(z, i):
+def yukon_can_pick(z, i):
     sz = zone_size(z)
     if z < 4 or z > 10 or sz == 0 or i < 0 or i >= sz:
         return False
     return card_face_up(z, i)
 
-def can_drop(from_z, i, to_z):
+def yukon_can_drop(same_suit, from_z, i, to_z):
     if from_z == to_z or from_z < 4 or from_z > 10 or zone_size(from_z) == 0:
         return False
     sz = zone_size(from_z)
@@ -59,11 +57,13 @@ def can_drop(from_z, i, to_z):
         tsz = zone_size(to_z)
         if tsz == 0:
             return r == 13
+        if same_suit:
+            return card_face_up(to_z, tsz - 1) and (card_suit(to_z, tsz - 1) == s) and (card_rank(to_z, tsz - 1) == r + 1)
         return card_face_up(to_z, tsz - 1) and (card_is_red(to_z, tsz - 1) != red) and (card_rank(to_z, tsz - 1) == r + 1)
 
     return False
 
-def on_turn_end():
+def yukon_on_turn_end():
     z = 4
     while z <= 10:
         sz = zone_size(z)
@@ -72,18 +72,35 @@ def on_turn_end():
         z = z + 1
     return True
 
-def get_status():
+def yukon_status():
     total = zone_size(0) + zone_size(1) + zone_size(2) + zone_size(3)
     if total == 52:
         return "victory"
     return "playing"
+
+def yukon_drop_alt(fz, i, tz):
+    return yukon_can_drop(False, fz, i, tz)
+
+def yukon_drop_suit(fz, i, tz):
+    return yukon_can_drop(True, fz, i, tz)
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
 
 sol.define_game({
     id: "yukon",
     name: "Yukon",
     family: "Yukon",
     category: "POPULAR",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["classic", "no_stock", "free_stack", "single_deck"],
     layout: "columns",
+    tableau_build: "alt_color",
+    empty_tableau: "king",
+    move_group: "any_face_up",
+    foundation_mode: "suit_up",
     description: "Beloved classic. Any face-up card stack can be moved regardless of sequence; Kings to spaces.",
     decks: 1,
     tableaus: 7,
@@ -97,9 +114,60 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 1,
     demo_seeds: [1, 9, 17, 21, 29, 41, 45, 2026],
-    eval_heuristic: eval_heuristic,
-    can_pick: can_pick,
-    can_drop: can_drop,
-    on_turn_end: on_turn_end,
-    get_status: get_status
+    eval_heuristic: yukon_eval,
+    can_pick: yukon_can_pick,
+    can_drop: yukon_drop_alt,
+    on_turn_end: yukon_on_turn_end,
+    get_status: yukon_status,
+    doc: {
+        meta: [3, "Medium", 2, "Low Luck", 4, "Strategic"],
+        aliases: ["Klondike Without Stock"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 4, name: "Tableau Columns (1-7)", desc: "Build down in alternating colors; any face-up card and all cards on top of it move together; Kings only fill empty columns.", examples: ["KH", "QS", "JD"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "russian_solitaire",
+    name: "Russian Solitaire",
+    family: "Yukon",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["no_stock", "free_stack", "same_suit", "single_deck"],
+    layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "king",
+    move_group: "any_face_up",
+    foundation_mode: "suit_up",
+    description: "Challenging Yukon sibling. Any face-up stack moves, but tableau builds strictly by SAME SUIT.",
+    decks: 1,
+    tableaus: 7,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [1, 6, 7, 8, 9, 10, 11],
+    tableau_all_face_up: False,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    demo_seed: 7,
+    demo_seeds: [7, 43, 55, 58, 71, 85, 106, 144],
+    eval_heuristic: yukon_eval,
+    can_pick: yukon_can_pick,
+    can_drop: yukon_drop_suit,
+    on_turn_end: yukon_on_turn_end,
+    get_status: yukon_status,
+    doc: {
+        meta: [3, "Medium", 2, "Low Luck", 5, "Master"],
+        aliases: ["Russian Yukon"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 4, name: "Tableau Columns (1-7)", desc: "Build down in the SAME SUIT; any face-up card and all cards on top of it move together; Kings only fill empty columns.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
 })

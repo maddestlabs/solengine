@@ -1,16 +1,14 @@
 # Local to-do list
 - reflective card surfaces: https://www.reddit.com/r/soloboardgaming/comments/1or7puk/scoundrel_what_an_addictive_game/
 - card style support for Spanish cards, hanafuda and other card variants
-- Foley engine: ensure all game sounds are available via api and theme them across existing audio presets
 - Scoundrel stats still render with Seed and other overlayed info in bottom center of display
 - Scoundrel stats renders as overlay so animations go over it.
+- Scoundrel: dungeon ambience
 - environmental shadows: subtractive blend mode
-- Commit to solengine.org. Ensure the game doesn't get stuck with browser cache issues. Ensure PWA works.
 - eatsdither; dither shader + procedural library for easy reuse across eatsbits apps
 - c header style apis from solengine
-- should we get solitaireengine.org instead? should we forego solengine entirely and instead refactor as solitaireengine since youtube channel is youtube.com/solitaireengine? Should SolEngine exist in its own Organization on GitHub?
-- remove god rays
-- Wear: dirt spots look totally unrealistic, obviously pattern based
+
+- Auto-play toolbar: add settings: outline toggle, backgrond fade toggle, particles toggle.
 
 ## Language and Accessibility
 

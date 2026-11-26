@@ -3,6 +3,7 @@
 #include "solengine/ui/svg_icon_renderer.hpp"
 #include "solengine/settings_manager.hpp"
 #include "solengine/solitaire_board.hpp"
+#include "solengine/deterministic_rng.hpp"
 #include "solengine/audio_foley.hpp"
 #include "solengine/table_renderer.hpp"
 #include "eatsbits/ui/glyph/font_engine.hpp"
@@ -23,14 +24,53 @@ namespace solengine {
 
 SeedDialog::SeedDialog() = default;
 
-void SeedDialog::open(uint32_t currentSeed, const std::string& variantName) {
+void SeedDialog::recordHistory(uint32_t seed, const std::string& gameId, const std::string& gameName) {
+    if (seed == 0u) return;
+
+    const std::string displayName = !gameName.empty() ? gameName : (!gameId.empty() ? gameId : std::string("Solitaire"));
+    for (auto it = history_.begin(); it != history_.end(); ++it) {
+        if (it->seed == seed && it->gameId == gameId) {
+            SeedHistoryEntry existing = std::move(*it);
+            if (!displayName.empty()) existing.gameName = displayName;
+            history_.erase(it);
+            history_.insert(history_.begin(), std::move(existing));
+            clampHistoryScroll();
+            return;
+        }
+    }
+
+    history_.insert(history_.begin(), SeedHistoryEntry{seed, gameId, displayName});
+    if (history_.size() > kMaxHistory) {
+        history_.resize(kMaxHistory);
+    }
+    clampHistoryScroll();
+}
+
+void SeedDialog::open(uint32_t currentSeed, const std::string& variantName, const std::string& gameId) {
     seed_ = currentSeed;
     seedText_ = std::to_string(currentSeed);
     variantName_ = variantName;
+    targetGameId_ = gameId;
+    activeBoardSeed_ = currentSeed;
+    activeBoardGameId_ = gameId;
     isOpen_ = true;
     editingSeed_ = true;
     cursorBlink_ = 0.0f;
     copyFeedbackTimer_ = 0.0f;
+    replayCopyFeedbackTimer_ = 0.0f;
+    historyScrollOffset_ = 0;
+
+    // Ensure the currently active deal is present in history without reordering existing entries
+    bool found = false;
+    for (const auto& entry : history_) {
+        if (entry.seed == currentSeed && entry.gameId == gameId) {
+            found = true;
+            break;
+        }
+    }
+    if (!found && currentSeed != 0u) {
+        recordHistory(currentSeed, gameId, variantName);
+    }
 }
 
 void SeedDialog::close() noexcept {
@@ -39,31 +79,41 @@ void SeedDialog::close() noexcept {
 }
 
 void SeedDialog::randomizeSeed() {
-    std::random_device rd;
-    auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-    uint32_t s = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(now)) & 0x7FFFFFFFu;
-    if (s == 0) s = 2026u;
-    seed_ = s;
-    seedText_ = std::to_string(s);
+    seed_ = generateRandomSeed();
+    seedText_ = std::to_string(seed_);
+    recordHistory(seed_, targetGameId_, variantName_);
+    historyScrollOffset_ = 0;
 }
 
-void SeedDialog::copyToClipboard(void* nativeWindow) {
-    if (seedText_.empty()) return;
+void SeedDialog::copyTextToClipboard(const std::string& text, void* nativeWindow) {
+    if (text.empty()) return;
 #if !defined(__EMSCRIPTEN__)
     if (nativeWindow) {
-        glfwSetClipboardString(static_cast<GLFWwindow*>(nativeWindow), seedText_.c_str());
+        glfwSetClipboardString(static_cast<GLFWwindow*>(nativeWindow), text.c_str());
     }
 #else
     EM_ASM({
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(UTF8ToString($0));
         }
-    }, seedText_.c_str());
+    }, text.c_str());
 #endif
+}
+
+void SeedDialog::copyToClipboard(void* nativeWindow) {
+    if (seedText_.empty()) return;
+    copyTextToClipboard(seedText_, nativeWindow);
     copyFeedbackTimer_ = 1.8f; // Show "COPIED!" feedback for 1.8s
 }
 
-void SeedDialog::pasteFromClipboard(void* nativeWindow) {
+void SeedDialog::copyReplayToClipboard(const SolitaireBoard& board, void* nativeWindow) {
+    ReplayTrack track = ReplayCodec::extractFromBoard(board, activeBoardGameId_, variantName_);
+    const std::string code = ReplayCodec::encode(track);
+    copyTextToClipboard(code, nativeWindow);
+    replayCopyFeedbackTimer_ = 1.8f;
+}
+
+bool SeedDialog::pasteFromClipboard(void* nativeWindow, SolitaireBoard& board, AudioFoleyEngine& foley) {
     std::string text;
 #if !defined(__EMSCRIPTEN__)
     if (nativeWindow) {
@@ -71,7 +121,22 @@ void SeedDialog::pasteFromClipboard(void* nativeWindow) {
         if (clip) text = clip;
     }
 #endif
-    if (text.empty()) return;
+    if (text.empty()) return false;
+
+    // Auto-detect SolEngine annotated replay / tutorial code ("sol1:...")
+    if (ReplayCodec::looksLikeReplayCode(text)) {
+        ReplayTrack track;
+        if (ReplayCodec::decode(text, track)) {
+            if (onLaunchReplay) {
+                onLaunchReplay(track, track.isGuided());
+            } else {
+                board.newDeal(track.seed, board.variant());
+            }
+            foley.triggerSound(FoleySound::Shuffle, 0.9f);
+            close();
+            return true;
+        }
+    }
 
     std::string digits;
     for (char c : text) {
@@ -85,8 +150,10 @@ void SeedDialog::pasteFromClipboard(void* nativeWindow) {
             unsigned long val = std::stoul(digits);
             seed_ = static_cast<uint32_t>(val);
             seedText_ = std::to_string(seed_);
+            return true;
         } catch (...) {}
     }
+    return false;
 }
 
 void SeedDialog::commitDeal(SolitaireBoard& board, AudioFoleyEngine& foley) {
@@ -101,10 +168,26 @@ void SeedDialog::commitDeal(SolitaireBoard& board, AudioFoleyEngine& foley) {
         seed_ = 2026u;
     }
 
+    commitHistoryReplay(seed_, targetGameId_, variantName_, board, foley);
+}
+
+void SeedDialog::commitHistoryReplay(
+    uint32_t seed,
+    const std::string& gameId,
+    const std::string& gameName,
+    SolitaireBoard& board,
+    AudioFoleyEngine& foley
+) {
+    seed_ = (seed == 0u) ? 2026u : seed;
+    seedText_ = std::to_string(seed_);
+    recordHistory(seed_, gameId, gameName);
+
     SettingsManager::instance().settings().lastSeed = seed_;
     SettingsManager::instance().save();
 
-    if (onDealSeed) {
+    if (!gameId.empty() && onReplayHistory) {
+        onReplayHistory(seed_, gameId);
+    } else if (onDealSeed) {
         onDealSeed(seed_);
     } else {
         board.newDeal(seed_, board.variant());
@@ -112,6 +195,30 @@ void SeedDialog::commitDeal(SolitaireBoard& board, AudioFoleyEngine& foley) {
 
     foley.triggerSound(FoleySound::Shuffle, 0.9f);
     close();
+}
+
+int SeedDialog::computeVisibleHistoryRows(float screenH) const noexcept {
+    if (history_.empty()) return 0;
+    const int maxRows = (screenH < 520.0f) ? 3 : 4;
+    return std::min<int>(maxRows, static_cast<int>(history_.size()));
+}
+
+void SeedDialog::clampHistoryScroll() noexcept {
+    const int total = static_cast<int>(history_.size());
+    const int maxOffset = std::max(0, total - std::max(1, visibleHistoryRows_));
+    historyScrollOffset_ = std::clamp(historyScrollOffset_, 0, maxOffset);
+}
+
+bool SeedDialog::handleScroll(float yoffset) {
+    if (!isOpen_ || history_.empty()) return false;
+    if (visibleHistoryRows_ <= 0) return true;
+    const int total = static_cast<int>(history_.size());
+    if (total <= visibleHistoryRows_) return true;
+
+    const int step = (yoffset > 0.0f) ? -1 : 1;
+    historyScrollOffset_ += step;
+    clampHistoryScroll();
+    return true;
 }
 
 void SeedDialog::render(
@@ -131,6 +238,10 @@ void SeedDialog::render(
         copyFeedbackTimer_ -= 0.016f;
         if (copyFeedbackTimer_ < 0.0f) copyFeedbackTimer_ = 0.0f;
     }
+    if (replayCopyFeedbackTimer_ > 0.0f) {
+        replayCopyFeedbackTimer_ -= 0.016f;
+        if (replayCopyFeedbackTimer_ < 0.0f) replayCopyFeedbackTimer_ = 0.0f;
+    }
 
     const auto& cPal = clockwork_ui::palette();
 
@@ -138,10 +249,30 @@ void SeedDialog::render(
     r.drawRect(0.0f, 0.0f, screenW, screenH, 0.02f, 0.02f, 0.02f, 0.72f);
 
     // 2. Dialog Placement
-    dialogW_ = std::min(480.0f, screenW - 32.0f);
-    dialogH_ = 280.0f;
+    visibleHistoryRows_ = computeVisibleHistoryRows(screenH);
+    clampHistoryScroll();
+
+    const float headerH = 46.0f;
+    const float inputH = 38.0f;
+    const float btnRowH = 34.0f;
+    const float histRowH = 30.0f;
+    const float histRowGap = 4.0f;
+    const float histHeaderH = 22.0f;
+    const float btmH = 38.0f;
+
+    float histSectionH = 0.0f;
+    if (visibleHistoryRows_ > 0) {
+        const float rowsH = static_cast<float>(visibleHistoryRows_) * histRowH
+                          + static_cast<float>(std::max(0, visibleHistoryRows_ - 1)) * histRowGap;
+        histSectionH = 10.0f + histHeaderH + 4.0f + rowsH + 16.0f;
+    } else {
+        histSectionH = 8.0f;
+    }
+
+    dialogW_ = std::min(500.0f, screenW - 24.0f);
+    dialogH_ = headerH + 20.0f + 18.0f + inputH + 14.0f + btnRowH + 16.0f + histSectionH + btmH + 18.0f;
     dialogX_ = (screenW - dialogW_) * 0.5f;
-    dialogY_ = (screenH - dialogH_) * 0.5f;
+    dialogY_ = std::max(12.0f, (screenH - dialogH_) * 0.5f);
 
     // Drop shadow
     r.drawRectDropShadow(
@@ -153,7 +284,6 @@ void SeedDialog::render(
     clockwork_ui::drawChassisFrame(r, dialogX_, dialogY_, dialogW_, dialogH_, 8.0f, true, false, timeSec);
 
     // 3. Header Title Bar
-    const float headerH = 46.0f;
     r.drawRoundedRectGradient(
         dialogX_ + 4.0f, dialogY_ + 4.0f, dialogW_ - 8.0f, headerH, 6.0f,
         cPal.chassisDarkR + 0.05f, cPal.chassisDarkG + 0.05f, cPal.chassisDarkB + 0.04f,
@@ -198,7 +328,7 @@ void SeedDialog::render(
     clockwork_ui::drawClockworkCloseButton(r, closeBtnX, closeBtnY, closeBtnSize, closeHov, timeSec);
 
     // 4. Content Area
-    float curY = dialogY_ + headerH + 24.0f;
+    float curY = dialogY_ + headerH + 20.0f;
     const float contentX = dialogX_ + 24.0f;
     const float contentW = dialogW_ - 48.0f;
 
@@ -210,7 +340,6 @@ void SeedDialog::render(
     curY += 18.0f;
 
     // --- Seed Input Row ---
-    const float inputH = 38.0f;
     const float stepBtnW = 34.0f;
     const float stepBtnGap = 6.0f;
     const float inputW = contentW - (stepBtnW * 2.0f + stepBtnGap * 2.0f);
@@ -248,34 +377,159 @@ void SeedDialog::render(
     const bool incHov = (mouseX >= incX && mouseX <= incX + stepBtnW && mouseY >= curY && mouseY <= curY + inputH);
     clockwork_ui::drawPewterButton(r, incX, curY, stepBtnW, inputH, 4.0f, "+", incHov, false, 16.0f);
 
-    curY += inputH + 16.0f;
+    curY += inputH + 14.0f;
 
-    // --- Action Button Row (COPY, PASTE, RANDOMIZE) ---
-    const float btnRowH = 34.0f;
-    const float copyW = (contentW - 16.0f) / 3.0f;
+    // --- Action Button Row (COPY, REPLAY, PASTE, RANDOM) ---
+    const float btnGap = 6.0f;
+    const float copyW = (contentW - btnGap * 3.0f) * 0.25f;
+    const float replayW = copyW;
     const float pasteW = copyW;
-    const float randW = contentW - copyW - pasteW - 16.0f;
+    const float randW = contentW - copyW - replayW - pasteW - btnGap * 3.0f;
 
-    // 1. Copy Button
+    // 1. Copy Seed Button
     const float copyX = contentX;
     const bool copyHov = (mouseX >= copyX && mouseX <= copyX + copyW && mouseY >= curY && mouseY <= curY + btnRowH);
     const char* copyLbl = (copyFeedbackTimer_ > 0.0f) ? "COPIED!" : "COPY";
-    clockwork_ui::drawBrassButton(r, copyX, curY, copyW, btnRowH, 4.0f, copyLbl, copyHov, copyFeedbackTimer_ > 0.0f, 11.5f);
+    clockwork_ui::drawBrassButton(r, copyX, curY, copyW, btnRowH, 4.0f, copyLbl, copyHov, copyFeedbackTimer_ > 0.0f, 11.0f);
 
-    // 2. Paste Button
-    const float pasteX = copyX + copyW + 8.0f;
+    // 2. Copy Replay Code Button (bit-packed moves + notes)
+    const float replayX = copyX + copyW + btnGap;
+    const bool replayHov = (mouseX >= replayX && mouseX <= replayX + replayW && mouseY >= curY && mouseY <= curY + btnRowH);
+    const char* replayLbl = (replayCopyFeedbackTimer_ > 0.0f) ? "COPIED!" : "REPLAY";
+    clockwork_ui::drawBrassButton(r, replayX, curY, replayW, btnRowH, 4.0f, replayLbl, replayHov, replayCopyFeedbackTimer_ > 0.0f, 11.0f);
+
+    // 3. Paste Button (auto-detects numeric seed OR sol1: replay code)
+    const float pasteX = replayX + replayW + btnGap;
     const bool pasteHov = (mouseX >= pasteX && mouseX <= pasteX + pasteW && mouseY >= curY && mouseY <= curY + btnRowH);
-    clockwork_ui::drawBrassButton(r, pasteX, curY, pasteW, btnRowH, 4.0f, "PASTE", pasteHov, false, 11.5f);
+    clockwork_ui::drawBrassButton(r, pasteX, curY, pasteW, btnRowH, 4.0f, "PASTE", pasteHov, false, 11.0f);
 
-    // 3. Randomize Button
-    const float randX = pasteX + pasteW + 8.0f;
+    // 4. Randomize Button
+    const float randX = pasteX + pasteW + btnGap;
     const bool randHov = (mouseX >= randX && mouseX <= randX + randW && mouseY >= curY && mouseY <= curY + btnRowH);
-    clockwork_ui::drawBrassButton(r, randX, curY, randW, btnRowH, 4.0f, "RANDOMIZE", randHov, false, 11.5f);
+    clockwork_ui::drawBrassButton(r, randX, curY, randW, btnRowH, 4.0f, "RANDOM", randHov, false, 11.0f);
 
-    curY += btnRowH + 24.0f;
+    curY += btnRowH + 16.0f;
+
+    // --- Session Seed History Section ---
+    if (visibleHistoryRows_ > 0) {
+        r.drawLine(contentX, curY, contentX + contentW, curY,
+                   cPal.brassDarkR, cPal.brassDarkG, cPal.brassDarkB, 0.55f, 1.0f);
+        curY += 10.0f;
+
+        // History Header + Optional Up/Down Scroll Controls
+        std::string histTitle = "SESSION HISTORY (" + std::to_string(history_.size()) + ")";
+        eatsbits::ui::glyph::drawVectorText(
+            r, histTitle.c_str(), contentX, curY + 4.0f, 10.5f,
+            cPal.dialParchmentR, cPal.dialParchmentG, cPal.dialParchmentB, 0.88f
+        );
+
+        const int totalHist = static_cast<int>(history_.size());
+        if (totalHist > visibleHistoryRows_) {
+            const float navW = 24.0f;
+            const float navH = 20.0f;
+            const float dnX = contentX + contentW - navW;
+            const float upX = dnX - navW - 4.0f;
+            const bool canUp = historyScrollOffset_ > 0;
+            const bool canDn = (historyScrollOffset_ + visibleHistoryRows_) < totalHist;
+            const bool upHov = canUp && (mouseX >= upX && mouseX <= upX + navW && mouseY >= curY && mouseY <= curY + navH);
+            const bool dnHov = canDn && (mouseX >= dnX && mouseX <= dnX + navW && mouseY >= curY && mouseY <= curY + navH);
+
+            clockwork_ui::drawPewterButton(r, upX, curY, navW, navH, 3.0f, "^", upHov, false, 11.0f);
+            clockwork_ui::drawPewterButton(r, dnX, curY, navW, navH, 3.0f, "v", dnHov, false, 11.0f);
+
+            std::string rangeStr = std::to_string(historyScrollOffset_ + 1) + "-" +
+                                   std::to_string(std::min(totalHist, historyScrollOffset_ + visibleHistoryRows_)) +
+                                   "/" + std::to_string(totalHist);
+            const float rangeW = eatsbits::ui::glyph::FontEngine::instance().measureText(rangeStr, 9.5f);
+            eatsbits::ui::glyph::drawVectorText(
+                r, rangeStr.c_str(), upX - rangeW - 8.0f, curY + 5.0f, 9.5f,
+                cPal.brassBrightR, cPal.brassBrightG, cPal.brassBrightB, 0.72f
+            );
+        }
+
+        curY += histHeaderH + 4.0f;
+
+        const float playBtnW = 54.0f;
+        const float playBtnH = 22.0f;
+        const float playBtnPad = 6.0f;
+
+        for (int row = 0; row < visibleHistoryRows_; ++row) {
+            const int idx = historyScrollOffset_ + row;
+            if (idx < 0 || idx >= totalHist) break;
+            const auto& entry = history_[static_cast<size_t>(idx)];
+
+            const float rowY = curY + static_cast<float>(row) * (histRowH + histRowGap);
+            const bool isSelected = (entry.seed == seed_ && entry.gameId == targetGameId_);
+            const bool isCurrent = (entry.seed == activeBoardSeed_ && entry.gameId == activeBoardGameId_);
+            const float playX = contentX + contentW - playBtnW - playBtnPad;
+            const float playY = rowY + (histRowH - playBtnH) * 0.5f;
+            const bool playHov = (mouseX >= playX && mouseX <= playX + playBtnW &&
+                                  mouseY >= playY && mouseY <= playY + playBtnH);
+            const bool rowHov = !playHov &&
+                                (mouseX >= contentX && mouseX <= contentX + contentW &&
+                                 mouseY >= rowY && mouseY <= rowY + histRowH);
+
+            // Row background plate
+            const float bgBoost = isSelected ? 0.05f : (rowHov ? 0.03f : 0.0f);
+            r.drawRoundedRect(
+                contentX, rowY, contentW, histRowH, 4.0f,
+                0.08f + bgBoost, 0.07f + bgBoost * 0.8f, 0.06f + bgBoost * 0.5f, 0.94f, 4
+            );
+            r.drawRoundedRectOutline(
+                contentX, rowY, contentW, histRowH, 4.0f,
+                isSelected ? cPal.furnaceAmberR : (rowHov ? cPal.brassBrightR : cPal.brassDarkR),
+                isSelected ? cPal.furnaceAmberG : (rowHov ? cPal.brassBrightG : cPal.brassDarkG),
+                isSelected ? cPal.furnaceAmberB : (rowHov ? cPal.brassBrightB : cPal.brassDarkB),
+                isSelected ? 0.92f : (rowHov ? 0.80f : 0.45f),
+                isSelected ? 1.3f : 1.0f, 4
+            );
+
+            // Active deal indicator dot
+            float textX = contentX + 10.0f;
+            if (isCurrent) {
+                r.drawCircle(contentX + 10.0f, rowY + histRowH * 0.5f, 3.2f,
+                             cPal.furnaceAmberR, cPal.furnaceAmberG, cPal.furnaceAmberB, 0.95f, 10);
+                textX = contentX + 19.0f;
+            }
+
+            // Seed number
+            std::string seedLbl = "#" + std::to_string(entry.seed);
+            eatsbits::ui::glyph::drawVectorText(
+                r, seedLbl.c_str(), textX, rowY + 9.0f, 11.5f,
+                cPal.brassHighlightR, cPal.brassHighlightG, cPal.brassHighlightB, 1.0f
+            );
+
+            // Game name / ID reference (truncated to fit cleanly before PLAY button)
+            const float seedLblW = eatsbits::ui::glyph::FontEngine::instance().measureText(seedLbl, 11.5f);
+            const float gameTextX = textX + std::max(88.0f, seedLblW + 10.0f);
+            const float maxGameW = (playX - 8.0f) - gameTextX;
+            if (maxGameW > 24.0f) {
+                std::string gLabel = !entry.gameName.empty() ? entry.gameName : entry.gameId;
+                auto& fe = eatsbits::ui::glyph::FontEngine::instance();
+                if (fe.measureText(gLabel, 10.5f) > maxGameW) {
+                    while (gLabel.size() > 3 && fe.measureText(gLabel + "...", 10.5f) > maxGameW) {
+                        gLabel.pop_back();
+                    }
+                    gLabel += "...";
+                }
+                eatsbits::ui::glyph::drawVectorText(
+                    r, gLabel.c_str(), gameTextX, rowY + 9.5f, 10.5f,
+                    cPal.furnaceAmberR, cPal.furnaceAmberG, cPal.furnaceAmberB, 0.88f
+                );
+            }
+
+            // Compact 1-tap PLAY button
+            clockwork_ui::drawBrassButton(r, playX, playY, playBtnW, playBtnH, 3.5f, "PLAY", playHov, false, 10.0f);
+        }
+
+        const float rowsH = static_cast<float>(visibleHistoryRows_) * histRowH
+                          + static_cast<float>(std::max(0, visibleHistoryRows_ - 1)) * histRowGap;
+        curY += rowsH + 16.0f;
+    } else {
+        curY += 8.0f;
+    }
 
     // --- Bottom Row: [ CANCEL ] and [ DEAL NEW GAME ] ---
-    const float btmH = 38.0f;
     const float cancelW = 120.0f;
     const float dealW = contentW - cancelW - 12.0f;
 
@@ -323,7 +577,7 @@ bool SeedDialog::handleMouseButton(
         return true;
     }
 
-    float curY = dialogY_ + headerH + 24.0f + 18.0f;
+    float curY = dialogY_ + headerH + 20.0f + 18.0f;
     const float contentX = dialogX_ + 24.0f;
     const float contentW = dialogW_ - 48.0f;
     const float inputH = 38.0f;
@@ -358,13 +612,15 @@ bool SeedDialog::handleMouseButton(
         return true;
     }
 
-    curY += inputH + 16.0f;
+    curY += inputH + 14.0f;
     const float btnRowH = 34.0f;
-    const float copyW = (contentW - 16.0f) / 3.0f;
+    const float btnGap = 6.0f;
+    const float copyW = (contentW - btnGap * 3.0f) * 0.25f;
+    const float replayW = copyW;
     const float pasteW = copyW;
-    const float randW = contentW - copyW - pasteW - 16.0f;
+    const float randW = contentW - copyW - replayW - pasteW - btnGap * 3.0f;
 
-    // Copy Button
+    // 1. Copy Seed Button
     const float copyX = contentX;
     if (mouseX >= copyX && mouseX <= copyX + copyW && mouseY >= curY && mouseY <= curY + btnRowH) {
         copyToClipboard(nativeWindow);
@@ -372,23 +628,106 @@ bool SeedDialog::handleMouseButton(
         return true;
     }
 
-    // Paste Button
-    const float pasteX = copyX + copyW + 8.0f;
-    if (mouseX >= pasteX && mouseX <= pasteX + pasteW && mouseY >= curY && mouseY <= curY + btnRowH) {
-        pasteFromClipboard(nativeWindow);
-        foley.triggerSound(FoleySound::WoodClick, 0.7f);
+    // 2. Copy Replay Code Button
+    const float replayX = copyX + copyW + btnGap;
+    if (mouseX >= replayX && mouseX <= replayX + replayW && mouseY >= curY && mouseY <= curY + btnRowH) {
+        copyReplayToClipboard(board, nativeWindow);
+        foley.triggerSound(FoleySound::WoodClick, 0.75f);
         return true;
     }
 
-    // Randomize Button
-    const float randX = pasteX + pasteW + 8.0f;
+    // 3. Paste Button (seed or sol1: replay code)
+    const float pasteX = replayX + replayW + btnGap;
+    if (mouseX >= pasteX && mouseX <= pasteX + pasteW && mouseY >= curY && mouseY <= curY + btnRowH) {
+        if (!pasteFromClipboard(nativeWindow, board, foley)) {
+            foley.triggerSound(FoleySound::WoodClick, 0.5f);
+        } else if (isOpen_) {
+            foley.triggerSound(FoleySound::WoodClick, 0.7f);
+        }
+        return true;
+    }
+
+    // 4. Randomize Button
+    const float randX = pasteX + pasteW + btnGap;
     if (mouseX >= randX && mouseX <= randX + randW && mouseY >= curY && mouseY <= curY + btnRowH) {
         randomizeSeed();
         foley.triggerSound(FoleySound::Shuffle, 0.8f);
         return true;
     }
 
-    curY += btnRowH + 24.0f;
+    curY += btnRowH + 16.0f;
+
+    // Session Seed History hit testing
+    if (visibleHistoryRows_ > 0) {
+        const float histHeaderH = 22.0f;
+        const float histRowH = 30.0f;
+        const float histRowGap = 4.0f;
+        const int totalHist = static_cast<int>(history_.size());
+
+        curY += 10.0f;
+
+        if (totalHist > visibleHistoryRows_) {
+            const float navW = 24.0f;
+            const float navH = 20.0f;
+            const float dnX = contentX + contentW - navW;
+            const float upX = dnX - navW - 4.0f;
+
+            if (mouseX >= upX && mouseX <= upX + navW && mouseY >= curY && mouseY <= curY + navH) {
+                if (historyScrollOffset_ > 0) {
+                    --historyScrollOffset_;
+                    foley.triggerSound(FoleySound::WoodClick, 0.55f);
+                }
+                return true;
+            }
+            if (mouseX >= dnX && mouseX <= dnX + navW && mouseY >= curY && mouseY <= curY + navH) {
+                if (historyScrollOffset_ + visibleHistoryRows_ < totalHist) {
+                    ++historyScrollOffset_;
+                    foley.triggerSound(FoleySound::WoodClick, 0.55f);
+                }
+                return true;
+            }
+        }
+
+        curY += histHeaderH + 4.0f;
+
+        const float playBtnW = 54.0f;
+        const float playBtnH = 22.0f;
+        const float playBtnPad = 6.0f;
+
+        for (int row = 0; row < visibleHistoryRows_; ++row) {
+            const int idx = historyScrollOffset_ + row;
+            if (idx < 0 || idx >= totalHist) break;
+            const auto entry = history_[static_cast<size_t>(idx)];
+
+            const float rowY = curY + static_cast<float>(row) * (histRowH + histRowGap);
+            if (mouseX >= contentX && mouseX <= contentX + contentW &&
+                mouseY >= rowY && mouseY <= rowY + histRowH) {
+                const float playX = contentX + contentW - playBtnW - playBtnPad;
+                const float playY = rowY + (histRowH - playBtnH) * 0.5f;
+                if (mouseX >= playX && mouseX <= playX + playBtnW &&
+                    mouseY >= playY && mouseY <= playY + playBtnH) {
+                    commitHistoryReplay(entry.seed, entry.gameId, entry.gameName, board, foley);
+                } else {
+                    seed_ = entry.seed;
+                    seedText_ = std::to_string(entry.seed);
+                    targetGameId_ = entry.gameId;
+                    if (!entry.gameName.empty()) {
+                        variantName_ = entry.gameName;
+                    }
+                    editingSeed_ = true;
+                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                }
+                return true;
+            }
+        }
+
+        const float rowsH = static_cast<float>(visibleHistoryRows_) * histRowH
+                          + static_cast<float>(std::max(0, visibleHistoryRows_ - 1)) * histRowGap;
+        curY += rowsH + 16.0f;
+    } else {
+        curY += 8.0f;
+    }
+
     const float btmH = 38.0f;
     const float cancelW = 120.0f;
     const float dealW = contentW - cancelW - 12.0f;
@@ -445,10 +784,11 @@ bool SeedDialog::handleKey(
         return true;
     }
 
-    // Ctrl+V = Paste
+    // Ctrl+V = Paste (seed or sol1: replay code)
     if ((key == 86 || key == 'V') && (mods & 2)) {
-        pasteFromClipboard(nativeWindow);
-        foley.triggerSound(FoleySound::WoodClick, 0.6f);
+        if (pasteFromClipboard(nativeWindow, board, foley) && isOpen_) {
+            foley.triggerSound(FoleySound::WoodClick, 0.6f);
+        }
         return true;
     }
 

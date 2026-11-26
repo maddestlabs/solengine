@@ -257,6 +257,12 @@ public:
                         float colR = 1.04f, float colG = 1.00f, float colB = 0.94f,
                         float ambR = 0.35f, float ambG = 0.35f, float ambB = 0.35f,
                         float sceneDarkness = 0.0f, float lightStrength = 1.0f);
+    [[nodiscard]] bool hasGlobalLight() const noexcept { return hasGlobalLight_; }
+    [[nodiscard]] const LightSource2D& getGlobalLight() const noexcept { return globalLight_; }
+    [[nodiscard]] float getGlobalLightColorR() const noexcept { return globalLightColR_; }
+    [[nodiscard]] float getGlobalLightColorG() const noexcept { return globalLightColG_; }
+    [[nodiscard]] float getGlobalLightColorB() const noexcept { return globalLightColB_; }
+    [[nodiscard]] float getGlobalLightStrength() const noexcept { return globalLightStrength_; }
     void setSceneAtmosphere(uint8_t goboType, float goboSoftness,
                             float dustMotesIntensity,
                             float steadyX = 640.0f, float steadyY = 200.0f,
@@ -638,6 +644,12 @@ private:
     float steadyLightX_{640.0f};
     float steadyLightY_{200.0f};
     float shaderTime_{0.0f};
+    bool hasGlobalLight_{false};
+    LightSource2D globalLight_{};
+    float globalLightColR_{1.04f};
+    float globalLightColG_{1.00f};
+    float globalLightColB_{0.94f};
+    float globalLightStrength_{1.0f};
 
     // 2D Rotation Transform State
     bool transformActive_{false};

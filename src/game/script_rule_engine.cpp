@@ -1,4 +1,5 @@
 #include "solengine/script_rule_engine.hpp"
+#include "solengine/deterministic_rng.hpp"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -9,14 +10,6 @@ namespace solengine {
 using eatsbits::eatscript::Value;
 
 namespace {
-
-uint32_t nextMulberry32(uint32_t& state) noexcept {
-    state += 0x6D2B79F5u;
-    uint32_t t = state;
-    t = (t ^ (t >> 15)) * (t | 1u);
-    t ^= t + (t ^ (t >> 7)) * (t | 61u);
-    return t ^ (t >> 14);
-}
 
 bool validZone(const ScriptBoardContext* ctx, int zoneIdx) noexcept {
     return ctx && ctx->piles && zoneIdx >= 0 && static_cast<size_t>(zoneIdx) < ctx->piles->size();
@@ -359,7 +352,55 @@ bool ScriptRuleEngine::loadScriptForGame(const std::string& source, const std::s
                             if (ex.isString()) zd.previewCards.push_back(ex.asString());
                         }
                     }
+                    if (z.hasKey("bullets") && z.get("bullets").isList()) {
+                        for (const auto& b : z.get("bullets").listVal) {
+                            if (b.isString() && !b.asString().empty()) zd.bullets.push_back(b.asString());
+                        }
+                    } else if (z.hasKey("notes") && z.get("notes").isList()) {
+                        for (const auto& b : z.get("notes").listVal) {
+                            if (b.isString() && !b.asString().empty()) zd.bullets.push_back(b.asString());
+                        }
+                    }
                     docManifest_.zones.push_back(std::move(zd));
+                }
+            }
+            if (doc.hasKey("rules") && doc.get("rules").isList()) {
+                for (const auto& r : doc.get("rules").listVal) {
+                    if (!r.isDict()) continue;
+                    RuleDoc rd{};
+                    rd.title = r.hasKey("title") ? r.get("title").asString() : r.get("name").asString();
+                    if (r.hasKey("bullets") && r.get("bullets").isList()) {
+                        for (const auto& b : r.get("bullets").listVal) {
+                            if (b.isString() && !b.asString().empty()) rd.bullets.push_back(b.asString());
+                        }
+                    }
+                    if (!rd.title.empty() && !rd.bullets.empty()) {
+                        docManifest_.rules.push_back(std::move(rd));
+                    }
+                }
+            }
+            if (doc.hasKey("stats") && doc.get("stats").isList()) {
+                for (const auto& s : doc.get("stats").listVal) {
+                    if (!s.isDict()) continue;
+                    StatDoc sd{};
+                    sd.key = s.get("key").asString();
+                    sd.title = s.hasKey("title") ? s.get("title").asString() : s.get("name").asString();
+                    sd.description = s.hasKey("description") ? s.get("description").asString() : s.get("desc").asString();
+                    if (!sd.key.empty()) {
+                        docManifest_.stats.push_back(std::move(sd));
+                    }
+                }
+            }
+            if (doc.hasKey("tags") && doc.get("tags").isList()) {
+                for (const auto& t : doc.get("tags").listVal) {
+                    if (!t.isDict()) continue;
+                    TagDoc td{};
+                    td.tag = t.hasKey("tag") ? t.get("tag").asString() : t.get("key").asString();
+                    td.title = t.hasKey("title") ? t.get("title").asString() : t.get("name").asString();
+                    td.description = t.hasKey("description") ? t.get("description").asString() : t.get("desc").asString();
+                    if (!td.tag.empty()) {
+                        docManifest_.tags.push_back(std::move(td));
+                    }
                 }
             }
         }
@@ -607,8 +648,14 @@ void ScriptRuleEngine::registerHostApi() {
         int hi = args[1].asInt(0);
         if (hi <= lo) return Value(lo);
         uint32_t span = static_cast<uint32_t>(hi - lo + 1);
-        uint32_t r = nextMulberry32(*boundCtx_->rngState) % span;
+        uint32_t r = mulberry32Next(*boundCtx_->rngState) % span;
         return Value(lo + static_cast<int>(r));
+    });
+
+    evaluator_.registerMemberFunction("math", "random", [this, fallbackState = kDefaultSeed](const std::vector<Value>&, const std::map<std::string, Value>&) mutable -> Value {
+        uint32_t& state = (boundCtx_ && boundCtx_->rngState) ? *boundCtx_->rngState : fallbackState;
+        const uint32_t r = mulberry32Next(state);
+        return Value(static_cast<double>(r) / 4294967296.0);
     });
 
     // --- Unified Help / Documentation Introspection API ---
@@ -898,16 +945,8 @@ void ScriptRuleEngine::registerHostApi() {
         op.fromPile = static_cast<uint8_t>(z);
         op.prevCards = cards;
         op.nextCards = cards;
-        uint32_t localRng = boundCtx_->rngState ? *boundCtx_->rngState : 2026u;
-        for (size_t i = op.nextCards.size() - 1; i > 0; --i) {
-            localRng += 0x6D2B79F5u;
-            uint32_t t = localRng;
-            t = (t ^ (t >> 15)) * (t | 1u);
-            t ^= t + (t ^ (t >> 7)) * (t | 61u);
-            uint32_t r = t ^ (t >> 14);
-            size_t j = static_cast<size_t>(r % static_cast<uint32_t>(i + 1));
-            std::swap(op.nextCards[i], op.nextCards[j]);
-        }
+        uint32_t localRng = boundCtx_->rngState ? *boundCtx_->rngState : kDefaultSeed;
+        DeterministicRng::shuffle(op.nextCards, localRng);
         if (boundCtx_->rngState) *boundCtx_->rngState = localRng;
         if (!applyOp(*boundCtx_, op)) return Value(false);
         if (boundCtx_->activeTx) boundCtx_->activeTx->ops.push_back(std::move(op));

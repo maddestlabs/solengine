@@ -46,6 +46,14 @@ public:
         std::array<CardTexture, CardTextureCache::kTotalTextures>& outBase,
         const ProgressCallback& onProgress = nullptr
     );
+
+    /// Rasterize a single seed-randomized procedural low-poly card back directly into outTex.
+    static bool generateCardBackTexture(
+        const LowPolyDeckOptions& opts,
+        int cardW,
+        int cardH,
+        CardTexture& outTex
+    );
 };
 
 } // namespace solengine

@@ -1,10 +1,12 @@
 #include "solengine/eats_package_loader.hpp"
+#include "solengine/game_definition.hpp"
+#if !defined(SOLENGINE_HEADLESS_CLI)
 #include "solengine/audio_foley.hpp"
 #include "solengine/card_texture_cache.hpp"
-#include "solengine/game_definition.hpp"
 #include "solengine/postfx_system.hpp"
 #include "solengine/procedural_background.hpp"
 #include "solengine/settings_manager.hpp"
+#endif
 #include "eatsbits/eatscript/evaluator.hpp"
 
 #include <algorithm>
@@ -237,6 +239,7 @@ bool EatsPackageLoader::loadSource(const std::string& source,
             return Value(true);
         });
 
+#if !defined(SOLENGINE_HEADLESS_CLI)
     // 3. sol.define_theme / sol.set_theme
     auto defineThemeFn = [&](const std::vector<Value>& args, const std::map<std::string, Value>&) -> Value {
         if (args.empty() || !args[0].isDict()) return Value(false);
@@ -423,6 +426,21 @@ bool EatsPackageLoader::loadSource(const std::string& source,
             outResult.presetIds.push_back(sp.id);
             return Value(true);
         });
+#else
+    (void)foley;
+    for (const char* m : {"define_theme", "set_theme", "create_theme", "define_deck",
+                          "set_deck", "set_background", "set_corner_radius",
+                          "define_ambience", "define_sound_pack", "define_postfx",
+                          "set_postfx", "define_preset"}) {
+        ev.registerMemberFunction("sol", m, noop);
+    }
+    ev.registerMemberFunction("ambience", "define_environment", noop);
+    for (const char* m : {"set_master_volume", "set_master_variance", "set_physical_params",
+                          "define_sound", "define_sequence", "apply_preset", "embed_sound",
+                          "embed_sample", "clear_embeds", "clear_embedded"}) {
+        ev.registerMemberFunction("audio", m, noop);
+    }
+#endif
 
     ev.evaluateSource(source);
     if (!ev.getLastError().empty()) {

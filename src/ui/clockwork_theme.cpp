@@ -1347,12 +1347,46 @@ void drawClockworkCloseButton(
 
 namespace {
 
+enum class SolLogoMat : uint8_t {
+    Gunmetal = 0,
+    Hearth   = 1,
+    Steel    = 2,
+    GoldS    = 3
+};
+
 struct SolLogoTri {
     float x0, y0, x1, y1, x2, y2;
-    float r, g, b;
+    float bias;       // facet bias for Gunmetal/Steel, or base ramp position for GoldS
+    float nx, ny;     // precomputed outward bevel direction for GoldS (unused for radial facets)
+    SolLogoMat mat;
 };
 
 struct SolRgb { float r, g, b; };
+
+static constexpr SolRgb kGunmetal[5] = {
+    {36.0f/255.0f, 36.0f/255.0f, 38.0f/255.0f},
+    {62.0f/255.0f, 62.0f/255.0f, 65.0f/255.0f},
+    {96.0f/255.0f, 96.0f/255.0f, 100.0f/255.0f},
+    {140.0f/255.0f, 140.0f/255.0f, 145.0f/255.0f},
+    {190.0f/255.0f, 190.0f/255.0f, 196.0f/255.0f}
+};
+static constexpr SolRgb kSteel[5] = {
+    {56.0f/255.0f, 56.0f/255.0f, 58.0f/255.0f},
+    {92.0f/255.0f, 92.0f/255.0f, 96.0f/255.0f},
+    {138.0f/255.0f, 138.0f/255.0f, 142.0f/255.0f},
+    {184.0f/255.0f, 184.0f/255.0f, 188.0f/255.0f},
+    {224.0f/255.0f, 224.0f/255.0f, 228.0f/255.0f}
+};
+static constexpr SolRgb kGoldS[5] = {
+    {164.0f/255.0f, 62.0f/255.0f, 10.0f/255.0f},
+    {218.0f/255.0f, 104.0f/255.0f, 16.0f/255.0f},
+    {242.0f/255.0f, 152.0f/255.0f, 24.0f/255.0f},
+    {248.0f/255.0f, 204.0f/255.0f, 68.0f/255.0f},
+    {255.0f/255.0f, 234.0f/255.0f, 154.0f/255.0f}
+};
+
+constexpr float kDefaultLogoLightX = -0.62f;
+constexpr float kDefaultLogoLightY = -0.78f;
 
 inline SolRgb sampleRamp(const SolRgb* ramp, int count, float t) noexcept {
     t = std::clamp(t, 0.0f, 1.0f);
@@ -1366,8 +1400,7 @@ inline SolRgb sampleRamp(const SolRgb* ramp, int count, float t) noexcept {
     };
 }
 
-inline SolRgb facetLight(float mx, float my, const SolRgb* ramp, int count, float bias) noexcept {
-    constexpr float lx = -0.62f, ly = -0.78f;
+inline SolRgb facetLight(float mx, float my, const SolRgb* ramp, int count, float bias, float lx, float ly) noexcept {
     float len = std::hypot(mx, my);
     float nx = (len > 1e-6f) ? (mx / len) : 0.0f;
     float ny = (len > 1e-6f) ? (my / len) : -1.0f;
@@ -1375,34 +1408,56 @@ inline SolRgb facetLight(float mx, float my, const SolRgb* ramp, int count, floa
     return sampleRamp(ramp, count, 0.50f + 0.44f * d + bias);
 }
 
-// Shared normalized [-1, 1] low-poly Sol-Gear + core-font 'S' geometry
-int buildSolLogoTriangles(SolLogoTri* out, int maxOut, float rotRad, float brassTint, bool highlightWhite) noexcept {
-    static constexpr SolRgb kGunmetal[5] = {
-        {36.0f/255.0f, 36.0f/255.0f, 38.0f/255.0f},
-        {62.0f/255.0f, 62.0f/255.0f, 65.0f/255.0f},
-        {96.0f/255.0f, 96.0f/255.0f, 100.0f/255.0f},
-        {140.0f/255.0f, 140.0f/255.0f, 145.0f/255.0f},
-        {190.0f/255.0f, 190.0f/255.0f, 196.0f/255.0f}
-    };
-    static constexpr SolRgb kSteel[5] = {
-        {56.0f/255.0f, 56.0f/255.0f, 58.0f/255.0f},
-        {92.0f/255.0f, 92.0f/255.0f, 96.0f/255.0f},
-        {138.0f/255.0f, 138.0f/255.0f, 142.0f/255.0f},
-        {184.0f/255.0f, 184.0f/255.0f, 188.0f/255.0f},
-        {224.0f/255.0f, 224.0f/255.0f, 228.0f/255.0f}
-    };
-    static constexpr SolRgb kGoldS[5] = {
-        {164.0f/255.0f, 62.0f/255.0f, 10.0f/255.0f},
-        {218.0f/255.0f, 104.0f/255.0f, 16.0f/255.0f},
-        {242.0f/255.0f, 152.0f/255.0f, 24.0f/255.0f},
-        {248.0f/255.0f, 204.0f/255.0f, 68.0f/255.0f},
-        {255.0f/255.0f, 234.0f/255.0f, 154.0f/255.0f}
-    };
+inline SolRgb shadeSolLogoTri(
+    const SolLogoTri& tri,
+    float x0, float y0, float x1, float y1, float x2, float y2,
+    float lx, float ly,
+    float brassTint,
+    bool highlightWhite
+) noexcept {
+    switch (tri.mat) {
+        case SolLogoMat::Gunmetal: {
+            float mx = (x0 + x1 + x2) / 3.0f;
+            float my = (y0 + y1 + y2) / 3.0f;
+            return facetLight(mx, my, kGunmetal, 5, tri.bias, lx, ly);
+        }
+        case SolLogoMat::Hearth:
+            return {20.0f/255.0f, 19.0f/255.0f, 18.0f/255.0f};
+        case SolLogoMat::Steel: {
+            float mx = (x0 + x1 + x2) / 3.0f;
+            float my = (y0 + y1 + y2) / 3.0f;
+            SolRgb c = facetLight(mx, my, kSteel, 5, tri.bias, lx, ly);
+            if (highlightWhite) {
+                c.r = std::min(1.0f, c.r * 1.15f);
+                c.g = std::min(1.0f, c.g * 1.15f);
+                c.b = std::min(1.0f, c.b * 1.15f);
+            }
+            return c;
+        }
+        case SolLogoMat::GoldS: {
+            // Blend classic top-down metallic warmth with directional bevel response to (lx, ly)
+            float mx = (x0 + x1 + x2) / 3.0f;
+            float my = (y0 + y1 + y2) / 3.0f;
+            float bevelDot = tri.nx * lx + tri.ny * ly;
+            float posDot = mx * lx + my * ly;
+            float t = std::clamp(tri.bias + 0.16f * bevelDot + 0.10f * posDot, 0.05f, 1.0f);
+            SolRgb c = sampleRamp(kGoldS, 5, t);
+            c.r = std::min(1.0f, c.r * brassTint);
+            c.g = std::min(1.0f, c.g * brassTint);
+            c.b = std::min(1.0f, c.b * brassTint);
+            return c;
+        }
+    }
+    return {1.0f, 1.0f, 1.0f};
+}
 
+// Shared normalized [-1, 1] low-poly Sol-Gear + core-font 'S' geometry
+int buildSolLogoTriangles(SolLogoTri* out, int maxOut, float rotRad) noexcept {
     int n = 0;
-    auto pushTri = [&](float x0, float y0, float x1, float y1, float x2, float y2, SolRgb c) {
+    auto pushTri = [&](float x0, float y0, float x1, float y1, float x2, float y2,
+                       SolLogoMat mat, float bias = 0.0f, float nx = 0.0f, float ny = 0.0f) {
         if (n < maxOut) {
-            out[n++] = {x0, y0, x1, y1, x2, y2, c.r, c.g, c.b};
+            out[n++] = {x0, y0, x1, y1, x2, y2, bias, nx, ny, mat};
         }
     };
     auto pol = [](float r, float a, float& ox, float& oy) {
@@ -1441,8 +1496,7 @@ int buildSolLogoTriangles(SolLogoTri* out, int maxOut, float rotRad, float brass
         pol(kRRoot, an, rnx, rny);
 
         auto emitG = [&](float x0, float y0, float x1, float y1, float x2, float y2, float bias) {
-            SolRgb c = facetLight((x0 + x1 + x2) / 3.0f, (y0 + y1 + y2) / 3.0f, kGunmetal, 5, bias);
-            pushTri(x0, y0, x1, y1, x2, y2, c);
+            pushTri(x0, y0, x1, y1, x2, y2, SolLogoMat::Gunmetal, bias);
         };
         emitG(bcx, bcy, rcx, rcy, rrx, rry, 0.04f);
         emitG(bcx, bcy, rrx, rry, brx, bry, -0.04f);
@@ -1473,7 +1527,7 @@ int buildSolLogoTriangles(SolLogoTri* out, int maxOut, float rotRad, float brass
         float x0, y0, x1, y1;
         pol(kRecess, a0, x0, y0);
         pol(kRecess, a1, x1, y1);
-        pushTri(0.0f, 0.0f, x0, y0, x1, y1, {20.0f/255.0f, 19.0f/255.0f, 18.0f/255.0f});
+        pushTri(0.0f, 0.0f, x0, y0, x1, y1, SolLogoMat::Hearth);
     }
 
     // 3. Thin 16px octagonal faceted steel ring
@@ -1492,13 +1546,7 @@ int buildSolLogoTriangles(SolLogoTri* out, int maxOut, float rotRad, float brass
         pol(kRRMid, am, pmx, pmy);
 
         auto emitS = [&](float x0, float y0, float x1, float y1, float x2, float y2, float bias) {
-            SolRgb c = facetLight((x0 + x1 + x2) / 3.0f, (y0 + y1 + y2) / 3.0f, kSteel, 5, bias);
-            if (highlightWhite) {
-                c.r = std::min(1.0f, c.r * 1.15f);
-                c.g = std::min(1.0f, c.g * 1.15f);
-                c.b = std::min(1.0f, c.b * 1.15f);
-            }
-            pushTri(x0, y0, x1, y1, x2, y2, c);
+            pushTri(x0, y0, x1, y1, x2, y2, SolLogoMat::Steel, bias);
         };
         emitS(pi0x, pi0y, po0x, po0y, pmx, pmy, 0.10f);
         emitS(po0x, po0y, po1x, po1y, pmx, pmy, 0.16f);
@@ -1519,8 +1567,8 @@ int buildSolLogoTriangles(SolLogoTri* out, int maxOut, float rotRad, float brass
         float mx = ux * bd, my = uy * bd;
         float lx = mx - vx * kHalfSpikeW, ly = my - vy * kHalfSpikeW;
         float rx = mx + vx * kHalfSpikeW, ry = my + vy * kHalfSpikeW;
-        pushTri(tx, ty, mx, my, lx, ly, facetLight((tx+mx+lx)/3.0f, (ty+my+ly)/3.0f, kSteel, 5, 0.22f));
-        pushTri(tx, ty, rx, ry, mx, my, facetLight((tx+rx+mx)/3.0f, (ty+ry+my)/3.0f, kSteel, 5, -0.18f));
+        pushTri(tx, ty, mx, my, lx, ly, SolLogoMat::Steel, 0.22f);
+        pushTri(tx, ty, rx, ry, mx, my, SolLogoMat::Steel, -0.18f);
     }
 
     // 5. Core-font 'S' overlay (exact centerline from vector_font.cpp / ebf_font.cpp)
@@ -1572,17 +1620,17 @@ int buildSolLogoTriangles(SolLogoTri* out, int maxOut, float rotRad, float brass
         float tPos = 1.0f - (static_cast<float>(k) / 6.0f) * 0.68f;
         float tL = std::min(1.0f, tPos + 0.12f);
         float tR = std::max(0.06f, tPos - 0.24f);
-        auto tintG = [&](float t) -> SolRgb {
-            SolRgb c = sampleRamp(kGoldS, 5, t);
-            c.r = std::min(1.0f, c.r * brassTint);
-            c.g = std::min(1.0f, c.g * brassTint);
-            c.b = std::min(1.0f, c.b * brassTint);
-            return c;
-        };
-        pushTri(lrx[k], lry[k], lrx[k + 1], lry[k + 1], sx[k + 1], sy[k + 1], tintG(tL));
-        pushTri(lrx[k], lry[k], sx[k + 1], sy[k + 1], sx[k], sy[k], tintG(std::min(1.0f, tL - 0.06f)));
-        pushTri(sx[k], sy[k], sx[k + 1], sy[k + 1], rrx[k + 1], rry[k + 1], tintG(tR));
-        pushTri(sx[k], sy[k], rrx[k + 1], rry[k + 1], rrx[k], rry[k], tintG(std::max(0.05f, tR - 0.08f)));
+        float snx, sny;
+        segNorm(k, k + 1, snx, sny);
+        // Left bevel faces (+snx, +sny); right bevel faces (-snx, -sny)
+        pushTri(lrx[k], lry[k], lrx[k + 1], lry[k + 1], sx[k + 1], sy[k + 1],
+                SolLogoMat::GoldS, tL, snx, sny);
+        pushTri(lrx[k], lry[k], sx[k + 1], sy[k + 1], sx[k], sy[k],
+                SolLogoMat::GoldS, std::min(1.0f, tL - 0.06f), snx, sny);
+        pushTri(sx[k], sy[k], sx[k + 1], sy[k + 1], rrx[k + 1], rry[k + 1],
+                SolLogoMat::GoldS, tR, -snx, -sny);
+        pushTri(sx[k], sy[k], rrx[k + 1], rry[k + 1], rrx[k], rry[k],
+                SolLogoMat::GoldS, std::max(0.05f, tR - 0.08f), -snx, -sny);
     }
     return n;
 }
@@ -1611,9 +1659,36 @@ void drawClockworkLogo(
     };
     static const CachedSolMesh kStaticMesh = []() {
         CachedSolMesh m;
-        m.count = buildSolLogoTriangles(m.tris.data(), static_cast<int>(m.tris.size()), 0.0f, 1.0f, false);
+        m.count = buildSolLogoTriangles(m.tris.data(), static_cast<int>(m.tris.size()), 0.0f);
         return m;
     }();
+
+    // Resolve directional light vector and subtle color/intensity tint from the active game board light
+    float lx = kDefaultLogoLightX;
+    float ly = kDefaultLogoLightY;
+    float tintR = 1.0f, tintG = 1.0f, tintB = 1.0f;
+    if (config.useSceneLight && r.hasGlobalLight()) {
+        const auto& light = r.getGlobalLight();
+        const float dx = light.x - cx;
+        const float dy = light.y - cy;
+        const float dz = std::max(80.0f, light.z);
+        const float len3 = std::hypot(std::hypot(dx, dy), dz);
+        if (len3 > 1e-4f) {
+            lx = (dx / len3) * 1.35f;
+            ly = (dy / len3) * 1.35f;
+            const float l2d = std::hypot(lx, ly);
+            if (l2d > 1.0f) {
+                lx /= l2d;
+                ly /= l2d;
+            }
+        }
+        const float strength = std::clamp(r.getGlobalLightStrength(), 0.0f, 1.5f);
+        const float colBlend = std::clamp(0.32f * strength, 0.0f, 0.45f);
+        const float intenMod = std::clamp(0.78f + 0.22f * light.intensity, 0.58f, 1.22f);
+        tintR = (1.0f + (r.getGlobalLightColorR() - 1.0f) * colBlend) * intenMod;
+        tintG = (1.0f + (r.getGlobalLightColorG() - 1.0f) * colBlend) * intenMod;
+        tintB = (1.0f + (r.getGlobalLightColorB() - 1.0f) * colBlend) * intenMod;
+    }
 
     const float cosR = (rot != 0.0f) ? std::cos(rot) : 1.0f;
     const float sinR = (rot != 0.0f) ? std::sin(rot) : 0.0f;
@@ -1631,8 +1706,9 @@ void drawClockworkLogo(
     };
 
     if (radius > 12.0f) {
-        const float offX = std::max(1.5f, radius * 0.03f);
-        const float offY = std::max(2.0f, radius * 0.045f);
+        const float shadowScale = std::max(2.2f, radius * 0.055f);
+        const float offX = -lx * shadowScale;
+        const float offY = -ly * shadowScale;
         for (int i = 0; i < kStaticMesh.count; ++i) {
             float x0, y0, x1, y1, x2, y2;
             xform(i, x0, y0, x1, y1, x2, y2);
@@ -1649,12 +1725,11 @@ void drawClockworkLogo(
         const auto& t = kStaticMesh.tris[i];
         float x0, y0, x1, y1, x2, y2;
         xform(i, x0, y0, x1, y1, x2, y2);
-        float cr = t.r, cg = t.g, cb = t.b;
-        if (bTint != 1.0f && i >= kStaticMesh.count - 28) {
-            cr = std::min(1.0f, cr * bTint);
-            cg = std::min(1.0f, cg * bTint);
-            cb = std::min(1.0f, cb * bTint);
-        }
+        // Shade using post-rotation coordinates so turning gear teeth catch the live board light
+        SolRgb c = shadeSolLogoTri(t, x0, y0, x1, y1, x2, y2, lx, ly, bTint, config.highlightWhite);
+        float cr = std::min(1.0f, c.r * tintR);
+        float cg = std::min(1.0f, c.g * tintG);
+        float cb = std::min(1.0f, c.b * tintB);
         r.drawTriangle(
             cx + x0 * radius, cy + y0 * radius,
             cx + x1 * radius, cy + y1 * radius,
@@ -1674,7 +1749,7 @@ void bakeClockworkLogoRgba(
     if (!outRgba || width <= 0 || height <= 0 || radius <= 2.0f || alpha <= 0.001f) return;
 
     std::array<SolLogoTri, 192> tris;
-    const int count = buildSolLogoTriangles(tris.data(), static_cast<int>(tris.size()), 0.0f, 1.0f, false);
+    const int count = buildSolLogoTriangles(tris.data(), static_cast<int>(tris.size()), 0.0f);
 
     auto edgeFn = [](float ax, float ay, float bx, float by, float px, float py) noexcept {
         return (px - ax) * (by - ay) - (py - ay) * (bx - ax);
@@ -1682,6 +1757,8 @@ void bakeClockworkLogoRgba(
 
     for (int i = 0; i < count; ++i) {
         const auto& t = tris[i];
+        const SolRgb c = shadeSolLogoTri(t, t.x0, t.y0, t.x1, t.y1, t.x2, t.y2,
+                                         kDefaultLogoLightX, kDefaultLogoLightY, 1.0f, false);
         float x0 = centerX + t.x0 * radius, y0 = centerY + t.y0 * radius;
         float x1 = centerX + t.x1 * radius, y1 = centerY + t.y1 * radius;
         float x2 = centerX + t.x2 * radius, y2 = centerY + t.y2 * radius;
@@ -1703,9 +1780,9 @@ void bakeClockworkLogoRgba(
                     edgeFn(x2, y2, x0, y0, px, py) * sign >= 0.0f) {
                     size_t pixelOffset = static_cast<size_t>(y * strideBytes + x * 4);
                     float invA = 1.0f - alpha;
-                    outRgba[pixelOffset + 0] = static_cast<uint8_t>(std::clamp(t.r * 255.0f * alpha + outRgba[pixelOffset + 0] * invA, 0.0f, 255.0f));
-                    outRgba[pixelOffset + 1] = static_cast<uint8_t>(std::clamp(t.g * 255.0f * alpha + outRgba[pixelOffset + 1] * invA, 0.0f, 255.0f));
-                    outRgba[pixelOffset + 2] = static_cast<uint8_t>(std::clamp(t.b * 255.0f * alpha + outRgba[pixelOffset + 2] * invA, 0.0f, 255.0f));
+                    outRgba[pixelOffset + 0] = static_cast<uint8_t>(std::clamp(c.r * 255.0f * alpha + outRgba[pixelOffset + 0] * invA, 0.0f, 255.0f));
+                    outRgba[pixelOffset + 1] = static_cast<uint8_t>(std::clamp(c.g * 255.0f * alpha + outRgba[pixelOffset + 1] * invA, 0.0f, 255.0f));
+                    outRgba[pixelOffset + 2] = static_cast<uint8_t>(std::clamp(c.b * 255.0f * alpha + outRgba[pixelOffset + 2] * invA, 0.0f, 255.0f));
                     outRgba[pixelOffset + 3] = static_cast<uint8_t>(std::clamp(255.0f * alpha + outRgba[pixelOffset + 3] * invA, 0.0f, 255.0f));
                 }
             }

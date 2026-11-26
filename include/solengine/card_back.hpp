@@ -23,6 +23,7 @@ struct CardBackDescriptor {
     std::string displayName;   // User-facing name (e.g. "SolEnshade Charcoal", "Classic Sapphire")
     std::string deckOrigin;    // "" for universal (available across all decks), or deck theme slug (e.g. "steampunk", "anime")
     CardBackType type{CardBackType::ProceduralDraw};
+    bool supportsSeed{false};  // True when generator responds to lowPolySeed randomization
     
     // Cached unconditioned master card back texture
     CardTexture baseTexture;
@@ -65,9 +66,14 @@ public:
     // Companion file scanning in decks/ directory
     void scanCompanionBacks(const std::string& decksDir, int cardW, int cardH);
 
+    // Standalone universal Eatscript card backs in card_backs/ directory (*.eats)
+    void scanScriptBacks(const std::string& backsDir, int cardW, int cardH);
+
 private:
     CardBackRegistry() = default;
     bool initialized_{false};
+    bool scriptBacksScanned_{false};
+    std::string scannedBacksDir_;
     int currentCardW_{CardTextureCache::kDefaultCardW};
     int currentCardH_{CardTextureCache::kDefaultCardH};
     std::vector<CardBackDescriptor> universalBacks_;

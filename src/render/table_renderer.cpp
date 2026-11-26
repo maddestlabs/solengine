@@ -1,4 +1,5 @@
 #include "solengine/table_renderer.hpp"
+#include "solengine/deterministic_rng.hpp"
 #include "solengine/auto_play_controller.hpp"
 #include "solengine/dynamic_light.hpp"
 #include "solengine/card_texture_cache.hpp"
@@ -12,9 +13,11 @@
 #include "solengine/ui/seed_dialog.hpp"
 #include "solengine/ui/loading_dialog.hpp"
 #include "solengine/ui/game_browser_dialog.hpp"
+#include "solengine/ui/command_palette_dialog.hpp"
 #include "solengine/ui/clockwork_theme.hpp"
 #include "solengine/ui/app_icon_data.hpp"
 #include "solengine/game_definition.hpp"
+#include "solengine/command_registry.hpp"
 #include "solengine/eats_package_loader.hpp"
 #include "eatsbits/ui/glyph/vector_font.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
@@ -103,7 +106,9 @@ enum HudButtonId : int {
     BtnSeedDialog = 28,
     BtnToolbarResize = 29,
     BtnHelp       = 30,
-    BtnGameTitlePill = 31
+    BtnGameTitlePill = 31,
+    BtnGuidedToggle = 32,
+    BtnRewindBranch = 33
 };
 
 struct HudButtonRect {
@@ -377,14 +382,33 @@ std::vector<HudButtonRect> buildTransportButtons(
     constexpr float btnW = 38.0f;
     constexpr float btnH = 32.0f;
     constexpr float gap = 6.0f;
-    const float takeOverW = btnW;
-    const float totalW = 5.0f * btnW + takeOverW + 5.0f * gap + 24.0f;
-    const float barX = (width - totalW) * 0.5f;
-    const float barY = height - 52.0f - safeBottom;
 
     auto makeBtn = [](HudButtonId id, float x, float y, float w, float h, const char* label, SvgIconId iconId) -> HudButtonRect {
         return HudButtonRect{id, x, y, w, h, label, "", iconId};
     };
+
+    if (controller.isBranched()) {
+        constexpr float rewindW = 148.0f;
+        constexpr float exitW = 64.0f;
+        const float totalW = rewindW + exitW + gap + 24.0f;
+        const float barX = (width - totalW) * 0.5f;
+        const float barY = height - 52.0f - safeBottom;
+        float curX = barX + 12.0f;
+        const float curY = barY + 5.0f;
+
+        btns.push_back(makeBtn(BtnRewindBranch, curX, curY, rewindW, btnH, "REWIND TO LESSON", SvgIconId::None));
+        curX += rewindW + gap;
+        btns.push_back(makeBtn(BtnTakeOver, curX, curY, exitW, btnH, "EXIT", SvgIconId::None));
+        return btns;
+    }
+
+    const bool showGuidedBtn = controller.isReplayMode();
+    const float guidedW = showGuidedBtn ? 56.0f : 0.0f;
+    const float takeOverW = btnW;
+    const float extraW = showGuidedBtn ? (guidedW + gap) : 0.0f;
+    const float totalW = 5.0f * btnW + takeOverW + extraW + 5.0f * gap + 24.0f;
+    const float barX = (width - totalW) * 0.5f;
+    const float barY = height - 52.0f - safeBottom;
 
     float curX = barX + 12.0f;
     float curY = barY + 5.0f;
@@ -409,6 +433,13 @@ std::vector<HudButtonRect> buildTransportButtons(
     // 5. Speed Toggle (1x, 2x, 4x)
     btns.push_back(makeBtn(BtnSpeedToggle, curX, curY, btnW, btnH, controller.speedLabel(), SvgIconId::None));
     curX += btnW + gap;
+
+    // 5b. Guided / Watch Mode Toggle (for replays & tutorials)
+    if (showGuidedBtn) {
+        btns.push_back(makeBtn(BtnGuidedToggle, curX, curY, guidedW, btnH,
+                               controller.isGuidedMode() ? "GUIDE" : "WATCH", SvgIconId::None));
+        curX += guidedW + gap;
+    }
 
     // 6. Stop / Take Over
     btns.push_back(makeBtn(BtnTakeOver, curX, curY, takeOverW, btnH, "", SvgIconId::Stop));
@@ -1616,12 +1647,206 @@ void drawTransportBar(
     // 3. Draw Buttons
     for (const auto& b : buttons) {
         bool hov = (hoveredBtnId == b.id);
-        bool hi = (b.id == BtnPlayPause && controller.isPlaying());
+        bool hi = (b.id == BtnPlayPause && controller.isPlaying()) ||
+                  (b.id == BtnGuidedToggle && controller.isGuidedMode()) ||
+                  (b.id == BtnRewindBranch);
         drawCarvedButton(r, b, hov, hi, pal);
     }
 }
 
 } // namespace
+
+bool computeReplayHighlightBounds(const SolitaireBoard& board, const ReplayHighlight& h,
+                                  float& outX, float& outY, float& outW, float& outH) noexcept;
+
+void drawReplayCommentaryCaption(
+    eatsbits::ui::BatchRenderer2D& r,
+    const SolitaireBoard& board,
+    const AutoPlayController& controller,
+    float width,
+    float height,
+    const ThemePalette& pal,
+    const eatsbits::ui::LightSource2D& light
+) {
+    if (!controller.isActive()) return;
+
+    const bool hasNudge = !controller.nudgeText().empty();
+    const ReplayNote* note = controller.activeNote();
+    if (!hasNudge && (!note || note->text.empty())) return;
+
+    const std::string& captionText = hasNudge ? controller.nudgeText() : note->text;
+    const float fontSize = (width < 600.0f) ? 11.0f : 12.0f;
+    const float padX = 12.0f;
+    const float padY = 9.0f;
+    const float lineH = fontSize + 5.0f;
+    const float maxBoxW = std::min(320.0f, std::max(180.0f, width - 32.0f));
+    const float maxTextW = maxBoxW - padX * 2.0f;
+
+    // Simple word-wrap into lines using vector text metrics
+    std::vector<std::string> lines;
+    std::string curLine;
+    size_t pos = 0;
+    while (pos < captionText.size()) {
+        while (pos < captionText.size() && captionText[pos] == ' ') ++pos;
+        if (pos >= captionText.size()) break;
+        size_t end = captionText.find(' ', pos);
+        if (end == std::string::npos) end = captionText.size();
+        std::string word = captionText.substr(pos, end - pos);
+        pos = end;
+
+        std::string cand = curLine.empty() ? word : (curLine + " " + word);
+        if (!curLine.empty() && eatsbits::ui::glyph::getVectorTextWidth(fontSize, cand.c_str()) > maxTextW) {
+            lines.push_back(std::move(curLine));
+            curLine = std::move(word);
+        } else {
+            curLine = std::move(cand);
+        }
+    }
+    if (!curLine.empty()) lines.push_back(std::move(curLine));
+    if (lines.empty()) return;
+
+    float widestLine = 0.0f;
+    for (const auto& l : lines) {
+        widestLine = std::max(widestLine, eatsbits::ui::glyph::getVectorTextWidth(fontSize, l.c_str()));
+    }
+    const float boxW = std::clamp(widestLine + padX * 2.0f, 120.0f, maxBoxW);
+    const float boxH = static_cast<float>(lines.size()) * lineH + padY * 2.0f - 3.0f;
+
+    // Default anchor: centered above the transport banner
+    float boxX = (width - boxW) * 0.5f;
+    float boxY = height - 122.0f - board.safeBottom() - boxH;
+    bool hasLeader = false;
+    float anchorX = 0.0f, anchorY = 0.0f;
+
+    // Contextual Positioning:
+    // 1) If the note has explicit ReplayHighlight regions, anchor to their union bounding box.
+    // 2) Otherwise, anchor to the midpoint of the active move's source -> destination arc.
+    bool anchoredToHighlights = false;
+    if (!hasNudge && note && !note->highlights.empty()) {
+        float uMinX = 1e9f, uMinY = 1e9f, uMaxX = -1e9f, uMaxY = -1e9f;
+        for (const auto& h : note->highlights) {
+            float hx = 0.0f, hy = 0.0f, hw = 0.0f, hh = 0.0f;
+            if (computeReplayHighlightBounds(board, h, hx, hy, hw, hh) && hw > 0.0f && hh > 0.0f) {
+                uMinX = std::min(uMinX, hx);
+                uMinY = std::min(uMinY, hy);
+                uMaxX = std::max(uMaxX, hx + hw);
+                uMaxY = std::max(uMaxY, hy + hh);
+                anchoredToHighlights = true;
+            }
+        }
+        if (anchoredToHighlights) {
+            const float uCx = (uMinX + uMaxX) * 0.5f;
+            const float gap = 16.0f;
+            boxX = uCx - boxW * 0.5f;
+            if (uMinY - gap - boxH >= 52.0f) {
+                boxY = uMinY - gap - boxH;
+                anchorX = uCx;
+                anchorY = uMinY;
+            } else {
+                boxY = uMaxY + gap;
+                anchorX = uCx;
+                anchorY = uMaxY;
+            }
+            hasLeader = true;
+        }
+    }
+
+    const SolverMove* mv = anchoredToHighlights ? nullptr : controller.peekCurrentOrNextMove();
+    const auto& piles = board.piles();
+    if (mv && mv->fromPile < piles.size()) {
+        const float cw = board.cardWidth();
+        const float ch = board.cardHeight();
+        const Pile& sp = piles[mv->fromPile];
+        float sx = sp.x + cw * 0.5f;
+        float sy = sp.y + ch * 0.5f;
+        if (!sp.cards.empty()) {
+            const size_t idx = std::min<size_t>(mv->cardIndex, sp.cards.size() - 1);
+            sx = sp.cards[idx].x + cw * 0.5f;
+            sy = sp.cards[idx].y + ch * 0.5f;
+        }
+
+        float dx = sx;
+        float dy = sy;
+        if (mv->toPile < piles.size() && mv->action != SolverMove::Action::ClickCard) {
+            const Pile& dp = piles[mv->toPile];
+            dx = dp.x + cw * 0.5f;
+            dy = dp.y + ch * 0.5f;
+            if (!dp.cards.empty()) {
+                dx = dp.cards.back().x + cw * 0.5f;
+                dy = dp.cards.back().y + ch * 0.5f;
+            }
+        }
+
+        const float mx = (sx + dx) * 0.5f;
+        const float my = (sy + dy) * 0.5f;
+        const float vx = dx - sx;
+        const float vy = dy - sy;
+        const float vlen = std::hypot(vx, vy);
+
+        // Offset perpendicularly away from the move vector (preferring above the flight arc)
+        float nx = 0.0f;
+        float ny = -1.0f;
+        if (vlen > 12.0f) {
+            nx = -vy / vlen;
+            ny = vx / vlen;
+            if (ny > 0.15f) {
+                nx = -nx;
+                ny = -ny;
+            }
+        }
+
+        const float offsetDist = std::max(54.0f, ch * 0.55f) + boxH * 0.45f;
+        boxX = mx + nx * offsetDist - boxW * 0.5f;
+        boxY = my + ny * offsetDist - boxH * 0.5f;
+
+        // If pushed too close to the top edge, flip to the opposite side of the arc
+        if (boxY < 52.0f) {
+            boxX = mx - nx * offsetDist - boxW * 0.5f;
+            boxY = my - ny * offsetDist - boxH * 0.5f;
+        }
+
+        anchorX = mx;
+        anchorY = my;
+        hasLeader = true;
+    }
+
+    const float minY = 52.0f;
+    const float maxY = std::max(minY, height - 118.0f - board.safeBottom() - boxH);
+    boxX = std::clamp(boxX, 14.0f, std::max(14.0f, width - boxW - 14.0f));
+    boxY = std::clamp(boxY, minY, maxY);
+
+    // Subtle leader line from caption edge to the move midpoint
+    if (hasLeader) {
+        const float cx = std::clamp(anchorX, boxX + 10.0f, boxX + boxW - 10.0f);
+        const float cy = std::clamp(anchorY, boxY + 4.0f, boxY + boxH - 4.0f);
+        r.drawLine(cx, cy, anchorX, anchorY,
+                   pal.accentR, pal.accentG, pal.accentB, 0.55f, 1.5f);
+        r.drawCircle(anchorX, anchorY, 3.5f,
+                     pal.accentR, pal.accentG, pal.accentB, 0.85f, 10);
+    }
+
+    // Caption card with drop shadow & brass/amber outline
+    r.drawRectDropShadow(boxX, boxY, boxW, boxH, 8.0f, 10.0f, light, 0.55f);
+    r.drawRoundedRectGradient(
+        boxX, boxY, boxW, boxH, 7.0f,
+        0.09f, 0.08f, 0.07f,
+        0.05f, 0.045f, 0.04f,
+        0.95f, 4
+    );
+    const float outR = hasNudge ? 0.96f : pal.accentR;
+    const float outG = hasNudge ? 0.58f : pal.accentG;
+    const float outB = hasNudge ? 0.22f : pal.accentB;
+    r.drawRoundedRectOutline(boxX, boxY, boxW, boxH, 7.0f, outR, outG, outB, 0.92f, 1.5f, 4);
+
+    float ty = boxY + padY;
+    for (const auto& line : lines) {
+        eatsbits::ui::glyph::drawVectorText(
+            r, line.c_str(), boxX + padX, ty, fontSize,
+            0.96f, 0.93f, 0.86f, 0.98f
+        );
+        ty += lineH;
+    }
+}
 
 struct HelpSidebarRect {
     float x{0.0f}, y{0.0f}, w{0.0f}, h{0.0f};
@@ -2409,6 +2634,72 @@ void computeZoneHighlightBounds(const SolitaireBoard& board, int zoneIdx,
     outH = (maxY - minY) + 8.0f;
 }
 
+bool computeReplayHighlightBounds(const SolitaireBoard& board, const ReplayHighlight& h,
+                                  float& outX, float& outY, float& outW, float& outH) noexcept {
+    const auto& piles = board.piles();
+    const float cw = board.cardWidth();
+    const float ch = board.cardHeight();
+    if (h.pileIdx >= piles.size() || cw <= 0.0f || ch <= 0.0f) {
+        outX = outY = outW = outH = 0.0f;
+        return false;
+    }
+
+    if (h.kind == HighlightKind::ZoneGroup) {
+        computeZoneHighlightBounds(board, static_cast<int>(h.pileIdx), outX, outY, outW, outH);
+        return (outW > 0.0f && outH > 0.0f);
+    }
+
+    float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
+    bool any = false;
+    auto expandRect = [&](float rx, float ry, float rw, float rh) noexcept {
+        minX = std::min(minX, rx);
+        minY = std::min(minY, ry);
+        maxX = std::max(maxX, rx + rw);
+        maxY = std::max(maxY, ry + rh);
+        any = true;
+    };
+    auto expandPile = [&](const Pile& p) noexcept {
+        expandRect(p.x, p.y, cw, ch);
+        for (const auto& c : p.cards) {
+            expandRect(c.x, c.y, cw, ch);
+        }
+    };
+
+    if (h.kind == HighlightKind::Pile) {
+        expandPile(piles[h.pileIdx]);
+    } else if (h.kind == HighlightKind::PileSpan) {
+        const size_t cnt = (h.count == 0) ? 1u : static_cast<size_t>(h.count);
+        const size_t endIdx = std::min(piles.size(), static_cast<size_t>(h.pileIdx) + cnt);
+        for (size_t pi = h.pileIdx; pi < endIdx; ++pi) {
+            expandPile(piles[pi]);
+        }
+    } else {
+        // HighlightKind::CardSpan
+        const Pile& p = piles[h.pileIdx];
+        if (p.cards.empty()) {
+            expandRect(p.x, p.y, cw, ch);
+        } else {
+            const size_t start = std::min<size_t>(h.startCard, p.cards.size() - 1);
+            const size_t end = (h.count == 0)
+                ? p.cards.size()
+                : std::min<size_t>(p.cards.size(), start + static_cast<size_t>(h.count));
+            for (size_t ci = start; ci < end; ++ci) {
+                expandRect(p.cards[ci].x, p.cards[ci].y, cw, ch);
+            }
+        }
+    }
+
+    if (!any) {
+        outX = outY = outW = outH = 0.0f;
+        return false;
+    }
+    outX = minX - 4.0f;
+    outY = minY - 4.0f;
+    outW = (maxX - minX) + 8.0f;
+    outH = (maxY - minY) + 8.0f;
+    return true;
+}
+
 namespace {
 void drawShadowedEmber(
     eatsbits::ui::BatchRenderer2D& r,
@@ -3011,7 +3302,7 @@ void updateShowcaseCamera(
     const float cw = board.cardWidth();
     const float ch = board.cardHeight();
 
-    const SolverMove* activeMove = autoPlay.isPlaying() ? autoPlay.peekNextMove() : nullptr;
+    const SolverMove* activeMove = (autoPlay.isPlaying() || autoPlay.isWaitingForMove()) ? autoPlay.peekNextMove() : nullptr;
     SolverMove dirSynthMove{};
     if (!activeMove && directorMoveFrom >= 0 && directorMoveTo >= 0) {
         dirSynthMove.fromPile = static_cast<uint8_t>(directorMoveFrom);
@@ -3829,6 +4120,56 @@ void TableRenderer::renderBoard(
                                      pal.accentR, pal.accentG, pal.accentB, 0.92f * pulse, 2.0f, 4);
         }
     }
+    if (autoPlay && autoPlay->isActive()) {
+        const ReplayNote* activeReplayNote = autoPlay->activeNote();
+        if (activeReplayNote && !activeReplayNote->highlights.empty()) {
+            const float pulse = 0.80f + 0.20f * std::sin(sAnimTime * 4.2f);
+            for (size_t hi = 0; hi < activeReplayNote->highlights.size(); ++hi) {
+                const auto& h = activeReplayNote->highlights[hi];
+                float hx = 0.0f, hy = 0.0f, hw = 0.0f, hh = 0.0f;
+                if (!computeReplayHighlightBounds(board, h, hx, hy, hw, hh)) continue;
+
+                float hr = pal.accentR, hg = pal.accentG, hb = pal.accentB;
+                if (h.style == HighlightStyle::Accent) {
+                    hr = 0.26f; hg = 0.86f; hb = 0.88f;
+                } else if (h.style == HighlightStyle::Caution) {
+                    hr = 0.95f; hg = 0.34f; hb = 0.28f;
+                }
+
+                // Soft glowing fill + dark espresso contrast frame + luminous border
+                r.drawRoundedRect(hx, hy, hw, hh, 8.0f, hr, hg, hb, 0.10f * pulse, 4);
+                r.drawRoundedRectOutline(hx - 1.5f, hy - 1.5f, hw + 3.0f, hh + 3.0f, 9.5f,
+                                         0.04f, 0.02f, 0.01f, 0.72f * pulse, 3.6f, 4);
+                r.drawRoundedRectOutline(hx, hy, hw, hh, 8.0f,
+                                         hr, hg, hb, 0.94f * pulse, 2.1f, 4);
+
+                // Orbiting shadowed ember sparks gliding along the perimeter
+                const float perim = 2.0f * (hw + hh);
+                if (perim > 16.0f) {
+                    const int sparkCount = std::clamp(static_cast<int>(perim / 95.0f), 4, 10);
+                    for (int si = 0; si < sparkCount; ++si) {
+                        const float phase = static_cast<float>(si) / static_cast<float>(sparkCount) +
+                                            static_cast<float>(hi) * 0.17f;
+                        const float u = std::fmod(phase + sAnimTime * 0.18f, 1.0f);
+                        float d = u * perim;
+                        float px = hx, py = hy;
+                        if (d < hw) {
+                            px = hx + d; py = hy;
+                        } else if ((d -= hw) < hh) {
+                            px = hx + hw; py = hy + d;
+                        } else if ((d -= hh) < hw) {
+                            px = hx + hw - d; py = hy + hh;
+                        } else {
+                            d -= hw;
+                            px = hx; py = hy + hh - d;
+                        }
+                        const float twinkle = 0.65f + 0.35f * std::sin(sAnimTime * 6.0f + static_cast<float>(si) * 1.9f);
+                        drawShadowedEmber(r, px, py, 2.8f + 1.1f * twinkle, hr, hg, hb, 0.88f * twinkle);
+                    }
+                }
+            }
+        }
+    }
     if (ghostCards && !ghostCards->empty()) {
         const float effRu = CardTextureCache::instance().effectiveRu();
         const float cardRad = (effRu <= 0.001f) ? 2.0f : std::max(2.0f, effRu * cw);
@@ -4107,10 +4448,11 @@ void TableRenderer::renderBoard(
         }
     }
 
-    // 9. Floating Auto-Play Transport Bar
+    // 9. Floating Auto-Play Transport Bar & Contextual Replay/Tutorial Captions
     if (autoPlay && autoPlay->isActive()) {
         auto tBtns = buildTransportButtons(width, height, *autoPlay, board.safeBottom());
         drawTransportBar(r, width, height, *autoPlay, tBtns, hoveredButtonId, pal, light);
+        drawReplayCommentaryCaption(r, board, *autoPlay, width, height, pal, light);
     }
     } else if (screensaverMode) {
         // Subtle Screensaver Mode watermark
@@ -4222,6 +4564,214 @@ bool TableRenderer::writePngFile(
     if (!out) return false;
     out.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
     return out.good();
+}
+
+void TableRenderer::renderMiniBoard(
+    eatsbits::ui::BatchRenderer2D& r,
+    const SolitaireBoard& board,
+    float stageX,
+    float stageY,
+    float stageW,
+    float stageH,
+    const ThemePalette& pal,
+    const AutoPlayController* autoPlay
+) {
+    if (stageW < 16.0f || stageH < 16.0f) return;
+
+    if (r.getBackendType() == eatsbits::ui::RenderBackendType::WebGPU &&
+        CardTextureCache::instance().isAtlasDirty()) {
+        CardTextureCache::instance().buildGpuAtlas(r);
+    }
+
+    // 1. Felt backdrop & subtle brass trim
+    r.drawRoundedRectGradient(
+        stageX, stageY, stageW, stageH, 6.0f,
+        pal.feltR0 * 0.92f + 0.02f, pal.feltG0 * 0.92f + 0.02f, pal.feltB0 * 0.92f + 0.02f,
+        pal.feltR1 * 0.85f, pal.feltG1 * 0.85f, pal.feltB1 * 0.85f,
+        0.98f, 6
+    );
+
+    {
+        auto scissor = r.makeScissorScope(stageX + 1.0f, stageY + 1.0f, stageW - 2.0f, stageH - 2.0f);
+
+        const float vw = std::max(1.0f, board.viewportWidth());
+        const float vh = std::max(1.0f, board.viewportHeight());
+        const float padX = 6.0f;
+        const float padY = 6.0f;
+        const float availW = std::max(8.0f, stageW - padX * 2.0f);
+        const float availH = std::max(8.0f, stageH - padY * 2.0f);
+        const float scale = std::min(availW / vw, availH / vh);
+        const float offX = stageX + (stageW - vw * scale) * 0.5f;
+        const float offY = stageY + (stageH - vh * scale) * 0.5f;
+
+        const float cw = board.cardWidth() * scale;
+        const float ch = board.cardHeight() * scale;
+        const float effRu = CardTextureCache::instance().effectiveRu();
+        const float slotRad = (effRu <= 0.001f) ? 2.0f : std::max(1.5f, effRu * cw);
+
+        const eatsbits::ui::LightSource2D light{
+            stageX + stageW * 0.5f, stageY + stageH * 0.22f, 380.0f, 0.85f
+        };
+
+        const auto& piles = board.piles();
+
+        // 2. Subtle pile slot outlines
+        for (const auto& p : piles) {
+            const float px = offX + p.x * scale;
+            const float py = offY + p.y * scale;
+            const float outlineAlpha = (p.type == PileType::Foundation || p.type == PileType::Stock || p.type == PileType::FreeCell)
+                ? 0.32f : 0.16f;
+            ScopedCardRotation rotGuard(r, p.angle, px + cw * 0.5f, py + ch * 0.5f);
+            r.drawRoundedRect(px, py, cw, ch, slotRad, 0.0f, 0.0f, 0.0f, 0.14f, 3);
+            r.drawRoundedRectOutline(px, py, cw, ch, slotRad, pal.trimR, pal.trimG, pal.trimB, outlineAlpha, 1.0f, 3);
+        }
+
+        // 3. Partition resting vs animating cards (preserving zIndex order)
+        auto isCardMoving = [](const Card& c) noexcept -> bool {
+            const float dx = c.x - c.targetX;
+            const float dy = c.y - c.targetY;
+            const float da = c.angle - c.targetAngle;
+            return (dx * dx + dy * dy > 0.25f) || (std::abs(da) > 0.003f) ||
+                   (c.elevation > 0.15f) || (c.flipAngle > 0.005f);
+        };
+
+        struct MiniAnimCard {
+            size_t pileIdx;
+            size_t cardIdx;
+            const Card* card;
+        };
+        std::vector<MiniAnimCard> animCards;
+        std::vector<size_t> drawOrder(piles.size());
+        for (size_t i = 0; i < piles.size(); ++i) drawOrder[i] = i;
+        std::stable_sort(drawOrder.begin(), drawOrder.end(), [&piles](size_t a, size_t b) noexcept {
+            return piles[a].zIndex < piles[b].zIndex;
+        });
+
+        struct MiniRestingPile {
+            size_t pIdx{0};
+            bool tightlyStacked{false};
+            std::vector<size_t> indices;
+        };
+        std::vector<MiniRestingPile> resting;
+        resting.reserve(piles.size());
+
+        for (size_t pIdx : drawOrder) {
+            const Pile& p = piles[pIdx];
+            if (p.cards.empty()) continue;
+
+            size_t startIdx = 0;
+            if (p.type == PileType::Stock) {
+                startIdx = (p.cards.size() > 3) ? (p.cards.size() - 3) : 0;
+            } else if (p.type == PileType::Foundation || p.type == PileType::Waste) {
+                startIdx = (p.cards.size() > 3) ? (p.cards.size() - 3) : 0;
+            } else if (p.type == PileType::FreeCell) {
+                startIdx = (p.cards.size() > 1) ? (p.cards.size() - 1) : 0;
+            }
+
+            MiniRestingPile mrp;
+            mrp.pIdx = pIdx;
+            mrp.tightlyStacked = (p.type == PileType::Stock || p.type == PileType::Foundation || p.type == PileType::FreeCell);
+            bool movingBelow = false;
+            for (size_t cIdx = 0; cIdx < p.cards.size(); ++cIdx) {
+                const Card& c = p.cards[cIdx];
+                if (isCardMoving(c) || movingBelow) {
+                    movingBelow = true;
+                    animCards.push_back(MiniAnimCard{pIdx, cIdx, &c});
+                } else if (cIdx >= startIdx) {
+                    mrp.indices.push_back(cIdx);
+                }
+            }
+            if (!mrp.indices.empty()) {
+                resting.push_back(std::move(mrp));
+            }
+        }
+
+        // Pass A: Resting shadows
+        if (!resting.empty()) {
+            r.beginShadowLayer();
+            for (const auto& mrp : resting) {
+                const Pile& p = piles[mrp.pIdx];
+                for (size_t i = 0; i < mrp.indices.size(); ++i) {
+                    if (i > 0 && mrp.tightlyStacked) continue;
+                    const Card& c = p.cards[mrp.indices[i]];
+                    drawProceduralCard(r, c, offX + c.x * scale, offY + c.y * scale, cw, ch, pal, light, CardRenderPass::ShadowOnly);
+                }
+            }
+            r.endShadowLayer();
+        }
+
+        // Pass B: Resting bodies
+        for (const auto& mrp : resting) {
+            const Pile& p = piles[mrp.pIdx];
+            for (size_t i = 0; i < mrp.indices.size(); ++i) {
+                const Card& c = p.cards[mrp.indices[i]];
+                drawProceduralCard(r, c, offX + c.x * scale, offY + c.y * scale, cw, ch, pal, light, CardRenderPass::BodyOnly);
+            }
+        }
+
+        // Pass C: Animating / flying cards on top
+        if (!animCards.empty()) {
+            std::stable_sort(animCards.begin(), animCards.end(), [](const MiniAnimCard& a, const MiniAnimCard& b) noexcept {
+                if (a.pileIdx == b.pileIdx) return a.cardIdx < b.cardIdx;
+                const float elevA = a.card->elevation + std::sin(a.card->flipAngle) * 25.0f;
+                const float elevB = b.card->elevation + std::sin(b.card->flipAngle) * 25.0f;
+                return elevA < elevB - 0.01f;
+            });
+            r.beginShadowLayer();
+            for (const auto& entry : animCards) {
+                const Card& c = *entry.card;
+                drawProceduralCard(r, c, offX + c.x * scale, offY + c.y * scale, cw, ch, pal, light, CardRenderPass::ShadowOnly);
+            }
+            r.endShadowLayer();
+            for (const auto& entry : animCards) {
+                const Card& c = *entry.card;
+                drawProceduralCard(r, c, offX + c.x * scale, offY + c.y * scale, cw, ch, pal, light, CardRenderPass::BodyOnly);
+            }
+        }
+
+        // 4. Subtle move-trail arc previewing the next auto-play move
+        if (autoPlay && autoPlay->isPlaying()) {
+            if (const SolverMove* mv = autoPlay->peekNextMove()) {
+                if (mv->fromPile < piles.size() && mv->toPile < piles.size() && mv->fromPile != mv->toPile) {
+                    const Pile& sp = piles[mv->fromPile];
+                    const Pile& dp = piles[mv->toPile];
+                    float sx = offX + sp.x * scale + cw * 0.5f;
+                    float sy = offY + sp.y * scale + ch * 0.5f;
+                    if (!sp.cards.empty()) {
+                        const size_t ci = std::min<size_t>(mv->cardIndex, sp.cards.size() - 1);
+                        sx = offX + sp.cards[ci].x * scale + cw * 0.5f;
+                        sy = offY + sp.cards[ci].y * scale + ch * 0.5f;
+                    }
+                    float dx = offX + dp.x * scale + cw * 0.5f;
+                    float dy = offY + dp.y * scale + ch * 0.5f;
+                    if (!dp.cards.empty()) {
+                        dx = offX + dp.cards.back().x * scale + cw * 0.5f;
+                        dy = offY + dp.cards.back().y * scale + ch * 0.5f;
+                    }
+                    const float mx = (sx + dx) * 0.5f;
+                    const float my = std::min(sy, dy) - std::max(16.0f, ch * 0.35f);
+                    const float prog = std::clamp(autoPlay->moveProgress(), 0.0f, 1.0f);
+                    const float arcAlpha = 0.25f + 0.45f * std::sin(prog * 3.14159265f);
+
+                    constexpr int kSegs = 12;
+                    float prevX = sx, prevY = sy;
+                    for (int s = 1; s <= kSegs; ++s) {
+                        const float t = static_cast<float>(s) / static_cast<float>(kSegs);
+                        const float omt = 1.0f - t;
+                        const float px = omt * omt * sx + 2.0f * omt * t * mx + t * t * dx;
+                        const float py = omt * omt * sy + 2.0f * omt * t * my + t * t * dy;
+                        r.drawLine(prevX, prevY, px, py, 1.8f, pal.accentR, pal.accentG, pal.accentB, arcAlpha);
+                        prevX = px;
+                        prevY = py;
+                    }
+                    r.drawCircle(dx, dy, 3.5f, pal.accentR, pal.accentG, pal.accentB, arcAlpha + 0.15f, 12);
+                }
+            }
+        }
+    }
+
+    // Crisp outer brass border
+    r.drawRoundedRectOutline(stageX, stageY, stageW, stageH, 6.0f, pal.trimR, pal.trimG, pal.trimB, 0.72f, 1.3f, 6);
 }
 
 bool TableRenderer::renderToPng(
@@ -4623,6 +5173,9 @@ struct InteractiveContext {
     bool prevLeftDown = false;
     bool prevRightDown = false;
     bool prevMiddleDown = false;
+    bool pendingLeftPress = false;
+    bool pendingRightPress = false;
+    bool pendingMiddlePress = false;
     float midPanLastX = 0.0f;
     float midPanLastY = 0.0f;
     double lastMiddleClickTime = -10.0;
@@ -5076,9 +5629,12 @@ struct InteractiveContext {
     bool prevKeyDown = false;
     bool prevKeySpace = false;
     bool prevKeyP = false;
+    bool prevKeyK = false;
     bool prevKeyF = false;
     bool prevKeyLBracket = false;
     bool prevKeyRBracket = false;
+    bool prevKeyPageUp = false;
+    bool prevKeyPageDown = false;
 
     bool isFullscreen = false;
     bool hasSavedWindowState = false;
@@ -5135,6 +5691,8 @@ struct InteractiveContext {
     SeedDialog seedDialog;
     LoadingDialog loadingDialog;
     GameBrowserDialog gameBrowserDialog;
+    CommandRegistry commandRegistry;
+    CommandPaletteDialog commandPaletteDialog;
     DynamicLightController lightController;
 
     enum class AsyncOp {
@@ -5944,10 +6502,7 @@ struct InteractiveContext {
         asyncManager.resetState();
 
         if (startSeed == 0) {
-            std::random_device rd;
-            auto nowVal = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-            startSeed = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(nowVal)) & 0x7FFFFFFFu;
-            if (startSeed == 0) startSeed = 2026u;
+            startSeed = generateRandomSeed();
         }
 
         if (!def.supportsSolver) {
@@ -6082,6 +6637,7 @@ struct InteractiveContext {
         board.computeLayout(static_cast<float>(width), static_cast<float>(height));
         board.triggerDealAnimation();
         if (!screensaverActive) {
+            recordCurrentDealToSeedHistory();
             SettingsManager::instance().settings().lastSeed = seed;
             SettingsManager::instance().settings().variant = def.nativeVariant;
             SettingsManager::instance().save();
@@ -6231,6 +6787,8 @@ struct InteractiveContext {
             }
         }
 
+        recordCurrentDealToSeedHistory();
+
         seedDialog.onDealSeed = [this](uint32_t s) {
             autoCascadeActive = false;
             autoPlayController.stop();
@@ -6240,8 +6798,34 @@ struct InteractiveContext {
                 board.newDeal(s, board.variant());
             }
             board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+            recordCurrentDealToSeedHistory();
             SessionManager::instance().clearSession();
             foley.triggerSound(FoleySound::Shuffle, 0.9f);
+        };
+        seedDialog.onReplayHistory = [this](uint32_t s, const std::string& gameId) {
+            autoCascadeActive = false;
+            autoPlayController.stop();
+            const SolitaireGameDef* targetDef = !gameId.empty()
+                ? GameRegistry::instance().findById(gameId)
+                : nullptr;
+            if (targetDef) {
+                board.newDeal(s, *targetDef);
+                SettingsManager::instance().settings().variant = targetDef->nativeVariant;
+                SettingsManager::instance().settings().lastSeed = s;
+                SettingsManager::instance().save();
+                applyEffectiveSettings(true);
+            } else if (!board.activeGameDef().id.empty()) {
+                board.newDeal(s, board.activeGameDef());
+            } else {
+                board.newDeal(s, board.variant());
+            }
+            board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+            recordCurrentDealToSeedHistory();
+            SessionManager::instance().clearSession();
+            foley.triggerSound(FoleySound::Shuffle, 0.9f);
+        };
+        seedDialog.onLaunchReplay = [this](const ReplayTrack& track, bool guided) {
+            launchReplayTrack(track, guided);
         };
         gameBrowserDialog.onGameSelected = [this](const SolitaireGameDef& def) {
             autoCascadeActive = false;
@@ -6251,13 +6835,11 @@ struct InteractiveContext {
             } else {
                 uint32_t s = board.seed();
                 if (SettingsManager::instance().settings().randomizeOnNewDeal) {
-                    std::random_device rd;
-                    auto nowVal = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-                    s = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(nowVal)) & 0x7FFFFFFFu;
-                    if (s == 0) s = 2026u;
+                    s = generateRandomSeed();
                 }
                 board.newDeal(s, def);
                 board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                recordCurrentDealToSeedHistory();
                 SettingsManager::instance().settings().variant = def.nativeVariant;
                 SettingsManager::instance().settings().lastSeed = s;
                 if (!def.defaultPresetId.empty() &&
@@ -6300,6 +6882,7 @@ struct InteractiveContext {
             if (variantChanged) {
                 board.newDeal(g.lastSeed, g.variant);
                 board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                recordCurrentDealToSeedHistory();
                 SessionManager::instance().clearSession();
                 foley.triggerSound(FoleySound::Deal, 0.85f);
             }
@@ -6309,12 +6892,416 @@ struct InteractiveContext {
         settingsDialog.onPreviewDeck = [this](const AppSettings& s) {
             syncDeckAndConditioning(s, true);
         };
+
+        commandPaletteDialog.setRegistry(&commandRegistry);
+        commandPaletteDialog.onBeforeOpen = [this]() {
+            populateCommandRegistry();
+        };
+        populateCommandRegistry();
     }
 
     [[nodiscard]] std::string activeGameId() const {
         if (!board.activeGameDef().id.empty()) return board.activeGameDef().id;
         if (const auto* def = GameRegistry::instance().findByVariant(board.variant())) return def->id;
         return "";
+    }
+
+    void populateCommandRegistry() {
+        commandRegistry.clear();
+
+        auto wearLabel = []() -> std::string {
+            switch (CardTextureCache::instance().cardWearLevel()) {
+                case CardWearLevel::Pristine: return "Pristine";
+                case CardWearLevel::Natural:  return "Natural";
+                case CardWearLevel::Played:   return "Played";
+                case CardWearLevel::Vintage:  return "Vintage";
+                default:                      return "Pristine";
+            }
+        };
+        auto stockLabel = []() -> std::string {
+            switch (CardTextureCache::instance().cardStock()) {
+                case CardStock::None:            return "None";
+                case CardStock::CasinoLinen:     return "Casino Linen";
+                case CardStock::AntiqueLaid:     return "Antique Laid";
+                case CardStock::CottonRag:       return "Cotton Rag";
+                case CardStock::SmoothParchment: return "Smooth Parchment";
+                default:                         return "None";
+            }
+        };
+        auto cornerLabel = []() -> std::string {
+            switch (CardTextureCache::instance().cornerStyle()) {
+                case CardCornerStyle::Auto:    return "Auto";
+                case CardCornerStyle::Sharp:   return "Sharp";
+                case CardCornerStyle::Vintage: return "Vintage";
+                case CardCornerStyle::Round:   return "Round";
+                default:                       return "Auto";
+            }
+        };
+
+        // --- PLAY COMMANDS ---
+        commandRegistry.registerCommand({
+            "play.new_deal", "New Deal", "Deal a fresh hand of the current game",
+            "N", "shuffle start hand deal", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnNewDeal); }
+        });
+        commandRegistry.registerCommand({
+            "play.solvable_deal", "New Solvable Deal", "Find and deal a guaranteed winnable seed",
+            "Shift+N", "winnable solver guaranteed deal", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnSolvableDeal); }
+        });
+        commandRegistry.registerCommand({
+            "play.restart", "Restart Current Deal", "Reset the current seed back to move 0",
+            "R", "replay retry reset seed", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnRestart); }
+        });
+        commandRegistry.registerCommand({
+            "play.seed", "Deal Seed...", "Open Seed Dialog, or type 'seed <number>' to deal immediately",
+            "#", "seed number deal specific", CommandCategory::Play, true,
+            [this]() { return "#" + std::to_string(board.seed()); },
+            [this](const std::string& arg) {
+                if (!arg.empty()) {
+                    try {
+                        unsigned long parsed = std::stoul(arg);
+                        uint32_t s = static_cast<uint32_t>(parsed);
+                        if (seedDialog.onDealSeed) {
+                            seedDialog.onDealSeed(s);
+                            return;
+                        }
+                    } catch (...) {}
+                }
+                triggerAction(BtnSeedDialog);
+            }
+        });
+        commandRegistry.registerCommand({
+            "play.undo", "Undo Move", "Step backward one move",
+            "Z", "back revert ctrl+z", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnUndo); }
+        });
+        commandRegistry.registerCommand({
+            "play.redo", "Redo Move", "Re-apply the last undone move",
+            "Y", "forward ctrl+y", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnRedo); }
+        });
+        commandRegistry.registerCommand({
+            "play.hint", "Hint (Nether Sight)", "Illuminate the recommended next move",
+            "H", "help move clue suggest", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnHint); }
+        });
+        commandRegistry.registerCommand({
+            "play.autoplay", "Toggle Auto-Play", "Start or stop automated solver playback",
+            "A", "solve bot watch demo", CommandCategory::Play, false,
+            [this]() { return autoPlayController.isActive() ? "Active" : "Off"; },
+            [this](const std::string&) { triggerAction(BtnAutoPlay); }
+        });
+        commandRegistry.registerCommand({
+            "play.autoplay_pause", "Auto-Play: Pause / Resume", "Pause or resume active Auto-Play",
+            "P", "play pause transport", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) {
+                if (autoPlayController.isActive()) autoPlayController.togglePlayPause();
+                else autoPlayController.start(board);
+            }
+        });
+        commandRegistry.registerCommand({
+            "play.autoplay_step_back", "Auto-Play: Step Back", "Step backward one move in Auto-Play",
+            "[", "rewind step back", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnStepBack); }
+        });
+        commandRegistry.registerCommand({
+            "play.autoplay_step_fwd", "Auto-Play: Step Forward", "Step forward one move in Auto-Play",
+            "]", "advance step forward", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnStepFwd); }
+        });
+        commandRegistry.registerCommand({
+            "play.autoplay_speed", "Auto-Play: Cycle Speed", "Cycle playback speed for Auto-Play",
+            "F", "fast slow tempo speed", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnSpeedToggle); }
+        });
+        commandRegistry.registerCommand({
+            "play.guided_mode", "Auto-Play: Toggle Guided Mode", "Toggle interactive guided tutorial mode",
+            "", "tutorial learn coach", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnGuidedToggle); }
+        });
+        commandRegistry.registerCommand({
+            "play.screensaver", "Enter Screensaver Mode", "Watch hands play automatically across the table",
+            "Shift+A", "attract demo idle ambient", CommandCategory::Play, false, nullptr,
+            [this](const std::string&) { enterScreensaverMode(); }
+        });
+
+        // --- GAMES COMMANDS ---
+        commandRegistry.registerCommand({
+            "game.browser", "Open Game Library", "Browse and filter all solitaire variants",
+            "G", "catalog variants select game", CommandCategory::Game, false,
+            [this]() {
+                return !board.activeGameDef().name.empty()
+                    ? board.activeGameDef().name
+                    : std::string(SolitaireBoard::variantName(board.variant()));
+            },
+            [this](const std::string&) { triggerAction(BtnVariant); }
+        });
+        commandRegistry.registerCommand({
+            "game.next_favorite", "Next Favorite Game", "Switch to the next starred game in your favorites",
+            "", "favorite star switch cycle", CommandCategory::Game, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnVariantNext); }
+        });
+
+        GameRegistry::instance().initialize();
+        const std::string curGameId = activeGameId();
+        for (const auto& g : GameRegistry::instance().allGames()) {
+            const SolitaireGameDef defCopy = g;
+            std::string kw = g.id + " " + g.category + " play game solitaire";
+            commandRegistry.registerCommand({
+                "game.play." + g.id,
+                "Play: " + g.name,
+                g.description.empty() ? ("Switch game to " + g.name) : g.description,
+                "", kw, CommandCategory::Game, false,
+                [curGameId, id = g.id]() -> std::string { return (id == curGameId) ? "Active" : ""; },
+                [this, defCopy](const std::string&) {
+                    if (gameBrowserDialog.onGameSelected) {
+                        gameBrowserDialog.onGameSelected(defCopy);
+                    }
+                }
+            });
+        }
+
+        // --- APPEARANCE COMMANDS ---
+        commandRegistry.registerCommand({
+            "appearance.cycle_theme", "Cycle Table Theme", "Switch to the next procedural tabletop theme",
+            "T", "felt table background surface", CommandCategory::Appearance, false,
+            []() {
+                const auto& themes = ProceduralBackgroundSystem::instance().availableThemes();
+                if (themes.empty()) return std::string{};
+                const auto& s = SettingsManager::instance().settings();
+                size_t idx = ProceduralBackgroundSystem::instance().findThemeIndex(s.tableThemeSlug, s.tableTheme);
+                return themes[idx].name;
+            },
+            [this](const std::string&) { triggerAction(BtnTheme); }
+        });
+        commandRegistry.registerCommand({
+            "appearance.cycle_deck", "Cycle Card Deck", "Switch to the next card face deck",
+            "D", "cards faces style art", CommandCategory::Appearance, false,
+            []() {
+                auto& cache = CardTextureCache::instance();
+                const auto& decks = cache.availableDecks();
+                if (decks.empty()) return std::string{};
+                size_t idx = cache.findDeckIndex(cache.currentDeckId(), cache.currentDeckTheme());
+                return decks[idx].name;
+            },
+            [this](const std::string&) { triggerAction(BtnDeck); }
+        });
+        commandRegistry.registerCommand({
+            "appearance.card_wear", "Cycle Card Wear", "Adjust card aging and surface wear",
+            "W", "aging vintage condition wear", CommandCategory::Appearance, false, wearLabel,
+            [this](const std::string&) { triggerAction(BtnCardWear); }
+        });
+        commandRegistry.registerCommand({
+            "appearance.card_stock", "Cycle Card Stock", "Switch card paper material and tint",
+            "S", "paper parchment linen ivory", CommandCategory::Appearance, false, stockLabel,
+            [this](const std::string&) { triggerAction(BtnCardStock); }
+        });
+        commandRegistry.registerCommand({
+            "appearance.card_corners", "Cycle Card Corners", "Toggle rounded vs. sharp card corners",
+            "C", "rounded sharp corners", CommandCategory::Appearance, false, cornerLabel,
+            [this](const std::string&) { triggerAction(BtnCardCorners); }
+        });
+        commandRegistry.registerCommand({
+            "appearance.card_jitter", "Cycle Placement Jitter", "Adjust organic card placement angle & offset",
+            "J", "deviation organic messy neat straight", CommandCategory::Appearance, false,
+            [this]() {
+                int pct = static_cast<int>(std::round(board.cardDeviation() * 100.0f));
+                return std::to_string(pct) + "%";
+            },
+            [this](const std::string&) { triggerAction(BtnDeviation); }
+        });
+        commandRegistry.registerCommand({
+            "appearance.lighting", "Cycle Lighting Preset", "Switch environmental table lighting",
+            "L", "lamp shadow ambience mood light", CommandCategory::Appearance, false,
+            [this]() { return std::string(lightController.getPresetName()); },
+            [this](const std::string&) {
+                lightController.cyclePreset();
+                SettingsManager::instance().settings().lightingPreset = lightController.getPreset();
+                SettingsManager::instance().save();
+                foley.triggerSound(FoleySound::WoodClick, 0.65f);
+            }
+        });
+
+        // Direct theme & deck entries
+        const auto& themes = ProceduralBackgroundSystem::instance().availableThemes();
+        const std::string activeThemeSlug = SettingsManager::instance().settings().tableThemeSlug;
+        for (const auto& t : themes) {
+            const TableThemeDef tCopy = t;
+            commandRegistry.registerCommand({
+                "theme." + t.id,
+                "Theme: " + t.name,
+                "Apply tabletop theme " + t.name,
+                "", "table background felt surface " + t.id, CommandCategory::Appearance, false,
+                [activeThemeSlug, tid = t.id]() -> std::string { return (tid == activeThemeSlug) ? "Active" : ""; },
+                [this, tCopy](const std::string&) {
+                    startAsyncTableTheme(tCopy);
+                    foley.triggerSound(FoleySound::Flip, 0.8f);
+                }
+            });
+        }
+
+        auto& cache = CardTextureCache::instance();
+        const std::string activeDeckId = cache.currentDeckId();
+        for (const auto& d : cache.availableDecks()) {
+            const auto dCopy = d;
+            commandRegistry.registerCommand({
+                "deck." + d.id,
+                "Deck: " + d.name,
+                "Switch card faces to " + d.name,
+                "", "cards faces deck " + d.id, CommandCategory::Appearance, false,
+                [activeDeckId, did = d.id]() -> std::string { return (did == activeDeckId) ? "Active" : ""; },
+                [this, dCopy](const std::string&) {
+                    auto& c = CardTextureCache::instance();
+                    startAsyncDeckDef(dCopy, c.cardWearLevel(), c.cardStock());
+                    foley.triggerSound(FoleySound::Flip, 0.75f);
+                }
+            });
+        }
+
+        // --- SETTINGS COMMANDS ---
+        commandRegistry.registerCommand({
+            "settings.open", "Open Settings Dialog", "Configure gameplay, visuals, audio, and presets",
+            "O", "preferences options config", CommandCategory::Settings, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnSettings); }
+        });
+        commandRegistry.registerCommand({
+            "settings.auto_finish", "Toggle Auto-Finish", "Automatically cascade solved cards to foundations",
+            "", "autocomplete cascade finish", CommandCategory::Settings, false,
+            []() { return SettingsManager::instance().settings().autoFinish ? "ON" : "OFF"; },
+            [this](const std::string&) {
+                auto& s = SettingsManager::instance().settings();
+                s.autoFinish = !s.autoFinish;
+                SettingsManager::instance().save();
+                applyEffectiveSettings(false);
+            }
+        });
+        commandRegistry.registerCommand({
+            "settings.guarantee_solvable", "Toggle Guaranteed Solvable Deals", "Ensure new deals are verified winnable",
+            "", "solvable winnable solver", CommandCategory::Settings, false,
+            []() { return SettingsManager::instance().settings().guaranteeSolvable ? "ON" : "OFF"; },
+            [](const std::string&) {
+                auto& s = SettingsManager::instance().settings();
+                s.guaranteeSolvable = !s.guaranteeSolvable;
+                SettingsManager::instance().save();
+            }
+        });
+        commandRegistry.registerCommand({
+            "settings.randomize_deal", "Toggle Randomize on New Deal", "Generate a fresh random seed on each new deal",
+            "", "random seed deal", CommandCategory::Settings, false,
+            []() { return SettingsManager::instance().settings().randomizeOnNewDeal ? "ON" : "OFF"; },
+            [](const std::string&) {
+                auto& s = SettingsManager::instance().settings();
+                s.randomizeOnNewDeal = !s.randomizeOnNewDeal;
+                SettingsManager::instance().save();
+            }
+        });
+        commandRegistry.registerCommand({
+            "settings.table_markings", "Toggle Table Markings", "Show or hide pile outlines and felt markings",
+            "", "outlines guides felt borders", CommandCategory::Settings, false,
+            []() { return SettingsManager::instance().settings().showTableMarkings ? "ON" : "OFF"; },
+            [this](const std::string&) {
+                auto& s = SettingsManager::instance().settings();
+                s.showTableMarkings = !s.showTableMarkings;
+                SettingsManager::instance().save();
+                applyEffectiveSettings(false);
+            }
+        });
+        commandRegistry.registerCommand({
+            "settings.toolbar_anchor", "Cycle Toolbar Corner", "Move the Clockwork toolbar to the next screen corner",
+            "", "hud dock corner menu", CommandCategory::Settings, false, nullptr,
+            [this](const std::string&) { triggerAction(BtnMenuAnchor); }
+        });
+
+        // --- VIEW COMMANDS ---
+        commandRegistry.registerCommand({
+            "view.help", "Toggle Help & Rules Sidebar", "Show game rules, odds, and zone highlights",
+            "F1", "rules manual guide sidebar", CommandCategory::View, false,
+            [this]() { return helpOpen ? "Open" : "Closed"; },
+            [this](const std::string&) { triggerAction(BtnHelp); }
+        });
+        commandRegistry.registerCommand({
+            "view.fullscreen", "Toggle Fullscreen", "Switch between windowed and fullscreen display",
+            "F11", "window screen display maximize", CommandCategory::View, false,
+            [this]() { return isFullscreen ? "Fullscreen" : "Windowed"; },
+            [this](const std::string&) { toggleFullscreen(); }
+        });
+        commandRegistry.registerCommand({
+            "view.reset_zoom", "Reset Camera Zoom", "Reset manual table zoom and pan to default framing",
+            "", "camera pan zoom fit", CommandCategory::View, false, nullptr,
+            [this](const std::string&) {
+                showcaseCam.userZoom = 1.0f;
+                showcaseCam.userFocusX = 0.0f;
+                showcaseCam.userFocusY = 0.0f;
+                showcaseCam.userPanActive = false;
+            }
+        });
+    }
+
+    void recordCurrentDealToSeedHistory() {
+        if (screensaverActive) return;
+        const std::string gid = activeGameId();
+        const std::string gname = !board.activeGameDef().name.empty()
+            ? board.activeGameDef().name
+            : std::string(SolitaireBoard::variantName(board.variant()));
+        seedDialog.recordHistory(board.seed(), gid, gname);
+    }
+
+    void launchReplayTrack(const ReplayTrack& track, bool guidedOverride = false) {
+        autoCascadeActive = false;
+        autoPlayController.stop();
+        const SolitaireGameDef* targetDef = !track.gameId.empty()
+            ? GameRegistry::instance().findById(track.gameId)
+            : nullptr;
+        if (targetDef) {
+            board.newDeal(track.seed, *targetDef);
+            SettingsManager::instance().settings().variant = targetDef->nativeVariant;
+            SettingsManager::instance().settings().lastSeed = track.seed;
+            SettingsManager::instance().save();
+            applyEffectiveSettings(true);
+        } else if (!board.activeGameDef().id.empty()) {
+            board.newDeal(track.seed, board.activeGameDef());
+        } else {
+            board.newDeal(track.seed, board.variant());
+        }
+        board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+        recordCurrentDealToSeedHistory();
+        SessionManager::instance().clearSession();
+        autoPlayController.startReplay(board, track, guidedOverride);
+        foley.triggerSound(FoleySound::Shuffle, 0.9f);
+    }
+
+    void notifyGuidedPlayerMove(SolverMove fallbackMove) {
+        if (!autoPlayController.allowsPlayerBoardInput()) return;
+        SolverMove actual = fallbackMove;
+        if (!board.undoStack().empty()) {
+            const auto& cmd = board.undoStack().back();
+            const auto& piles = board.piles();
+            if (cmd.spiderStockDeal || cmd.recycledWaste ||
+                (cmd.fromPile == 0 && cmd.toPile == 1 && !piles.empty() && piles[0].type == PileType::Stock)) {
+                actual.action = SolverMove::Action::DrawStock;
+                actual.fromPile = cmd.fromPile;
+                actual.toPile = cmd.toPile;
+            } else if (cmd.isPairMove && cmd.secondFromPile < piles.size()) {
+                actual.action = SolverMove::Action::PairPyramid;
+                actual.fromPile = cmd.fromPile;
+                actual.secondFromPile = cmd.secondFromPile;
+                actual.toPile = cmd.toPile;
+            } else {
+                actual.action = SolverMove::Action::MoveCards;
+                actual.fromPile = cmd.fromPile;
+                actual.toPile = cmd.toPile;
+                if (fallbackMove.action == SolverMove::Action::MoveCards &&
+                    fallbackMove.fromPile == cmd.fromPile && fallbackMove.toPile == cmd.toPile) {
+                    actual.cardIndex = fallbackMove.cardIndex;
+                } else if (cmd.fromPile < piles.size()) {
+                    // cardIndex before the move was piles[fromPile].cards.size()
+                    actual.cardIndex = static_cast<uint8_t>(std::min<size_t>(piles[cmd.fromPile].cards.size(), 127u));
+                }
+            }
+        }
+        autoPlayController.onPlayerMove(actual, board, &foley);
     }
 
     AppSettings effectiveSettings_{};
@@ -6392,11 +7379,13 @@ struct InteractiveContext {
                                 s.deckTheme == DeckThemeId::SolPolyClassic ||
                                 s.deckTheme == DeckThemeId::SolPolyMobile ||
                                 s.deckTheme == DeckThemeId::LowPolyWar);
-        bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
-        if (seedChanged) {
+        const bool backUsesSeed = cache.cardBackSupportsSeed(s.cardBackId);
+        bool deckSeedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
+        bool backSeedChanged = backUsesSeed && (s.lowPolySeed != cache.lowPolySeed());
+        if (deckSeedChanged || backSeedChanged) {
             cache.setLowPolySeed(s.lowPolySeed);
         }
-        bool deckChanged = seedChanged || ((!s.deckSlug.empty())
+        bool deckChanged = deckSeedChanged || ((!s.deckSlug.empty())
             ? (s.deckSlug != cache.currentDeckId())
             : (s.deckTheme != cache.currentDeckTheme()));
         bool wearChanged = (s.cardWear != cache.cardWearLevel());
@@ -6437,11 +7426,13 @@ struct InteractiveContext {
                                 s.deckTheme == DeckThemeId::SolPolyClassic ||
                                 s.deckTheme == DeckThemeId::SolPolyMobile ||
                                 s.deckTheme == DeckThemeId::LowPolyWar);
-        bool seedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
-        if (seedChanged) {
+        const bool backUsesSeed = cache.cardBackSupportsSeed(s.cardBackId);
+        bool deckSeedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
+        bool backSeedChanged = backUsesSeed && (s.lowPolySeed != cache.lowPolySeed());
+        if (deckSeedChanged || backSeedChanged) {
             cache.setLowPolySeed(s.lowPolySeed);
         }
-        bool deckChanged = seedChanged || ((!s.deckSlug.empty())
+        bool deckChanged = deckSeedChanged || ((!s.deckSlug.empty())
             ? (s.deckSlug != cache.currentDeckId())
             : (s.deckTheme != cache.currentDeckTheme()));
         bool wearChanged = (s.cardWear != cache.cardWearLevel());
@@ -6589,10 +7580,7 @@ struct InteractiveContext {
                     } else {
                         uint32_t nextSeed = board.seed() + 1u;
                         if (SettingsManager::instance().settings().randomizeOnNewDeal) {
-                            std::random_device rd;
-                            auto nowVal = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-                            nextSeed = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(nowVal)) & 0x7FFFFFFFu;
-                            if (nextSeed == 0) nextSeed = 2026u;
+                            nextSeed = generateRandomSeed();
                         }
                         pendingGatherSeed = nextSeed;
                         pendingGatherSeedReady = true;
@@ -6606,10 +7594,7 @@ struct InteractiveContext {
                 {
                     uint32_t nextSeed = board.seed() + 1u;
                     if (SettingsManager::instance().settings().randomizeOnNewDeal) {
-                        std::random_device rd;
-                        auto nowVal = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-                        nextSeed = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(nowVal)) & 0x7FFFFFFFu;
-                        if (nextSeed == 0) nextSeed = 2026u;
+                        nextSeed = generateRandomSeed();
                     }
                     applyNewDealWithAnimation(nextSeed, board.activeGameDef(), false);
                 }
@@ -6645,6 +7630,7 @@ struct InteractiveContext {
                     if (targetDef) {
                         board.newDeal(board.seed(), *targetDef);
                         board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                        recordCurrentDealToSeedHistory();
                         SettingsManager::instance().settings().variant = targetDef->nativeVariant;
                         applyEffectiveSettings(true);
                         SessionManager::instance().clearSession();
@@ -6671,6 +7657,7 @@ struct InteractiveContext {
                     if (targetDef) {
                         board.newDeal(board.seed(), *targetDef);
                         board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                        recordCurrentDealToSeedHistory();
                         SettingsManager::instance().settings().variant = targetDef->nativeVariant;
                         applyEffectiveSettings(true);
                         SessionManager::instance().clearSession();
@@ -6692,16 +7679,14 @@ struct InteractiveContext {
             }
             case BtnRollSeed: {
                 autoCascadeActive = false;
-                std::random_device rd;
-                auto nowVal = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-                uint32_t nextSeed = (static_cast<uint32_t>(rd()) ^ static_cast<uint32_t>(nowVal)) & 0x7FFFFFFFu;
-                if (nextSeed == 0) nextSeed = 2026u;
+                uint32_t nextSeed = generateRandomSeed();
                 if (!board.activeGameDef().id.empty()) {
                     board.newDeal(nextSeed, board.activeGameDef());
                 } else {
                     board.newDeal(nextSeed, board.variant());
                 }
                 board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                recordCurrentDealToSeedHistory();
                 SettingsManager::instance().settings().lastSeed = nextSeed;
                 SettingsManager::instance().save();
                 SessionManager::instance().clearSession();
@@ -6801,6 +7786,13 @@ struct InteractiveContext {
                 autoPlayController.cycleSpeed();
                 foley.triggerSound(FoleySound::WoodClick, 0.7f);
                 break;
+            case BtnGuidedToggle:
+                autoPlayController.toggleGuidedMode();
+                foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                break;
+            case BtnRewindBranch:
+                autoPlayController.rewindToBranch(board, &foley);
+                break;
             case BtnTakeOver:
                 autoPlayController.stop();
                 foley.triggerSound(FoleySound::Deal, 0.75f);
@@ -6810,10 +7802,14 @@ struct InteractiveContext {
                 settingsDialog.open(activeGameId(), board.activeGameDef().name);
                 foley.triggerSound(FoleySound::Flip, 0.8f);
                 break;
-            case BtnSeedDialog:
-                seedDialog.open(board.seed(), SolitaireBoard::variantName(board.variant()));
+            case BtnSeedDialog: {
+                const std::string gname = !board.activeGameDef().name.empty()
+                    ? board.activeGameDef().name
+                    : std::string(SolitaireBoard::variantName(board.variant()));
+                seedDialog.open(board.seed(), gname, activeGameId());
                 foley.triggerSound(FoleySound::Flip, 0.8f);
                 break;
+            }
             case BtnMenuAnchor: {
                 int nextAnchor = (static_cast<int>(menuAnchor) + 1) % 4;
                 menuAnchor = static_cast<MenuAnchor>(nextAnchor);
@@ -6984,6 +7980,7 @@ struct InteractiveContext {
                                 uint32_t seed = gdef->demoSeed > 0 ? gdef->demoSeed : board.seed();
                                 board.newDeal(seed, *gdef);
                                 board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+                                recordCurrentDealToSeedHistory();
                             }
                         }
                         SettingsManager::instance().save();
@@ -7132,9 +8129,22 @@ struct InteractiveContext {
         }
 
         const bool touchPinchBlocked = pinchActive || (now < pinchSuppressUntil);
-        const bool leftDown = !touchPinchBlocked && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
-        const bool rightDown = !touchPinchBlocked && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
-        const bool middleDown = !touchPinchBlocked && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
+        const bool rawLeftDown = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+        const bool rawRightDown = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
+        const bool rawMiddleDown = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
+
+        // Preserve same-frame press+release bursts (e.g. Win32 touch-to-mouse single taps)
+        // by latching the press for one frame so the release edge fires on the next frame.
+        const bool syntheticLeftPress = pendingLeftPress && !rawLeftDown && !prevLeftDown;
+        const bool syntheticRightPress = pendingRightPress && !rawRightDown && !prevRightDown;
+        const bool syntheticMiddlePress = pendingMiddlePress && !rawMiddleDown && !prevMiddleDown;
+        pendingLeftPress = false;
+        pendingRightPress = false;
+        pendingMiddlePress = false;
+
+        const bool leftDown = !touchPinchBlocked && (rawLeftDown || syntheticLeftPress);
+        const bool rightDown = !touchPinchBlocked && (rawRightDown || syntheticRightPress);
+        const bool middleDown = !touchPinchBlocked && (rawMiddleDown || syntheticMiddlePress);
 
         if (touchPinchBlocked) {
             draggedPile = -1;
@@ -7154,6 +8164,16 @@ struct InteractiveContext {
                 if (leftDown && !prevLeftDown) {
                     loadingDialog.handleMouseButton(0, 1, uiFmx, uiFmy);
                 }
+            }
+        } else if (commandPaletteDialog.isOpen()) {
+            int mods = 0;
+            if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) mods |= 1;
+            if (leftDown && !prevLeftDown) {
+                commandPaletteDialog.handleMouseButton(0, 1, mods, uiFmx, uiFmy, foley);
+            } else if (leftDown) {
+                commandPaletteDialog.handleMouseMove(uiFmx, uiFmy);
+            } else if (!leftDown && prevLeftDown) {
+                commandPaletteDialog.handleMouseButton(0, 0, mods, uiFmx, uiFmy, foley);
             }
         } else if (seedDialog.isOpen()) {
             if (leftDown && !prevLeftDown) {
@@ -7306,8 +8326,8 @@ struct InteractiveContext {
             }
         }
         const bool modalOpen = loadingDialog.isOpen() || asyncManager.isBusy.load() ||
-                               seedDialog.isOpen() || gameBrowserDialog.isOpen() ||
-                               settingsDialog.isOpen();
+                               commandPaletteDialog.isOpen() || seedDialog.isOpen() ||
+                               gameBrowserDialog.isOpen() || settingsDialog.isOpen();
         if (modalOpen) {
             hoveredBtn = -1;
         }
@@ -7394,17 +8414,22 @@ struct InteractiveContext {
                 int hitPile = -1;
                 int hitCard = -1;
                 if (board.hitTestCard(boardFmx, boardFmy, hitPile, hitCard)) {
-                    if (autoPlayController.isActive()) {
+                    if (autoPlayController.isActive() && !autoPlayController.allowsPlayerBoardInput()) {
                         autoPlayController.stop();
                     }
                     if (board.piles()[static_cast<size_t>(hitPile)].type == PileType::Stock) {
                         if (board.drawFromStock()) {
+                            notifyGuidedPlayerMove(SolverMove{SolverMove::Action::DrawStock, 0, 1, 0});
                             foley.triggerSound(FoleySound::Deal, 0.85f, screenPan(fmx));
                         }
                     } else if (hitCard >= 0) {
                         if (board.hasScriptCardClick() && board.hasScriptCanPick() &&
                             !board.canPickScriptCard(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
                             if (board.smartMove(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
+                                notifyGuidedPlayerMove(SolverMove{SolverMove::Action::ClickCard,
+                                                                  static_cast<uint8_t>(hitPile),
+                                                                  static_cast<uint8_t>(hitPile),
+                                                                  static_cast<uint8_t>(hitCard)});
                                 foley.triggerSound(FoleySound::Snap, 0.75f, screenPan(fmx));
                             }
                         } else {
@@ -7436,7 +8461,7 @@ struct InteractiveContext {
                         }
                     }
                 } else {
-                    if (autoPlayController.isActive()) {
+                    if (autoPlayController.isActive() && !autoPlayController.allowsPlayerBoardInput()) {
                         autoPlayController.stop();
                     }
                     board.clearSelection();
@@ -7629,6 +8654,12 @@ struct InteractiveContext {
 
                     if (dragDist <= 6.0f) {
                         moved = board.smartMove(static_cast<uint8_t>(draggedPile), static_cast<size_t>(draggedCardIdx));
+                        if (moved) {
+                            notifyGuidedPlayerMove(SolverMove{SolverMove::Action::ClickCard,
+                                                              static_cast<uint8_t>(draggedPile),
+                                                              static_cast<uint8_t>(draggedPile),
+                                                              static_cast<uint8_t>(draggedCardIdx)});
+                        }
                     } else {
                         auto& srcPile = board.piles()[static_cast<size_t>(draggedPile)];
                         const Card& lead = srcPile.cards[static_cast<size_t>(draggedCardIdx)];
@@ -7648,6 +8679,12 @@ struct InteractiveContext {
                             moved = board.executeMove(static_cast<uint8_t>(draggedPile),
                                                       static_cast<size_t>(draggedCardIdx),
                                                       static_cast<uint8_t>(bestTarget));
+                            if (moved) {
+                                notifyGuidedPlayerMove(SolverMove{SolverMove::Action::MoveCards,
+                                                                  static_cast<uint8_t>(draggedPile),
+                                                                  static_cast<uint8_t>(bestTarget),
+                                                                  static_cast<uint8_t>(draggedCardIdx)});
+                            }
                         }
                     }
                 }
@@ -7723,6 +8760,10 @@ struct InteractiveContext {
                 int hitCard = -1;
                 if (board.hitTestCard(boardFmx, boardFmy, hitPile, hitCard) && hitPile >= 0 && hitCard >= 0) {
                     if (board.smartMove(static_cast<uint8_t>(hitPile), static_cast<size_t>(hitCard))) {
+                        notifyGuidedPlayerMove(SolverMove{SolverMove::Action::ClickCard,
+                                                          static_cast<uint8_t>(hitPile),
+                                                          static_cast<uint8_t>(hitPile),
+                                                          static_cast<uint8_t>(hitCard)});
                         foley.triggerSound(FoleySound::Place, 0.85f, screenPan(fmx));
                     }
                 } else {
@@ -7775,6 +8816,20 @@ struct InteractiveContext {
             if (loadingDialog.isOpen()) {
                 if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) loadingDialog.handleKey(GLFW_KEY_ESCAPE, 1, 0);
             }
+        } else if (commandPaletteDialog.isOpen()) {
+            int mods = 0;
+            if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) mods |= 1;
+            if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) mods |= 2;
+            if (edgeKey(GLFW_KEY_ESCAPE, prevKeyEsc)) commandPaletteDialog.handleKey(GLFW_KEY_ESCAPE, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_ENTER, prevKeyEnter)) commandPaletteDialog.handleKey(GLFW_KEY_ENTER, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_BACKSPACE, prevKeyBack)) commandPaletteDialog.handleKey(GLFW_KEY_BACKSPACE, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_TAB, prevKeyTab)) commandPaletteDialog.handleKey(GLFW_KEY_TAB, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_UP, prevKeyUp)) commandPaletteDialog.handleKey(GLFW_KEY_UP, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_DOWN, prevKeyDown)) commandPaletteDialog.handleKey(GLFW_KEY_DOWN, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_PAGE_UP, prevKeyPageUp)) commandPaletteDialog.handleKey(GLFW_KEY_PAGE_UP, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_PAGE_DOWN, prevKeyPageDown)) commandPaletteDialog.handleKey(GLFW_KEY_PAGE_DOWN, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_K, prevKeyK)) commandPaletteDialog.handleKey(GLFW_KEY_K, 1, mods, foley);
+            if (edgeKey(GLFW_KEY_P, prevKeyP)) commandPaletteDialog.handleKey(GLFW_KEY_P, 1, mods, foley);
         } else if (seedDialog.isOpen()) {
             int mods = 0;
             if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) mods |= 2;
@@ -7882,8 +8937,17 @@ struct InteractiveContext {
                     autoPlayController.start(board);
                 }
             }
+            const bool isCtrl = (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) ||
+                                (glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
+            if (edgeKey(GLFW_KEY_K, prevKeyK) && isCtrl) {
+                commandPaletteDialog.open();
+                foley.triggerSound(FoleySound::WoodClick, 0.7f);
+            }
             if (edgeKey(GLFW_KEY_P, prevKeyP)) {
-                if (autoPlayController.isActive()) {
+                if (isCtrl) {
+                    commandPaletteDialog.open();
+                    foley.triggerSound(FoleySound::WoodClick, 0.7f);
+                } else if (autoPlayController.isActive()) {
                     autoPlayController.togglePlayPause();
                 } else {
                     autoPlayController.start(board);
@@ -8457,8 +9521,13 @@ struct InteractiveContext {
                 seedDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal, static_cast<float>(now), window);
             }
             if (gameBrowserDialog.isOpen()) {
+                gameBrowserDialog.update(dt);
                 ThemePalette pal = getPalette(board.tableTheme());
                 gameBrowserDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal);
+            }
+            if (commandPaletteDialog.isOpen()) {
+                ThemePalette pal = getPalette(board.tableTheme());
+                commandPaletteDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal);
             }
             if (loadingDialog.isOpen() && !directorState.active) {
                 ThemePalette pal = getPalette(board.tableTheme());
@@ -8605,7 +9674,8 @@ int TableRenderer::runInteractiveWindow(
         return 1;
     }
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    const bool isOfflineExport = !directorOptions.exportVideoDir.empty();
+    const bool isOfflineExport = !directorOptions.exportVideoDir.empty() ||
+                                 (directorOptions.exportSingleFrameRgba != nullptr);
     if (isOfflineExport) {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     }
@@ -8674,8 +9744,21 @@ int TableRenderer::runInteractiveWindow(
         }
     }
 
+    glfwSetMouseButtonCallback(window, [](GLFWwindow* /*win*/, int button, int action, int /*mods*/) {
+        if (!s_activeContext || action != GLFW_PRESS) return;
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
+            s_activeContext->pendingLeftPress = true;
+        } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+            s_activeContext->pendingRightPress = true;
+        } else if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
+            s_activeContext->pendingMiddlePress = true;
+        }
+    });
+
     glfwSetCharCallback(window, [](GLFWwindow* /*win*/, unsigned int codepoint) {
-        if (s_activeContext && s_activeContext->gameBrowserDialog.isOpen()) {
+        if (s_activeContext && s_activeContext->commandPaletteDialog.isOpen()) {
+            s_activeContext->commandPaletteDialog.handleChar(codepoint);
+        } else if (s_activeContext && s_activeContext->gameBrowserDialog.isOpen()) {
             s_activeContext->gameBrowserDialog.handleChar(codepoint);
         } else if (s_activeContext && s_activeContext->settingsDialog.isOpen()) {
             s_activeContext->settingsDialog.handleChar(codepoint);
@@ -8686,10 +9769,14 @@ int TableRenderer::runInteractiveWindow(
 
     glfwSetScrollCallback(window, [](GLFWwindow* /*win*/, double /*xoffset*/, double yoffset) {
         if (!s_activeContext) return;
-        if (s_activeContext->gameBrowserDialog.isOpen()) {
+        if (s_activeContext->commandPaletteDialog.isOpen()) {
+            s_activeContext->commandPaletteDialog.handleScroll(static_cast<float>(yoffset));
+        } else if (s_activeContext->gameBrowserDialog.isOpen()) {
             s_activeContext->gameBrowserDialog.handleScroll(static_cast<float>(yoffset));
         } else if (s_activeContext->settingsDialog.isOpen()) {
             s_activeContext->settingsDialog.handleScroll(static_cast<float>(yoffset));
+        } else if (s_activeContext->seedDialog.isOpen()) {
+            s_activeContext->seedDialog.handleScroll(static_cast<float>(yoffset));
         } else if (s_activeContext->helpOpen) {
             HelpOddsInfo oddsSnap;
             { std::lock_guard<std::mutex> lk(s_activeContext->oddsMutex); oddsSnap = s_activeContext->helpOdds; }
@@ -8722,8 +9809,8 @@ int TableRenderer::runInteractiveWindow(
     auto handleTouchEvent = [](int eventType, const EmscriptenTouchEvent* touchEvent, void* /*userData*/) -> EM_BOOL {
         if (!s_activeContext || !touchEvent) return EM_FALSE;
         auto& ctx = *s_activeContext;
-        if (ctx.screensaverActive || ctx.loadingDialog.isOpen() || ctx.seedDialog.isOpen() ||
-            ctx.gameBrowserDialog.isOpen() || ctx.settingsDialog.isOpen() || ctx.helpOpen ||
+        if (ctx.screensaverActive || ctx.loadingDialog.isOpen() || ctx.commandPaletteDialog.isOpen() ||
+            ctx.seedDialog.isOpen() || ctx.gameBrowserDialog.isOpen() || ctx.settingsDialog.isOpen() || ctx.helpOpen ||
             ctx.playMenuOpen || ctx.toolbarConfigOpen || ctx.autoPlayController.isActive()) {
             ctx.pinchActive = false;
             return EM_FALSE;
@@ -8907,6 +9994,29 @@ int TableRenderer::runInteractiveWindow(
     }, &ctx, 0, 0);
     return 0;
 #else
+#if !defined(__EMSCRIPTEN__)
+    if (directorOptions.exportSingleFrameRgba != nullptr) {
+        if (!ctx.renderer.enableOffscreenCapture(width, height)) {
+            std::cerr << "[SolEngine Export] Failed to initialize offscreen capture.\n";
+        } else {
+            ctx.renderer.resize(width, height);
+            ctx.board.computeLayout(static_cast<float>(width), static_cast<float>(height));
+            const float fixedDt = 1.0f / 60.0f;
+            int warmupTicks = 0;
+            while (ctx.asyncManager.isBusy.load() && !glfwWindowShouldClose(window) && warmupTicks < 1800) {
+                ctx.updateAndRender(fixedDt);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                ++warmupTicks;
+            }
+            // Settle cards and dynamic lighting for a clean composition
+            for (int f = 0; f < 30; ++f) {
+                ctx.updateAndRender(fixedDt);
+            }
+            ctx.renderer.readbackCapturedRgba(*directorOptions.exportSingleFrameRgba);
+            ctx.renderer.disableOffscreenCapture();
+        }
+    } else
+#endif
     if (!directorOptions.exportVideoDir.empty()) {
         const uint32_t exportFps = std::clamp(directorOptions.exportFps, 15u, 120u);
         const float fixedDt = 1.0f / static_cast<float>(exportFps);
@@ -9180,7 +10290,11 @@ bool solengine_load_file_from_web(const char* virtualPath) {
 EMSCRIPTEN_KEEPALIVE
 void solengine_set_search_query(const char* text) {
     if (!text || !solengine::s_activeContext) return;
-    solengine::s_activeContext->gameBrowserDialog.setSearchQuery(text);
+    if (solengine::s_activeContext->commandPaletteDialog.isOpen()) {
+        solengine::s_activeContext->commandPaletteDialog.setSearchQuery(text);
+    } else {
+        solengine::s_activeContext->gameBrowserDialog.setSearchQuery(text);
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -9227,7 +10341,11 @@ void solengine_on_web_safe_area(double top, double right, double bottom, double 
 #else
 void solengine_set_search_query(const char* text) {
     if (!text || !solengine::s_activeContext) return;
-    solengine::s_activeContext->gameBrowserDialog.setSearchQuery(text);
+    if (solengine::s_activeContext->commandPaletteDialog.isOpen()) {
+        solengine::s_activeContext->commandPaletteDialog.setSearchQuery(text);
+    } else {
+        solengine::s_activeContext->gameBrowserDialog.setSearchQuery(text);
+    }
 }
 #endif
 

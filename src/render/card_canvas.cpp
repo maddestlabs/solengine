@@ -887,6 +887,49 @@ void CardCanvas::drawLine(float x0, float y0, float x1, float y1, uint32_t color
         });
 }
 
+void CardCanvas::fillTriangle(float x0, float y0, float x1, float y1, float x2, float y2, uint32_t color) {
+    if (symmetryActive_) {
+        symmetryQueue_.push_back([this, x0, y0, x1, y1, x2, y2, color]() { fillTriangle(x0, y0, x1, y1, x2, y2, color); });
+    }
+    const float sx0 = state_.tx + state_.a * x0 + state_.c * y0;
+    const float sy0 = state_.ty + state_.b * x0 + state_.d * y0;
+    const float sx1 = state_.tx + state_.a * x1 + state_.c * y1;
+    const float sy1 = state_.ty + state_.b * x1 + state_.d * y1;
+    const float sx2 = state_.tx + state_.a * x2 + state_.c * y2;
+    const float sy2 = state_.ty + state_.b * x2 + state_.d * y2;
+
+    const float cross = (sx1 - sx0) * (sy2 - sy0) - (sy1 - sy0) * (sx2 - sx0);
+    if (std::abs(cross) < 1e-5f) return;
+    const float windSign = (cross > 0.0f) ? 1.0f : -1.0f;
+
+    const int minX = std::max(0, static_cast<int>(std::floor(std::min({sx0, sx1, sx2}))) - 1);
+    const int minY = std::max(0, static_cast<int>(std::floor(std::min({sy0, sy1, sy2}))) - 1);
+    const int maxX = std::min(width_, static_cast<int>(std::ceil(std::max({sx0, sx1, sx2}))) + 1);
+    const int maxY = std::min(height_, static_cast<int>(std::ceil(std::max({sy0, sy1, sy2}))) + 1);
+
+    auto edgeDist = [](float px, float py, float ax, float ay, float bx, float by) noexcept -> float {
+        float ex = bx - ax;
+        float ey = by - ay;
+        float lenSq = ex * ex + ey * ey;
+        float t = (lenSq > 1e-6f) ? std::clamp(((px - ax) * ex + (py - ay) * ey) / lenSq, 0.0f, 1.0f) : 0.0f;
+        return std::hypot(px - (ax + t * ex), py - (ay + t * ey));
+    };
+
+    SolidPainter::paintBounds(*this, minX, minY, maxX, maxY, color,
+        [sx0, sy0, sx1, sy1, sx2, sy2, windSign, edgeDist](float px, float py) noexcept {
+            float c0 = ((sx1 - sx0) * (py - sy0) - (sy1 - sy0) * (px - sx0)) * windSign;
+            float c1 = ((sx2 - sx1) * (py - sy1) - (sy2 - sy1) * (px - sx1)) * windSign;
+            float c2 = ((sx0 - sx2) * (py - sy2) - (sy0 - sy2) * (px - sx2)) * windSign;
+            float d = std::min({
+                edgeDist(px, py, sx0, sy0, sx1, sy1),
+                edgeDist(px, py, sx1, sy1, sx2, sy2),
+                edgeDist(px, py, sx2, sy2, sx0, sy0)
+            });
+            float sdf = (c0 >= 0.0f && c1 >= 0.0f && c2 >= 0.0f) ? -d : d;
+            return std::clamp(0.5f - sdf, 0.0f, 1.0f);
+        });
+}
+
 void CardCanvas::drawSvg(const std::string& svgXml, float x, float y, float w, float h) {
     if (symmetryActive_) {
         symmetryQueue_.push_back([this, svgXml, x, y, w, h]() { drawSvg(svgXml, x, y, w, h); });
@@ -4815,6 +4858,32 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         uint32_t col = resolveColorVal(args[3]);
         float lw = (args.size() > 4) ? args[4].asFloat(1.0f) : 1.0f;
         canvas->strokeCircle(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), col, lw);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    // 6b. ctx.fill_oval(cx, cy, rx, ry, color)
+    eval.registerMemberFunction("ctx", "fill_oval", [canvas, resolveColorVal](const auto& args, const auto&) {
+        if (!canvas || args.size() < 5) return eatsbits::eatscript::Value(false);
+        uint32_t col = resolveColorVal(args[4]);
+        canvas->fillOval(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), args[3].asFloat(), col);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    // 6c. ctx.stroke_oval(cx, cy, rx, ry, color, width)
+    eval.registerMemberFunction("ctx", "stroke_oval", [canvas, resolveColorVal](const auto& args, const auto&) {
+        if (!canvas || args.size() < 5) return eatsbits::eatscript::Value(false);
+        uint32_t col = resolveColorVal(args[4]);
+        float lw = (args.size() > 5) ? args[5].asFloat(1.0f) : 1.0f;
+        canvas->strokeOval(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), args[3].asFloat(), col, lw);
+        return eatsbits::eatscript::Value(true);
+    });
+
+    // 6d. ctx.fill_triangle(x0, y0, x1, y1, x2, y2, color)
+    eval.registerMemberFunction("ctx", "fill_triangle", [canvas, resolveColorVal](const auto& args, const auto&) {
+        if (!canvas || args.size() < 7) return eatsbits::eatscript::Value(false);
+        uint32_t col = resolveColorVal(args[6]);
+        canvas->fillTriangle(args[0].asFloat(), args[1].asFloat(), args[2].asFloat(), args[3].asFloat(),
+                             args[4].asFloat(), args[5].asFloat(), col);
         return eatsbits::eatscript::Value(true);
     });
 

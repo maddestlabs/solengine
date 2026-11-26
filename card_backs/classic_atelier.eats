@@ -1,0 +1,332 @@
+# SolEngine Standalone Seeded Eatscript Card Back — Classic Atelier
+# Procedurally combines luxury casino palettes, metallic foil trims, silk/velvet/damask
+# substrates, lattice & guilloche patterns, sculpted baroque overlays, and suit emblems
+# driven deterministically by the Low-Poly Seed.
+
+sol.define_card_back({
+    id: "classic_atelier",
+    name: "Classic Atelier",
+    author: "Maddest Labs",
+    description: "Seed-randomized heritage playing card backs combining Sapphire, Crimson, Emerald, Baroque, and royal casino motifs",
+    seeded: true
+})
+
+def classic_atelier_shader(u, v, nx, ny, in_r, in_g, in_b, px, py):
+    ax = abs(nx)
+    ay = abs(ny)
+    aa = 0.006
+
+    # Decode uniforms:
+    # u0, u1, u2 = primary panel RGB
+    # u3         = metallic trim preset (0=Gold, 1=Silver, 2=Rose Bronze, 3=Antique Ivory)
+    # rank       = pattern/substrate mode (0..5)
+    # suit       = center suit emblem (0=Spades, 1=Hearts, 2=Diamonds, 3=Clubs)
+
+    # 1. Warm ivory card stock with fine linen weave & subtle outer bevel
+    grain = (fbm(px * 0.22, py * 0.22) - 0.5) * 0.026
+    linen = (sin(px * 1.45) * sin(py * 1.45)) * 0.007
+    ivory_r = 0.980 + grain + linen
+    ivory_g = 0.964 + grain + linen
+    ivory_b = 0.934 + grain + linen
+
+    qx_o = ax - 0.94
+    qy_o = ay - 1.34
+    d_outer = hypot(max(qx_o, 0.0), max(qy_o, 0.0)) + min(max(qx_o, qy_o), 0.0) - 0.06
+    edge_shade = smoothstep(-0.025, 0.0, d_outer) * 0.12
+    ivory_r = ivory_r - edge_shade
+    ivory_g = ivory_g - edge_shade
+    ivory_b = ivory_b - edge_shade * 0.9
+
+    # 2. Inner panel SDF (6.5% margin)
+    qx = ax - 0.81
+    qy = ay - 1.21
+    d_panel = hypot(max(qx, 0.0), max(qy, 0.0)) + min(max(qx, qy), 0.0) - 0.06
+    in_panel = 1.0 - smoothstep(-aa, aa, d_panel)
+    in_field = 1.0 - smoothstep(-aa, aa, d_panel + 0.055)
+
+    # 3. Metallic foil color from u3 (0=Gold, 1=Silver, 2=Rose Bronze, 3=Ivory)
+    foil_sh = 0.92 + 0.14 * sin((nx * 2.1 - ny * 1.7) * 2.4)
+    met_r = 0.90
+    met_g = 0.76
+    met_b = 0.46
+    if (u3 > 0.5 and u3 < 1.5):
+        met_r = 0.88
+        met_g = 0.91
+        met_b = 0.96
+    else:
+        if (u3 >= 1.5 and u3 < 2.5):
+            met_r = 0.88
+            met_g = 0.62
+            met_b = 0.48
+        else:
+            if (u3 >= 2.5):
+                met_r = 0.95
+                met_g = 0.92
+                met_b = 0.84
+    met_r = clamp(met_r * foil_sh, 0.0, 1.0)
+    met_g = clamp(met_g * foil_sh, 0.0, 1.0)
+    met_b = clamp(met_b * foil_sh, 0.0, 1.0)
+
+    # 4. Rich procedural substrate (Watered Silk / Velvet Baize / Botanical Damask)
+    rad_card = hypot(nx * 0.85, ny * 0.72)
+    vig = 1.0 - smoothstep(0.30, 1.38, rad_card) * 0.34
+    warp = fbm(nx * 2.8 + 1.5, ny * 2.8 + 3.2)
+    tex_mod = 0.0
+    if (rank < 1.5):
+        # Watered silk moire + twill
+        silk = 0.5 + 0.5 * sin((nx * 5.2 + ny * 3.4) + warp * 4.5)
+        twill = 0.5 + 0.5 * sin((px + py) * 0.85)
+        tex_mod = silk * 0.24 + twill * 0.05
+    else:
+        if (rank < 3.5):
+            # Plush velvet baize + micro-nap
+            nap = (fbm(px * 0.28, py * 0.28) - 0.5) * 0.10
+            tex_mod = warp * 0.26 + nap
+        else:
+            # Botanical baroque damask
+            dam = 0.5 + 0.5 * sin(nx * 9.0 + sin(ny * 7.5 + warp * 2.6) * 1.4)
+            tex_mod = dam * 0.22 + warp * 0.12
+
+    pan_r = clamp((u0 * (0.86 + tex_mod) + tex_mod * 0.06) * vig, 0.0, 1.0)
+    pan_g = clamp((u1 * (0.86 + tex_mod) + tex_mod * 0.06) * vig, 0.0, 1.0)
+    pan_b = clamp((u2 * (0.86 + tex_mod) + tex_mod * 0.07) * vig, 0.0, 1.0)
+
+    # 5. Pattern layer (Lattice, Star-Diamond, Guilloche Rosette, Royal Tartan, Moire)
+    r_c = hypot(nx, ny)
+    ang = atan2(ny, nx)
+    pat_a = 0.0
+
+    if (rank < 0.5):
+        # Casino cross-hatch lattice + guilloche halo
+        la = abs(sin((nx + ny) * 26.0))
+        lb = abs(sin((nx - ny) * 26.0))
+        ll = max(1.0 - smoothstep(0.0, 0.095, la), 1.0 - smoothstep(0.0, 0.095, lb))
+        ln = (1.0 - smoothstep(0.0, 0.16, la)) * (1.0 - smoothstep(0.0, 0.16, lb))
+        gw = sin(hypot(nx, ny * 0.82) * 40.0 + sin(ang * 12.0) * 1.35)
+        gr = (1.0 - smoothstep(0.0, 0.22, abs(gw))) * smoothstep(0.36, 0.48, r_c) * (1.0 - smoothstep(0.68, 0.92, r_c))
+        pat_a = (ll * 0.16 + ln * 0.14 + gr * 0.24) * in_field
+    else:
+        if (rank < 1.5):
+            # Woven gold diamond-and-star Bee filigree
+            ud = fract((nx + ny) * 4.2) - 0.5
+            vd = fract((nx - ny) * 4.2) - 0.5
+            ll = max(1.0 - smoothstep(0.0, 0.045, abs(ud)), 1.0 - smoothstep(0.0, 0.045, abs(vd)))
+            ls = 1.0 - smoothstep(0.06, 0.14, abs(ud) + abs(vd))
+            pat_a = (ll * 0.21 + ls * 0.20) * in_field
+        else:
+            if (rank < 2.5):
+                # Wire lattice + concentric 10-lobe guilloche waves
+                la = abs(sin((nx + ny) * 22.0))
+                lb = abs(sin((nx - ny) * 22.0))
+                ll = max(1.0 - smoothstep(0.0, 0.085, la), 1.0 - smoothstep(0.0, 0.085, lb))
+                gw = sin(r_c * 38.0 + sin(ang * 10.0) * 1.45)
+                gr = (1.0 - smoothstep(0.0, 0.20, abs(gw))) * smoothstep(0.40, 0.52, r_c) * (1.0 - smoothstep(0.84, 1.08, r_c))
+                pat_a = (ll * 0.15 + gr * 0.26) * in_field
+            else:
+                if (rank < 3.5):
+                    # Royal Tartan plaid weave + micro-diamond dots
+                    tx = 1.0 - smoothstep(0.0, 0.08, abs(sin(nx * 18.0)))
+                    ty = 1.0 - smoothstep(0.0, 0.08, abs(sin(ny * 18.0)))
+                    tx2 = 1.0 - smoothstep(0.0, 0.05, abs(sin(nx * 18.0 + 0.45)))
+                    ty2 = 1.0 - smoothstep(0.0, 0.05, abs(sin(ny * 18.0 + 0.45)))
+                    pat_a = (max(tx, ty) * 0.18 + max(tx2, ty2) * 0.10) * in_field
+                else:
+                    if (rank < 4.5):
+                        # Radial sunburst moire + fine diagonal filigree
+                        rays = (0.5 + 0.5 * cos(ang * 28.0)) * smoothstep(0.32, 0.55, r_c) * (1.0 - smoothstep(0.75, 1.25, r_c))
+                        la = abs(sin((nx + ny) * 30.0))
+                        lb = abs(sin((nx - ny) * 30.0))
+                        ll = max(1.0 - smoothstep(0.0, 0.075, la), 1.0 - smoothstep(0.0, 0.075, lb))
+                        pat_a = (rays * 0.16 + ll * 0.16) * in_field
+                    else:
+                        # Concentric scalloped banknote guilloche
+                        gw1 = sin(r_c * 32.0 + sin(ang * 8.0) * 1.5)
+                        gw2 = sin(r_c * 32.0 - sin(ang * 8.0) * 1.5)
+                        g1 = 1.0 - smoothstep(0.0, 0.18, abs(gw1))
+                        g2 = 1.0 - smoothstep(0.0, 0.18, abs(gw2))
+                        pat_a = max(g1, g2) * 0.24 * in_field
+
+    pan_r = mix(pan_r, met_r, pat_a)
+    pan_g = mix(pan_g, met_g, pat_a)
+    pan_b = mix(pan_b, met_b, pat_a)
+
+    # 6. Double metallic frame, beaded trim & seed-varied corner florets
+    b_outer = 1.0 - smoothstep(0.006, 0.015, abs(d_panel + 0.008))
+    b_inner = 1.0 - smoothstep(0.003, 0.010, abs(d_panel + 0.052))
+    bead_band = 1.0 - smoothstep(0.006, 0.013, abs(d_panel + 0.030))
+    beads = bead_band * smoothstep(0.56, 0.80, 0.5 + 0.5 * sin(nx * 52.0) * sin(ny * 52.0))
+
+    cx = ax - 0.72
+    cy = ay - 1.12
+    cr = hypot(cx, cy)
+    ca = atan2(cy, cx)
+    petals = 8.0
+    if (rank >= 1.5 and rank < 3.5):
+        petals = 4.0
+    else:
+        if (rank >= 3.5):
+            petals = 6.0
+    c_floret = cr - (0.062 + 0.018 * cos(ca * petals + 0.785))
+    c_fill = 1.0 - smoothstep(-aa, aa, c_floret)
+    c_ring = 1.0 - smoothstep(0.004, 0.011, abs(c_floret))
+    c_dot = 1.0 - smoothstep(0.014, 0.023, cr)
+
+    pan_r = mix(pan_r, u0 * 0.72, c_fill * 0.85)
+    pan_g = mix(pan_g, u1 * 0.72, c_fill * 0.85)
+    pan_b = mix(pan_b, u2 * 0.72, c_fill * 0.85)
+
+    trim = clamp(max(max(b_outer, b_inner * 0.85), max(beads * 0.82, max(c_ring, c_dot))), 0.0, 1.0)
+    pan_r = mix(pan_r, met_r, trim)
+    pan_g = mix(pan_g, met_g, trim)
+    pan_b = mix(pan_b, met_b, trim)
+
+    # 7. Central Medallion (Scalloped or Classic Oval) & C1-Smooth Embossed Suit
+    orad = hypot(nx / 0.43, ny / 0.52)
+    med_rad = orad
+    if (rank >= 1.5 and rank < 4.5):
+        med_rad = orad - 0.028 * cos(ang * 16.0)
+
+    o_shadow = (1.0 - smoothstep(0.98, 1.14, med_rad)) * smoothstep(0.95, 1.02, med_rad) * 0.45
+    pan_r = pan_r * (1.0 - o_shadow)
+    pan_g = pan_g * (1.0 - o_shadow)
+    pan_b = pan_b * (1.0 - o_shadow)
+
+    in_med = 1.0 - smoothstep(0.985, 1.015, med_rad)
+    med_r = u0 * 0.80 + (1.0 - orad) * 0.08
+    med_g = u1 * 0.80 + (1.0 - orad) * 0.06
+    med_b = u2 * 0.80 + (1.0 - orad) * 0.07
+
+    sun = (0.5 + 0.5 * cos(ang * 20.0)) * smoothstep(0.28, 0.76, orad) * (1.0 - smoothstep(0.75, 0.84, orad)) * 0.15
+    med_r = med_r + sun * met_r
+    med_g = med_g + sun * met_g
+    med_b = med_b + sun * met_b
+
+    pan_r = mix(pan_r, med_r, in_med)
+    pan_g = mix(pan_g, med_g, in_med)
+    pan_b = mix(pan_b, med_b, in_med)
+
+    ring1 = 1.0 - smoothstep(0.015, 0.032, abs(med_rad - 0.985))
+    ring2 = 1.0 - smoothstep(0.010, 0.022, abs(orad - 0.830))
+    ring_m = clamp(max(ring1, ring2 * 0.9), 0.0, 1.0)
+    pan_r = mix(pan_r, met_r, ring_m)
+    pan_g = mix(pan_g, met_g, ring_m)
+    pan_b = mix(pan_b, met_b, ring_m)
+
+    # Embossed central suit emblem
+    d_suit = sdf_suit(nx * 3.05, ny * 3.05, suit)
+    d_suit_sh = sdf_suit((nx - 0.014) * 3.05, (ny - 0.014) * 3.05, suit)
+    suit_sh = (1.0 - smoothstep(-0.02, 0.05, d_suit_sh)) * 0.45
+    suit_fill = 1.0 - smoothstep(-0.018, 0.018, d_suit)
+    suit_hi = clamp(-d_suit * 2.0, 0.0, 0.14)
+    pan_r = pan_r * (1.0 - suit_sh)
+    pan_g = pan_g * (1.0 - suit_sh)
+    pan_b = pan_b * (1.0 - suit_sh)
+    pan_r = mix(pan_r, clamp(met_r + suit_hi, 0.0, 1.0), suit_fill)
+    pan_g = mix(pan_g, clamp(met_g + suit_hi, 0.0, 1.0), suit_fill)
+    pan_b = mix(pan_b, clamp(met_b + suit_hi * 0.8, 0.0, 1.0), suit_fill)
+
+    out_r = clamp(mix(ivory_r, pan_r, in_panel), 0.0, 1.0)
+    out_g = clamp(mix(ivory_g, pan_g, in_panel), 0.0, 1.0)
+    out_b = clamp(mix(ivory_b, pan_b, in_panel), 0.0, 1.0)
+    return [out_r, out_g, out_b]
+
+def on_draw_card_back(ctx, w, h):
+    # Deterministic multi-channel hash from Low-Poly Seed
+    s1 = math.floor(abs(sin(seed * 12.9898 + 1.0) * 43758.5453))
+    s2 = math.floor(abs(sin(seed * 78.2330 + 2.0) * 24634.6345))
+    s3 = math.floor(abs(sin(seed * 37.7190 + 3.0) * 19381.2719))
+    s4 = math.floor(abs(sin(seed * 93.1370 + 4.0) * 31729.4183))
+    s5 = math.floor(abs(sin(seed * 51.4130 + 5.0) * 15823.7391))
+
+    pal_idx = s1 % 8
+    trim_idx = s2 % 4
+    pat_idx = s3 % 6
+    suit_idx = s4 % 4
+    overlay_idx = s5 % 3
+
+    # 8 Curated Heritage Casino Palettes
+    pr = 0.062
+    pg = 0.135
+    pb = 0.285
+    if (pal_idx == 1):
+        # Regal Crimson
+        pr = 0.440
+        pg = 0.042
+        pb = 0.072
+    elif (pal_idx == 2):
+        # Forest Emerald
+        pr = 0.036
+        pg = 0.215
+        pb = 0.155
+    elif (pal_idx == 3):
+        # Imperial Amethyst
+        pr = 0.220
+        pg = 0.075
+        pb = 0.295
+    elif (pal_idx == 4):
+        # Midnight Navy
+        pr = 0.045
+        pg = 0.088
+        pb = 0.185
+    elif (pal_idx == 5):
+        # Burnished Burgundy
+        pr = 0.310
+        pg = 0.055
+        pb = 0.120
+    elif (pal_idx == 6):
+        # Peacock Teal
+        pr = 0.035
+        pg = 0.195
+        pb = 0.245
+    elif (pal_idx == 7):
+        # Obsidian Charcoal
+        pr = 0.085
+        pg = 0.092
+        pb = 0.115
+
+    # Run the parameterized classic casino shader
+    ctx.apply_shader(
+        "classic_atelier_shader",
+        rank=pat_idx,
+        suit=suit_idx,
+        intensity=1.0,
+        u0=pr,
+        u1=pg,
+        u2=pb,
+        u3=trim_idx
+    )
+
+    # Optional sculpted Baroque / Filigree relief overlay (2 of 3 seeds add tactile metalwork)
+    if (overlay_idx > 0):
+        pad = w * 0.065
+        cx = w * 0.5
+        cy = h * 0.5
+
+        met_hex = "#D4B66A"
+        hi_hex = "#FFF3D1"
+        if (trim_idx == 1):
+            met_hex = "#CBD5E1"
+            hi_hex = "#F8FAFC"
+        elif (trim_idx == 2):
+            met_hex = "#D99672"
+            hi_hex = "#FFE4D1"
+        elif (trim_idx == 3):
+            met_hex = "#EAE0C8"
+            hi_hex = "#FFFDF7"
+
+        ctx.set_material("gold")
+        ctx.set_elevation(0.85, 1.05)
+
+        # 4-way mirrored sculpted baroque corners
+        ctx.begin_symmetry(true, true)
+        ctx.draw_baroque_corner(pad + 6.0, pad + 6.0, w * 0.15, met_hex, hi_hex)
+        ctx.end_symmetry()
+
+        if (overlay_idx == 2):
+            # Full Baroque Ogee Arch framing the central medallion
+            ctx.set_elevation(1.0, 1.15)
+            ctx.draw_baroque_arch(cx, cy, w * 0.34, h * 0.37, "ogee_spires", met_hex, hi_hex, 2.0)
+
+        ctx.reset_material()
+        ctx.reset_elevation()
+        ctx.apply_finish("relief", 135.0, 48.0, 1.10, 2.2, "#0B0C10", hi_hex, 0.03, 0.0)

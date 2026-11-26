@@ -1,0 +1,152 @@
+# =============================================================================
+# SolEngine Game Family: Fan (.eats)
+# Consolidated variants:
+#   - La Belle Lucie
+#   - The Fan
+# =============================================================================
+
+# --- Shared Parameterized Fan Rules ---
+
+def fan_eval():
+    score = 0
+    z = 0
+    while z <= 3:
+        score = score + zone_size(z) * 150
+        z = z + 1
+    z = 4
+    while z <= 21:
+        sz = zone_size(z)
+        i = 0
+        while i < sz - 1:
+            if card_suit(z, i) == card_suit(z, i + 1) and card_rank(z, i) == card_rank(z, i + 1) + 1:
+                score = score + 20
+            i = i + 1
+        z = z + 1
+    return score
+
+def fan_can_pick(z, i):
+    sz = zone_size(z)
+    if z < 4 or z > 21 or sz == 0:
+        return False
+    return i == sz - 1
+
+def fan_can_drop(king_only_empty, from_z, i, to_z):
+    if from_z == to_z or zone_size(from_z) == 0:
+        return False
+    if i != zone_size(from_z) - 1:
+        return False
+    r = card_rank(from_z, i)
+    s = card_suit(from_z, i)
+
+    if to_z >= 0 and to_z <= 3:
+        fsz = zone_size(to_z)
+        if fsz == 0:
+            return r == 1
+        return card_suit(to_z, fsz - 1) == s and r == card_rank(to_z, fsz - 1) + 1
+
+    if to_z >= 4 and to_z <= 21:
+        tsz = zone_size(to_z)
+        if tsz == 0:
+            if king_only_empty:
+                return r == 13
+            return False
+        return card_suit(to_z, tsz - 1) == s and card_rank(to_z, tsz - 1) == r + 1
+
+    return False
+
+def fan_status():
+    total = zone_size(0) + zone_size(1) + zone_size(2) + zone_size(3)
+    if total == 52:
+        return "victory"
+    return "playing"
+
+def lbl_can_drop(fz, i, tz):
+    return fan_can_drop(False, fz, i, tz)
+
+def the_fan_can_drop(fz, i, tz):
+    return fan_can_drop(True, fz, i, tz)
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "la_belle_lucie",
+    name: "La Belle Lucie",
+    family: "Fan",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["classic", "open", "fans", "same_suit", "single_deck"],
+    layout: "fan_grid",
+    tableau_build: "same_suit",
+    empty_tableau: "none",
+    move_group: "single",
+    foundation_mode: "suit_up",
+    description: "18 fans of cards. Build down in suit; only top cards can move; spaces cannot be filled.",
+    decks: 1,
+    tableaus: 18,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    max_redeals: 2,
+    prefer_curated_solvable: True,
+    demo_seed: 8,
+    demo_seeds: [8, 10, 11, 65, 94, 97, 152, 175, 220, 297, 323, 370],
+    eval_heuristic: fan_eval,
+    can_pick: fan_can_pick,
+    can_drop: lbl_can_drop,
+    get_status: fan_status,
+    doc: {
+        meta: [2, "Quick", 3, "Moderate", 4, "Tactical"],
+        aliases: ["Three Shuffles and a Draw", "Clover Leaf"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 4, name: "Fans (1-18)", desc: "Build down in the SAME SUIT; only the top card may move; empty fans cannot be filled.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "the_fan",
+    name: "The Fan",
+    family: "Fan",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["open", "fans", "same_suit", "pure_skill", "single_deck"],
+    layout: "fan_grid",
+    tableau_build: "same_suit",
+    empty_tableau: "king",
+    move_group: "single",
+    foundation_mode: "suit_up",
+    description: "18 fans of cards. Build down in suit; Kings only can fill empty spaces; pure puzzle of skill.",
+    decks: 1,
+    tableaus: 18,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    max_redeals: 0,
+    demo_seed: 1,
+    demo_seeds: [1, 3, 10, 11, 35, 55, 57, 58, 65, 78, 81, 97],
+    eval_heuristic: fan_eval,
+    can_pick: fan_can_pick,
+    can_drop: the_fan_can_drop,
+    get_status: fan_status,
+    doc: {
+        meta: [2, "Quick", 3, "Moderate", 4, "Tactical"],
+        aliases: ["Fan Solitaire"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King.", "No legal moves remain."],
+        zones: [
+            { index: 0, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
+            { index: 4, name: "Fans (1-18)", desc: "Build down in the SAME SUIT; only the top card may move; Kings only fill empty fans.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
+})
