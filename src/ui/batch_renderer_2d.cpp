@@ -2583,6 +2583,10 @@ public:
             wgpuRenderPipelineRelease(passthroughPostFxPipeline_);
             passthroughPostFxPipeline_ = nullptr;
         }
+        if (sharpBilinearPostFxPipeline_) {
+            wgpuRenderPipelineRelease(sharpBilinearPostFxPipeline_);
+            sharpBilinearPostFxPipeline_ = nullptr;
+        }
         if (postFxBindGroup_) {
             wgpuBindGroupRelease(postFxBindGroup_);
             postFxBindGroup_ = nullptr;
@@ -2810,6 +2814,10 @@ public:
             wgpuRenderPipelineRelease(passthroughPostFxPipeline_);
             passthroughPostFxPipeline_ = nullptr;
         }
+        if (sharpBilinearPostFxPipeline_) {
+            wgpuRenderPipelineRelease(sharpBilinearPostFxPipeline_);
+            sharpBilinearPostFxPipeline_ = nullptr;
+        }
         if (postFxBindGroup_) {
             wgpuBindGroupRelease(postFxBindGroup_);
             postFxBindGroup_ = nullptr;
@@ -3017,8 +3025,9 @@ public:
 
         WGPUTextureView targetView = nullptr;
         if (inShadowLayer_) {
-            ensureShadowTexture(targetW, targetH);
-            targetView = shadowTextureView_;
+            ShadowTarget& shadowSlot = renderToPostFxScene ? shadowTargetScene_ : shadowTargetNative_;
+            ensureShadowTexture(shadowSlot, targetW, targetH);
+            targetView = shadowSlot.view;
         } else if (renderToPostFxScene) {
             targetView = postFxSceneView_;
         }
@@ -3089,7 +3098,7 @@ public:
         const bool scaledScenePass = (renderToPostFxScene && postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
                                       (postFxSceneW_ != width_ || postFxSceneH_ != height_));
         WGPUTextureView activeMsaaView = scaledScenePass ? postFxMsaaTextureView_ : msaaTextureView_;
-        const bool useMsaa = (!inShadowLayer_ && sampleCount_ > 1 && activeMsaaView != nullptr);
+        const bool useMsaa = (!inShadowLayer_ && !postFxAppliedThisFrame_ && !(renderToPostFxScene && pixelArtMode_) && sampleCount_ > 1 && activeMsaaView != nullptr);
         if (useMsaa) {
             colorAttachment.view = activeMsaaView;
             // Defer surface resolve until endPass() so swapchain texture is resolved only once per frame
@@ -3121,8 +3130,15 @@ public:
         passDesc.colorAttachments = &colorAttachment;
 
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
-        WGPURenderPipeline activePipeline = (inShadowLayer_ && shadowPipeline1x_) ? shadowPipeline1x_ : pipeline_;
-        WGPUBindGroup activeBindGroup = (inShadowLayer_ && shadowPipeline1x_ && shadowBindGroup1x_) ? shadowBindGroup1x_ : bindGroup_;
+        WGPURenderPipeline activePipeline = pipeline_;
+        WGPUBindGroup activeBindGroup = bindGroup_;
+        if (inShadowLayer_ && shadowPipeline1x_) {
+            activePipeline = shadowPipeline1x_;
+            activeBindGroup = shadowBindGroup1x_ ? shadowBindGroup1x_ : bindGroup_;
+        } else if (!useMsaa && pipeline1x_ && bindGroup1x_) {
+            activePipeline = pipeline1x_;
+            activeBindGroup = bindGroup1x_;
+        }
         wgpuRenderPassEncoderSetPipeline(pass, activePipeline);
         if (activeBindGroup) {
             wgpuRenderPassEncoderSetBindGroup(pass, 0, activeBindGroup, 0, nullptr);
@@ -3683,6 +3699,10 @@ public:
         maxRenderH_ = maxH;
     }
 
+    void setPixelArtMode(bool enabled) override {
+        pixelArtMode_ = enabled;
+    }
+
     bool isLowCapabilityHardware() const override {
         return lowCapabilityHardware_;
     }
@@ -3695,7 +3715,7 @@ public:
         ensurePostFxResources();
         WGPURenderPipeline activePipeline = (postFxActive_ && postFxPipeline_)
             ? postFxPipeline_
-            : passthroughPostFxPipeline_;
+            : ((pixelArtMode_ && sharpBilinearPostFxPipeline_) ? sharpBilinearPostFxPipeline_ : passthroughPostFxPipeline_);
         if (!activePipeline || !postFxBindGroup_) return;
 
         if (!currentBackBufferView_) {
@@ -4865,24 +4885,32 @@ private:
 
     // Post-FX GPU state
     void computeSceneSize(uint32_t& outW, uint32_t& outH) const {
-        if (maxRenderW_ > 0 && maxRenderH_ > 0 && (width_ > maxRenderW_ || height_ > maxRenderH_)) {
-            const float s = std::min(static_cast<float>(maxRenderW_) / static_cast<float>(width_),
-                                     static_cast<float>(maxRenderH_) / static_cast<float>(height_));
-            outW = std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(width_) * s)));
-            outH = std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(height_) * s)));
-        } else {
-            outW = width_;
-            outH = height_;
+        if (maxRenderW_ > 0 && maxRenderH_ > 0) {
+            const bool portrait = (height_ > width_);
+            const uint32_t capW = portrait ? std::min(maxRenderW_, maxRenderH_) : std::max(maxRenderW_, maxRenderH_);
+            const uint32_t capH = portrait ? std::max(maxRenderW_, maxRenderH_) : std::min(maxRenderW_, maxRenderH_);
+            if (width_ > capW || height_ > capH) {
+                const float s = std::min(static_cast<float>(capW) / static_cast<float>(width_),
+                                         static_cast<float>(capH) / static_cast<float>(height_));
+                outW = std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(width_) * s)));
+                outH = std::max(1u, static_cast<uint32_t>(std::round(static_cast<float>(height_) * s)));
+                return;
+            }
         }
+        outW = width_;
+        outH = height_;
     }
 
     bool isScaledScene() const {
         if (width_ == 0 || height_ == 0 || maxRenderW_ == 0 || maxRenderH_ == 0) return false;
-        return (width_ > maxRenderW_ || height_ > maxRenderH_);
+        const bool portrait = (height_ > width_);
+        const uint32_t capW = portrait ? std::min(maxRenderW_, maxRenderH_) : std::max(maxRenderW_, maxRenderH_);
+        const uint32_t capH = portrait ? std::max(maxRenderW_, maxRenderH_) : std::min(maxRenderW_, maxRenderH_);
+        return (width_ > capW || height_ > capH);
     }
 
     bool isOffscreenSceneActive() const {
-        return (postFxActive_ && postFxPipeline_ != nullptr) || isScaledScene();
+        return (postFxActive_ && postFxPipeline_ != nullptr) || isScaledScene() || pixelArtMode_;
     }
 
     void releasePostFxSceneTexture() {
@@ -4917,7 +4945,7 @@ private:
         uint32_t targetW = width_;
         uint32_t targetH = height_;
         computeSceneSize(targetW, targetH);
-        const bool needScaledMsaa = (sampleCount_ > 1) && (targetW != width_ || targetH != height_);
+        const bool needScaledMsaa = (!pixelArtMode_) && (sampleCount_ > 1) && (targetW != width_ || targetH != height_);
         if (postFxSceneTexture_ && postFxSceneW_ == targetW && postFxSceneH_ == targetH &&
             (!needScaledMsaa || postFxMsaaTextureView_ != nullptr)) {
             return;
@@ -5071,8 +5099,68 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
                 wgpuShaderModuleRelease(sm);
             }
         }
-        const bool wantNearest = (postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
-                                  (postFxSceneW_ != width_ || postFxSceneH_ != height_));
+        if (!sharpBilinearPostFxPipeline_ && postFxPipelineLayout_) {
+            static const char* kSharpBilinearWgsl = R"(
+struct PostFxUniforms {
+    u0: f32, u1: f32, u2: f32, u3: f32,
+    intensity: f32, param1: f32, param2: f32, time: f32,
+    width: f32, height: f32, texelX: f32, texelY: f32,
+};
+@group(0) @binding(0) var<uniform> fx: PostFxUniforms;
+@group(0) @binding(1) var sceneTex: texture_2d<f32>;
+@group(0) @binding(2) var sceneSampler: sampler;
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
+@vertex fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
+    var out: VsOut;
+    let x = f32((vid << 1u) & 2u) * 2.0 - 1.0;
+    let y = f32(vid & 2u) * 2.0 - 1.0;
+    out.pos = vec4<f32>(x, -y, 0.0, 1.0);
+    out.uv = vec2<f32>(x * 0.5 + 0.5, y * 0.5 + 0.5);
+    return out;
+}
+@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let texSize = max(vec2<f32>(fx.width, fx.height), vec2<f32>(1.0, 1.0));
+    let pixel = in.uv * texSize;
+    let seam = floor(pixel + vec2<f32>(0.5));
+    let dudv = max(fwidth(pixel), vec2<f32>(0.0001));
+    let snapped = seam + clamp((pixel - seam) / dudv, vec2<f32>(-0.5), vec2<f32>(0.5));
+    return textureSample(sceneTex, sceneSampler, snapped / texSize);
+}
+)";
+            WGPUShaderSourceWGSL wgslDesc{};
+            wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
+            wgslDesc.code = makeWgpuStringView(kSharpBilinearWgsl);
+            WGPUShaderModuleDescriptor smDesc{};
+            smDesc.nextInChain = reinterpret_cast<WGPUChainedStruct*>(&wgslDesc);
+            if (WGPUShaderModule sm = wgpuDeviceCreateShaderModule(device_, &smDesc)) {
+                WGPUColorTargetState colorTarget{};
+                colorTarget.format = surfaceFormat_;
+                colorTarget.blend = nullptr;
+                colorTarget.writeMask = WGPUColorWriteMask_All;
+                WGPUFragmentState fragState{};
+                fragState.module = sm;
+                fragState.entryPoint = makeWgpuStringView("fs_main");
+                fragState.targetCount = 1;
+                fragState.targets = &colorTarget;
+                WGPURenderPipelineDescriptor pipeDesc{};
+                pipeDesc.layout = postFxPipelineLayout_;
+                pipeDesc.vertex.module = sm;
+                pipeDesc.vertex.entryPoint = makeWgpuStringView("vs_main");
+                pipeDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+                pipeDesc.primitive.frontFace = WGPUFrontFace_CCW;
+                pipeDesc.primitive.cullMode = WGPUCullMode_None;
+                pipeDesc.multisample.count = 1;
+                pipeDesc.multisample.mask = 0xFFFFFFFF;
+                pipeDesc.fragment = &fragState;
+                sharpBilinearPostFxPipeline_ = wgpuDeviceCreateRenderPipeline(device_, &pipeDesc);
+                wgpuShaderModuleRelease(sm);
+            }
+        }
+        const bool usingSharpBilinear = (pixelArtMode_ && !(postFxActive_ && postFxPipeline_) && sharpBilinearPostFxPipeline_ != nullptr);
+        const bool wantNearest = usingSharpBilinear
+            ? false
+            : (pixelArtMode_ || (postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
+                                 (postFxSceneW_ != width_ || postFxSceneH_ != height_)));
         if (postFxBindGroup_ && postFxBindGroupNearest_ != wantNearest) {
             wgpuBindGroupRelease(postFxBindGroup_);
             postFxBindGroup_ = nullptr;
@@ -5108,6 +5196,7 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
     uint32_t postFxSceneH_{0};
     uint32_t maxRenderW_{0};
     uint32_t maxRenderH_{0};
+    bool pixelArtMode_{false};
     bool lowCapabilityHardware_{false};
     bool uniformsDirty_{true};
     WGPUBuffer postFxUniformBuffer_{nullptr};
@@ -5119,6 +5208,7 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
     bool postFxBindGroupNearest_{false};
     WGPURenderPipeline postFxPipeline_{nullptr};
     WGPURenderPipeline passthroughPostFxPipeline_{nullptr};
+    WGPURenderPipeline sharpBilinearPostFxPipeline_{nullptr};
     std::string cachedPostFxWgsl_;
     const char* cachedPostFxPtr_{nullptr};
     size_t cachedPostFxLen_{0};
@@ -5142,21 +5232,22 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
             flushPendingDraws();
         }
         inShadowLayer_ = false;
-        if (!shadowLayerHasDraws_ || !shadowTextureView_ || !device_) {
-            return;
-        }
-        ensureShadowCompositeResources();
-        if (!shadowCompositeBindGroup_) return;
-
         const bool renderToPostFxScene = (isOffscreenSceneActive() &&
                                           !postFxAppliedThisFrame_ && !customTargetView_);
+        ShadowTarget& shadowSlot = renderToPostFxScene ? shadowTargetScene_ : shadowTargetNative_;
+        if (!shadowLayerHasDraws_ || !shadowSlot.view || !device_) {
+            return;
+        }
+        ensureShadowCompositeResources(shadowSlot);
+        if (!shadowSlot.bindGroup) return;
+
         WGPUTextureView targetView = renderToPostFxScene ? postFxSceneView_ : currentBackBufferView_;
         if (!targetView) return;
 
         const bool scaledScenePass = (renderToPostFxScene && postFxSceneW_ > 0 && postFxSceneH_ > 0 &&
                                       (postFxSceneW_ != width_ || postFxSceneH_ != height_));
         WGPUTextureView activeMsaaView = scaledScenePass ? postFxMsaaTextureView_ : msaaTextureView_;
-        const bool useMsaa = (sampleCount_ > 1 && activeMsaaView != nullptr);
+        const bool useMsaa = (!postFxAppliedThisFrame_ && !(renderToPostFxScene && pixelArtMode_) && sampleCount_ > 1 && activeMsaaView != nullptr);
         WGPURenderPipeline compPipe = useMsaa ? shadowCompositePipeline4x_ : shadowCompositePipeline1x_;
         if (!compPipe) return;
 
@@ -5185,36 +5276,51 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
 
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
         wgpuRenderPassEncoderSetPipeline(pass, compPipe);
-        wgpuRenderPassEncoderSetBindGroup(pass, 0, shadowCompositeBindGroup_, 0, nullptr);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, shadowSlot.bindGroup, 0, nullptr);
         wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
     }
 
-    void releaseShadowTexture() {
-        if (shadowCompositeBindGroup_) {
-            wgpuBindGroupRelease(shadowCompositeBindGroup_);
-            shadowCompositeBindGroup_ = nullptr;
+    struct ShadowTarget {
+        WGPUTexture texture{nullptr};
+        WGPUTextureView view{nullptr};
+        WGPUBindGroup bindGroup{nullptr};
+        uint32_t w{0};
+        uint32_t h{0};
+    };
+
+    void releaseShadowTarget(ShadowTarget& slot) {
+        if (slot.bindGroup) {
+            wgpuBindGroupRelease(slot.bindGroup);
+            slot.bindGroup = nullptr;
         }
-        if (shadowTextureView_) {
-            wgpuTextureViewRelease(shadowTextureView_);
-            shadowTextureView_ = nullptr;
+        if (slot.view) {
+            wgpuTextureViewRelease(slot.view);
+            slot.view = nullptr;
         }
-        if (shadowTexture_) {
-            wgpuTextureDestroy(shadowTexture_);
-            wgpuTextureRelease(shadowTexture_);
-            shadowTexture_ = nullptr;
+        if (slot.texture) {
+            if (!frameEncoder_) {
+                wgpuTextureDestroy(slot.texture);
+            }
+            wgpuTextureRelease(slot.texture);
+            slot.texture = nullptr;
         }
-        shadowTexW_ = 0;
-        shadowTexH_ = 0;
+        slot.w = 0;
+        slot.h = 0;
     }
 
-    void ensureShadowTexture(uint32_t targetW, uint32_t targetH) {
+    void releaseShadowTexture() {
+        releaseShadowTarget(shadowTargetScene_);
+        releaseShadowTarget(shadowTargetNative_);
+    }
+
+    void ensureShadowTexture(ShadowTarget& slot, uint32_t targetW, uint32_t targetH) {
         if (!device_ || targetW == 0 || targetH == 0) return;
-        if (shadowTexture_ && shadowTexW_ == targetW && shadowTexH_ == targetH) {
+        if (slot.texture && slot.w == targetW && slot.h == targetH) {
             return;
         }
-        releaseShadowTexture();
+        releaseShadowTarget(slot);
 
         WGPUTextureDescriptor desc{};
         desc.dimension = WGPUTextureDimension_2D;
@@ -5223,8 +5329,8 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
         desc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
         desc.mipLevelCount = 1;
         desc.sampleCount = 1;
-        shadowTexture_ = wgpuDeviceCreateTexture(device_, &desc);
-        if (shadowTexture_) {
+        slot.texture = wgpuDeviceCreateTexture(device_, &desc);
+        if (slot.texture) {
             WGPUTextureViewDescriptor vdesc{};
             vdesc.format = surfaceFormat_;
             vdesc.dimension = WGPUTextureViewDimension_2D;
@@ -5233,13 +5339,13 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
             vdesc.baseArrayLayer = 0;
             vdesc.arrayLayerCount = 1;
             vdesc.aspect = WGPUTextureAspect_All;
-            shadowTextureView_ = wgpuTextureCreateView(shadowTexture_, &vdesc);
-            shadowTexW_ = targetW;
-            shadowTexH_ = targetH;
+            slot.view = wgpuTextureCreateView(slot.texture, &vdesc);
+            slot.w = targetW;
+            slot.h = targetH;
         }
     }
 
-    void ensureShadowCompositeResources() {
+    void ensureShadowCompositeResources(ShadowTarget& slot) {
         if (!device_) return;
         if (!shadowCompositeSampler_) {
             WGPUSamplerDescriptor sDesc{};
@@ -5339,10 +5445,10 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
                 wgpuShaderModuleRelease(sm);
             }
         }
-        if (!shadowCompositeBindGroup_ && shadowCompositeBindGroupLayout_ && shadowTextureView_ && shadowCompositeSampler_) {
+        if (!slot.bindGroup && shadowCompositeBindGroupLayout_ && slot.view && shadowCompositeSampler_) {
             WGPUBindGroupEntry bgEntries[2]{};
             bgEntries[0].binding = 0;
-            bgEntries[0].textureView = shadowTextureView_;
+            bgEntries[0].textureView = slot.view;
             bgEntries[1].binding = 1;
             bgEntries[1].sampler = shadowCompositeSampler_;
 
@@ -5350,7 +5456,7 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
             bgDesc.layout = shadowCompositeBindGroupLayout_;
             bgDesc.entryCount = 2;
             bgDesc.entries = bgEntries;
-            shadowCompositeBindGroup_ = wgpuDeviceCreateBindGroup(device_, &bgDesc);
+            slot.bindGroup = wgpuDeviceCreateBindGroup(device_, &bgDesc);
         }
     }
 
@@ -5359,17 +5465,14 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
     WGPUCommandEncoder frameEncoder_{nullptr};
     uint64_t vertexBufferUsed_{0};
     bool msaaNeedsSurfaceResolve_{false};
-    WGPUTexture shadowTexture_{nullptr};
-    WGPUTextureView shadowTextureView_{nullptr};
-    uint32_t shadowTexW_{0};
-    uint32_t shadowTexH_{0};
+    ShadowTarget shadowTargetScene_{};
+    ShadowTarget shadowTargetNative_{};
     bool inShadowLayer_{false};
     bool shadowLayerFirstBatch_{false};
     bool shadowLayerHasDraws_{false};
     WGPUSampler shadowCompositeSampler_{nullptr};
     WGPUBindGroupLayout shadowCompositeBindGroupLayout_{nullptr};
     WGPUPipelineLayout shadowCompositePipelineLayout_{nullptr};
-    WGPUBindGroup shadowCompositeBindGroup_{nullptr};
     WGPURenderPipeline shadowCompositePipeline1x_{nullptr};
     WGPURenderPipeline shadowCompositePipeline4x_{nullptr};
 
@@ -5696,6 +5799,12 @@ void BatchRenderer2D::applyPostFxPass() {
 void BatchRenderer2D::setInternalMaxResolution(uint32_t maxW, uint32_t maxH) {
     if (backend_) {
         backend_->setInternalMaxResolution(maxW, maxH);
+    }
+}
+
+void BatchRenderer2D::setPixelArtMode(bool enabled) {
+    if (backend_) {
+        backend_->setPixelArtMode(enabled);
     }
 }
 

@@ -153,6 +153,7 @@ public:
     virtual void applyPostFxPass() {}
     virtual void beginPostFxFrame() {}
     virtual void setInternalMaxResolution(uint32_t /*maxW*/, uint32_t /*maxH*/) {}
+    virtual void setPixelArtMode(bool /*enabled*/) {}
     virtual bool isLowCapabilityHardware() const { return false; }
 };
 
@@ -244,6 +245,7 @@ public:
     void setPostFxActive(bool active);
     void applyPostFxPass();
     void setInternalMaxResolution(uint32_t maxW, uint32_t maxH);
+    void setPixelArtMode(bool enabled);
     [[nodiscard]] bool isLowCapabilityHardware() const;
 
     // --- Blend Modes & Unified Shadow Layer ---

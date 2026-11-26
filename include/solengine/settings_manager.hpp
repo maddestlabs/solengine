@@ -16,13 +16,19 @@ namespace solengine {
 class SolitaireBoard;
 
 enum class RenderResolutionMode : uint8_t {
-    Auto = 0,     // Native on capable hardware, 720p on low-capability CPU/GPU
-    Native = 1,   // Full swapchain resolution
-    Res1080p = 2, // Max 1920x1080 (aspect-preserving)
-    Res720p = 3,  // Max 1280x720 (aspect-preserving)
-    Res540p = 4,  // Max 960x540 (aspect-preserving)
+    Auto = 0,       // Native on capable hardware, 720p on low-capability CPU/GPU
+    Native = 1,     // Full swapchain resolution
+    Res1080p = 2,   // Max 1920x1080 (aspect-preserving)
+    Res720p = 3,    // Max 1280x720 (aspect-preserving)
+    Res540p = 4,    // Max 960x540 (aspect-preserving)
+    Pixel720p = 5,  // Crisp 1280x720 pixel-art mode (1x MSAA, sharp-bilinear upscale)
+    Pixel360p = 6,  // Crisp 640x360 pixel-art mode (1x MSAA, sharp-bilinear upscale)
     Count
 };
+
+[[nodiscard]] inline bool isPixelArtResolution(RenderResolutionMode mode) noexcept {
+    return mode == RenderResolutionMode::Pixel720p || mode == RenderResolutionMode::Pixel360p;
+}
 
 struct GameSceneProfile {
     std::optional<TableThemeId> tableTheme;
@@ -85,12 +91,12 @@ struct AppSettings {
     std::unordered_map<std::string, std::string> postFxOptions;
     float postFxIntensity{1.0f};
     bool postFxAffectUi{false};
-    RenderResolutionMode renderResolution{RenderResolutionMode::Auto};
+    RenderResolutionMode renderResolution{RenderResolutionMode::Pixel360p};
     TableTintPreset tableTint{TableTintPreset::Auto};
     DeckThemeId deckTheme{DeckThemeId::SolPolyClassic};
     std::string deckSlug{"solpoly_classic"};
     uint32_t lowPolySeed{42};
-    std::string cardBackId{"classic_sapphire"};
+    std::string cardBackId{"solpoly_classic"};
     GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
     CardWearLevel cardWear{CardWearLevel::Natural};
     CardStock cardStock{CardStock::SmoothParchment};
@@ -123,7 +129,7 @@ struct AppSettings {
     std::string ambienceId{"off"};
     float ambienceVolume{0.55f};
     bool randomizeOnNewDeal{true};
-    bool guaranteeSolvable{false};
+    bool guaranteeSolvable{true};
     uint32_t lastSeed{2026u};
     bool autoFinish{true};
     bool showTableMarkings{true}; // true = guides/runes/wells, false = pure bare tabletop (cards only)

@@ -3572,7 +3572,8 @@ void TableRenderer::renderBoard(
     size_t dragChainCount,
     const std::vector<GhostCardCue>* ghostCards,
     const HelpVideoThumb* helpVideoThumb,
-    const VictoryGatherState* victoryGather
+    const VictoryGatherState* victoryGather,
+    bool flushPostFxBeforeHud
 ) {
     const ThemePalette pal = getPalette(board.tableTheme());
     // Overhead table illumination: dynamic swaying light or centered static default
@@ -4203,6 +4204,9 @@ void TableRenderer::renderBoard(
     r.drawSceneAtmospherePass(width, height);
     if (camZoomed) {
         r.clearCameraTransform();
+    }
+    if (flushPostFxBeforeHud) {
+        r.applyPostFxPass();
     }
 
     // 8. Always-on-Top Floating Clockwork Medallion Bar
@@ -7214,6 +7218,43 @@ struct InteractiveContext {
             [this](const std::string&) { triggerAction(BtnMenuAnchor); }
         });
 
+        struct ResCmdSpec {
+            const char* id;
+            const char* title;
+            const char* subtitle;
+            const char* keywords;
+            RenderResolutionMode mode;
+        };
+        const ResCmdSpec resSpecs[] = {
+            { "settings.res.auto",       "Resolution: Auto",                    "Native on capable GPU, 720p on low-capability hardware",      "render resolution scale performance auto default",          RenderResolutionMode::Auto },
+            { "settings.res.native",     "Resolution: Native",                  "Full native swapchain display resolution",                    "render resolution scale native full hd 4k",                 RenderResolutionMode::Native },
+            { "settings.res.1080p",      "Resolution: 1920x1080 (1080p)",       "Cap internal tabletop render resolution at 1080p",            "render resolution scale 1080p fhd",                         RenderResolutionMode::Res1080p },
+            { "settings.res.720p",       "Resolution: 1280x720 (720p)",         "Cap internal tabletop render resolution at 720p",             "render resolution scale 720p hd performance",               RenderResolutionMode::Res720p },
+            { "settings.res.540p",       "Resolution: 960x540 (540p)",          "Cap internal tabletop render resolution at 540p",             "render resolution scale 540p low performance",              RenderResolutionMode::Res540p },
+            { "settings.res.pixel_720p", "Resolution: Pixel Art 720p",          "Crisp 1280x720 pixel-art tabletop (1x MSAA, sharp upscale)",  "render resolution pixel art retro 720p crisp lowres",       RenderResolutionMode::Pixel720p },
+            { "settings.res.pixel_360p", "Resolution: Pixel Art 360p",          "Crisp 640x360 pixel-art tabletop (1x MSAA, sharp upscale)",   "render resolution pixel art retro 360p crisp lowres",       RenderResolutionMode::Pixel360p }
+        };
+        for (const auto& spec : resSpecs) {
+            const RenderResolutionMode targetMode = spec.mode;
+            commandRegistry.registerCommand({
+                spec.id,
+                spec.title,
+                spec.subtitle,
+                "",
+                spec.keywords,
+                CommandCategory::Settings,
+                false,
+                [targetMode]() -> std::string {
+                    return (SettingsManager::instance().settings().renderResolution == targetMode) ? "Active" : "";
+                },
+                [this, targetMode](const std::string&) {
+                    SettingsManager::instance().settings().renderResolution = targetMode;
+                    SettingsManager::instance().save();
+                    foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                }
+            });
+        }
+
         // --- VIEW COMMANDS ---
         commandRegistry.registerCommand({
             "view.help", "Toggle Help & Rules Sidebar", "Show game rules, odds, and zone highlights",
@@ -9075,6 +9116,7 @@ struct InteractiveContext {
             settingsDialog.setLowCapabilityHardware(renderer.isLowCapabilityHardware());
             uint32_t maxRenderW = 0;
             uint32_t maxRenderH = 0;
+            bool pixelArtMode = false;
             RenderResolutionMode effectiveRes = activeCfg.renderResolution;
             if (effectiveRes == RenderResolutionMode::Auto) {
                 effectiveRes = renderer.isLowCapabilityHardware()
@@ -9082,11 +9124,14 @@ struct InteractiveContext {
                     : RenderResolutionMode::Native;
             }
             switch (effectiveRes) {
-                case RenderResolutionMode::Res1080p: maxRenderW = 1920; maxRenderH = 1080; break;
-                case RenderResolutionMode::Res720p:  maxRenderW = 1280; maxRenderH = 720;  break;
-                case RenderResolutionMode::Res540p:  maxRenderW = 960;  maxRenderH = 540;  break;
+                case RenderResolutionMode::Res1080p:  maxRenderW = 1920; maxRenderH = 1080; break;
+                case RenderResolutionMode::Res720p:   maxRenderW = 1280; maxRenderH = 720;  break;
+                case RenderResolutionMode::Res540p:   maxRenderW = 960;  maxRenderH = 540;  break;
+                case RenderResolutionMode::Pixel720p: maxRenderW = 1280; maxRenderH = 720;  pixelArtMode = true; break;
+                case RenderResolutionMode::Pixel360p: maxRenderW = 640;  maxRenderH = 360;  pixelArtMode = true; break;
                 default: break;
             }
+            renderer.setPixelArtMode(pixelArtMode);
             renderer.setInternalMaxResolution(maxRenderW, maxRenderH);
 
             renderer.beginFrame(static_cast<float>(width), static_cast<float>(height));
@@ -9508,8 +9553,9 @@ struct InteractiveContext {
                                        dragChainCount > 0 ? dragChainAngles.data() : nullptr, dragChainCount,
                                        activeGhostCards.empty() ? nullptr : &activeGhostCards,
                                        helpOpen ? &videoSnap : nullptr,
-                                       victoryGather.active ? &victoryGather : nullptr);
-            if (!activeCfg.postFxAffectUi) {
+                                       victoryGather.active ? &victoryGather : nullptr,
+                                       (!activeCfg.postFxAffectUi || pixelArtMode));
+            if (!activeCfg.postFxAffectUi || pixelArtMode) {
                 renderer.applyPostFxPass();
             }
             if (settingsDialog.isOpen()) {

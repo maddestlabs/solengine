@@ -103,7 +103,7 @@ bool SettingsManager::load() {
             const auto& g = root["game"];
             settings_.variant = static_cast<GameVariant>(std::clamp(g["variant"].asInt(0), 0, static_cast<int>(GameVariant::CustomScript)));
             settings_.randomizeOnNewDeal = g["randomizeOnNewDeal"].asBool(true);
-            settings_.guaranteeSolvable = g["guaranteeSolvable"].asBool(false);
+            settings_.guaranteeSolvable = g["guaranteeSolvable"].asBool(true);
             settings_.lastSeed = g["lastSeed"].asUInt(2026u);
             settings_.autoFinish = g["autoFinish"].asBool(true);
             settings_.victoryAnimOverride = static_cast<VictoryAnimOverride>(
@@ -152,6 +152,8 @@ bool SettingsManager::load() {
                     else if (rs == "1080p") settings_.renderResolution = RenderResolutionMode::Res1080p;
                     else if (rs == "720p") settings_.renderResolution = RenderResolutionMode::Res720p;
                     else if (rs == "540p") settings_.renderResolution = RenderResolutionMode::Res540p;
+                    else if (rs == "pixel_720p" || rs == "pixel720p") settings_.renderResolution = RenderResolutionMode::Pixel720p;
+                    else if (rs == "pixel_360p" || rs == "pixel360p") settings_.renderResolution = RenderResolutionMode::Pixel360p;
                     else settings_.renderResolution = RenderResolutionMode::Auto;
                 } else if (a["renderResolution"].isNumber()) {
                     int rv = std::clamp(a["renderResolution"].asInt(0), 0, static_cast<int>(RenderResolutionMode::Count) - 1);
@@ -169,7 +171,7 @@ bool SettingsManager::load() {
             settings_.deckTheme = static_cast<DeckThemeId>(std::clamp(a["deckTheme"].asInt(0), 0, static_cast<int>(DeckThemeId::Count) - 1));
             settings_.deckSlug = (a.contains("deckSlug") && a["deckSlug"].isString()) ? a["deckSlug"].asString() : "";
             settings_.lowPolySeed = static_cast<uint32_t>(std::max(1, a["lowPolySeed"].asInt(42)));
-            settings_.cardBackId = (a.contains("cardBackId") && a["cardBackId"].isString()) ? a["cardBackId"].asString() : "auto";
+            settings_.cardBackId = (a.contains("cardBackId") && a["cardBackId"].isString()) ? a["cardBackId"].asString() : "solpoly_classic";
             settings_.guiTheme = static_cast<GuiThemeStyle>(std::clamp(a["guiTheme"].asInt(static_cast<int>(GuiThemeStyle::ClockworkEngine)), 0, 1));
             if (a.contains("helpFontScale") && a["helpFontScale"].isNumber()) {
                 settings_.helpFontScale = std::clamp(a["helpFontScale"].asFloat(1.0f), 0.85f, 1.35f);
@@ -369,10 +371,12 @@ bool SettingsManager::save() {
     {
         const char* resStr = "auto";
         switch (settings_.renderResolution) {
-            case RenderResolutionMode::Native:   resStr = "native"; break;
-            case RenderResolutionMode::Res1080p: resStr = "1080p"; break;
-            case RenderResolutionMode::Res720p:  resStr = "720p"; break;
-            case RenderResolutionMode::Res540p:  resStr = "540p"; break;
+            case RenderResolutionMode::Native:    resStr = "native"; break;
+            case RenderResolutionMode::Res1080p:  resStr = "1080p"; break;
+            case RenderResolutionMode::Res720p:   resStr = "720p"; break;
+            case RenderResolutionMode::Res540p:   resStr = "540p"; break;
+            case RenderResolutionMode::Pixel720p: resStr = "pixel_720p"; break;
+            case RenderResolutionMode::Pixel360p: resStr = "pixel_360p"; break;
             default: break;
         }
         a["renderResolution"] = resStr;

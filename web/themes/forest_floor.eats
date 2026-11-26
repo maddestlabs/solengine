@@ -9,8 +9,8 @@ sol.define_theme({
     description: "Pure procedural woodland surfaces: tactile forest loam with slender twigs, compacted dirt trail, and earthy woodland clearing grass",
     version: 1,
     procedural: true,
-    lacquer: 0.5,
-    relief_bump: 0.5,
+    lacquer: 1.0,
+    relief_bump: 2.2,
     option_label: "Terrain",
     options: [
         { id: "leaf_litter",  name: "Forest Floor",   u: [0.34, 0.25, 0.16, 0.0] },

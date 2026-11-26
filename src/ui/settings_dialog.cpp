@@ -396,7 +396,93 @@ void SettingsDialog::render(
     };
 
     if (currentTab_ == 0) {
-        // --- TAB 0: GAME & SEED ---
+        // --- TAB 0: MAIN (RESOLUTION, GAME & SEED) ---
+        auto scissor = r.makeScissorScope(contentX + 2.0f, contentY + 2.0f, contentW - 4.0f, contentH - 4.0f);
+        const bool mouseInContent = (mouseX >= contentX && mouseX <= contentX + contentW && mouseY >= contentY && mouseY <= contentY + contentH);
+        curY -= themeScrollY_;
+
+        // Prominent 1-click Render Resolution & Pixel Art Mode selector
+        drawSectionHeader("RENDER RESOLUTION & PIXEL ART MODE");
+        {
+            const float resBtnH = 26.0f;
+            const float resGap = 6.0f;
+            const float rowW = contentW - 36.0f;
+            const float rowX = contentX + 16.0f;
+
+            // Row 1: Standard resolutions (Auto, Native, 1080p, 720p, 540p)
+            const char* stdLabels[5] = {
+                lowCapabilityHardware_ ? "AUTO (720P)" : "AUTO",
+                "NATIVE",
+                "1080P",
+                "720P",
+                "540P"
+            };
+            const RenderResolutionMode stdVals[5] = {
+                RenderResolutionMode::Auto,
+                RenderResolutionMode::Native,
+                RenderResolutionMode::Res1080p,
+                RenderResolutionMode::Res720p,
+                RenderResolutionMode::Res540p
+            };
+            const float stdBtnW = (rowW - resGap * 4.0f) / 5.0f;
+            for (int i = 0; i < 5; ++i) {
+                const float bx = rowX + i * (stdBtnW + resGap);
+                const bool isSel = (tempSettings_.renderResolution == stdVals[i]);
+                const bool bHov = mouseInContent && (mouseX >= bx && mouseX <= bx + stdBtnW && mouseY >= curY && mouseY <= curY + resBtnH);
+                if (isClockwork) {
+                    clockwork_ui::drawBrassButton(r, bx, curY, stdBtnW, resBtnH, 4.0f, stdLabels[i], bHov, isSel, 9.5f);
+                } else {
+                    r.drawRoundedRect(bx, curY, stdBtnW, resBtnH, 4.0f,
+                                      isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (bHov ? 0.06f : 0.0f)),
+                                      pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                    r.drawRoundedRectOutline(bx, curY, stdBtnW, resBtnH, 4.0f,
+                                             isSel ? pal.accentR : pal.trimR,
+                                             isSel ? pal.accentG : pal.trimG,
+                                             isSel ? pal.accentB : pal.trimB,
+                                             isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                    float tw = eatsbits::ui::glyph::getVectorTextWidth(9.5f, stdLabels[i]);
+                    eatsbits::ui::glyph::drawVectorText(r, stdLabels[i], bx + (stdBtnW - tw) * 0.5f, curY + 7.5f, 9.5f,
+                                                        isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+                }
+            }
+            curY += resBtnH + 6.0f;
+
+            // Row 2: Pixel Art modes (Pixel 720p, Pixel 360p)
+            const char* pixLabels[2] = { "PIXEL 720P (1280x720)", "PIXEL 360P (640x360)" };
+            const RenderResolutionMode pixVals[2] = {
+                RenderResolutionMode::Pixel720p,
+                RenderResolutionMode::Pixel360p
+            };
+            const float pixBtnW = (rowW - resGap) * 0.5f;
+            for (int i = 0; i < 2; ++i) {
+                const float bx = rowX + i * (pixBtnW + resGap);
+                const bool isSel = (tempSettings_.renderResolution == pixVals[i]);
+                const bool bHov = mouseInContent && (mouseX >= bx && mouseX <= bx + pixBtnW && mouseY >= curY && mouseY <= curY + resBtnH);
+                if (isClockwork) {
+                    clockwork_ui::drawBrassButton(r, bx, curY, pixBtnW, resBtnH, 4.0f, pixLabels[i], bHov, isSel, 10.0f);
+                } else {
+                    r.drawRoundedRect(bx, curY, pixBtnW, resBtnH, 4.0f,
+                                      isSel ? (pal.woodR0 + 0.12f) : (pal.woodR0 + 0.04f + (bHov ? 0.06f : 0.0f)),
+                                      pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.95f, 4);
+                    r.drawRoundedRectOutline(bx, curY, pixBtnW, resBtnH, 4.0f,
+                                             isSel ? pal.accentR : pal.trimR,
+                                             isSel ? pal.accentG : pal.trimG,
+                                             isSel ? pal.accentB : pal.trimB,
+                                             isSel ? 1.0f : 0.55f, isSel ? 1.4f : 1.0f, 4);
+                    float tw = eatsbits::ui::glyph::getVectorTextWidth(10.0f, pixLabels[i]);
+                    eatsbits::ui::glyph::drawVectorText(r, pixLabels[i], bx + (pixBtnW - tw) * 0.5f, curY + 7.5f, 10.0f,
+                                                        isSel ? pal.accentR : 0.90f, isSel ? pal.accentG : 0.88f, isSel ? pal.accentB : 0.80f, 1.0f);
+                }
+            }
+            curY += resBtnH + 5.0f;
+
+            const char* resHint = isPixelArtResolution(tempSettings_.renderResolution)
+                ? "Pixel Art Mode: crisp low-res tabletop (1x MSAA + sharp upscale) with native-res HUD."
+                : "Adjusts internal tabletop render resolution. Also switchable via Command Palette (Ctrl+K).";
+            eatsbits::ui::glyph::drawVectorText(r, resHint, rowX, curY, 9.2f, 0.72f, 0.70f, 0.64f, 0.88f);
+            curY += 18.0f;
+        }
+
         drawSectionHeader("DEAL SEED & PROCEDURAL RANDOMIZATION");
 
         // Seed edit box
@@ -550,6 +636,35 @@ void SettingsDialog::render(
                                                         isSel ? pal.accentB : 0.80f, 1.0f);
                 }
             }
+        }
+        float favEndY = curY + 24.0f;
+        if (!favDefs.empty()) {
+            const float favBtnH = 30.0f;
+            int rows = static_cast<int>((favDefs.size() + 1) / 2);
+            favEndY = curY + rows * (favBtnH + 8.0f);
+        }
+        const float totalBottom = favEndY + 12.0f + themeScrollY_;
+        themeMaxScrollY_ = std::max(0.0f, totalBottom - (contentY + contentH));
+        themeScrollY_ = std::clamp(themeScrollY_, 0.0f, themeMaxScrollY_);
+        if (themeMaxScrollY_ > 1.0f) {
+            const float sbTrackY = contentY + 8.0f;
+            const float sbTrackH = contentH - 16.0f;
+            const float visibleFrac = std::clamp(contentH / std::max(1.0f, totalBottom - contentY), 0.15f, 1.0f);
+            const float thumbH = std::max(22.0f, sbTrackH * visibleFrac);
+            const float scrollFrac = themeScrollY_ / themeMaxScrollY_;
+            const float thumbY = sbTrackY + (sbTrackH - thumbH) * scrollFrac;
+            themeSbTrackY_ = sbTrackY;
+            themeSbTrackH_ = sbTrackH;
+            themeSbThumbH_ = thumbH;
+            const bool sbHov = (mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
+                                mouseY >= sbTrackY && mouseY <= sbTrackY + sbTrackH) || draggingThemeScrollbar_;
+            const float sbW = sbHov ? 7.0f : 5.0f;
+            const float sbX = contentX + contentW - sbW - 4.0f;
+            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, sbHov ? 0.65f : 0.45f, 2);
+            r.drawRoundedRect(sbX, thumbY, sbW, thumbH, sbW * 0.5f,
+                              isClockwork ? cpal.brassBrightR : pal.accentR,
+                              isClockwork ? cpal.brassBrightG : pal.accentG,
+                              isClockwork ? cpal.brassBrightB : pal.accentB, sbHov ? 0.95f : 0.78f, 2);
         }
     } else if (currentTab_ == 1) {
         // --- TAB 1: THEMES & PHYSICAL FINISHES (Scrollable on compact/mobile viewports) ---
@@ -1076,19 +1191,6 @@ void SettingsDialog::render(
 
         // 3. Post-Processing
         drawSectionHeader("POST-PROCESSING");
-        std::string resLabel = "Auto (Native)";
-        switch (tempSettings_.renderResolution) {
-            case RenderResolutionMode::Auto:
-                resLabel = lowCapabilityHardware_ ? "Auto (720p)" : "Auto (Native)";
-                break;
-            case RenderResolutionMode::Native:   resLabel = "Native"; break;
-            case RenderResolutionMode::Res1080p: resLabel = "1920x1080 (1080p)"; break;
-            case RenderResolutionMode::Res720p:  resLabel = "1280x720 (720p)"; break;
-            case RenderResolutionMode::Res540p:  resLabel = "960x540 (540p)"; break;
-            default: break;
-        }
-        drawSceneStepper("Render Res: " + resLabel);
-        curY += rowH + rowGap;
 
         (void)PostFxSystem::instance().availableEffects();
         size_t curPfxIdx = PostFxSystem::instance().findEffectIndex(tempSettings_.postFxId);
@@ -1649,92 +1751,156 @@ bool SettingsDialog::handleMouseButton(
     }
 
     if (currentTab_ == 0) {
-        float curY = tabContentY + 16.0f + 24.0f;
-        const float seedBoxX = contentX + 16.0f;
-        const float seedBoxW = 200.0f;
-        const float seedBoxH = 30.0f;
+        if (mouseY < contentRectY_ || mouseY > contentRectY_ + contentRectH_ ||
+            mouseX < contentRectX_ || mouseX > contentRectX_ + contentRectW_) {
+            // Outside scrollable content bounds — fall through to footer buttons
+        } else {
+            if (themeMaxScrollY_ > 1.0f &&
+                mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
+                mouseY >= themeSbTrackY_ && mouseY <= themeSbTrackY_ + themeSbTrackH_) {
+                draggingThemeScrollbar_ = true;
+                float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
+                float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
+                themeScrollY_ = frac * themeMaxScrollY_;
+                return true;
+            }
 
-        if (mouseX >= seedBoxX && mouseX <= seedBoxX + seedBoxW && mouseY >= curY && mouseY <= curY + seedBoxH) {
-            editingSeed_ = true;
-            return true;
-        }
+            float curY = tabContentY + 16.0f - themeScrollY_;
+            curY += 24.0f; // "RENDER RESOLUTION & PIXEL ART MODE" header
+            {
+                const float resBtnH = 26.0f;
+                const float resGap = 6.0f;
+                const float rowW = contentW - 36.0f;
+                const float rowX = contentX + 16.0f;
 
-        const float stepBtnW = 28.0f;
-        const float minusX = seedBoxX + seedBoxW + 8.0f;
-        if (mouseX >= minusX && mouseX <= minusX + stepBtnW && mouseY >= curY && mouseY <= curY + seedBoxH) {
-            if (tempSettings_.lastSeed > 1) {
-                --tempSettings_.lastSeed;
+                const RenderResolutionMode stdVals[5] = {
+                    RenderResolutionMode::Auto,
+                    RenderResolutionMode::Native,
+                    RenderResolutionMode::Res1080p,
+                    RenderResolutionMode::Res720p,
+                    RenderResolutionMode::Res540p
+                };
+                const float stdBtnW = (rowW - resGap * 4.0f) / 5.0f;
+                for (int i = 0; i < 5; ++i) {
+                    const float bx = rowX + i * (stdBtnW + resGap);
+                    if (mouseX >= bx && mouseX <= bx + stdBtnW && mouseY >= curY && mouseY <= curY + resBtnH) {
+                        tempSettings_.renderResolution = stdVals[i];
+                        foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                        return true;
+                    }
+                }
+                curY += resBtnH + 6.0f;
+
+                const RenderResolutionMode pixVals[2] = {
+                    RenderResolutionMode::Pixel720p,
+                    RenderResolutionMode::Pixel360p
+                };
+                const float pixBtnW = (rowW - resGap) * 0.5f;
+                for (int i = 0; i < 2; ++i) {
+                    const float bx = rowX + i * (pixBtnW + resGap);
+                    if (mouseX >= bx && mouseX <= bx + pixBtnW && mouseY >= curY && mouseY <= curY + resBtnH) {
+                        tempSettings_.renderResolution = pixVals[i];
+                        foley.triggerSound(FoleySound::WoodClick, 0.75f);
+                        return true;
+                    }
+                }
+                curY += resBtnH + 5.0f + 18.0f;
+            }
+
+            curY += 24.0f; // "DEAL SEED & PROCEDURAL RANDOMIZATION" header
+            const float seedBoxX = contentX + 16.0f;
+            const float seedBoxW = 200.0f;
+            const float seedBoxH = 30.0f;
+
+            if (mouseX >= seedBoxX && mouseX <= seedBoxX + seedBoxW && mouseY >= curY && mouseY <= curY + seedBoxH) {
+                editingSeed_ = true;
+                return true;
+            }
+
+            const float stepBtnW = 28.0f;
+            const float minusX = seedBoxX + seedBoxW + 8.0f;
+            if (mouseX >= minusX && mouseX <= minusX + stepBtnW && mouseY >= curY && mouseY <= curY + seedBoxH) {
+                if (tempSettings_.lastSeed > 1) {
+                    --tempSettings_.lastSeed;
+                    seedText_ = std::to_string(tempSettings_.lastSeed);
+                    foley.triggerSound(FoleySound::WoodClick, 0.6f);
+                }
+                return true;
+            }
+
+            const float plusX = minusX + stepBtnW + 6.0f;
+            if (mouseX >= plusX && mouseX <= plusX + stepBtnW && mouseY >= curY && mouseY <= curY + seedBoxH) {
+                ++tempSettings_.lastSeed;
                 seedText_ = std::to_string(tempSettings_.lastSeed);
                 foley.triggerSound(FoleySound::WoodClick, 0.6f);
+                return true;
             }
-            return true;
-        }
 
-        const float plusX = minusX + stepBtnW + 6.0f;
-        if (mouseX >= plusX && mouseX <= plusX + stepBtnW && mouseY >= curY && mouseY <= curY + seedBoxH) {
-            ++tempSettings_.lastSeed;
-            seedText_ = std::to_string(tempSettings_.lastSeed);
-            foley.triggerSound(FoleySound::WoodClick, 0.6f);
-            return true;
-        }
-
-        const float randBtnX = plusX + stepBtnW + 12.0f;
-        const float randBtnW = 140.0f;
-        if (mouseX >= randBtnX && mouseX <= randBtnX + randBtnW && mouseY >= curY && mouseY <= curY + seedBoxH) {
-            randomizeSeed();
-            foley.triggerSound(FoleySound::DeckShuffle, 0.85f);
-            return true;
-        }
-
-        curY += 42.0f;
-        const float checkSize = 18.0f;
-        if (mouseX >= seedBoxX && mouseX <= seedBoxX + 340.0f && mouseY >= curY && mouseY <= curY + checkSize + 4.0f) {
-            tempSettings_.randomizeOnNewDeal = !tempSettings_.randomizeOnNewDeal;
-            foley.triggerSound(FoleySound::WoodClick, 0.7f);
-            return true;
-        }
-
-        curY += 28.0f;
-        if (mouseX >= seedBoxX && mouseX <= seedBoxX + 380.0f && mouseY >= curY && mouseY <= curY + checkSize + 4.0f) {
-            tempSettings_.guaranteeSolvable = !tempSettings_.guaranteeSolvable;
-            foley.triggerSound(FoleySound::WoodClick, 0.7f);
-            return true;
-        }
-
-        curY += 34.0f + 24.0f;
-        const float libBtnW = std::min(220.0f, contentW - 32.0f);
-        const float libBtnH = 30.0f;
-        const float libBtnX = contentX + 16.0f;
-        if (mouseX >= libBtnX && mouseX <= libBtnX + libBtnW && mouseY >= curY && mouseY <= curY + libBtnH) {
-            foley.triggerSound(FoleySound::WoodClick, 0.8f);
-            close();
-            if (onOpenGameBrowser) onOpenGameBrowser();
-            return true;
-        }
-
-        curY += libBtnH + 12.0f;
-        const auto& favIds = SettingsManager::instance().settings().favorites;
-        std::vector<const SolitaireGameDef*> favDefs;
-        favDefs.reserve(6);
-        for (const auto& id : favIds) {
-            if (const auto* def = GameRegistry::instance().findById(id)) {
-                favDefs.push_back(def);
-                if (favDefs.size() >= 6) break;
+            const float randBtnX = plusX + stepBtnW + 12.0f;
+            const float randBtnW = 140.0f;
+            if (mouseX >= randBtnX && mouseX <= randBtnX + randBtnW && mouseY >= curY && mouseY <= curY + seedBoxH) {
+                randomizeSeed();
+                foley.triggerSound(FoleySound::DeckShuffle, 0.85f);
+                return true;
             }
-        }
-        if (!favDefs.empty()) {
-            const float favBtnW = (contentW - 48.0f) * 0.5f;
-            const float favBtnH = 30.0f;
-            for (size_t i = 0; i < favDefs.size(); ++i) {
-                float fx = contentX + 16.0f + (static_cast<int>(i % 2) * (favBtnW + 16.0f));
-                float fy = curY + static_cast<int>(i / 2) * (favBtnH + 8.0f);
-                if (mouseX >= fx && mouseX <= fx + favBtnW && mouseY >= fy && mouseY <= fy + favBtnH) {
-                    const std::string chosenId = favDefs[i]->id;
-                    foley.triggerSound(FoleySound::WoodClick, 0.8f);
-                    close();
-                    if (onSelectFavoriteGame) onSelectFavoriteGame(chosenId);
-                    return true;
+
+            curY += 42.0f;
+            const float checkSize = 18.0f;
+            if (mouseX >= seedBoxX && mouseX <= seedBoxX + 340.0f && mouseY >= curY && mouseY <= curY + checkSize + 4.0f) {
+                tempSettings_.randomizeOnNewDeal = !tempSettings_.randomizeOnNewDeal;
+                foley.triggerSound(FoleySound::WoodClick, 0.7f);
+                return true;
+            }
+
+            curY += 28.0f;
+            if (mouseX >= seedBoxX && mouseX <= seedBoxX + 380.0f && mouseY >= curY && mouseY <= curY + checkSize + 4.0f) {
+                tempSettings_.guaranteeSolvable = !tempSettings_.guaranteeSolvable;
+                foley.triggerSound(FoleySound::WoodClick, 0.7f);
+                return true;
+            }
+
+            curY += 34.0f + 24.0f;
+            const float libBtnW = std::min(220.0f, contentW - 32.0f);
+            const float libBtnH = 30.0f;
+            const float libBtnX = contentX + 16.0f;
+            if (mouseX >= libBtnX && mouseX <= libBtnX + libBtnW && mouseY >= curY && mouseY <= curY + libBtnH) {
+                foley.triggerSound(FoleySound::WoodClick, 0.8f);
+                close();
+                if (onOpenGameBrowser) onOpenGameBrowser();
+                return true;
+            }
+
+            curY += libBtnH + 12.0f;
+            const auto& favIds = SettingsManager::instance().settings().favorites;
+            std::vector<const SolitaireGameDef*> favDefs;
+            favDefs.reserve(6);
+            for (const auto& id : favIds) {
+                if (const auto* def = GameRegistry::instance().findById(id)) {
+                    favDefs.push_back(def);
+                    if (favDefs.size() >= 6) break;
                 }
+            }
+            if (!favDefs.empty()) {
+                const float favBtnW = (contentW - 48.0f) * 0.5f;
+                const float favBtnH = 30.0f;
+                for (size_t i = 0; i < favDefs.size(); ++i) {
+                    float fx = contentX + 16.0f + (static_cast<int>(i % 2) * (favBtnW + 16.0f));
+                    float fy = curY + static_cast<int>(i / 2) * (favBtnH + 8.0f);
+                    if (mouseX >= fx && mouseX <= fx + favBtnW && mouseY >= fy && mouseY <= fy + favBtnH) {
+                        const std::string chosenId = favDefs[i]->id;
+                        foley.triggerSound(FoleySound::WoodClick, 0.8f);
+                        close();
+                        if (onSelectFavoriteGame) onSelectFavoriteGame(chosenId);
+                        return true;
+                    }
+                }
+            }
+            if (themeMaxScrollY_ > 1.0f) {
+                pointerDownInContent_ = true;
+                draggingThemeScroll_ = false;
+                dragStartY_ = mouseY;
+                dragLastY_ = mouseY;
+                return true;
             }
         }
     } else if (currentTab_ == 1) {
@@ -2145,17 +2311,6 @@ bool SettingsDialog::handleMouseButton(
                 curY += 24.0f + rowGap;
             }
             curY += (24.0f + rowGap) + (24.0f + 8.0f) + 24.0f; // God rays/dust row + darkness/strength row + gap + Post-FX header
-
-            // Render Resolution stepper
-            if (testSceneStepper(stepDelta)) {
-                constexpr int count = static_cast<int>(RenderResolutionMode::Count);
-                int cur = static_cast<int>(tempSettings_.renderResolution);
-                cur = (stepDelta < 0) ? ((cur + count - 1) % count) : ((cur + 1) % count);
-                tempSettings_.renderResolution = static_cast<RenderResolutionMode>(cur);
-                foley.triggerSound(FoleySound::WoodClick, 0.75f);
-                return true;
-            }
-            curY += rowH + rowGap;
 
             // Post-FX stepper
             const auto& availablePfx = PostFxSystem::instance().availableEffects();
@@ -2578,13 +2733,13 @@ bool SettingsDialog::handleMouseMove(
         tempSettings_.cloudOpacity = std::clamp((mouseX - cloudOpacityTrackX_) / cloudOpacityTrackW_, 0.0f, 1.0f);
         return true;
     }
-    if (draggingThemeScrollbar_ && (currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
+    if (draggingThemeScrollbar_ && (currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
         float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
         float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
         themeScrollY_ = frac * themeMaxScrollY_;
         return true;
     }
-    if (pointerDownInContent_ && (currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
+    if (pointerDownInContent_ && (currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
         float dy = mouseY - dragLastY_;
         if (!draggingThemeScroll_ && std::abs(mouseY - dragStartY_) > 4.0f) {
             draggingThemeScroll_ = true;
@@ -2652,7 +2807,7 @@ bool SettingsDialog::handleChar(unsigned int codepoint) {
 
 bool SettingsDialog::handleScroll(float yoffset) {
     if (!isOpen_) return false;
-    if ((currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
+    if ((currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
         themeScrollY_ = std::clamp(themeScrollY_ - yoffset * 28.0f, 0.0f, themeMaxScrollY_);
         return true;
     }

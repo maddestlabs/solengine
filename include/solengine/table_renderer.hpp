@@ -252,7 +252,8 @@ public:
         size_t dragChainCount = 0,
         const std::vector<GhostCardCue>* ghostCards = nullptr,
         const HelpVideoThumb* helpVideoThumb = nullptr,
-        const VictoryGatherState* victoryGather = nullptr
+        const VictoryGatherState* victoryGather = nullptr,
+        bool flushPostFxBeforeHud = false
     );
 
     static void renderMiniBoard(
