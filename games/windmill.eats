@@ -1,0 +1,231 @@
+# =============================================================================
+# SolEngine Game Family: Windmill (.eats)
+# Classic 2-Deck Windmill / Propeller Solitaire — authored with layout_from_ascii()
+# =============================================================================
+# Zones (layout: "columns", 2 decks = 104 cards):
+#   Zone 0      = Stock (remaining face-down cards)
+#   Zone 1      = Waste (top card playable)
+#   Zones 2,3,5,6 = 4 Corner Foundations (Kings down to Ace, any suit, 13 cards each)
+#   Zone 4      = Center Hub Foundation (starts with an Ace, builds UP wrapping K->A to 52 cards)
+#   Zones 7..14 = 8 Windmill Sail Slots (auto-refill from Waste, or Stock if Waste is empty)
+
+def wm_is_corner(z):
+    return z == 2 or z == 3 or z == 5 or z == 6
+
+def wm_is_sail(z):
+    return z >= 7 and z <= 14
+
+def wm_can_build_center(rank):
+    sz = zone_size(4)
+    if sz >= 52:
+        return False
+    if sz == 0:
+        return rank == 1
+    top_r = card_rank(4, sz - 1)
+    if top_r == 13:
+        return rank == 1
+    return rank == top_r + 1
+
+def wm_can_build_corner(z, rank):
+    sz = zone_size(z)
+    if sz >= 13:
+        return False
+    if sz == 0:
+        return rank == 13
+    return rank == card_rank(z, sz - 1) - 1
+
+def wm_refill_sails():
+    z = 7
+    while z <= 14:
+        if zone_size(z) == 0:
+            if zone_size(1) > 0:
+                move_cards(1, zone_size(1) - 1, z)
+                flip_card(z, 0, True)
+            elif zone_size(0) > 0:
+                move_cards(0, zone_size(0) - 1, z)
+                flip_card(z, 0, True)
+        z = z + 1
+    return True
+
+def wm_refresh_card():
+    hub = zone_size(4)
+    corners = zone_size(2) + zone_size(3) + zone_size(5) + zone_size(6)
+    set_board_card("wm_stats", "WINDMILL", "top_right")
+    clear_card_rows("wm_stats")
+    add_card_bar("wm_stats", "HUB (A->K x4)", hub, 52)
+    add_card_bar("wm_stats", "CORNERS (K->A)", corners, 52)
+    add_card_row("wm_stats", "STOCK", str(zone_size(0)))
+    return True
+
+def wm_on_deal():
+    # Find the first Ace in Stock or Sails and place it on the Center Hub (Zone 4)
+    if zone_size(4) == 0:
+        found = False
+        z = 0
+        while z <= 14 and not found:
+            if z != 4:
+                sz = zone_size(z)
+                i = sz - 1
+                while i >= 0 and not found:
+                    if card_rank(z, i) == 1:
+                        extract_card(z, i, 4)
+                        flip_card(4, 0, True)
+                        found = True
+                    i = i - 1
+            z = z + 1
+    wm_refill_sails()
+    wm_refresh_card()
+    return True
+
+def wm_can_pick(z, i):
+    sz = zone_size(z)
+    if sz == 0 or i != sz - 1:
+        return False
+    if z == 1 or wm_is_sail(z) or wm_is_corner(z):
+        return True
+    return False
+
+def wm_can_drop(from_z, i, to_z):
+    if not wm_can_pick(from_z, i):
+        return False
+    if from_z == to_z:
+        return False
+    r = card_rank(from_z, i)
+    if to_z == 4:
+        return wm_can_build_center(r)
+    if wm_is_corner(to_z) and not wm_is_corner(from_z):
+        return wm_can_build_corner(to_z, r)
+    return False
+
+def wm_on_drop(from_z, i, to_z):
+    if not wm_can_drop(from_z, i, to_z):
+        return False
+    move_cards(from_z, i, to_z)
+    if not wm_is_corner(from_z):
+        add_score(10)
+    wm_refill_sails()
+    wm_refresh_card()
+    return True
+
+def wm_on_card_click(z, i):
+    if not wm_can_pick(z, i):
+        return False
+    r = card_rank(z, i)
+    # Prefer building onto the Center Hub (Ace up, wrapping)
+    if wm_can_build_center(r):
+        return wm_on_drop(z, i, 4)
+    # Otherwise try the 4 Corner Foundations (Kings down)
+    if not wm_is_corner(z):
+        if wm_can_build_corner(2, r):
+            return wm_on_drop(z, i, 2)
+        if wm_can_build_corner(3, r):
+            return wm_on_drop(z, i, 3)
+        if wm_can_build_corner(5, r):
+            return wm_on_drop(z, i, 5)
+        if wm_can_build_corner(6, r):
+            return wm_on_drop(z, i, 6)
+    return False
+
+def wm_on_stock_click():
+    if zone_size(0) == 0:
+        return False
+    move_cards(0, zone_size(0) - 1, 1)
+    flip_card(1, zone_size(1) - 1, True)
+    wm_refresh_card()
+    return True
+
+def wm_eval():
+    hub = zone_size(4)
+    corners = zone_size(2) + zone_size(3) + zone_size(5) + zone_size(6)
+    return (hub + corners) * 120 - zone_size(1) * 8
+
+def wm_status():
+    total = zone_size(2) + zone_size(3) + zone_size(4) + zone_size(5) + zone_size(6)
+    if total >= 104:
+        return "victory"
+    return "playing"
+
+def wm_layout(bw, bh):
+    pad_top = max(24.0, get_safe_top() + 18.0)
+    pad_bot = max(50.0, get_safe_bottom() + 44.0)
+    pad_x = max(24.0, max(get_safe_left(), get_safe_right()) + 20.0)
+
+    # Author the entire 13-pile Windmill board with 2 overlaid ASCII diagrams:
+    # 1) Zones 2..6: 4 angled Corner Foundations (\ / / \) + Center Hub (#)
+    # 2) Zones 7..14: 4 radiating Windmill Sails (2 vertical N/S, 2 horizontal W/E)
+    layout_begin()
+    layout_from_ascii("""
+\./
+.#.
+/.\
+""", 2.20, 2.20, 10)
+    layout_from_ascii("""
+..|..
+..|..
+--.--
+..|..
+..|..
+""", 1.65, 1.65, 20)
+
+    # Auto-fit all 13 Windmill zones (2..14) with room on the left for Stock & Waste
+    layout_apply(2, bw, bh, pad_top, pad_bot, pad_x)
+    cw = get_card_width()
+    ch = get_card_height()
+
+    # Anchor Stock (Zone 0) and Waste (Zone 1) cleanly in the left rail
+    set_zone_pose(0, pad_x, pad_top, 0.0, 30)
+    set_zone_fan(0, 0.0, 0.0)
+    set_zone_pose(1, pad_x, pad_top + ch + 14.0, 0.0, 31)
+    set_zone_fan(1, 0.0, 0.0)
+
+    # Keep all 5 Foundations and 8 Sails stacked flat (no vertical fan)
+    z = 2
+    while z <= 14:
+        set_zone_fan(z, 0.0, 0.0)
+        z = z + 1
+    return True
+
+sol.define_game({
+    id: "windmill",
+    name: "Windmill",
+    family: "Windmill",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["classic", "two_deck", "shaped", "wrapping", "ascii_layout"],
+    layout: "columns",
+    wrap_ranks: True,
+    description: "Classic 2-deck Windmill (Propeller) solitaire. Build the central Hub Ace up to 52 cards (wrapping K->A) and four angled Corner Foundations from King down to Ace, fed by 8 auto-refilling windmill sails.",
+    decks: 2,
+    tableaus: 8,
+    foundations: 5,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    stock_deal_mode: "waste_draw_1",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 2026,
+    demo_seeds: [1, 7, 13, 21, 42, 2026],
+    eval_heuristic: wm_eval,
+    on_deal: wm_on_deal,
+    on_layout: wm_layout,
+    can_pick: wm_can_pick,
+    can_drop: wm_can_drop,
+    on_drop: wm_on_drop,
+    on_card_click: wm_on_card_click,
+    on_stock_click: wm_on_stock_click,
+    get_status: wm_status,
+    doc: {
+        meta: [3, "Medium", 3, "Balanced", 3, "Tactical"],
+        aliases: ["Propeller", "Dutch Mill", "Mill", "Sails"],
+        goal: ["Build all 104 cards onto the 5 Foundations (52 in the Center Hub, 13 in each Corner).", "Stock is exhausted and no playable cards remain on the Sails or Waste."],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to deal 1 face-up card to the Waste pile." },
+            { index: 1, name: "Waste", desc: "Top card can be played to any Foundation and automatically refills empty Sails." },
+            { index: 4, name: "Center Hub", desc: "Starts with an Ace. Build UP regardless of suit, wrapping King -> Ace up to 52 cards." },
+            { index: 2, name: "Corner Foundations (4)", desc: "Start with Kings and build DOWN regardless of suit to Ace. Top cards may also transfer to the Center Hub." },
+            { index: 7, name: "Windmill Sails (8)", desc: "Eight open blade slots radiating from the hub. Empty sails auto-refill from Waste or Stock." }
+        ]
+    }
+})

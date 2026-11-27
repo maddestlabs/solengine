@@ -110,8 +110,12 @@ SolveResult solveScriptedBoard(
     SolveResult result{};
 
     SolitaireBoard simBoard;
+    simBoard.setSolverSimulation(true);
     simBoard.newDeal(initialBoard.seed(), initialBoard.activeGameDef());
-    simBoard.restoreSnapshot(initialBoard.captureSnapshot());
+    auto rootSnap = initialBoard.captureSnapshot();
+    rootSnap.blackboard.widgetCards.clear();
+    rootSnap.blackboard.badges.clear();
+    simBoard.restoreSnapshot(rootSnap);
 
     if (simBoard.gameStatus() == GameStatus::Victory) {
         result.solved = true;
@@ -242,16 +246,67 @@ SolveResult solveScriptedBoard(
         }
 
         // 2. Enumerate pile-to-pile moves (can_pick + can_drop)
+        bool tookForcedFoundation = false;
         if (simBoard.hasScriptCanDrop()) {
+            const auto& adef = simBoard.activeGameDef();
+            const bool singleOnly = (adef.moveGroup == "single");
+            const bool gridGapOnly = (adef.layout == "grid" && adef.foundationMode == "none");
+            const bool forceFoundations =
+                (adef.foundationMode == "suit_up" || adef.foundationMode == "canfield_wrap" ||
+                 adef.foundationMode == "custom" || adef.foundationMode == "rank_up") &&
+                adef.tableauBuild != "alt_color";
             simBoard.restoreSnapshot(curSnap);
-            for (size_t p = 0; p < pCount; ++p) {
-                const size_t cCount = curSnap.piles[p].cards.size();
-                for (size_t cIdx = 0; cIdx < cCount; ++cIdx) {
+
+            // Fast dominance pass: take safe foundation promotions immediately
+            if (forceFoundations) {
+                for (size_t p = 0; p < pCount && !tookForcedFoundation; ++p) {
+                    const size_t cCount = curSnap.piles[p].cards.size();
+                    if (cCount == 0) continue;
+                    const size_t cIdx = cCount - 1;
                     if (simBoard.hasScriptCanPick() && !simBoard.canPickScriptCard(static_cast<uint8_t>(p), cIdx)) {
                         continue;
                     }
                     for (size_t dst = 0; dst < pCount; ++dst) {
+                        if (dst == p || curSnap.piles[dst].type != PileType::Foundation) continue;
+                        if (!simBoard.canMoveCards(static_cast<uint8_t>(p), cIdx, static_cast<uint8_t>(dst))) continue;
+                        SolverMove mv{};
+                        mv.action = SolverMove::Action::MoveCards;
+                        mv.fromPile = static_cast<uint8_t>(p);
+                        mv.cardIndex = static_cast<uint8_t>(cIdx);
+                        mv.toPile = static_cast<uint8_t>(dst);
+                        mv.notation = buildMoveNotation(simBoard, mv);
+                        if (simBoard.executeMove(static_cast<uint8_t>(p), cIdx, static_cast<uint8_t>(dst), false)) {
+                            if (tryPushChild(std::move(mv))) {
+                                auto end = std::chrono::high_resolution_clock::now();
+                                result.solveTimeMs = std::chrono::duration<float, std::milli>(end - startTime).count();
+                                return result;
+                            }
+                            simBoard.restoreSnapshot(curSnap);
+                            tookForcedFoundation = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!tookForcedFoundation) for (size_t p = 0; p < pCount; ++p) {
+                const size_t cCount = curSnap.piles[p].cards.size();
+                if (cCount == 0) continue;
+                const size_t startIdx = singleOnly ? (cCount - 1) : 0;
+                for (size_t cIdx = startIdx; cIdx < cCount; ++cIdx) {
+                    if (simBoard.hasScriptCanPick() && !simBoard.canPickScriptCard(static_cast<uint8_t>(p), cIdx)) {
+                        continue;
+                    }
+                    bool seenEmptyFreeCell = false;
+                    for (size_t dst = 0; dst < pCount; ++dst) {
                         if (dst == p) continue;
+                        const auto dstType = curSnap.piles[dst].type;
+                        if (dstType == PileType::Stock || dstType == PileType::Waste) continue;
+                        if (gridGapOnly && dstType == PileType::Tableau && !curSnap.piles[dst].cards.empty()) continue;
+                        if (dstType == PileType::FreeCell && curSnap.piles[dst].cards.empty()) {
+                            if (seenEmptyFreeCell) continue;
+                            seenEmptyFreeCell = true;
+                        }
                         if (!simBoard.canMoveCards(static_cast<uint8_t>(p), cIdx, static_cast<uint8_t>(dst))) {
                             continue;
                         }
@@ -305,7 +360,7 @@ SolveResult solveScriptedBoard(
         }
 
         // 4. Enumerate stock click (draw / room refill)
-        if (simBoard.hasScriptStockClick()) {
+        if (!tookForcedFoundation && simBoard.hasScriptStockClick()) {
             simBoard.restoreSnapshot(curSnap);
             SolverMove mv{};
             mv.action = SolverMove::Action::DrawStock;
@@ -415,6 +470,8 @@ struct GameRules {
     bool requireNonEmptyBeforeStockDeal{false};
     bool hasFreeCells{false};
     bool triPeaksGraph{false};
+    bool hasBlockingGraph{false};
+    std::array<uint64_t, 64> blockingMask{};
     bool wrapRanks{false};
     bool kingDeadEnd{false};
     bool isOpenInfo{false};
@@ -502,6 +559,27 @@ GameRules extractGameRules(const SolitaireBoard& board) {
     rules.wrapRanks = def.wrapRanks || rules.triPeaksGraph || def.layout == "radial_clock";
     rules.kingDeadEnd = def.kingDeadEnd;
     rules.isOpenInfo = (def.visibility == "open") || (def.tableauAllFaceUp && def.stockDealMode == "none");
+
+    // Precompute generic OBB spatial blocking bitmask for procedural layered clearing games (e.g. Golf Engine)
+    if (rules.mechanic == SolverMechanic::Clearing && !rules.triPeaksGraph && board.hasScriptConfigure()) {
+        const auto& piles = board.piles();
+        const size_t nPiles = std::min<size_t>(piles.size(), 64u);
+        for (size_t i = 0; i < nPiles; ++i) {
+            if (piles[i].type != PileType::Tableau || piles[i].cards.empty()) continue;
+            const size_t topIdx = piles[i].cards.size() - 1;
+            uint64_t mask = 0;
+            for (size_t j = 0; j < nPiles; ++j) {
+                if (j == i || piles[j].type != PileType::Tableau || piles[j].cards.empty()) continue;
+                if (ScriptRuleEngine::isCardBlockedByPile(piles, i, topIdx, j, board.cardWidth(), board.cardHeight())) {
+                    mask |= (1ULL << j);
+                }
+            }
+            if (mask != 0) {
+                rules.blockingMask[i] = mask;
+                rules.hasBlockingGraph = true;
+            }
+        }
+    }
 
     if (rules.foundationMode == FoundationMode::CanfieldWrap) {
         const auto& piles = board.piles();
@@ -836,6 +914,13 @@ bool canMoveCards(const CompactBoard& b, uint8_t fromPileIdx, size_t startCardId
                     return false;
                 }
             }
+        } else if (rules.hasBlockingGraph && fromPileIdx < 64) {
+            uint64_t mask = rules.blockingMask[fromPileIdx];
+            for (size_t k = 0; mask != 0 && k < b.numPiles; ++k, mask >>= 1) {
+                if ((mask & 1ULL) && !b.piles[k].empty()) {
+                    return false;
+                }
+            }
         }
         if (dst.empty()) {
             return true;
@@ -985,6 +1070,20 @@ bool executeMove(CompactBoard& b, uint8_t fromPileIdx, size_t startCardIdx, uint
                 b.piles[2 + kChildren[idx][0]].empty() &&
                 b.piles[2 + kChildren[idx][1]].empty()) {
                 parent.back().setFaceUp(true);
+            }
+        }
+    } else if (rules.hasBlockingGraph) {
+        uint64_t occ = 0;
+        const size_t nPiles = std::min<size_t>(b.numPiles, 64u);
+        for (size_t p = 0; p < nPiles; ++p) {
+            if (!b.piles[p].empty()) occ |= (1ULL << p);
+        }
+        for (size_t p = 0; p < nPiles; ++p) {
+            CompactPile& parent = b.piles[p];
+            if (parent.type == PileType::Tableau && !parent.empty() && !parent.back().faceUp()) {
+                if ((occ & rules.blockingMask[p]) == 0) {
+                    parent.back().setFaceUp(true);
+                }
             }
         }
     }
@@ -1955,8 +2054,19 @@ SolveResult SolitaireSolver::solve(
         return solveRibbonBoard(initialBoard, maxStates, timeoutMs, cancelSignal);
     }
 
+    const auto& activeDef = initialBoard.activeGameDef();
+    const bool hasCustomRules =
+        activeDef.foundationMode == "custom" ||
+        activeDef.foundationMode == "rank_up" ||
+        activeDef.foundationMode == "discard" ||
+        activeDef.foundationMode == "none" ||
+        activeDef.emptyTableau == "custom" ||
+        activeDef.freecells > 8 ||
+        (activeDef.layout == "grid" && activeDef.mechanic != "clearing") ||
+        activeDef.id == "cruel";
     const bool useScriptSolver = initialBoard.hasScriptHooks() &&
-        (initialBoard.activeGameDef().category == "RPG" ||
+        (activeDef.category == "RPG" ||
+         hasCustomRules ||
          ((initialBoard.hasScriptCardClick() || initialBoard.hasScriptCanTarget()) &&
           !initialBoard.isGolf() && !initialBoard.isPyramidGame()));
     if (useScriptSolver) {

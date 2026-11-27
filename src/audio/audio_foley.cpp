@@ -2224,6 +2224,9 @@ bool AudioFoleyEngine::loadFromEatsFile(const std::string& filePath) {
 
 void AudioFoleyEngine::setSoundPackId(const std::string& packId) {
     std::string target = packId.empty() ? "default" : packId;
+    if (target == activeSoundPackId_) {
+        return;
+    }
     for (const auto& sp : availableSoundPacks()) {
         if (sp.id == target) {
             if (!sp.scriptSource.empty() && loadFromEatsScript(sp.scriptSource)) {
@@ -2264,7 +2267,14 @@ bool AudioFoleyEngine::setAmbience(const std::string& envId) {
     std::string lower;
     for (char c : envId) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (lower.empty() || lower == "off" || lower == "none") {
+        if (activeAmbienceId_ == "off" && !ambienceEnabled_.load(std::memory_order_acquire)) {
+            return true;
+        }
         clearAmbience();
+        return true;
+    }
+    if ((lower == activeAmbienceId_ || envId == activeAmbienceId_) &&
+        ambienceEnabled_.load(std::memory_order_acquire)) {
         return true;
     }
 
@@ -2478,6 +2488,9 @@ void AudioFoleyEngine::scanAmbiences(const std::string& dir) {
         {"wind", "Wind"},
         {"woodlands", "Woodlands"},
         {"riverbed", "Riverbed"},
+        {"torchlit_dungeon", "Torchlit Dungeon"},
+        {"catacombs", "Dripping Catacombs"},
+        {"deep_vault", "Deep Vault"},
         {"whitenoise", "White Noise"}
     };
     for (const auto& [id, name] : builtins) {

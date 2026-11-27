@@ -872,6 +872,20 @@ static void conditionSingleCard(
                         stockMod = 1.0f + (vellumMottle * 0.65f + fineGrain * 0.35f) * stockStrength;
                         break;
                     }
+                    case CardStock::PlasticGloss: {
+                        // Optically sleek casino plastic: virtually zero pulp grain
+                        stockMod = 1.0f;
+                        break;
+                    }
+                    case CardStock::GildedFoil: {
+                        // Subtle anisotropic stamped metallic micro-sheen
+                        const float fx = static_cast<float>(x);
+                        const float fy = static_cast<float>(y);
+                        const float brush = std::sin(fx * 0.85f + fy * 0.14f) * 0.35f;
+                        const float luster = std::sin((nx + ny) * 5.5f) * 0.35f;
+                        stockMod = 1.0f + (brush + luster) * (stockStrength * 0.55f);
+                        break;
+                    }
                     default:
                         break;
                 }
@@ -894,6 +908,16 @@ static void conditionSingleCard(
                     } else if (cardStock == CardStock::SmoothParchment) {
                         paperTargetR += 2.0f;
                         paperTargetB -= 3.0f;
+                    } else if (cardStock == CardStock::PlasticGloss) {
+                        // Neutral bright white synthetic stock (resists pulp yellowing)
+                        paperTargetR = 252.0f - sepiaShift * 8.0f;
+                        paperTargetG = 252.0f - sepiaShift * 10.0f;
+                        paperTargetB = 250.0f - sepiaShift * 14.0f;
+                    } else if (cardStock == CardStock::GildedFoil) {
+                        // Warm champagne-tinted luxury collector stock
+                        paperTargetR = std::min(255.0f, paperTargetR + 4.0f);
+                        paperTargetG = std::min(255.0f, paperTargetG + 1.0f);
+                        paperTargetB = std::max(0.0f, paperTargetB - 8.0f);
                     }
 
                     const float blend = whiteMask * paperWarmth;
@@ -1624,6 +1648,8 @@ const char* CardTextureCache::cardStockName(CardStock stock) noexcept {
         case CardStock::AntiqueLaid:     return "LAID RAG";
         case CardStock::CottonRag:       return "COTTON";
         case CardStock::SmoothParchment: return "PARCHMENT";
+        case CardStock::PlasticGloss:    return "PLASTIC";
+        case CardStock::GildedFoil:      return "GILDED FOIL";
         case CardStock::Count:           return "DEFAULT";
     }
     return "UNKNOWN";
@@ -1702,7 +1728,10 @@ void CardTextureCache::cycleCardBack(std::string& inOutId, int stepDelta) {
     inOutId = available[static_cast<size_t>(newIdx)].id;
 }
 
-void CardTextureCache::setActiveCardBack(const std::string& backId) {
+void CardTextureCache::setActiveCardBack(const std::string& backId, bool force) {
+    if (!force && backId == activeCardBackId_ && isLoaded_) {
+        return;
+    }
     activeCardBackId_ = backId;
     if (!isLoaded_) return;
 
@@ -1729,7 +1758,7 @@ void CardTextureCache::setActiveCardBack(const std::string& backId) {
         syncArgb32AndMipsSingle(textures_[kCardBackIndex + v]);
     }
     if (hasGpuAtlas_) {
-        atlasDirty_ = true;
+        atlasCardBackDirty_ = true;
     }
 }
 
@@ -3246,7 +3275,7 @@ bool CardTextureCache::loadDeckTheme(DeckThemeId theme, int cardW, int cardH) {
         return false;
     }
     isLoaded_ = true;
-    setActiveCardBack(activeCardBackId_);
+    setActiveCardBack(activeCardBackId_, true);
     applyConditioningAndSync(wearLevel_, cardStock_);
     return true;
 }
@@ -3472,8 +3501,11 @@ void CardTextureCache::commitStagedDeck(StagingDeck&& staging) {
     previewFaceTexture_ = textures_[cardIndex(Suit::Spades, Rank::Queen)];
     previewDeckTheme_ = currentTheme_;
     previewDeckId_ = currentDeckId_;
+    previewWear_ = wearLevel_;
+    previewStock_ = cardStock_;
+    previewLowPolySeed_ = lowPolySeed_;
     isLoaded_ = true;
-    setActiveCardBack(activeCardBackId_);
+    setActiveCardBack(activeCardBackId_, true);
     atlasDirty_ = true;
 }
 
@@ -3664,6 +3696,28 @@ bool CardTextureCache::buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer) {
     int reportedW = 0;
     int reportedH = 0;
 
+    // Fast path: if the GPU atlas already exists and only the card backs or preview slot changed,
+    // upload just those modified slots instead of re-uploading all 60+ card textures.
+    if (hasGpuAtlas_ && !atlasDirty_) {
+        if (atlasCardBackDirty_) {
+            for (size_t v = 0; v < kCardBackVariants; ++v) {
+                const size_t idx = kCardBackIndex + v;
+                uploadSlot(textures_[idx], static_cast<int>(idx), atlasSlots_[idx], !preferNative);
+            }
+            atlasCardBackDirty_ = false;
+        }
+        if (atlasPreviewDirty_) {
+            const CardTexture* previewSrc = (previewFaceTexture_.width > 0 && (!previewFaceTexture_.rgba.empty() || !previewFaceTexture_.argb32.empty()))
+                ? &previewFaceTexture_
+                : &textures_[cardIndex(Suit::Spades, Rank::Queen)];
+            if (previewSrc && previewSrc->width > 0) {
+                uploadSlot(*previewSrc, static_cast<int>(kTotalTextures), previewFaceAtlasSlot_, !preferNative);
+            }
+            atlasPreviewDirty_ = false;
+        }
+        return true;
+    }
+
     for (size_t i = 0; i < kTotalTextures; ++i) {
         if (uploadSlot(textures_[i], static_cast<int>(i), atlasSlots_[i], !preferNative)) {
             reportedW = atlasSlots_[i].width;
@@ -3681,6 +3735,8 @@ bool CardTextureCache::buildGpuAtlas(eatsbits::ui::BatchRenderer2D& renderer) {
 
     hasGpuAtlas_ = true;
     atlasDirty_ = false;
+    atlasCardBackDirty_ = false;
+    atlasPreviewDirty_ = false;
 #if defined(__EMSCRIPTEN__)
     for (auto& tex : textures_) {
         std::vector<uint8_t>().swap(tex.rgba);
@@ -3728,12 +3784,22 @@ void CardTextureCache::setLowPolySeed(uint32_t seed) {
     sampleDeckCardCache_.erase("low_poly_war");
     // Re-bake active card back immediately so seed-randomized low-poly backs update live
     if (isLoaded_) {
-        setActiveCardBack(activeCardBackId_);
+        setActiveCardBack(activeCardBackId_, true);
     }
 }
 
 void CardTextureCache::updatePreviewCard(DeckThemeId theme, CardWearLevel wear, CardStock stock) {
+    if (previewFaceTexture_.width > 0 &&
+        previewDeckTheme_ == theme &&
+        previewWear_ == wear &&
+        previewStock_ == stock &&
+        previewLowPolySeed_ == lowPolySeed_) {
+        return;
+    }
     previewDeckTheme_ = theme;
+    previewWear_ = wear;
+    previewStock_ = stock;
+    previewLowPolySeed_ = lowPolySeed_;
     size_t qIdx = cardIndex(Suit::Spades, Rank::Queen);
 
     const CardTexture* pristineSrc = nullptr;
@@ -3765,7 +3831,7 @@ void CardTextureCache::updatePreviewCard(DeckThemeId theme, CardWearLevel wear, 
     syncArgb32AndMipsSingle(previewFaceTexture_);
 
     if (hasGpuAtlas_) {
-        atlasDirty_ = true;
+        atlasPreviewDirty_ = true;
     }
 }
 
@@ -3994,8 +4060,19 @@ bool CardTextureCache::loadStagedDeckByDef(
 }
 
 void CardTextureCache::updatePreviewCardByDef(const DeckDef& def, CardWearLevel wear, CardStock stock) {
+    if (previewFaceTexture_.width > 0 &&
+        previewDeckId_ == def.id &&
+        previewDeckTheme_ == def.legacyId &&
+        previewWear_ == wear &&
+        previewStock_ == stock &&
+        previewLowPolySeed_ == lowPolySeed_) {
+        return;
+    }
     previewDeckTheme_ = def.legacyId;
     previewDeckId_ = def.id;
+    previewWear_ = wear;
+    previewStock_ = stock;
+    previewLowPolySeed_ = lowPolySeed_;
     size_t qIdx = cardIndex(Suit::Spades, Rank::Queen);
 
     const CardTexture* pristineSrc = nullptr;
@@ -4020,6 +4097,7 @@ void CardTextureCache::updatePreviewCardByDef(const DeckDef& def, CardWearLevel 
             }
         }
     } else {
+        previewWear_ = CardWearLevel::Count; // Allow updatePreviewCard to run
         updatePreviewCard(def.legacyId, wear, stock);
         return;
     }
@@ -4033,7 +4111,7 @@ void CardTextureCache::updatePreviewCardByDef(const DeckDef& def, CardWearLevel 
     syncArgb32AndMipsSingle(previewFaceTexture_);
 
     if (hasGpuAtlas_) {
-        atlasDirty_ = true;
+        atlasPreviewDirty_ = true;
     }
 }
 

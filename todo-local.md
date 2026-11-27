@@ -7,8 +7,11 @@
 - environmental shadows: subtractive blend mode
 - eatsdither; dither shader + procedural library for easy reuse across eatsbits apps
 - c header style apis from solengine
+- Fairytale Solitaire and similiar videogame board mechanics where some plays unlock other parts of the board
 
-- Auto-play toolbar: add settings: outline toggle, backgrond fade toggle, particles toggle.
+- Unsocial Score. Similar to badges in Steam and other platforms, Unsocial Scoring tracks player's use of the engine. Deck config, background choices, etc. Players earn points from being unsocial. Is this worth considering?
+
+- IMPOSSIBLE: But can we support webgl? We've built entirely around WebGPU, how much effort would it take to support webgl so older ipads, for example, could run our engine?
 
 ## Language and Accessibility
 

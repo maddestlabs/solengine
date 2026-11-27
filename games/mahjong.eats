@@ -1,0 +1,449 @@
+# =============================================================================
+# SolEngine Game Family: Card Mahjong (.eats)
+# Procedural Multi-Story Card Mahjong (Shanghai) Engine
+# =============================================================================
+# Zone 0       = Matched Pairs Discard Pile
+# Zones 1..N   = Face-Up Multi-Layer Stacked Cards (36..52 cards, multiples of 4)
+#
+# Rules:
+#   - All cards are dealt face-up across 3-4 overlapping zIndex layers.
+#   - A card is playable if no higher-layer card sits on top of it (not is_card_blocked).
+#   - Click (or drag) any two free cards of matching rank to clear them.
+#   - Every rank appears in exact pairs (4 suits = 2 pairs per rank), creating
+#     deep tactical choices over which pair to remove first to unlock lower layers.
+
+def mj_exclude_list(k):
+    if k <= 0:
+        return []
+    if k == 1:
+        return [2]
+    if k == 2:
+        return [2, 3]
+    if k == 3:
+        return [2, 3, 4]
+    if k == 4:
+        return [2, 3, 4, 5]
+    return [2, 3, 4, 5, 6]
+
+def mj_shape_name(lseed):
+    arch = seed_int(lseed, 1, 0, 6)
+    if arch == 0:
+        return "TURTLE"
+    if arch == 1:
+        return "ZIGGURAT"
+    if arch == 2:
+        return "FORTRESS"
+    if arch == 3:
+        return "TWIN PEAKS"
+    if arch == 4:
+        return "ARCHWAY"
+    if arch == 5:
+        return "DIAMOND TEMPLE"
+    return "CLOCKWORK STACK"
+
+def mj_build(lseed):
+    pi = 3.14159265
+    arch = seed_int(lseed, 1, 0, 6)
+    layout_begin()
+
+    if arch == 0:
+        # Archetype 0: Classic Shanghai TURTLE (4 stacked layers via layout_from_ascii -> 48 cards)
+        # Layer 0 (base): 26 cards
+        layout_from_ascii("""
+..######..
+.########.
+##########
+.########.
+..######..
+""", 1.14, 1.54, 0, 0.0, 0.0)
+        # Layer 1 (mid shell): 12 cards (subtle 3D pagoda offset so buried ranks peek out)
+        layout_from_ascii("""
+.####.
+.####.
+.####.
+""", 1.14, 1.54, 10, -0.10, -0.12)
+        # Layer 2 (upper shell): 6 cards
+        layout_from_ascii("""
+###
+###
+""", 1.14, 1.54, 20, -0.20, -0.24)
+        # Layer 3 (crown): 4 cards (total = 26 + 12 + 6 + 4 = 48 cards)
+        layout_from_ascii("""
+##
+##
+""", 1.14, 1.54, 30, -0.30, -0.36)
+
+    elif arch == 1:
+        # Archetype 1: Stepped ZIGGURAT (wide exposed base rim + 3 inner tiers -> 40 cards, ~18 exposed)
+        # Tier 0 (wide 6x4 base): 24 cards
+        layout_from_ascii("""
+######
+######
+######
+######
+""", 1.18, 1.56, 0, 0.0, 0.0)
+        # Tier 1 (inner 4x2): 8 cards (leaves outer rim of base unblocked!)
+        layout_from_ascii("""
+####
+####
+""", 1.18, 1.56, 10, -0.10, -0.12)
+        # Tier 2 (upper 2x2): 4 cards
+        layout_from_ascii("""
+##
+##
+""", 1.18, 1.56, 20, -0.20, -0.24)
+        # Tier 3 (4 corner capstones on outer corners): 4 cards -> 24 + 8 + 4 + 4 = 40 cards
+        layout_add(-2.95, -2.34, 0.0, 30)
+        layout_add(2.95, -2.34, 0.0, 30)
+        layout_add(-2.95, 2.34, 0.0, 30)
+        layout_add(2.95, 2.34, 0.0, 30)
+
+    elif arch == 2:
+        # Archetype 2: FORTRESS (4-way quad-symmetric walled castle with 3-story corner towers -> 44 cards)
+        # Upper-right quadrant: 11 cards x 4 = 44 cards
+        # Layer 0 (foundation walls & courtyard): 5 cards
+        layout_add(0.66, 0.85, 0.0, 0)
+        layout_add(1.88, 0.85, 0.0, 0)
+        layout_add(3.10, 0.85, 0.0, 0)
+        layout_add(0.66, 2.42, 0.0, 0)
+        layout_add(3.10, 2.42, 0.0, 0)
+        # Layer 1 (ramparts): 4 cards
+        layout_add(1.27, 1.58, 0.0, 10)
+        layout_add(2.50, 1.58, 0.0, 10)
+        layout_add(3.10, 2.42, 0.0, 10)
+        layout_add(1.88, 2.42, 0.0, 10)
+        # Layer 2 (corner keep tower): 2 cards
+        layout_add(2.80, 2.00, 8.0, 20)
+        layout_add(1.27, 1.58, -8.0, 20)
+        layout_mirror_xy()
+
+    elif arch == 3:
+        # Archetype 3: TWIN PEAKS Pagoda (wide 4x3 bases with 2x2 + 2x1 crowns -> 40 cards, ~16 exposed)
+        side = 0
+        while side < 2:
+            ox = -2.85
+            if side == 1:
+                ox = 2.85
+            # Layer 0: 12 cards (4x3) — outer left/right columns stay free!
+            layout_from_ascii("""
+####
+####
+####
+""", 1.16, 1.54, 0, ox, 0.0)
+            # Layer 1: 6 cards (3x2)
+            layout_from_ascii("""
+###
+###
+""", 1.16, 1.54, 10, ox - 0.10, -0.12)
+            # Layer 2: 2 crown cards -> 20 per peak = 40 cards total
+            layout_from_ascii("""
+##
+""", 1.16, 1.54, 20, ox - 0.20, -0.24)
+            side = side + 1
+
+    elif arch == 4:
+        # Archetype 4: Layered Stone ARCHWAY (zero same-layer overlap across all 4 tiers -> 36 cards)
+        # Layer 0: 12-card wide outer arch (chord ~1.50 > 1.0 -> zero same-layer overlap!)
+        r0 = 4.95
+        i = 0
+        while i < 12:
+            t = i / 11.0
+            deg = 174.0 + t * 192.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * r0, sin(th) * r0 + 1.45, deg + 90.0, 0)
+            i = i + 1
+        # Layer 1: 10-card inner arch (chord ~1.18 > 1.0 -> zero same-layer overlap!)
+        r1 = 3.40
+        j = 0
+        while j < 10:
+            t = j / 9.0
+            deg = 180.0 + t * 180.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * r1, sin(th) * r1 + 1.45, deg + 90.0, 10)
+            j = j + 1
+        # Layer 2: 8-card central bridge arch (chord ~1.53 > 1.0 -> zero same-layer overlap!)
+        r2 = 4.18
+        k = 0
+        while k < 8:
+            t = k / 7.0
+            deg = 195.0 + t * 150.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * r2, sin(th) * r2 + 1.45, deg + 90.0, 20)
+            k = k + 1
+        # Layer 3: 6 keystone capstone cards (chord ~1.58 > 1.0) -> 12 + 10 + 8 + 6 = 36 cards
+        m = 0
+        while m < 6:
+            t = m / 5.0
+            deg = 215.0 + t * 110.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * 4.18 - 0.10, sin(th) * 4.18 + 1.33, deg + 90.0, 30)
+            m = m + 1
+
+    elif arch == 5:
+        # Archetype 5: DIAMOND TEMPLE (4-layer diamond pagoda, zero same-layer overlap -> 44 cards)
+        dx = 1.28
+        dy = 1.62
+        # Layer 0: 24-card outer diamond (|gx| + |gy| in 1..3)
+        gy = -3
+        while gy <= 3:
+            gx = -3
+            while gx <= 3:
+                d = abs(gx) + abs(gy)
+                if d >= 1 and d <= 3:
+                    layout_add(gx * dx, gy * dy, 0.0, 0)
+                gx = gx + 1
+            gy = gy + 1
+        # Layer 1: 12-card inner diamond (same safe dx/dy spacing so zero same-layer overlap!)
+        gy = -2
+        while gy <= 2:
+            gx = -2
+            while gx <= 2:
+                d = abs(gx) + abs(gy)
+                if d >= 1 and d <= 2:
+                    layout_add(gx * dx - 0.10, gy * dy - 0.12, 0.0, 10)
+                gx = gx + 1
+            gy = gy + 1
+        # Layer 2: 4-card inner sanctum + Layer 3: 4-card spaced crown -> 24 + 12 + 4 + 4 = 44 cards
+        layout_add(-0.20, -dy - 0.24, 0.0, 20)
+        layout_add(dx - 0.20, -0.24, 0.0, 20)
+        layout_add(-0.20, dy - 0.24, 0.0, 20)
+        layout_add(-dx - 0.20, -0.24, 0.0, 20)
+        layout_add(-0.92, -0.92, -45.0, 30)
+        layout_add(0.92, -0.92, 45.0, 30)
+        layout_add(0.92, 0.92, -45.0, 30)
+        layout_add(-0.92, 0.92, 45.0, 30)
+
+    else:
+        # Archetype 6: CLOCKWORK STACK (4-layer radial ring pagoda, zero same-layer overlap -> 40 cards)
+        # Layer 0: 16-card wide outer ring (chord 1.73 > 1.0)
+        i = 0
+        while i < 16:
+            deg = -90.0 + i * (360.0 / 16.0)
+            th = deg * pi / 180.0
+            layout_add(cos(th) * 4.45, sin(th) * 4.45, deg + 90.0, 0)
+            i = i + 1
+        # Layer 1: 12-card inner ring (chord 1.53 > 1.0)
+        j = 0
+        while j < 12:
+            deg = -75.0 + j * (360.0 / 12.0)
+            th = deg * pi / 180.0
+            layout_add(cos(th) * 2.95, sin(th) * 2.95, deg + 90.0, 10)
+            j = j + 1
+        # Layer 2: 8-card bridge gear (chord 2.83 > 1.0)
+        k = 0
+        while k < 8:
+            deg = -90.0 + k * 45.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * 3.70, sin(th) * 3.70, deg + 90.0, 20)
+            k = k + 1
+        # Layer 3: 4 center clock-hand crown cards (chord 1.91 > 1.0) -> 16 + 12 + 8 + 4 = 40 cards
+        m = 0
+        while m < 4:
+            deg = -45.0 + m * 90.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * 1.35, sin(th) * 1.35, deg + 90.0, 30)
+            m = m + 1
+
+    # Guarantee exact multiple of 4 (36..52 cards) so every rank has 4 copies (2 pairs)
+    n = layout_count()
+    if n > 52:
+        n = 52
+    n = n - (n % 4)
+    if n < 36:
+        n = 36
+    layout_trim_to(n)
+    return n
+
+def mj_configure(lseed):
+    n = mj_build(lseed)
+    config_tableaus(n, 1)
+    ranks_needed = math.floor(n / 4)
+    config_deck(1, 4, mj_exclude_list(13 - ranks_needed))
+    config_all_face_up(True)
+    return True
+
+def mj_count_open_pairs():
+    zc = zone_count()
+    pairs = 0
+    z1 = 1
+    while z1 < zc:
+        if zone_size(z1) > 0 and not is_card_blocked(z1, 0):
+            r1 = card_rank(z1, 0)
+            z2 = z1 + 1
+            while z2 < zc:
+                if zone_size(z2) > 0 and not is_card_blocked(z2, 0) and card_rank(z2, 0) == r1:
+                    pairs = pairs + 1
+                z2 = z2 + 1
+        z1 = z1 + 1
+    return pairs
+
+def mj_refresh_card():
+    total_cards = zone_count() - 1
+    total_pairs = math.floor(total_cards / 2)
+    if total_pairs < 1:
+        total_pairs = 20
+    cleared_pairs = math.floor(zone_size(0) / 2)
+    open_pairs = mj_count_open_pairs()
+    lseed = get_layout_seed()
+    shape = mj_shape_name(lseed)
+    set_board_card("mj_stats", "CARD MAHJONG", "top_right")
+    clear_card_rows("mj_stats")
+    add_card_row("mj_stats", "SHAPE", shape)
+    add_card_bar("mj_stats", "PAIRS", cleared_pairs, total_pairs)
+    add_card_row("mj_stats", "OPEN PAIRS", str(open_pairs))
+    return True
+
+def mj_clear_selection():
+    sel_z = get_stat("SEL_Z", -1)
+    if sel_z >= 1:
+        set_zone_badge(sel_z, "top", "", False)
+    set_stat("SEL_Z", -1)
+    return True
+
+def mj_on_deal():
+    set_stat("SEL_Z", -1)
+    set_stat("DEALT_SOLVABLE", 0)
+    mj_refresh_card()
+    return True
+
+def mj_can_pick(z, i):
+    if z < 1 or zone_size(z) == 0 or i != 0:
+        return False
+    return not is_card_blocked(z, 0)
+
+def mj_can_drop(fz, fi, tz):
+    return mj_can_target(fz, fi, tz, 0)
+
+def mj_on_drop(fz, fi, tz):
+    return mj_on_target(fz, fi, tz, 0)
+
+def mj_can_target(fz, fi, tz, ti):
+    if fz == tz or not mj_can_pick(fz, fi) or not mj_can_pick(tz, ti):
+        return False
+    return card_rank(fz, 0) == card_rank(tz, 0)
+
+def mj_on_target(fz, fi, tz, ti):
+    if not mj_can_target(fz, fi, tz, ti):
+        return False
+    mj_clear_selection()
+    move_cards(fz, 0, 0)
+    move_cards(tz, 0, 0)
+    add_score(20)
+    mj_refresh_card()
+    return True
+
+def mj_on_card_click(z, i):
+    if not mj_can_pick(z, i):
+        return False
+    sel_z = get_stat("SEL_Z", -1)
+    if sel_z == z:
+        mj_clear_selection()
+        return True
+    if sel_z >= 1 and zone_size(sel_z) > 0 and not is_card_blocked(sel_z, 0):
+        if card_rank(sel_z, 0) == card_rank(z, 0):
+            return mj_on_target(sel_z, 0, z, 0)
+    mj_clear_selection()
+    set_stat("SEL_Z", z)
+    set_zone_badge(z, "top", "SELECTED", True)
+    return True
+
+def mj_turn_end():
+    if get_stat("DEALT_SOLVABLE", 0) == 0:
+        deal_solvable_pairs(1, zone_count() - 1)
+        set_stat("DEALT_SOLVABLE", 1)
+    mj_refresh_card()
+    return True
+
+def mj_on_demo_step():
+    # Live Auto-Play / Preview: use exact bitmask DFS solver to pick a guaranteed winning pair
+    mj_clear_selection()
+    zc = zone_count()
+    pair = find_solvable_pair(1, zc - 1)
+    if len(pair) == 2:
+        return mj_on_target(pair[0], 0, pair[1], 0)
+    # Fallback if player manually reached a dead-end state: pick highest-layer open pair
+    z1 = zc - 1
+    while z1 >= 1:
+        if zone_size(z1) > 0 and not is_card_blocked(z1, 0):
+            r1 = card_rank(z1, 0)
+            z2 = z1 - 1
+            while z2 >= 1:
+                if zone_size(z2) > 0 and not is_card_blocked(z2, 0) and card_rank(z2, 0) == r1:
+                    return mj_on_target(z1, 0, z2, 0)
+                z2 = z2 - 1
+        z1 = z1 - 1
+    return False
+
+def mj_eval():
+    return zone_size(0) * 120 + mj_count_open_pairs() * 18
+
+def mj_status():
+    total = zone_count() - 1
+    if total > 0 and zone_size(0) >= total:
+        return "victory"
+    return "playing"
+
+def mj_layout(bw, bh):
+    lseed = get_layout_seed()
+    mj_build(lseed)
+    pad_top = max(24.0, get_safe_top() + 18.0)
+    pad_bot = max(50.0, get_safe_bottom() + 44.0)
+    pad_x = max(24.0, max(get_safe_left(), get_safe_right()) + 20.0)
+    layout_apply(1, bw, bh, pad_top, pad_bot, pad_x)
+
+    # Fly cleared pairs cleanly offscreen top-left (keeps felt uncluttered and never blocks cards)
+    cw = get_card_width()
+    ch = get_card_height()
+    set_zone_pose(0, -cw * 1.35, -ch * 0.45, -12.0, -10)
+    set_zone_fan(0, 0.0, 0.0)
+    return True
+
+sol.define_game({
+    id: "card_mahjong_engine",
+    name: "Card Mahjong Engine",
+    family: "Mahjong",
+    category: "MATCHING",
+    mechanic: "pairing",
+    visibility: "open",
+    tags: ["procedural", "mahjong", "pairs", "layered", "open", "ascii_layout"],
+    layout: "grid",
+    description: "Seeded procedural Card Mahjong (Shanghai). Match pairs of equal-rank exposed cards across 3-4 stacked layers (Turtle, Ziggurat, Fortress, Twin Peaks, Archway, Diamond Temple, Clockwork Stack) to peel back buried cards. Lock any layout in the Seed Dialog to deal fresh cards onto your favorite stack.",
+    decks: 1,
+    suit_count: 4,
+    tableaus: 44,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 8,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    stock_deal_mode: "none",
+    supports_solver: False,
+    allow_undo: True,
+    demo_seed: 4,
+    demo_seeds: [4, 1, 25, 3, 2, 5, 6],
+    eval_heuristic: mj_eval,
+    on_configure: mj_configure,
+    on_deal: mj_on_deal,
+    on_layout: mj_layout,
+    can_pick: mj_can_pick,
+    can_drop: mj_can_drop,
+    on_drop: mj_on_drop,
+    on_card_click: mj_on_card_click,
+    can_target: mj_can_target,
+    on_target: mj_on_target,
+    on_turn_end: mj_turn_end,
+    on_demo_step: mj_on_demo_step,
+    get_status: mj_status,
+    doc: {
+        meta: [2, "Quick", 2, "Low Luck", 4, "Tactical"],
+        aliases: ["Card Mahjong", "Shanghai Solitaire", "Mahjong Engine", "Tile Pairs"],
+        goal: ["Clear all stacked cards by pairing exposed equal-rank cards from top layers down.", "No open matching pairs remain on the board."],
+        zones: [
+            { index: 0, name: "Matched Pairs", desc: "Cleared pairs of equal-rank cards." }
+        ],
+        stats: [
+            { key: "PAIRS", name: "Pairs Cleared", desc: "Matched pairs removed from the stack." },
+            { key: "OPEN PAIRS", name: "Open Pairs", desc: "Number of legal equal-rank pairs currently unblocked." }
+        ]
+    }
+})

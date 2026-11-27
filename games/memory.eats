@@ -4,17 +4,29 @@
 #   - Memory (8x3, default landscape 24-card)
 #   - Memory (4x4, 16-card quick)
 #   - Memory (13x4, 52-card classic)
-#   - Memory (Figure-8, 24-card twin angled loops)
-#   - Clockwork Memory (14-card clock ring + 4 center clock-hand cards)
+#   - Memory Engine (Seeded Procedural Layouts: Curves + Motifs + Symmetry)
 # =============================================================================
 
 # --- Shared Memory Rules ---
+
+def memory_refresh_card():
+    pairs = get_stat("PAIRS", 0)
+    turns = get_stat("TURNS", 0)
+    total_pairs = math.floor((zone_count() - 1) / 2)
+    if total_pairs < 1:
+        total_pairs = 8
+    set_board_card("mem_stats", "MEMORY", "top_right")
+    clear_card_rows("mem_stats")
+    add_card_bar("mem_stats", "PAIRS", pairs, total_pairs)
+    add_card_row("mem_stats", "TURNS", str(turns))
+    return True
 
 def memory_on_deal():
     set_stat("FIRST_Z", -1)
     set_stat("SECOND_Z", -1)
     set_stat("TURNS", 0)
     set_stat("PAIRS", 0)
+    memory_refresh_card()
 
 def memory_can_pick(z, i):
     return False
@@ -33,6 +45,7 @@ def collect_pair():
     set_stat("SECOND_Z", -1)
     set_stat("PAIRS", get_stat("PAIRS", 0) + 1)
     add_score(20)
+    memory_refresh_card()
 
 def flip_pair_down():
     z1 = get_stat("FIRST_Z", -1)
@@ -43,6 +56,7 @@ def flip_pair_down():
         flip_card(z2, 0, False)
     set_stat("FIRST_Z", -1)
     set_stat("SECOND_Z", -1)
+    memory_refresh_card()
 
 def memory_on_card_click(z, i):
     if z < 1 or zone_size(z) == 0 or card_face_up(z, 0):
@@ -57,11 +71,31 @@ def memory_on_card_click(z, i):
     flip_card(z, 0, True)
     set_stat("SECOND_Z", z)
     set_stat("TURNS", get_stat("TURNS", 0) + 1)
+    memory_refresh_card()
     if card_rank(first_z, 0) == card_rank(z, 0):
         schedule_action(0.45, "collect_pair", True)
     else:
         schedule_action(0.85, "flip_pair_down", True)
     return True
+
+def memory_on_demo_step():
+    # Live Auto-Play demo: flip a face-down card, then flip its matching rank partner
+    first_z = get_stat("FIRST_Z", -1)
+    zc = zone_count()
+    if first_z == -1:
+        z = 1
+        while z < zc:
+            if zone_size(z) > 0 and not card_face_up(z, 0):
+                return memory_on_card_click(z, 0)
+            z = z + 1
+        return False
+    target_r = card_rank(first_z, 0)
+    z = 1
+    while z < zc:
+        if z != first_z and zone_size(z) > 0 and not card_face_up(z, 0) and card_rank(z, 0) == target_r:
+            return memory_on_card_click(z, 0)
+        z = z + 1
+    return False
 
 def memory_status_16():
     if zone_size(0) >= 16:
@@ -83,80 +117,161 @@ def memory_status_52():
         return "victory"
     return "playing"
 
-# --- Shaped Layouts ---
+# --- Procedural Memory Engine (Curves + Proven-Part Motifs + Symmetry) ---
 
-def figure8_layout(bw, bh):
+def mem_exclude_list(k):
+    if k <= 0:
+        return []
+    if k == 1:
+        return [2]
+    if k == 2:
+        return [2, 3]
+    if k == 3:
+        return [2, 3, 4]
+    if k == 4:
+        return [2, 3, 4, 5]
+    if k == 5:
+        return [2, 3, 4, 5, 6]
+    if k == 6:
+        return [2, 3, 4, 5, 6, 7]
+    if k == 7:
+        return [2, 3, 4, 5, 6, 7, 8]
+    if k == 8:
+        return [2, 3, 4, 5, 6, 7, 8, 9]
+    return [2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+def mem_engine_build(lseed):
+    shape = layout_preset("random", lseed)
+    # Enforce zero-overlap OBB clearance and exact even pair count
+    layout_prune_overlaps(0.04, True)
+    n = layout_count()
+    if n > 36:
+        n = 36
+        layout_trim_to(n)
+    if n > 26:
+        n = n - (n % 4)
+        layout_trim_to(n)
+    if n < 12:
+        layout_preset("grid", lseed)
+        layout_prune_overlaps(0.04, True)
+        n = layout_count()
+    return shape
+
+def mem_engine_configure(lseed):
+    mem_engine_build(lseed)
+    n = layout_count()
+    config_tableaus(n, 1)
+    if n <= 26:
+        ranks_needed = math.floor(n / 2)
+        config_deck(1, 2, mem_exclude_list(13 - ranks_needed))
+    else:
+        ranks_needed = math.floor(n / 4)
+        config_deck(1, 4, mem_exclude_list(13 - ranks_needed))
+    return True
+
+def mem_engine_refresh_card():
+    pairs = get_stat("PAIRS", 0)
+    turns = get_stat("TURNS", 0)
+    total_pairs = math.floor((zone_count() - 1) / 2)
+    if total_pairs < 1:
+        total_pairs = 8
+    lseed = get_layout_seed()
+    shape = layout_preset("random", lseed)
+    set_board_card("mem_stats", "MEMORY ENGINE", "top_right")
+    clear_card_rows("mem_stats")
+    add_card_row("mem_stats", "SHAPE", shape)
+    add_card_bar("mem_stats", "PAIRS", pairs, total_pairs)
+    add_card_row("mem_stats", "TURNS", str(turns))
+    return True
+
+def mem_engine_on_deal():
+    set_stat("FIRST_Z", -1)
+    set_stat("SECOND_Z", -1)
+    set_stat("TURNS", 0)
+    set_stat("PAIRS", 0)
+    mem_engine_refresh_card()
+    return True
+
+def mem_engine_collect_pair():
+    z1 = get_stat("FIRST_Z", -1)
+    z2 = get_stat("SECOND_Z", -1)
+    if z1 >= 1 and zone_size(z1) > 0:
+        move_cards(z1, 0, 0)
+    if z2 >= 1 and zone_size(z2) > 0:
+        move_cards(z2, 0, 0)
+    set_stat("FIRST_Z", -1)
+    set_stat("SECOND_Z", -1)
+    set_stat("PAIRS", get_stat("PAIRS", 0) + 1)
+    add_score(20)
+    mem_engine_refresh_card()
+
+def mem_engine_flip_down():
+    z1 = get_stat("FIRST_Z", -1)
+    z2 = get_stat("SECOND_Z", -1)
+    if z1 >= 1 and zone_size(z1) > 0:
+        flip_card(z1, 0, False)
+    if z2 >= 1 and zone_size(z2) > 0:
+        flip_card(z2, 0, False)
+    set_stat("FIRST_Z", -1)
+    set_stat("SECOND_Z", -1)
+    mem_engine_refresh_card()
+
+def mem_engine_on_card_click(z, i):
+    if z < 1 or zone_size(z) == 0 or card_face_up(z, 0):
+        return False
+    first_z = get_stat("FIRST_Z", -1)
+    if first_z == -1:
+        flip_card(z, 0, True)
+        set_stat("FIRST_Z", z)
+        return True
+    if first_z == z:
+        return False
+    flip_card(z, 0, True)
+    set_stat("SECOND_Z", z)
+    set_stat("TURNS", get_stat("TURNS", 0) + 1)
+    mem_engine_refresh_card()
+    if card_rank(first_z, 0) == card_rank(z, 0):
+        schedule_action(0.45, "mem_engine_collect_pair", True)
+    else:
+        schedule_action(0.85, "mem_engine_flip_down", True)
+    return True
+
+def mem_engine_on_demo_step():
+    first_z = get_stat("FIRST_Z", -1)
+    zc = zone_count()
+    if first_z == -1:
+        z = 1
+        while z < zc:
+            if zone_size(z) > 0 and not card_face_up(z, 0):
+                return mem_engine_on_card_click(z, 0)
+            z = z + 1
+        return False
+    target_r = card_rank(first_z, 0)
+    z = 1
+    while z < zc:
+        if z != first_z and zone_size(z) > 0 and not card_face_up(z, 0) and card_rank(z, 0) == target_r:
+            return mem_engine_on_card_click(z, 0)
+        z = z + 1
+    return False
+
+def mem_engine_status():
+    total = zone_count() - 1
+    if total > 0 and zone_size(0) >= total:
+        return "victory"
+    return "playing"
+
+def mem_engine_layout(bw, bh):
+    lseed = get_layout_seed()
+    mem_engine_build(lseed)
+    pad_top = max(36.0, get_safe_top() + 28.0)
+    pad_bot = max(50.0, get_safe_bottom() + 44.0)
+    pad_x = max(24.0, max(get_safe_left(), get_safe_right()) + 20.0)
+    layout_apply(1, bw, bh, pad_top, pad_bot, pad_x)
+    # Fly matched pairs cleanly offscreen top-left so procedural shapes have the full felt
     cw = get_card_width()
     ch = get_card_height()
-    avail_w = max(200.0, bw - 64.0)
-    avail_h = max(200.0, bh - 135.0)
-    r_h = (avail_h - ch * 1.15) * 0.5
-    r_w = (avail_w - cw * 1.35) * 0.255
-    rad = max(ch * 0.95, min(r_h, r_w))
-    cx = bw * 0.5
-    cy = 68.0 + (bh - 120.0) * 0.54
-
-    set_zone_pose(0, cx - cw * 0.5, 36.0, 0.0, 10)
-
-    pi = 3.14159265
-    lcx = cx - rad * 1.18
-    i = 0
-    while i < 12:
-        deg = i * 30.0
-        theta = deg * pi / 180.0
-        px = lcx + cos(theta) * rad - cw * 0.5
-        py = cy + sin(theta) * rad - ch * 0.5
-        ang = deg + 90.0
-        if i == 0:
-            px = px - cw * 0.06
-            py = py - ch * 0.18
-            ang = 52.0
-        set_zone_pose(1 + i, px, py, ang, i)
-        i = i + 1
-
-    rcx = cx + rad * 1.18
-    j = 0
-    while j < 12:
-        deg = 180.0 - j * 30.0
-        theta = deg * pi / 180.0
-        px = rcx + cos(theta) * rad - cw * 0.5
-        py = cy + sin(theta) * rad - ch * 0.5
-        ang = deg - 90.0
-        if j == 0:
-            py = py + ch * 0.18
-            ang = 52.0
-        set_zone_pose(13 + j, px, py, ang, j)
-        j = j + 1
-
-def clockwork_memory_layout(bw, bh):
-    cw = get_card_width()
-    ch = get_card_height()
-    avail_w = max(200.0, bw - 80.0)
-    avail_h = max(200.0, bh - 130.0)
-    rad = max(ch * 1.25, (min(avail_w, avail_h) - ch * 1.15) * 0.5)
-    cx = bw * 0.5
-    cy = 62.0 + (bh - 115.0) * 0.52
-
-    # Matched Pairs pile in top-left corner
-    set_zone_pose(0, 36.0, 44.0, 0.0, 20)
-
-    pi = 3.14159265
-    # Outer ring: 14 cards (zones 1..14)
-    i = 0
-    while i < 14:
-        deg = -90.0 + i * (360.0 / 14.0)
-        theta = deg * pi / 180.0
-        px = cx + cos(theta) * rad - cw * 0.5
-        py = cy + sin(theta) * rad - ch * 0.5
-        set_zone_pose(1 + i, px, py, deg + 90.0, i)
-        i = i + 1
-
-    # Center 4 cards representing clock hands (zones 15..18)
-    hand_off = max(cw * 0.78, ch * 0.58)
-    set_zone_pose(15, cx - cw * 0.5, cy - hand_off - ch * 0.5, 0.0, 15)
-    set_zone_pose(16, cx + hand_off - cw * 0.5, cy - ch * 0.5, 90.0, 16)
-    set_zone_pose(17, cx - cw * 0.5, cy + hand_off - ch * 0.5, 180.0, 17)
-    set_zone_pose(18, cx - hand_off - cw * 0.5, cy - ch * 0.5, 270.0, 18)
+    set_zone_pose(0, -cw * 1.35, -ch * 0.45, -12.0, -10)
+    return True
 
 # --- Variant Definitions ---
 
@@ -182,11 +297,11 @@ sol.define_game({
     supports_solver: False,
     allow_undo: False,
     demo_seed: 2026,
-    default_deck: "memory_lowpoly",
     on_deal: memory_on_deal,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
     on_card_click: memory_on_card_click,
+    on_demo_step: memory_on_demo_step,
     get_status: memory_status_24,
     doc: {
         meta: [2, "Quick", 1, "Pure Memory", 3, "Focus"],
@@ -224,11 +339,11 @@ sol.define_game({
     supports_solver: False,
     allow_undo: False,
     demo_seed: 2026,
-    default_deck: "memory_lowpoly",
     on_deal: memory_on_deal,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
     on_card_click: memory_on_card_click,
+    on_demo_step: memory_on_demo_step,
     get_status: memory_status_16,
     doc: {
         meta: [1, "Very Quick", 1, "Pure Memory", 2, "Focus"],
@@ -265,11 +380,11 @@ sol.define_game({
     supports_solver: False,
     allow_undo: False,
     demo_seed: 2026,
-    default_deck: "memory_lowpoly",
     on_deal: memory_on_deal,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
     on_card_click: memory_on_card_click,
+    on_demo_step: memory_on_demo_step,
     get_status: memory_status_52,
     doc: {
         meta: [3, "Medium", 1, "Pure Memory", 3, "Focus"],
@@ -286,88 +401,46 @@ sol.define_game({
 })
 
 sol.define_game({
-    id: "memory_figure8",
-    name: "Memory (Figure-8)",
+    id: "memory_engine",
+    name: "Memory Engine",
     family: "Memory",
     category: "MATCHING",
     mechanic: "matching",
     visibility: "closed",
-    tags: ["memory", "pairs", "shaped", "radial"],
+    tags: ["procedural", "memory", "pairs", "shaped", "radial", "symmetry"],
     layout: "grid",
-    description: "24-card Memory (9 through Ace, 12 pairs) arranged along a flowing twin-loop Figure-8.",
+    description: "Seeded procedural Memory. Generates Clockwork rings, asymmetric Figure-8s, Archways, Twin Waves, carved Diamond Palaces, Symmetry motifs, and compact Grids — always guaranteed exact pairs. Lock any layout in the Seed Dialog to reshuffle cards on your favorite shape.",
     decks: 1,
-    exclude_ranks: [2, 3, 4, 5, 6, 7, 8],
+    suit_count: 2,
     tableaus: 24,
     foundations: 1,
     freecells: 0,
-    grid_cols: 13,
+    grid_cols: 8,
     tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     tableau_all_face_up: False,
     stock_deal_mode: "none",
     supports_solver: False,
     allow_undo: False,
-    demo_seed: 2026,
-    default_deck: "memory_lowpoly",
-    on_deal: memory_on_deal,
-    on_layout: figure8_layout,
+    demo_seed: 25,
+    demo_seeds: [4, 1, 25, 3, 2, 5, 6],
+    on_configure: mem_engine_configure,
+    on_deal: mem_engine_on_deal,
+    on_layout: mem_engine_layout,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
-    on_card_click: memory_on_card_click,
-    get_status: memory_status_24,
+    on_card_click: mem_engine_on_card_click,
+    on_demo_step: mem_engine_on_demo_step,
+    get_status: mem_engine_status,
     doc: {
         meta: [2, "Quick", 1, "Pure Memory", 3, "Focus"],
-        aliases: ["Figure-8 Memory", "Infinity Memory", "Concentration Figure-8"],
-        goal: ["Match and collect all 12 pairs (9 through Ace) from the Figure-8 loops.", "No lose condition — finish in as few turns as possible."],
+        aliases: ["Procedural Memory", "Memory Procgen", "Shaped Memory"],
+        goal: ["Match and collect all pairs of equal-rank cards from the procedurally generated layout.", "No lose condition — finish in as few turns as possible."],
         zones: [
             { index: 0, name: "Matched Pairs", desc: "Collected pairs of matching rank." }
         ],
         stats: [
             { key: "TURNS", name: "Turns", desc: "Total pair-flip attempts taken." },
-            { key: "PAIRS", name: "Pairs Found", desc: "Number of matched pairs collected (out of 12)." }
-        ]
-    }
-})
-
-sol.define_game({
-    id: "clockwork_memory",
-    name: "Clockwork Memory",
-    family: "Memory",
-    category: "MATCHING",
-    mechanic: "matching",
-    visibility: "closed",
-    tags: ["memory", "pairs", "radial", "clock"],
-    layout: "grid",
-    description: "18-card Clockwork Memory (9 pairs): a 14-card radial clock dial with 4 clock-hand cards in the center.",
-    decks: 1,
-    suit_count: 2,
-    exclude_ranks: [2, 3, 4, 5],
-    tableaus: 18,
-    foundations: 1,
-    freecells: 0,
-    grid_cols: 12,
-    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    tableau_all_face_up: False,
-    stock_deal_mode: "none",
-    supports_solver: False,
-    allow_undo: False,
-    demo_seed: 2026,
-    default_deck: "memory_lowpoly",
-    on_deal: memory_on_deal,
-    on_layout: clockwork_memory_layout,
-    can_pick: memory_can_pick,
-    can_drop: memory_can_drop,
-    on_card_click: memory_on_card_click,
-    get_status: memory_status_18,
-    doc: {
-        meta: [2, "Quick", 1, "Pure Memory", 2, "Focus"],
-        aliases: ["Clockwork Dial Memory", "Clock Memory"],
-        goal: ["Match and collect all 9 pairs (6 through Ace) from the 14-card dial and 4 center clock hands.", "No lose condition — finish in as few turns as possible."],
-        zones: [
-            { index: 0, name: "Matched Pairs", desc: "Collected pairs of matching rank." }
-        ],
-        stats: [
-            { key: "TURNS", name: "Turns", desc: "Total pair-flip attempts taken." },
-            { key: "PAIRS", name: "Pairs Found", desc: "Number of matched pairs collected (out of 9)." }
+            { key: "PAIRS", name: "Pairs Found", desc: "Number of matched pairs collected." }
         ]
     }
 })

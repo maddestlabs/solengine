@@ -89,7 +89,9 @@ enum class CardStock : uint8_t {
     AntiqueLaid     = 2, // Traditional 18th/19th century laid paper: wire ribbing & chain lines
     CottonRag       = 3, // Heavy fibrous cotton rag pasteboard: multi-directional tooth & raw pulp
     SmoothParchment = 4, // Calendered smooth satin playing card stock with micro-grain
-    Count           = 5
+    PlasticGloss    = 5, // High-gloss casino plastic (KEM/Copag style sleek dielectric finish)
+    GildedFoil      = 6, // Luxury gilded metallic foil luster with warm specular sheen & gold edges
+    Count           = 7
 };
 
 enum class CardCornerStyle : uint8_t {
@@ -259,8 +261,12 @@ public:
     void setPreviewDeckTheme(DeckThemeId theme);
     [[nodiscard]] DeckThemeId previewDeckTheme() const noexcept { return previewDeckTheme_; }
     [[nodiscard]] bool hasGpuAtlas() const noexcept { return hasGpuAtlas_; }
-    [[nodiscard]] bool isAtlasDirty() const noexcept { return atlasDirty_; }
-    void markAtlasClean() noexcept { atlasDirty_ = false; }
+    [[nodiscard]] bool isAtlasDirty() const noexcept { return atlasDirty_ || atlasCardBackDirty_ || atlasPreviewDirty_; }
+    void markAtlasClean() noexcept {
+        atlasDirty_ = false;
+        atlasCardBackDirty_ = false;
+        atlasPreviewDirty_ = false;
+    }
 
     [[nodiscard]] bool isLoaded() const noexcept { return isLoaded_; }
     void setLowPolySeed(uint32_t seed);
@@ -290,7 +296,7 @@ public:
     [[nodiscard]] std::string currentDeckSlug() const;
 
     [[nodiscard]] const std::string& currentCardBackId() const noexcept { return activeCardBackId_; }
-    void setActiveCardBack(const std::string& backId);
+    void setActiveCardBack(const std::string& backId, bool force = false);
     [[nodiscard]] std::string getCardBackDisplayName(const std::string& backId) const;
     [[nodiscard]] bool cardBackSupportsSeed(const std::string& backId) const;
     void cycleCardBack(std::string& inOutId, int stepDelta);
@@ -309,6 +315,8 @@ private:
     bool isLoaded_{false};
     bool hasGpuAtlas_{false};
     bool atlasDirty_{false};
+    bool atlasCardBackDirty_{false};
+    bool atlasPreviewDirty_{false};
     DeckThemeId currentTheme_{DeckThemeId::SolPolyClassic};
     std::string currentDeckId_{"solpoly_classic"};
     uint32_t lowPolySeed_{42};
@@ -316,10 +324,13 @@ private:
     CardWearLevel wearLevel_{CardWearLevel::Natural};
     CardStock cardStock_{CardStock::SmoothParchment};
     float deckCornerRadius_{24.0f};
-    CardCornerStyle cornerStyle_{CardCornerStyle::Auto};
+    CardCornerStyle cornerStyle_{CardCornerStyle::Round};
     std::string activeCardBackId_{"classic_sapphire"};
     DeckThemeId previewDeckTheme_{DeckThemeId::Count};
     std::string previewDeckId_;
+    CardWearLevel previewWear_{CardWearLevel::Count};
+    CardStock previewStock_{CardStock::Count};
+    uint32_t previewLowPolySeed_{0};
     CardTexture previewFaceTexture_{};
     CardAtlasSlot previewFaceAtlasSlot_{};
     std::unordered_map<DeckThemeId, CardTexture> sampleCardCache_{};

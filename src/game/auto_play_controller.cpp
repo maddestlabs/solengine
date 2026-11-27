@@ -106,6 +106,7 @@ void AutoPlayController::startPreview(SolitaireBoard& board, uint32_t maxStates,
     demoFallbackToSeed_ = false;
     allowPartialDemo_ = true;
     isReplayMode_ = false;
+    isLiveDemoMode_ = false;
     guidedMode_ = false;
     replayTitle_.clear();
     replayNotes_.clear();
@@ -128,6 +129,15 @@ void AutoPlayController::startPreview(SolitaireBoard& board, uint32_t maxStates,
     failReason_.clear();
     hasResult_ = false;
     isPartialDemo_ = false;
+
+    // Live scripted demo mode (e.g., Memory or custom step-by-step demos via on_demo_step())
+    if (board.hasScriptDemoStep()) {
+        isLiveDemoMode_ = true;
+        state_ = (board.isVictory() || board.gameStatus() == GameStatus::Defeat)
+            ? AutoPlayState::Completed
+            : AutoPlayState::Playing;
+        return;
+    }
 
     SolitaireBoard boardCopy = board;
 #if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
@@ -188,6 +198,7 @@ void AutoPlayController::startCachedMoves(const std::vector<SolverMove>& moves, 
     allowPartialDemo_ = true;
     isPartialDemo_ = false;
     isReplayMode_ = false;
+    isLiveDemoMode_ = false;
     guidedMode_ = false;
     replayTitle_.clear();
     replayNotes_.clear();
@@ -215,6 +226,7 @@ void AutoPlayController::start(SolitaireBoard& board) {
     demoFallbackToSeed_ = false;
     allowPartialDemo_ = false;
     isReplayMode_ = false;
+    isLiveDemoMode_ = false;
     guidedMode_ = false;
     replayTitle_.clear();
     replayNotes_.clear();
@@ -237,6 +249,15 @@ void AutoPlayController::start(SolitaireBoard& board) {
     failReason_.clear();
     hasResult_ = false;
     isPartialDemo_ = false;
+
+    // Live scripted demo mode (e.g., Memory or custom step-by-step demos via on_demo_step())
+    if (board.hasScriptDemoStep()) {
+        isLiveDemoMode_ = true;
+        state_ = (board.isVictory() || board.gameStatus() == GameStatus::Defeat)
+            ? AutoPlayState::Completed
+            : AutoPlayState::Playing;
+        return;
+    }
 
     SolitaireBoard boardCopy = board;
     const uint32_t solverMaxStates = (boardCopy.activeGameDef().decks >= 2) ? 65000u : 25000u;
@@ -306,6 +327,7 @@ void AutoPlayController::startReplay(SolitaireBoard& board, const ReplayTrack& t
     allowPartialDemo_ = false;
     isPartialDemo_ = false;
     isReplayMode_ = true;
+    isLiveDemoMode_ = false;
     guidedMode_ = guidedOverride || track.isGuided();
     replayTitle_ = track.title;
     currentDealSeed_ = board.seed();
@@ -357,6 +379,7 @@ void AutoPlayController::stop() {
 #endif
     state_ = AutoPlayState::Inactive;
     isReplayMode_ = false;
+    isLiveDemoMode_ = false;
     guidedMode_ = false;
     replayTitle_.clear();
     replayNotes_.clear();
@@ -518,6 +541,31 @@ void AutoPlayController::pause() {
 }
 
 bool AutoPlayController::stepForward(SolitaireBoard& board, AudioFoleyEngine* foley) {
+    if (isLiveDemoMode_) {
+        if (board.isInputLocked()) {
+            return true;
+        }
+        if (board.isVictory() || board.gameStatus() == GameStatus::Defeat) {
+            state_ = AutoPlayState::Completed;
+            return false;
+        }
+        if (board.executeDemoStep()) {
+            ++currentMoveIdx_;
+            if (foley) {
+                foley->triggerSound(FoleySound::Deal, 0.78f, 0.0f);
+            }
+            if (board.isVictory() || board.gameStatus() == GameStatus::Defeat) {
+                state_ = AutoPlayState::Completed;
+                if (foley && board.isVictory()) {
+                    foley->triggerSound(FoleySound::FoundationChime, 0.9f);
+                }
+            }
+            return true;
+        }
+        state_ = AutoPlayState::Completed;
+        return false;
+    }
+
     if (currentMoveIdx_ >= moves_.size()) {
         state_ = AutoPlayState::Completed;
         return false;
@@ -742,6 +790,9 @@ void AutoPlayController::update(float dt, SolitaireBoard& board, AudioFoleyEngin
                 return;
             }
         }
+        if (isLiveDemoMode_ && board.isInputLocked()) {
+            return;
+        }
         moveTimer_ += dt;
         if (moveTimer_ >= moveInterval()) {
             moveTimer_ = 0.0f;
@@ -766,6 +817,10 @@ std::string AutoPlayController::getStatusText() const {
         case AutoPlayState::Solving:
             return "Oracle Analyzing Game Tree...";
         case AutoPlayState::Playing:
+            if (isLiveDemoMode_) {
+                return prefix + std::string("Live Demo (") + std::string(speedLabel()) +
+                       ") - Step " + std::to_string(currentMoveIdx_);
+            }
             return prefix + std::string(isReplayMode_ ? "Replay (" : (isPartialDemo_ ? "Demoing Best Moves (" : "Playing (")) +
                    std::string(speedLabel()) + ") - Move " +
                    std::to_string(currentMoveIdx_) + " / " + std::to_string(moves_.size());

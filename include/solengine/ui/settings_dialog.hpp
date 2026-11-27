@@ -74,11 +74,12 @@ public:
 
 private:
     void randomizeSeed();
-    void applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& foley, const AppSettings& s);
+    void applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& foley, const AppSettings& s, bool updatePreviewCard = true);
     void revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley);
     void commitSettings();
 
     bool isOpen_{false};
+    bool livePreviewDirty_{false};
     int currentTab_{0}; // 0: Game, 1: Deck, 2: Scene, 3: Display, 4: Audio
     std::string activeGameId_;
     std::string activeGameName_;

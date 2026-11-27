@@ -1,0 +1,577 @@
+# =============================================================================
+# SolEngine Game Family: Bowling Solitaire (.eats)
+# Inspired by Sid Sackson's Bowling Solitaire (A Gamut of Games, 1969)
+# Consolidated variants:
+#   - Bowling Solitaire (10 Frames, 20-Card Deck)
+# =============================================================================
+
+# Grid Layout Zone Map (solitaire_board.cpp: layout == "grid"):
+#   0      : Knocked-Down Pins / Discard (Foundation 0)
+#   1..10  : 10 Bowling Pins in an inverted 4-3-2-1 triangle:
+#              Row 4 (back):  7   8   9  10
+#              Row 3:           4   5   6
+#              Row 2:             2   3
+#              Row 1 (head):        1
+#   11..13 : 3 Ball Piles (5, 3, 2 cards face-up; top card playable)
+#   14     : Next Ball / Next Frame Control (Stock)
+
+def bowl_val(r):
+    if r == 10:
+        return 0
+    return r
+
+def bowl_pins_adjacent(a, b):
+    if a > b:
+        t = a
+        a = b
+        b = t
+    if a == 1:
+        return b == 2 or b == 3
+    if a == 2:
+        return b == 3 or b == 4 or b == 5
+    if a == 3:
+        return b == 5 or b == 6
+    if a == 4:
+        return b == 5 or b == 7 or b == 8
+    if a == 5:
+        return b == 6 or b == 8 or b == 9
+    if a == 6:
+        return b == 9 or b == 10
+    if a == 7:
+        return b == 8
+    if a == 8:
+        return b == 9
+    if a == 9:
+        return b == 10
+    return False
+
+def bowl_clear_selection():
+    z = 1
+    while z <= 10:
+        if zone_size(z) > 0:
+            remove_card_tag(z, 0, "selected")
+        z = z + 1
+    set_stat("SEL_CNT", 0)
+    set_stat("SEL_A", 0)
+    set_stat("SEL_B", 0)
+    set_stat("SEL_C", 0)
+    return True
+
+def bowl_sel_connected(cnt, a, b, c):
+    if cnt <= 1:
+        return True
+    if cnt == 2:
+        return bowl_pins_adjacent(a, b)
+    # 3 pins are connected iff at least 2 of the 3 pairs are adjacent
+    edges = 0
+    if bowl_pins_adjacent(a, b):
+        edges = edges + 1
+    if bowl_pins_adjacent(a, c):
+        edges = edges + 1
+    if bowl_pins_adjacent(b, c):
+        edges = edges + 1
+    return edges >= 2
+
+def bowl_sel_sum():
+    cnt = get_stat("SEL_CNT", 0)
+    if cnt <= 0:
+        return -1
+    s = 0
+    a = get_stat("SEL_A", 0)
+    b = get_stat("SEL_B", 0)
+    c = get_stat("SEL_C", 0)
+    if cnt >= 1 and a >= 1 and zone_size(a) > 0:
+        s = s + bowl_val(card_rank(a, 0))
+    if cnt >= 2 and b >= 1 and zone_size(b) > 0:
+        s = s + bowl_val(card_rank(b, 0))
+    if cnt >= 3 and c >= 1 and zone_size(c) > 0:
+        s = s + bowl_val(card_rank(c, 0))
+    return s % 10
+
+def bowl_pins_standing():
+    n = 0
+    z = 1
+    while z <= 10:
+        if zone_size(z) > 0:
+            n = n + 1
+        z = z + 1
+    return n
+
+def bowl_record_roll(pins_down):
+    # Apply pending strike/spare bonuses from previous frames (standard 10-frame bowling)
+    bonus1 = get_stat("BONUS_1", 0)
+    bonus2 = get_stat("BONUS_2", 0)
+    add_pts = pins_down
+    if bonus1 > 0:
+        add_pts = add_pts + pins_down
+        bonus1 = bonus1 - 1
+    if bonus2 > 0:
+        add_pts = add_pts + pins_down
+        bonus2 = bonus2 - 1
+    set_stat("BONUS_1", bonus1)
+    set_stat("BONUS_2", bonus2)
+    total = get_stat("TOTAL_SCORE", 0) + add_pts
+    set_stat("TOTAL_SCORE", total)
+    add_score(add_pts)
+    return total
+
+def bowl_add_bonus(rolls):
+    # Queue future bonus rolls (2 for Strike, 1 for Spare)
+    if get_stat("BONUS_1", 0) == 0:
+        set_stat("BONUS_1", rolls)
+    else:
+        set_stat("BONUS_2", rolls)
+    return True
+
+def bowl_refresh_widgets():
+    frame = get_stat("FRAME", 1)
+    ball = get_stat("BALL", 1)
+    total = get_stat("TOTAL_SCORE", 0)
+    standing = bowl_pins_standing()
+    down = 10 - standing
+    sel_cnt = get_stat("SEL_CNT", 0)
+    need = bowl_sel_sum()
+    strikes = get_stat("STRIKES", 0)
+    spares = get_stat("SPARES", 0)
+
+    set_board_card("bowl_card", "BOWLING", "right_of_grid")
+    clear_card_rows("bowl_card")
+    add_card_bar("bowl_card", "SCORE", total, 120)
+    if frame <= 10:
+        add_card_row("bowl_card", "FRAME", str(frame) + "/10")
+    else:
+        add_card_row("bowl_card", "FRAME", "FINAL")
+    add_card_row("bowl_card", "BALL", str(ball) + "/2")
+    add_card_row("bowl_card", "PINS DOWN", str(down) + "/10")
+    if sel_cnt > 0 and need >= 0:
+        need_str = str(need)
+        if need == 0:
+            need_str = "10 (0)"
+        add_card_row("bowl_card", "NEED BALL", need_str)
+    else:
+        add_card_row("bowl_card", "SELECT", "1-3 PINS")
+    add_card_row("bowl_card", "STRIKES", str(strikes))
+    add_card_row("bowl_card", "SPARES", str(spares))
+
+    if frame > 10:
+        set_zone_badge(14, "top", "GAME OVER", True)
+    elif standing == 0:
+        set_zone_badge(14, "top", "NEXT FRAME", True)
+    elif ball == 1:
+        set_zone_badge(14, "top", "END BALL 1", False)
+    else:
+        set_zone_badge(14, "top", "NEXT FRAME", True)
+
+    set_zone_badge(11, "bottom", "BALL A", zone_size(11) > 0)
+    set_zone_badge(12, "bottom", "BALL B", zone_size(12) > 0)
+    set_zone_badge(13, "bottom", "BALL C", zone_size(13) > 0)
+    return True
+
+def bowl_deal_frame():
+    bowl_clear_selection()
+    # Gather all cards from zones 0..13 into Stock (zone 14)
+    z = 0
+    while z <= 13:
+        while zone_size(z) > 0:
+            move_cards(z, zone_size(z) - 1, 14)
+        z = z + 1
+    shuffle_zone(14)
+
+    # Deal 10 Pins (zones 1..10) face-up
+    p = 1
+    while p <= 10 and zone_size(14) > 0:
+        top = zone_size(14) - 1
+        move_cards(14, top, p)
+        flip_card(p, zone_size(p) - 1, True)
+        p = p + 1
+
+    # Deal 3 Ball piles: 5 cards to zone 11, 3 cards to zone 12, 2 cards to zone 13
+    k = 0
+    while k < 5 and zone_size(14) > 0:
+        move_cards(14, zone_size(14) - 1, 11)
+        flip_card(11, zone_size(11) - 1, True)
+        k = k + 1
+    k = 0
+    while k < 3 and zone_size(14) > 0:
+        move_cards(14, zone_size(14) - 1, 12)
+        flip_card(12, zone_size(12) - 1, True)
+        k = k + 1
+    k = 0
+    while k < 2 and zone_size(14) > 0:
+        move_cards(14, zone_size(14) - 1, 13)
+        flip_card(13, zone_size(13) - 1, True)
+        k = k + 1
+
+    set_stat("BALL", 1)
+    set_stat("BALL1_DOWN", 0)
+    set_stat("FRAME_DOWN", 0)
+    bowl_refresh_widgets()
+    return True
+
+def bowl_on_deal():
+    set_stat("FRAME", 1)
+    set_stat("TOTAL_SCORE", 0)
+    set_stat("BONUS_1", 0)
+    set_stat("BONUS_2", 0)
+    set_stat("STRIKES", 0)
+    set_stat("SPARES", 0)
+    bowl_deal_frame()
+    return True
+
+def bowl_advance_ball_or_frame():
+    frame = get_stat("FRAME", 1)
+    if frame > 10:
+        return False
+    bowl_clear_selection()
+    ball = get_stat("BALL", 1)
+    standing = bowl_pins_standing()
+    down = 10 - standing
+
+    if ball == 1:
+        bowl_record_roll(down)
+        set_stat("BALL1_DOWN", down)
+        if standing == 0:
+            # STRIKE!
+            set_stat("STRIKES", get_stat("STRIKES", 0) + 1)
+            if frame < 10:
+                bowl_add_bonus(2)
+            set_stat("FRAME", frame + 1)
+            if frame < 10:
+                bowl_deal_frame()
+            else:
+                bowl_refresh_widgets()
+            return True
+        # Move to Ball 2 — discard 1 top ball card from the largest ball pile (authentic Sackson rule)
+        best_z = 11
+        if zone_size(12) > zone_size(best_z):
+            best_z = 12
+        if zone_size(13) > zone_size(best_z):
+            best_z = 13
+        if zone_size(best_z) > 0:
+            move_cards(best_z, zone_size(best_z) - 1, 0)
+        set_stat("BALL", 2)
+        bowl_refresh_widgets()
+        return True
+
+    # Ball 2 finishing -> score pins knocked down during Ball 2
+    b1 = get_stat("BALL1_DOWN", 0)
+    b2 = down - b1
+    if b2 < 0:
+        b2 = 0
+    bowl_record_roll(b2)
+    if standing == 0:
+        set_stat("SPARES", get_stat("SPARES", 0) + 1)
+        if frame < 10:
+            bowl_add_bonus(1)
+    set_stat("FRAME", frame + 1)
+    if frame < 10:
+        bowl_deal_frame()
+    else:
+        bowl_refresh_widgets()
+    return True
+
+def bowl_toggle_pin(z):
+    cnt = get_stat("SEL_CNT", 0)
+    a = get_stat("SEL_A", 0)
+    b = get_stat("SEL_B", 0)
+    c = get_stat("SEL_C", 0)
+
+    # Deselect if already selected
+    if z == a:
+        remove_card_tag(z, 0, "selected")
+        set_stat("SEL_A", b)
+        set_stat("SEL_B", c)
+        set_stat("SEL_C", 0)
+        set_stat("SEL_CNT", cnt - 1)
+        bowl_refresh_widgets()
+        return True
+    if z == b:
+        remove_card_tag(z, 0, "selected")
+        set_stat("SEL_B", c)
+        set_stat("SEL_C", 0)
+        set_stat("SEL_CNT", cnt - 1)
+        bowl_refresh_widgets()
+        return True
+    if z == c:
+        remove_card_tag(z, 0, "selected")
+        set_stat("SEL_C", 0)
+        set_stat("SEL_CNT", cnt - 1)
+        bowl_refresh_widgets()
+        return True
+
+    if cnt >= 3:
+        return False
+
+    # Validate adjacency for 2- or 3-pin selection
+    na = a
+    nb = b
+    nc = c
+    if cnt == 0:
+        na = z
+    elif cnt == 1:
+        nb = z
+    else:
+        nc = z
+
+    if not bowl_sel_connected(cnt + 1, na, nb, nc):
+        # Reset selection to just this pin for snappy UX
+        bowl_clear_selection()
+        add_card_tag(z, 0, "selected")
+        set_stat("SEL_A", z)
+        set_stat("SEL_CNT", 1)
+        bowl_refresh_widgets()
+        return True
+
+    add_card_tag(z, 0, "selected")
+    set_stat("SEL_A", na)
+    set_stat("SEL_B", nb)
+    set_stat("SEL_C", nc)
+    set_stat("SEL_CNT", cnt + 1)
+    bowl_refresh_widgets()
+    return True
+
+def bowl_try_knockdown(ball_z):
+    if zone_size(ball_z) == 0:
+        return False
+    cnt = get_stat("SEL_CNT", 0)
+    if cnt <= 0:
+        return False
+    need = bowl_sel_sum()
+    bval = bowl_val(card_rank(ball_z, zone_size(ball_z) - 1))
+    if bval != need:
+        return False
+
+    a = get_stat("SEL_A", 0)
+    b = get_stat("SEL_B", 0)
+    c = get_stat("SEL_C", 0)
+    bowl_clear_selection()
+
+    if cnt >= 1 and a >= 1 and zone_size(a) > 0:
+        move_cards(a, 0, 0)
+    if cnt >= 2 and b >= 1 and zone_size(b) > 0:
+        move_cards(b, 0, 0)
+    if cnt >= 3 and c >= 1 and zone_size(c) > 0:
+        move_cards(c, 0, 0)
+    move_cards(ball_z, zone_size(ball_z) - 1, 0)
+
+    if bowl_pins_standing() == 0:
+        bowl_advance_ball_or_frame()
+        return True
+
+    bowl_refresh_widgets()
+    return True
+
+def bowl_on_card_click(z, i):
+    if get_stat("FRAME", 1) > 10:
+        return False
+    if z >= 1 and z <= 10 and zone_size(z) > 0:
+        return bowl_toggle_pin(z)
+    if z >= 11 and z <= 13 and zone_size(z) > 0:
+        return bowl_try_knockdown(z)
+    return False
+
+def bowl_can_pick(z, i):
+    if get_stat("FRAME", 1) > 10:
+        return False
+    if z >= 11 and z <= 13 and zone_size(z) > 0 and i == zone_size(z) - 1:
+        return True
+    return False
+
+def bowl_can_drop(from_z, i, to_z):
+    if from_z < 11 or from_z > 13 or zone_size(from_z) == 0:
+        return False
+    if to_z >= 1 and to_z <= 10 and zone_size(to_z) > 0:
+        bval = bowl_val(card_rank(from_z, zone_size(from_z) - 1))
+        pval = bowl_val(card_rank(to_z, 0))
+        return bval == pval
+    return False
+
+def bowl_on_drop(from_z, i, to_z):
+    if not bowl_can_drop(from_z, i, to_z):
+        return False
+    bowl_clear_selection()
+    move_cards(to_z, 0, 0)
+    move_cards(from_z, zone_size(from_z) - 1, 0)
+    if bowl_pins_standing() == 0:
+        bowl_advance_ball_or_frame()
+        return True
+    bowl_refresh_widgets()
+    return True
+
+def bowl_on_stock_click():
+    return bowl_advance_ball_or_frame()
+
+def bowl_on_demo_step():
+    if get_stat("FRAME", 1) > 10:
+        return False
+    # 1. Try any 2-pin adjacent knockdown first (maximizes pins per ball!)
+    bz = 11
+    while bz <= 13:
+        if zone_size(bz) > 0:
+            bval = bowl_val(card_rank(bz, zone_size(bz) - 1))
+            p1 = 1
+            while p1 <= 10:
+                if zone_size(p1) > 0:
+                    p2 = p1 + 1
+                    while p2 <= 10:
+                        if zone_size(p2) > 0 and bowl_pins_adjacent(p1, p2):
+                            if (bowl_val(card_rank(p1, 0)) + bowl_val(card_rank(p2, 0))) % 10 == bval:
+                                bowl_clear_selection()
+                                move_cards(p1, 0, 0)
+                                move_cards(p2, 0, 0)
+                                move_cards(bz, zone_size(bz) - 1, 0)
+                                if bowl_pins_standing() == 0:
+                                    bowl_advance_ball_or_frame()
+                                else:
+                                    bowl_refresh_widgets()
+                                return True
+                        p2 = p2 + 1
+                p1 = p1 + 1
+        bz = bz + 1
+    # 2. Try single-pin exact match
+    bz = 11
+    while bz <= 13:
+        if zone_size(bz) > 0:
+            bval = bowl_val(card_rank(bz, zone_size(bz) - 1))
+            p1 = 1
+            while p1 <= 10:
+                if zone_size(p1) > 0 and bowl_val(card_rank(p1, 0)) == bval:
+                    bowl_clear_selection()
+                    move_cards(p1, 0, 0)
+                    move_cards(bz, zone_size(bz) - 1, 0)
+                    if bowl_pins_standing() == 0:
+                        bowl_advance_ball_or_frame()
+                    else:
+                        bowl_refresh_widgets()
+                    return True
+                p1 = p1 + 1
+        bz = bz + 1
+    # 3. Otherwise advance to Ball 2 / Next Frame
+    return bowl_advance_ball_or_frame()
+
+def bowl_status():
+    if get_stat("FRAME", 1) > 10:
+        if get_stat("TOTAL_SCORE", 0) >= 100:
+            return "victory"
+        return "defeat"
+    return "playing"
+
+def bowl_layout(bw, bh):
+    st = get_safe_top()
+    sb = get_safe_bottom()
+    sl = get_safe_left()
+    sr = get_safe_right()
+    avail_w = max(260.0, bw - sl - sr - 40.0)
+    avail_h = max(240.0, bh - st - sb - 48.0)
+
+    # Reserve space on right for the BOWLING scorecard on wide screens
+    lane_w = avail_w
+    if avail_w > 620.0:
+        lane_w = avail_w * 0.74
+
+    cw = min(lane_w / 5.4, avail_h / 5.9)
+    cw = clamp(cw, 44.0, 96.0)
+    ch = cw * 1.4
+    set_card_size(cw, ch)
+
+    gx = cw * 0.22
+    gy = ch * 0.14
+    cx = sl + 20.0 + lane_w * 0.5
+    top_y = st + 28.0
+
+    # Row 4 (Back row: pins 7, 8, 9, 10)
+    row4_w = 4.0 * cw + 3.0 * gx
+    x4 = cx - row4_w * 0.5
+    set_zone_pose(7,  x4,                    top_y, 0.0, 1)
+    set_zone_pose(8,  x4 + (cw + gx),        top_y, 0.0, 1)
+    set_zone_pose(9,  x4 + 2.0 * (cw + gx),  top_y, 0.0, 1)
+    set_zone_pose(10, x4 + 3.0 * (cw + gx),  top_y, 0.0, 1)
+
+    # Row 3 (Pins 4, 5, 6)
+    y3 = top_y + ch * 0.62
+    row3_w = 3.0 * cw + 2.0 * gx
+    x3 = cx - row3_w * 0.5
+    set_zone_pose(4, x3,                   y3, 0.0, 2)
+    set_zone_pose(5, x3 + (cw + gx),       y3, 0.0, 2)
+    set_zone_pose(6, x3 + 2.0 * (cw + gx), y3, 0.0, 2)
+
+    # Row 2 (Pins 2, 3)
+    y2 = y3 + ch * 0.62
+    row2_w = 2.0 * cw + gx
+    x2 = cx - row2_w * 0.5
+    set_zone_pose(2, x2,           y2, 0.0, 3)
+    set_zone_pose(3, x2 + cw + gx, y2, 0.0, 3)
+
+    # Row 1 (Head pin 1)
+    y1 = y2 + ch * 0.62
+    set_zone_pose(1, cx - cw * 0.5, y1, 0.0, 4)
+
+    # Bottom Ball Rack (Ball piles 11, 12, 13 + Next Ball control 14)
+    ball_y = y1 + ch + gy * 1.4
+    rack_w = 4.0 * cw + 3.0 * gx
+    rx = cx - rack_w * 0.5
+    set_zone_pose(11, rx,                   ball_y, 0.0, 5)
+    set_zone_pose(12, rx + (cw + gx),       ball_y, 0.0, 5)
+    set_zone_pose(13, rx + 2.0 * (cw + gx), ball_y, 0.0, 5)
+    set_zone_pose(14, rx + 3.0 * (cw + gx), ball_y, 0.0, 5)
+
+    # Discard / Gutter pile neatly at top-left
+    set_zone_pose(0, sl + 14.0, top_y, 0.0, 0)
+    return True
+
+sol.define_game({
+    id: "bowling_solitaire",
+    name: "Bowling Solitaire",
+    family: "Bowling",
+    category: "ADDING",
+    mechanic: "clearing",
+    visibility: "open",
+    tags: ["classic", "adding", "scoring", "bowling", "sackson", "single_deck"],
+    layout: "grid",
+    tableau_build: "none",
+    empty_tableau: "none",
+    move_group: "single",
+    foundation_mode: "none",
+    description: "Sid Sackson's beloved 10-frame Bowling Solitaire (1969). Select 1 to 3 adjacent pins and click a Ball card whose value matches their sum mod 10 (10 = 0). Score 100+ across 10 frames!",
+    decks: 1,
+    suit_count: 2,
+    exclude_ranks: [11, 12, 13],
+    grid_cols: 4,
+    tableaus: 13,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "custom",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    dynamic_layout: True,
+    supports_solver: False,
+    allow_undo: False,
+    demo_seed: 7,
+    demo_seeds: [7, 13, 21, 42],
+    on_deal: bowl_on_deal,
+    on_layout: bowl_layout,
+    can_pick: bowl_can_pick,
+    can_drop: bowl_can_drop,
+    on_drop: bowl_on_drop,
+    on_card_click: bowl_on_card_click,
+    on_stock_click: bowl_on_stock_click,
+    on_demo_step: bowl_on_demo_step,
+    get_status: bowl_status,
+    doc: {
+        meta: [2, "Quick", 2, "Moderate", 4, "Tactical"],
+        aliases: ["Sackson Bowling", "Ten-Pin Solitaire"],
+        goal: ["Score 100 or more points across 10 frames of bowling (Strikes and Spares earn standard bowling bonus rolls!).", "Finish Frame 10 with fewer than 100 points."],
+        zones: [
+            { index: 1, name: "10 Bowling Pins", desc: "Click 1 to 3 adjacent pins to select them (Ace=1..9, 10=0), then click a Ball card matching their sum mod 10." },
+            { index: 11, name: "Ball Rack (3 Piles)", desc: "Top card of each pile is playable; click after selecting pins, or drag directly onto a single matching pin." },
+            { index: 14, name: "Next Ball / Next Frame", desc: "Click when no more knockdowns are possible to advance from Ball 1 to Ball 2, or to deal the next frame." }
+        ],
+        stats: [
+            { key: "TOTAL_SCORE", name: "Bowling Score", desc: "Cumulative 10-frame bowling score including Strike and Spare bonuses (100+ wins)." },
+            { key: "FRAME", name: "Current Frame", desc: "Active frame from 1 to 10." }
+        ]
+    }
+})

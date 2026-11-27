@@ -525,8 +525,7 @@ std::vector<uint32_t> findSeedsForGame(
             }
         }
 
-        // Fast scan followed by exact AutoPlayController budget verification
-        const float scanTimeout = std::min(timeoutMs, 600.0f);
+        const float scanTimeout = timeoutMs;
         VerifyReport scanRep = verifyGameSeed(def, candidate, maxStates, scanTimeout);
         if (!scanRep.passed()) continue;
 

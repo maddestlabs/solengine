@@ -10,11 +10,24 @@
 
 # --- Shared Memory Rules ---
 
+def memory_refresh_card():
+    pairs = get_stat("PAIRS", 0)
+    turns = get_stat("TURNS", 0)
+    total_pairs = math.floor((zone_count() - 1) / 2)
+    if total_pairs < 1:
+        total_pairs = 8
+    set_board_card("mem_stats", "MEMORY", "top_right")
+    clear_card_rows("mem_stats")
+    add_card_bar("mem_stats", "PAIRS", pairs, total_pairs)
+    add_card_row("mem_stats", "TURNS", str(turns))
+    return True
+
 def memory_on_deal():
     set_stat("FIRST_Z", -1)
     set_stat("SECOND_Z", -1)
     set_stat("TURNS", 0)
     set_stat("PAIRS", 0)
+    memory_refresh_card()
 
 def memory_can_pick(z, i):
     return False
@@ -33,6 +46,7 @@ def collect_pair():
     set_stat("SECOND_Z", -1)
     set_stat("PAIRS", get_stat("PAIRS", 0) + 1)
     add_score(20)
+    memory_refresh_card()
 
 def flip_pair_down():
     z1 = get_stat("FIRST_Z", -1)
@@ -43,6 +57,7 @@ def flip_pair_down():
         flip_card(z2, 0, False)
     set_stat("FIRST_Z", -1)
     set_stat("SECOND_Z", -1)
+    memory_refresh_card()
 
 def memory_on_card_click(z, i):
     if z < 1 or zone_size(z) == 0 or card_face_up(z, 0):
@@ -57,11 +72,31 @@ def memory_on_card_click(z, i):
     flip_card(z, 0, True)
     set_stat("SECOND_Z", z)
     set_stat("TURNS", get_stat("TURNS", 0) + 1)
+    memory_refresh_card()
     if card_rank(first_z, 0) == card_rank(z, 0):
         schedule_action(0.45, "collect_pair", True)
     else:
         schedule_action(0.85, "flip_pair_down", True)
     return True
+
+def memory_on_demo_step():
+    # Live Auto-Play demo: flip a face-down card, then flip its matching rank partner
+    first_z = get_stat("FIRST_Z", -1)
+    zc = zone_count()
+    if first_z == -1:
+        z = 1
+        while z < zc:
+            if zone_size(z) > 0 and not card_face_up(z, 0):
+                return memory_on_card_click(z, 0)
+            z = z + 1
+        return False
+    target_r = card_rank(first_z, 0)
+    z = 1
+    while z < zc:
+        if z != first_z and zone_size(z) > 0 and not card_face_up(z, 0) and card_rank(z, 0) == target_r:
+            return memory_on_card_click(z, 0)
+        z = z + 1
+    return False
 
 def memory_status_16():
     if zone_size(0) >= 16:
@@ -182,11 +217,11 @@ sol.define_game({
     supports_solver: False,
     allow_undo: False,
     demo_seed: 2026,
-    default_deck: "memory_lowpoly",
     on_deal: memory_on_deal,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
     on_card_click: memory_on_card_click,
+    on_demo_step: memory_on_demo_step,
     get_status: memory_status_24,
     doc: {
         meta: [2, "Quick", 1, "Pure Memory", 3, "Focus"],
@@ -224,11 +259,11 @@ sol.define_game({
     supports_solver: False,
     allow_undo: False,
     demo_seed: 2026,
-    default_deck: "memory_lowpoly",
     on_deal: memory_on_deal,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
     on_card_click: memory_on_card_click,
+    on_demo_step: memory_on_demo_step,
     get_status: memory_status_16,
     doc: {
         meta: [1, "Very Quick", 1, "Pure Memory", 2, "Focus"],
@@ -265,11 +300,11 @@ sol.define_game({
     supports_solver: False,
     allow_undo: False,
     demo_seed: 2026,
-    default_deck: "memory_lowpoly",
     on_deal: memory_on_deal,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
     on_card_click: memory_on_card_click,
+    on_demo_step: memory_on_demo_step,
     get_status: memory_status_52,
     doc: {
         meta: [3, "Medium", 1, "Pure Memory", 3, "Focus"],
@@ -307,12 +342,12 @@ sol.define_game({
     supports_solver: False,
     allow_undo: False,
     demo_seed: 2026,
-    default_deck: "memory_lowpoly",
     on_deal: memory_on_deal,
     on_layout: figure8_layout,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
     on_card_click: memory_on_card_click,
+    on_demo_step: memory_on_demo_step,
     get_status: memory_status_24,
     doc: {
         meta: [2, "Quick", 1, "Pure Memory", 3, "Focus"],
@@ -351,12 +386,12 @@ sol.define_game({
     supports_solver: False,
     allow_undo: False,
     demo_seed: 2026,
-    default_deck: "memory_lowpoly",
     on_deal: memory_on_deal,
     on_layout: clockwork_memory_layout,
     can_pick: memory_can_pick,
     can_drop: memory_can_drop,
     on_card_click: memory_on_card_click,
+    on_demo_step: memory_on_demo_step,
     get_status: memory_status_18,
     doc: {
         meta: [2, "Quick", 1, "Pure Memory", 2, "Focus"],

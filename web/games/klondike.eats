@@ -118,6 +118,47 @@ def klondike_status():
         return "victory"
     return "playing"
 
+# --- Vegas Klondike (Casino Bankroll: -$52 buy-in, +$5/foundation card, 1 pass) ---
+
+def vegas_format_bank(bank):
+    if bank >= 0:
+        return "+$" + str(bank)
+    return "-$" + str(-bank)
+
+def vegas_refresh_widgets():
+    found = zone_size(2) + zone_size(3) + zone_size(4) + zone_size(5)
+    bank = found * 5 - 52
+    prev_bank = get_stat("BANK", -52)
+    if bank != prev_bank:
+        add_score(bank - prev_bank)
+    set_stat("BANK", bank)
+    set_zone_badge(2, "top", "BANK: " + vegas_format_bank(bank), bank >= 0)
+    if zone_size(0) > 0:
+        set_zone_badge(0, "top", "1 PASS (" + str(zone_size(0)) + ")", False)
+    else:
+        set_zone_badge(0, "top", "NO REDEAL", False)
+    return True
+
+def vegas_on_deal():
+    set_stat("BANK", -52)
+    add_score(-52)
+    vegas_refresh_widgets()
+    return True
+
+def vegas_stock():
+    if zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, 1)
+        flip_card(1, zone_size(1) - 1, True)
+        vegas_refresh_widgets()
+        return True
+    return False
+
+def vegas_on_turn_end():
+    klondike_on_turn_end()
+    vegas_refresh_widgets()
+    return True
+
 # --- Variant Definitions ---
 
 sol.define_game({
@@ -252,6 +293,55 @@ sol.define_game({
             { index: 0, name: "Stock", desc: "Click to deal 1 face-up card onto each of the 7 Tableau columns." },
             { index: 2, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
             { index: 6, name: "Tableau Columns (1-7)", desc: "Build down in alternating colors; ordered runs move together; Kings fill empty columns.", examples: ["KH", "QS", "JD"] }
+        ]
+    }
+})
+
+sol.define_game({
+    id: "klondike_vegas",
+    name: "Klondike (Vegas)",
+    family: "Klondike",
+    category: "KLONDIKE",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["classic", "casino", "bankroll", "single_deck"],
+    layout: "columns",
+    tableau_build: "alt_color",
+    empty_tableau: "king",
+    move_group: "ordered",
+    foundation_mode: "suit_up",
+    description: "Las Vegas casino Klondike. Buy the deck for $52, earn $5 per foundation card, and play through the Stock in a single pass (Draw 1, 0 redeals).",
+    decks: 1,
+    tableaus: 7,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [1, 2, 3, 4, 5, 6, 7],
+    tableau_all_face_up: False,
+    foundation_starter_card: False,
+    stock_deal_mode: "waste_draw_1",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 2,
+    demo_seeds: [2, 9, 25, 26, 33, 37, 41, 42],
+    eval_heuristic: klondike_eval,
+    on_deal: vegas_on_deal,
+    can_pick: klondike_can_pick,
+    can_drop: klondike_can_drop,
+    on_stock_click: vegas_stock,
+    on_turn_end: vegas_on_turn_end,
+    get_status: klondike_status,
+    doc: {
+        meta: [2, "Quick", 4, "High Luck", 3, "Tactical"],
+        aliases: ["Vegas Solitaire", "Las Vegas Klondike"],
+        goal: ["Build all 4 Foundations up in suit from Ace to King (break even at 11 cards / +$3; max +$208).", "No legal moves remain."],
+        stats: [
+            { key: "BANK", name: "Casino Bankroll ($)", desc: "Starts at -$52 buy-in; +$5 for each card played to Foundations." }
+        ],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to turn 1 card into Waste; single pass only (no redeals)." },
+            { index: 1, name: "Waste", desc: "Top card is available to play onto Foundations or Tableau." },
+            { index: 2, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King; each card pays +$5.", examples: ["AS", "2S", "3S"] },
+            { index: 6, name: "Tableau Columns (1-7)", desc: "Build down in alternating colors; Kings only fill empty columns.", examples: ["KH", "QS", "JD"] }
         ]
     }
 })

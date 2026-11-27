@@ -1,6 +1,6 @@
 # =============================================================================
 # SolEngine Game Family: Golf (.eats)
-# Consolidated variants: Golf, TriPeaks, Clockwork Dial, Black Hole
+# Consolidated variants: Golf, TriPeaks, Golf Engine (Procedural), Black Hole
 # =============================================================================
 
 # --- Shared Parameterized Golf Rules ---
@@ -13,11 +13,20 @@ def golf_eval(t_start, t_end, total_cards, stock_z):
         z = z + 1
     return (total_cards - rem) * 100 + zone_size(stock_z) * 10
 
+def golf_set_streak(found_z, s):
+    set_stat("STREAK", s)
+    if s > 0:
+        set_zone_badge(found_z, "top", "STREAK x" + str(s), s >= 3)
+    else:
+        set_zone_badge(found_z, "top", "", False)
+    return True
+
 def golf_on_deal(stock_z, found_z):
     if zone_size(found_z) == 0 and zone_size(stock_z) > 0:
         top = zone_size(stock_z) - 1
         move_cards(stock_z, top, found_z)
         flip_card(found_z, 0, True)
+    golf_set_streak(found_z, 0)
     return True
 
 def golf_can_pick(t_start, t_end, check_face_up, check_blocked, z, i):
@@ -54,6 +63,7 @@ def golf_on_stock(stock_z, found_z):
     top = zone_size(stock_z) - 1
     move_cards(stock_z, top, found_z)
     flip_card(found_z, zone_size(found_z) - 1, True)
+    golf_set_streak(found_z, 0)
     return True
 
 def golf_status(t_start, t_end):
@@ -84,6 +94,7 @@ def g_click(z, i):
         return False
     move_cards(z, i, 1)
     add_score(10)
+    golf_set_streak(1, get_stat("STREAK", 0) + 1)
     return True
 
 def g_stock():
@@ -110,6 +121,7 @@ def tp_click(z, i):
         return False
     move_cards(z, i, 1)
     add_score(10)
+    golf_set_streak(1, get_stat("STREAK", 0) + 1)
     return True
 
 def tp_stock():
@@ -127,45 +139,430 @@ def tp_turn_end():
 def tp_status():
     return golf_status(2, 29)
 
-# --- Clockwork Dial Bindings ---
-def cd_eval():
+# --- Golf Engine (Seeded Procedural Clearing Layouts) ---
+# Zone 0       = Foundation (build +-1 rank, wrapping K <-> A)
+# Zones 1..N   = Procedural Tableau (layered planar 1-card zones OR radial 3-card spokes)
+# Zone N + 1   = Stock (remaining cards of the 52-card deck)
+
+def ge_shape_name(lseed):
+    arch = seed_int(lseed, 1, 0, 6)
+    if arch == 0:
+        return "CLOCKWORK"
+    if arch == 1:
+        return "PEAKS"
+    if arch == 2:
+        return "ARCHWAY"
+    if arch == 3:
+        return "CASCADING WAVE"
+    if arch == 4:
+        return "DIAMOND FORTRESS"
+    if arch == 5:
+        return "SYMMETRY"
+    m = seed_int(lseed, 2, 0, 3)
+    if m == 0:
+        return "HOURGLASS"
+    if m == 1:
+        return "CROWN"
+    if m == 2:
+        return "TWIN TOWERS"
+    return "BUTTERFLY"
+
+def ge_is_radial(lseed):
+    return seed_int(lseed, 1, 0, 6) == 0
+
+def ge_build_planar(lseed):
+    pi = 3.14159265
+    arch = seed_int(lseed, 1, 0, 6)
+    layout_begin()
+
+    if arch == 1:
+        # Procedural Peaks (2-peak, 3-peak, or inverted valley across 3-4 overlapping layers)
+        mode = seed_int(lseed, 2, 0, 2)
+        dx = 1.15
+        dy = 0.72
+        if mode == 0:
+            # Twin Grand Peaks (28 cards: 2 + 4 + 6 + 8 + 8 -> 2+4+6+8 = 20 or 2+4+6+8+10 = 30)
+            # Layer 0 (peaks: 2), Layer 1 (4), Layer 2 (6), Layer 3 (8), Layer 4 (10) -> 30 cards
+            layout_add(-2.30, -1.44, 0.0, 0)
+            layout_add(2.30, -1.44, 0.0, 0)
+            i = 0
+            while i < 2:
+                cx = -2.30 + i * 4.60
+                layout_add(cx - 0.575, -0.72, 0.0, 10)
+                layout_add(cx + 0.575, -0.72, 0.0, 10)
+                layout_add(cx - 1.15, 0.0, 0.0, 20)
+                layout_add(cx, 0.0, 0.0, 20)
+                layout_add(cx + 1.15, 0.0, 0.0, 20)
+                i = i + 1
+            j = 0
+            while j < 8:
+                layout_add((j - 3.5) * dx, 0.72, 0.0, 30)
+                j = j + 1
+            k = 0
+            while k < 10:
+                layout_add((k - 4.5) * dx, 1.44, 0.0, 40)
+                k = k + 1
+        elif mode == 1:
+            # Four-Peak Ridge (26 cards: 4 + 8 + 14 -> 4 + 8 + 10 + 4? Clean 4 + 8 + 12 = 24 or 4+8+9+10)
+            # 4 peaks -> 8 mid -> 9 lower -> 10 front = 31 cards
+            p = 0
+            while p < 4:
+                layout_add((p - 1.5) * 2.30, -1.08, 0.0, 0)
+                p = p + 1
+            m = 0
+            while m < 8:
+                layout_add((m - 3.5) * 1.15, -0.36, 0.0, 10)
+                m = m + 1
+            l = 0
+            while l < 9:
+                layout_add((l - 4.0) * 1.15, 0.36, 0.0, 20)
+                l = l + 1
+            f = 0
+            while f < 10:
+                layout_add((f - 4.5) * 1.15, 1.08, 0.0, 30)
+                f = f + 1
+        else:
+            # Inverted Valley (wide back ridge tapering down to front twin valleys: 10 + 9 + 7 + 4 = 30)
+            a = 0
+            while a < 10:
+                layout_add((a - 4.5) * dx, -1.08, 0.0, 0)
+                a = a + 1
+            b = 0
+            while b < 9:
+                layout_add((b - 4.0) * dx, -0.36, 0.0, 10)
+                b = b + 1
+            c = 0
+            while c < 7:
+                layout_add((c - 3.0) * dx, 0.36, 0.0, 20)
+                c = c + 1
+            d = 0
+            while d < 4:
+                layout_add((d - 1.5) * dx * 1.4, 1.08, 0.0, 30)
+                d = d + 1
+
+    elif arch == 2:
+        # Layered Archway (3 concentric overlapping arches: outer z=0, mid z=10, inner z=20 -> 28 cards)
+        outer_n = 12
+        mid_n = 10
+        inner_n = 6 + seed_int(lseed, 2, 0, 1) * 2
+        r_out = 4.60
+        r_mid = 3.72
+        r_in = 2.84
+        i = 0
+        while i < outer_n:
+            t = i / (outer_n - 1.0)
+            deg = 178.0 + t * 184.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * r_out, sin(th) * r_out + 1.4, deg + 90.0, 0)
+            i = i + 1
+        j = 0
+        while j < mid_n:
+            t = j / (mid_n - 1.0)
+            deg = 186.0 + t * 168.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * r_mid, sin(th) * r_mid + 1.4, deg + 90.0, 10)
+            j = j + 1
+        k = 0
+        while k < inner_n:
+            t = k / (inner_n - 1.0)
+            deg = 198.0 + t * 144.0
+            th = deg * pi / 180.0
+            layout_add(cos(th) * r_in, sin(th) * r_in + 1.4, deg + 90.0, 20)
+            k = k + 1
+
+    elif arch == 3:
+        # Cascading Wave (3 overlapping sine ribbons, z=0 back -> z=10 mid -> z=20 front -> 27 or 30 cards)
+        cols = 9 + seed_int(lseed, 2, 0, 1)
+        amp = 0.55 + seed_float(lseed, 3) * 0.40
+        cycles = 1.0
+        if seed_int(lseed, 4, 0, 1) == 1:
+            cycles = 1.5
+        phase = seed_float(lseed, 5) * pi
+        x_step = 1.18
+        row_step = 0.82
+        r = 0
+        while r < 3:
+            y_base = (r - 1.0) * row_step
+            z_layer = r * 10
+            i = 0
+            while i < cols:
+                ux = (i - (cols - 1.0) * 0.5) * x_step
+                t = (i / (cols - 1.0)) * cycles * 2.0 * pi + phase
+                dy = sin(t) * amp
+                slope = cos(t) * amp * (cycles * 2.0 * pi / ((cols - 1.0) * x_step))
+                ang = clamp(atan2(slope, 1.0) * 180.0 / pi, -22.0, 22.0)
+                layout_add(ux, y_base + dy, ang, z_layer)
+                i = i + 1
+            r = r + 1
+
+    elif arch == 4:
+        # Diamond Fortress (3 overlapping concentric diamond rings: outer z=0, mid z=10, inner z=20)
+        # Outer 12 + Mid 8 + Inner 4 + Capstone 4 = 28 cards
+        dx = 1.05
+        dy = 0.85
+        # Layer 0: outer diamond ring (|gx| + |gy| == 3 -> 12 cards)
+        gy = -3
+        while gy <= 3:
+            gx = -3
+            while gx <= 3:
+                if abs(gx) + abs(gy) == 3:
+                    layout_add(gx * dx, gy * dy, 0.0, 0)
+                gx = gx + 1
+            gy = gy + 1
+        # Layer 1: middle diamond ring (|gx| + |gy| == 2 -> 8 cards)
+        gy = -2
+        while gy <= 2:
+            gx = -2
+            while gx <= 2:
+                if abs(gx) + abs(gy) == 2:
+                    layout_add(gx * dx, gy * dy, 0.0, 10)
+                gx = gx + 1
+            gy = gy + 1
+        # Layer 2: inner diamond ring (|gx| + |gy| == 1 -> 4 cards) + 4 corner guards
+        layout_add(0.0, -dy, 0.0, 20)
+        layout_add(dx, 0.0, 0.0, 20)
+        layout_add(0.0, dy, 0.0, 20)
+        layout_add(-dx, 0.0, 0.0, 20)
+        if seed_int(lseed, 2, 0, 1) == 1:
+            layout_add(0.0, 0.0, 0.0, 30)
+
+    elif arch == 5:
+        # Symmetry (Layered 4-way quad-symmetric fortress: 7 cards/quadrant -> 28 cards)
+        style = seed_int(lseed, 2, 0, 1)
+        if style == 0:
+            # Back layer (z=0): 4 cards in upper-right quadrant
+            layout_add(0.70, 0.85, 0.0, 0)
+            layout_add(1.85, 0.85, 0.0, 0)
+            layout_add(3.00, 0.85, 0.0, 0)
+            layout_add(1.85, 2.35, 0.0, 0)
+            # Front overlapping layer (z=10): 3 cards locking the back layer
+            layout_add(1.28, 1.55, 8.0, 10)
+            layout_add(2.42, 1.55, -8.0, 10)
+            layout_add(0.70, 2.35, 0.0, 10)
+        else:
+            # Diagonal stepped wings (back z=0, mid z=10, front z=20)
+            layout_add(0.75, 0.90, 0.0, 0)
+            layout_add(1.95, 1.35, 10.0, 0)
+            layout_add(3.15, 1.80, 18.0, 0)
+            layout_add(1.35, 2.25, 0.0, 10)
+            layout_add(2.55, 2.65, 12.0, 10)
+            layout_add(0.75, 2.60, 0.0, 20)
+            layout_add(1.95, 3.20, -10.0, 20)
+        layout_mirror_xy()
+
+    else:
+        # Archetype 6: Layered ASCII Maps (authored with layout_from_ascii + z-layers!)
+        m = seed_int(lseed, 2, 0, 3)
+        if m == 0:
+            # Hourglass (30 cards across 3 overlapping layers)
+            layout_from_ascii("""
+1.1.1.1.1.1
+.2.2.2.2.2.
+..3.3.3.3..
+.2.2.2.2.2.
+1.1.1.1.1.1
+""", 0.62, 0.78, 0)
+            layout_from_ascii("""
+...3.3...
+""", 0.62, 0.78, 30, 0.0, 0.0)
+        elif m == 1:
+            # Royal Crown (27 cards across 3 layers)
+            layout_from_ascii("""
+1...1...1
+.2.2.2.2.
+2.2.2.2.2
+.3.3.3.3.
+3.3.3.3.3
+""", 0.72, 0.76, 0)
+        elif m == 2:
+            # Twin Towers (28 cards across 3 layers)
+            layout_from_ascii("""
+1.1...1.1
+2.2...2.2
+1.1.1.1.1
+2.2.2.2.2
+3.3...3.3
+""", 0.78, 0.78, 0)
+        else:
+            # Butterfly (28 cards across 3 layers)
+            layout_from_ascii("""
+1.1.....1.1
+.2.2...2.2.
+1.2.3.3.2.1
+.2.2...2.2.
+1.1.....1.1
+""", 0.68, 0.78, 0)
+
+    return layout_count()
+
+def ge_configure(lseed):
+    if ge_is_radial(lseed):
+        spokes = 10 + seed_int(lseed, 2, 0, 1) * 2
+        config_tableaus(spokes, 3)
+        config_all_face_up(False)
+    else:
+        n = ge_build_planar(lseed)
+        config_tableaus(n, 1)
+        config_all_face_up(False)
+    return True
+
+def ge_refresh_card():
+    zc = zone_count()
+    stock_z = zc - 1
     rem = 0
-    z = 0
-    while z <= 11:
+    z = 1
+    while z < stock_z:
         rem = rem + zone_size(z)
         z = z + 1
-    return (36 - rem) * 100 + zone_size(13) * 15
-
-def cd_deal():
-    return golf_on_deal(13, 12)
-
-def cd_pick(z, i):
-    return golf_can_pick(0, 11, True, False, z, i)
-
-def cd_drop(from_z, i, to_z):
-    return golf_can_drop(0, 11, 12, True, True, True, False, from_z, i, to_z)
-
-def cd_click(z, i):
-    if not cd_drop(z, i, 12):
-        return False
-    move_cards(z, i, 12)
-    add_score(10)
+    lseed = get_layout_seed()
+    shape = ge_shape_name(lseed)
+    set_board_card("ge_stats", "GOLF ENGINE", "top_right")
+    clear_card_rows("ge_stats")
+    add_card_row("ge_stats", "SHAPE", shape)
+    add_card_row("ge_stats", "LEFT", str(rem))
+    add_card_row("ge_stats", "STOCK", str(zone_size(stock_z)))
     return True
 
-def cd_stock():
-    return golf_on_stock(13, 12)
+def ge_eval():
+    zc = zone_count()
+    stock_z = zc - 1
+    rem = 0
+    z = 1
+    while z < stock_z:
+        rem = rem + zone_size(z)
+        z = z + 1
+    return (36 - rem) * 100 + zone_size(stock_z) * 12
 
-def cd_turn_end():
-    z = 0
-    while z <= 11:
+def ge_deal():
+    zc = zone_count()
+    stock_z = zc - 1
+    golf_on_deal(stock_z, 0)
+    ge_refresh_card()
+    return True
+
+def ge_pick(z, i):
+    zc = zone_count()
+    stock_z = zc - 1
+    return golf_can_pick(1, stock_z - 1, True, True, z, i)
+
+def ge_drop(from_z, i, to_z):
+    zc = zone_count()
+    stock_z = zc - 1
+    return golf_can_drop(1, stock_z - 1, 0, True, True, True, True, from_z, i, to_z)
+
+def ge_click(z, i):
+    if not ge_drop(z, i, 0):
+        return False
+    move_cards(z, i, 0)
+    add_score(10)
+    golf_set_streak(0, get_stat("STREAK", 0) + 1)
+    return True
+
+def ge_stock():
+    zc = zone_count()
+    stock_z = zc - 1
+    ok = golf_on_stock(stock_z, 0)
+    if ok:
+        ge_refresh_card()
+    return ok
+
+def ge_turn_end():
+    zc = zone_count()
+    stock_z = zc - 1
+    z = 1
+    while z < stock_z:
         sz = zone_size(z)
-        if sz > 0 and not card_face_up(z, sz - 1):
+        if sz > 0 and not card_face_up(z, sz - 1) and not is_card_blocked(z, sz - 1):
             flip_card(z, sz - 1, True)
         z = z + 1
+    ge_refresh_card()
     return True
 
-def cd_status():
-    return golf_status(0, 11)
+def ge_status():
+    zc = zone_count()
+    stock_z = zc - 1
+    return golf_status(1, stock_z - 1)
+
+def ge_layout(bw, bh):
+    lseed = get_layout_seed()
+    zc = zone_count()
+    stock_z = zc - 1
+    pad_top = max(24.0, get_safe_top() + 18.0)
+    pad_bot = max(48.0, get_safe_bottom() + 42.0)
+    pad_x = max(20.0, max(get_safe_left(), get_safe_right()) + 16.0)
+
+    if ge_is_radial(lseed):
+        # Radial Clockwork Spokes (10 or 12 spokes fanning outward around central Foundation + Stock)
+        spokes = stock_z - 1
+        avail_w = max(200.0, bw - 2.0 * pad_x)
+        avail_h = max(200.0, bh - pad_top - pad_bot)
+        cx = bw * 0.5
+        cy = pad_top + avail_h * 0.5
+
+        ar = avail_w / avail_h
+        ellip_x = 1.0
+        if ar > 1.08:
+            ellip_x = min(1.32, 1.0 + (ar - 1.0) * 0.42)
+
+        r_u = 1.78
+        fan_u = 0.22
+        tip_u = 2.0 * fan_u + 0.52
+        ch_h = avail_h / (2.0 * (r_u + tip_u))
+        ch_w = avail_w / (2.0 * (r_u * ellip_x + tip_u))
+        cw_target = min(ch_h, ch_w) / 1.40
+        set_card_size(cw_target)
+        cw = get_card_width()
+        ch = get_card_height()
+
+        ry = r_u * ch
+        rx = ry * ellip_x
+        fan_step = fan_u * ch
+        pi = 3.14159265
+        rad_to_deg = 180.0 / pi
+
+        # Center hub: Stock left, Foundation right
+        gap = cw * 0.14
+        set_zone_pose(stock_z, cx - cw - gap * 0.5, cy - ch * 0.5, 0.0, 40)
+        set_zone_fan(stock_z, 0.0, 0.0)
+        set_zone_pose(0, cx + gap * 0.5, cy - ch * 0.5, 0.0, 41)
+        set_zone_fan(0, 0.0, 0.0)
+
+        i = 0
+        while i < spokes:
+            theta = -pi * 0.5 + i * (2.0 * pi / spokes)
+            vx = rx * cos(theta)
+            vy = ry * sin(theta)
+            dist = max(1.0, sqrt(vx * vx + vy * vy))
+            ux = vx / dist
+            uy = vy / dist
+            ang = atan2(vy, vx) * rad_to_deg + 90.0
+            set_zone_pose(1 + i, cx + vx - cw * 0.5, cy + vy - ch * 0.5, ang, i)
+            set_zone_fan(1 + i, ux, uy)
+            set_zone_fan_step(1 + i, fan_step)
+            i = i + 1
+        return True
+
+    # Planar Layered Shapes: reserve dedicated bottom dock for Stock + Foundation
+    ge_build_planar(lseed)
+    est_dock = clamp(bh * 0.21, 95.0, 175.0)
+    layout_apply(1, bw, bh, pad_top, pad_bot + est_dock, pad_x)
+    cw = get_card_width()
+    ch = get_card_height()
+
+    # Keep all planar tableau zones stacked flat (1 card per zone)
+    z = 1
+    while z < stock_z:
+        set_zone_fan(z, 0.0, 0.0)
+        z = z + 1
+
+    # Dock Stock (left) and Foundation (right) centered at bottom rail
+    dock_y = bh - pad_bot - ch
+    gap = max(12.0, cw * 0.22)
+    set_zone_pose(stock_z, bw * 0.5 - cw - gap * 0.5, dock_y, 0.0, 60)
+    set_zone_fan(stock_z, 0.0, 0.0)
+    set_zone_pose(0, bw * 0.5 + gap * 0.5, dock_y, 0.0, 61)
+    set_zone_fan(0, 0.0, 0.0)
+    return True
 
 # --- Black Hole Bindings ---
 # Zones 0..6   = Inner Ring (7 fans of 3 cards, all face-up)
@@ -214,6 +611,7 @@ def bh_click(z, i):
         return False
     move_cards(z, i, 17)
     add_score(10)
+    golf_set_streak(17, get_stat("STREAK", 0) + 1)
     return True
 
 def bh_status():
@@ -394,44 +792,44 @@ sol.define_game({
 })
 
 sol.define_game({
-    id: "clockwork_dial",
-    name: "Clockwork Dial",
+    id: "golf_engine",
+    name: "Golf Engine",
     family: "Golf",
     category: "GOLF",
     mechanic: "clearing",
     visibility: "half_open",
-    tags: ["radial", "clock", "wrapping"],
-    layout: "radial_clock",
+    tags: ["procedural", "peaks", "radial", "wrapping", "ascii_layout"],
+    layout: "grid",
     wrap_ranks: True,
-    description: "12 radial clock spokes fanning outward around a central dial. Play +-1 rank onto the center Foundation.",
+    description: "Seeded procedural Golf / TriPeaks clearing engine. Generates Clockwork radial dials, procedural Peaks, Layered Archways, Cascading Waves, Diamond Fortresses, Symmetry layers, and ASCII Maps. Play uncovered cards +-1 rank (wrapping K<->A) onto the Foundation.",
     decks: 1,
-    tableaus: 12,
+    tableaus: 28,
     foundations: 1,
     freecells: 0,
-    tableau_deal_counts: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     tableau_all_face_up: False,
     foundation_starter_card: True,
     stock_deal_mode: "deal_to_foundation",
     stock_deal_count: 1,
     max_redeals: 0,
-    demo_seed: 2026,
-    demo_seeds: [1, 7, 13, 21, 2026],
-    eval_heuristic: cd_eval,
-    on_deal: cd_deal,
-    can_pick: cd_pick,
-    can_drop: cd_drop,
-    on_card_click: cd_click,
-    on_stock_click: cd_stock,
-    on_turn_end: cd_turn_end,
-    get_status: cd_status,
+    demo_seed: 25,
+    demo_seeds: [25, 3, 4, 1, 2, 5, 6],
+    eval_heuristic: ge_eval,
+    on_configure: ge_configure,
+    on_deal: ge_deal,
+    on_layout: ge_layout,
+    can_pick: ge_pick,
+    can_drop: ge_drop,
+    on_card_click: ge_click,
+    on_stock_click: ge_stock,
+    on_turn_end: ge_turn_end,
+    get_status: ge_status,
     doc: {
         meta: [2, "Quick", 3, "Balanced", 2, "Casual"],
-        aliases: ["Radial Clock", "Sun Dial", "Watch"],
-        goal: ["Clear all 12 radial clock spokes onto the center Foundation.", "No playable cards remain on the dial and the center Stock is empty."],
+        aliases: ["Procedural Golf", "TriPeaks Engine", "Clockwork Dial"],
+        goal: ["Clear all cards from the procedurally generated layout onto the Foundation.", "No playable cards remain and Stock is empty."],
         zones: [
-            { index: 0, name: "Clock Spokes (1-12)", desc: "12 radial piles fanning outward. Play exposed top cards +-1 rank (wrapping K <-> A) to the center Foundation." },
-            { index: 12, name: "Center Foundation", desc: "Build +-1 in rank regardless of suit.", examples: ["KH", "AS", "2D"] },
-            { index: 13, name: "Center Stock", desc: "Click to deal a fresh card onto the center Foundation." }
+            { index: 0, name: "Foundation", desc: "Build +-1 in rank regardless of suit, wrapping King <-> Ace.", examples: ["KH", "AS", "2D"] }
         ]
     }
 })

@@ -292,10 +292,43 @@ struct Pile {
 /**
  * Global board state ("blackboard") for modern/RPG solitaires (HP, armor, turn, room, etc.).
  */
+struct BoardCardRow {
+    enum class Kind : uint8_t { KeyValue, Bar, Pill };
+    Kind kind{Kind::KeyValue};
+    std::string label;
+    std::string value;
+    int32_t barVal{0};
+    int32_t barMax{100};
+    bool active{false};
+};
+
+struct BoardWidgetCard {
+    std::string id;
+    std::string title;
+    std::string anchor{"top_right"}; // "top_right", "top_left", "right_of_grid", "left_of_grid", "custom"
+    float x{0.0f};
+    float y{0.0f};
+    float w{0.0f};
+    float h{0.0f};
+    std::vector<BoardCardRow> rows;
+};
+
+struct BoardBadge {
+    std::string id;
+    std::string anchor{"top"}; // "top", "bottom", "right", "left", "custom"
+    int32_t zoneIdx{-1};
+    float x{0.0f};
+    float y{0.0f};
+    std::string text;
+    bool highlight{false};
+};
+
 struct BoardBlackboard {
     std::map<std::string, int32_t> intStats;
     std::map<std::string, std::string> strStats;
     std::vector<std::string> hudStats; // Ordered stat keys to display in HUD
+    std::vector<BoardWidgetCard> widgetCards;
+    std::vector<BoardBadge> badges;
 
     [[nodiscard]] int32_t getInt(const std::string& key, int32_t fallback = 0) const noexcept {
         auto it = intStats.find(key);
@@ -347,6 +380,11 @@ struct BoardOp {
 
 struct TurnTransaction {
     std::vector<BoardOp> ops;
+    bool hasWidgetSnapshot{false};
+    std::vector<BoardWidgetCard> prevWidgetCards;
+    std::vector<BoardBadge> prevBadges;
+    std::vector<BoardWidgetCard> nextWidgetCards;
+    std::vector<BoardBadge> nextBadges;
 };
 
 struct ZoneDoc {

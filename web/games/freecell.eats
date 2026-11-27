@@ -5,6 +5,7 @@
 #   - Baker's Game
 #   - Eight Off
 #   - Seahaven Towers
+#   - Penguin
 # =============================================================================
 
 # --- Shared Parameterized FreeCell Rules ---
@@ -332,6 +333,189 @@ sol.define_game({
             { index: 0, name: "FreeCells (1-4)", desc: "4 temporary single-card cells; 2 start occupied.", bullets: ["Each cell holds 1 card."] },
             { index: 4, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
             { index: 8, name: "Tableau Columns (1-10)", desc: "Build down in the SAME SUIT; only Kings fill empty columns.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
+})
+
+# --- Penguin Rules (Parlett 1979) ---
+# Zone Map:
+#   0..6   : 7 Flipper Cells (FreeCells)
+#   7..10  : 4 Foundations (3 pre-filled with BEAK_RANK, 1 empty)
+#   11..17 : 7 Tableau Columns (7 cards each = 49 cards)
+
+def penguin_top_rank():
+    beak = get_stat("BEAK_RANK", 1)
+    return ((beak - 2 + 13) % 13) + 1
+
+def penguin_on_deal():
+    # First card of column 11 is the "Beak" — sets the Foundation base rank
+    beak_r = card_rank(11, 0)
+    set_stat("BEAK_RANK", beak_r)
+
+    # Extract the other 3 cards of rank beak_r onto Foundations 7..9
+    f_zone = 7
+    z = 11
+    while z <= 17 and f_zone <= 9:
+        i = zone_size(z) - 1
+        while i >= 0 and f_zone <= 9:
+            if not (z == 11 and i == 0):
+                if card_rank(z, i) == beak_r:
+                    extract_card(z, i, f_zone)
+                    flip_card(f_zone, zone_size(f_zone) - 1, True)
+                    f_zone = f_zone + 1
+            i = i - 1
+        z = z + 1
+
+    # Rebalance columns 11..17 so every column starts with exactly 7 cards (49 total)
+    src = 11
+    while src <= 17:
+        while zone_size(src) > 7:
+            dst = 11
+            moved = False
+            while dst <= 17 and not moved:
+                if zone_size(dst) < 7:
+                    top = zone_size(src) - 1
+                    move_cards(src, top, dst)
+                    moved = True
+                dst = dst + 1
+            if not moved:
+                break
+        src = src + 1
+    return True
+
+def penguin_eval():
+    score = 0
+    z = 7
+    while z <= 10:
+        score = score + zone_size(z) * 300
+        z = z + 1
+    z = 0
+    while z <= 6:
+        if zone_size(z) == 0:
+            score = score + 14
+        z = z + 1
+    beak = get_stat("BEAK_RANK", 1)
+    z = 11
+    while z <= 17:
+        sz = zone_size(z)
+        if sz == 0:
+            score = score + 35
+        else:
+            i = 0
+            while i < sz:
+                r = card_rank(z, i)
+                rel = (r - beak + 13) % 13
+                above = (sz - 1) - i
+                # Penalize burying low-relative-rank cards (next needed on foundations)
+                if rel <= 3 and above > 0:
+                    score = score - above * (5 - rel) * 10
+                if i < sz - 1:
+                    r_lo = card_rank(z, i + 1)
+                    if card_suit(z, i) == card_suit(z, i + 1) and r != beak and r == ((r_lo % 13) + 1):
+                        score = score + 28
+                i = i + 1
+        z = z + 1
+    return score
+
+def penguin_pick(z, i):
+    sz = zone_size(z)
+    if sz == 0 or i < 0 or i >= sz:
+        return False
+    if z >= 0 and z <= 6:
+        return i == sz - 1
+    if z >= 11 and z <= 17:
+        if i == sz - 1:
+            return True
+        beak = get_stat("BEAK_RANK", 1)
+        k = i
+        while k < sz - 1:
+            r_hi = card_rank(z, k)
+            r_lo = card_rank(z, k + 1)
+            if card_suit(z, k) != card_suit(z, k + 1) or r_hi == beak or r_hi != ((r_lo % 13) + 1):
+                return False
+            k = k + 1
+        return True
+    return False
+
+def penguin_drop(from_z, i, to_z):
+    if from_z == to_z or zone_size(from_z) == 0:
+        return False
+    sz = zone_size(from_z)
+    r = card_rank(from_z, i)
+    s = card_suit(from_z, i)
+    beak = get_stat("BEAK_RANK", 1)
+
+    if to_z >= 0 and to_z <= 6:
+        return i == sz - 1 and zone_size(to_z) == 0
+
+    if to_z >= 7 and to_z <= 10:
+        if i != sz - 1:
+            return False
+        fsz = zone_size(to_z)
+        if fsz == 0:
+            return r == beak
+        if fsz >= 13:
+            return False
+        next_r = (card_rank(to_z, fsz - 1) % 13) + 1
+        return card_suit(to_z, fsz - 1) == s and r == next_r
+
+    if to_z >= 11 and to_z <= 17:
+        tsz = zone_size(to_z)
+        if tsz == 0:
+            return r == penguin_top_rank()
+        top_r = card_rank(to_z, tsz - 1)
+        if top_r == beak:
+            return False
+        return card_suit(to_z, tsz - 1) == s and top_r == ((r % 13) + 1)
+
+    return False
+
+def penguin_status():
+    return fc_status(7, 10)
+
+sol.define_game({
+    id: "penguin",
+    name: "Penguin",
+    family: "FreeCell",
+    category: "FREECELL",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["classic", "open", "pure_skill", "same_suit", "wrapping", "cells", "single_deck"],
+    layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "custom",
+    move_group: "ordered",
+    foundation_mode: "canfield_wrap",
+    description: "David Parlett's beloved open-cell classic. 7 Flipper cells, dynamic Beak base rank, and wrapping same-suit runs.",
+    decks: 1,
+    tableaus: 7,
+    foundations: 4,
+    freecells: 7,
+    tableau_deal_counts: [8, 8, 8, 7, 7, 7, 7],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "none",
+    stock_deal_count: 0,
+    max_redeals: 0,
+    # TODO: mine verified solvable demo_seeds
+    demo_seed: 24,
+    demo_seeds: [24],
+    eval_heuristic: penguin_eval,
+    on_deal: penguin_on_deal,
+    can_pick: penguin_pick,
+    can_drop: penguin_drop,
+    get_status: penguin_status,
+    doc: {
+        meta: [3, "Medium", 1, "Pure Skill", 4, "Strategic"],
+        aliases: ["Parlett's Penguin"],
+        goal: ["Build all 4 Foundations up in suit wrapping K->A from BEAK_RANK.", "No legal moves remain."],
+        stats: [
+            { key: "BEAK_RANK", name: "Beak Rank", desc: "Foundation base rank set by the first card dealt; the other 3 matching cards start pre-placed on Foundations." }
+        ],
+        zones: [
+            { index: 0, name: "Flipper Cells (1-7)", desc: "7 temporary single-card holding cells." },
+            { index: 7, name: "Foundations (1-4)", desc: "3 start pre-filled with BEAK_RANK; build up in suit wrapping K->A." },
+            { index: 11, name: "Tableau Columns (1-7)", desc: "7 open columns of 7 cards. Build down in SAME SUIT wrapping A->K; ordered runs move together; empty spaces accept only the rank below BEAK_RANK." }
         ]
     }
 })

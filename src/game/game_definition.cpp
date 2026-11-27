@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <unordered_set>
 
 namespace solengine {
 
@@ -429,6 +430,124 @@ void GameRegistry::initialize(const std::string& gamesDir) {
     initialized_ = true;
 }
 
+namespace {
+
+// Minimal zero-dependency JSON parser for lazy games/manifest.json loading.
+struct JsonVal {
+    enum class Kind { Null, Bool, Num, Str, Arr, Obj } kind{Kind::Null};
+    bool b{false};
+    double n{0.0};
+    std::string s;
+    std::vector<JsonVal> arr;
+    std::vector<std::pair<std::string, JsonVal>> obj;
+
+    const JsonVal* get(const char* key) const {
+        if (kind != Kind::Obj) return nullptr;
+        for (const auto& kv : obj) {
+            if (kv.first == key) return &kv.second;
+        }
+        return nullptr;
+    }
+    std::string asStr(const std::string& def = "") const { return kind == Kind::Str ? s : def; }
+    int asInt(int def = 0) const { return kind == Kind::Num ? static_cast<int>(n) : def; }
+    bool asBool(bool def = false) const { return kind == Kind::Bool ? b : def; }
+};
+
+struct JsonParser {
+    const std::string& src;
+    size_t pos{0};
+
+    void skipWs() {
+        while (pos < src.size() && (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\r' || src[pos] == '\n')) ++pos;
+    }
+    bool parseString(std::string& out) {
+        if (pos >= src.size() || src[pos] != '"') return false;
+        ++pos;
+        out.clear();
+        while (pos < src.size()) {
+            char c = src[pos++];
+            if (c == '"') return true;
+            if (c == '\\' && pos < src.size()) {
+                char e = src[pos++];
+                if (e == '"' || e == '\\' || e == '/') out.push_back(e);
+                else if (e == 'n') out.push_back('\n');
+                else if (e == 'r') out.push_back('\r');
+                else if (e == 't') out.push_back('\t');
+                else out.push_back(e);
+            } else {
+                out.push_back(c);
+            }
+        }
+        return false;
+    }
+    bool parseValue(JsonVal& out) {
+        skipWs();
+        if (pos >= src.size()) return false;
+        char c = src[pos];
+        if (c == '"') {
+            out.kind = JsonVal::Kind::Str;
+            return parseString(out.s);
+        }
+        if (c == '{') {
+            out.kind = JsonVal::Kind::Obj;
+            ++pos;
+            skipWs();
+            if (pos < src.size() && src[pos] == '}') { ++pos; return true; }
+            while (pos < src.size()) {
+                skipWs();
+                std::string k;
+                if (!parseString(k)) return false;
+                skipWs();
+                if (pos >= src.size() || src[pos] != ':') return false;
+                ++pos;
+                JsonVal v;
+                if (!parseValue(v)) return false;
+                out.obj.emplace_back(std::move(k), std::move(v));
+                skipWs();
+                if (pos < src.size() && src[pos] == ',') { ++pos; continue; }
+                if (pos < src.size() && src[pos] == '}') { ++pos; return true; }
+                return false;
+            }
+            return false;
+        }
+        if (c == '[') {
+            out.kind = JsonVal::Kind::Arr;
+            ++pos;
+            skipWs();
+            if (pos < src.size() && src[pos] == ']') { ++pos; return true; }
+            while (pos < src.size()) {
+                JsonVal v;
+                if (!parseValue(v)) return false;
+                out.arr.push_back(std::move(v));
+                skipWs();
+                if (pos < src.size() && src[pos] == ',') { ++pos; continue; }
+                if (pos < src.size() && src[pos] == ']') { ++pos; return true; }
+                return false;
+            }
+            return false;
+        }
+        if (src.compare(pos, 4, "true") == 0) { out.kind = JsonVal::Kind::Bool; out.b = true; pos += 4; return true; }
+        if (src.compare(pos, 5, "false") == 0) { out.kind = JsonVal::Kind::Bool; out.b = false; pos += 5; return true; }
+        if (src.compare(pos, 4, "null") == 0) { out.kind = JsonVal::Kind::Null; pos += 4; return true; }
+        if (c == '-' || (c >= '0' && c <= '9')) {
+            size_t start = pos;
+            if (src[pos] == '-') ++pos;
+            while (pos < src.size() && ((src[pos] >= '0' && src[pos] <= '9') || src[pos] == '.' || src[pos] == 'e' || src[pos] == 'E' || src[pos] == '+' || src[pos] == '-')) ++pos;
+            out.kind = JsonVal::Kind::Num;
+            out.n = std::stod(src.substr(start, pos - start));
+            return true;
+        }
+        return false;
+    }
+};
+
+std::string toLowerAsciiLocal(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+} // namespace
+
 void GameRegistry::scanDirectory(const std::string& gamesDir) {
     std::error_code ec;
     const std::vector<std::string> searchPaths = {
@@ -449,10 +568,125 @@ void GameRegistry::scanDirectory(const std::string& gamesDir) {
     }
     if (targetDir.empty()) return;
 
+    // 1. Fast Lazy-Load Path: read games/manifest.json without parsing .eats scripts at startup
+    std::unordered_set<std::string> manifestFiles;
+    const std::filesystem::path manifestPath = std::filesystem::path(targetDir) / "manifest.json";
+    if (std::filesystem::exists(manifestPath, ec) && std::filesystem::is_regular_file(manifestPath, ec)) {
+        std::ifstream mf(manifestPath);
+        if (mf.is_open()) {
+            std::stringstream buf;
+            buf << mf.rdbuf();
+            const std::string content = buf.str();
+            JsonParser parser{content};
+            JsonVal root;
+            if (parser.parseValue(root)) {
+                if (const JsonVal* gamesArr = root.get("games"); gamesArr && gamesArr->kind == JsonVal::Kind::Arr) {
+                    for (const auto& item : gamesArr->arr) {
+                        if (item.kind != JsonVal::Kind::Obj) continue;
+                        const std::string id = toLowerAsciiLocal(item.get("id") ? item.get("id")->asStr() : "");
+                        const std::string file = item.get("file") ? item.get("file")->asStr() : "";
+                        if (id.empty() || file.empty()) continue;
+
+                        SolitaireGameDef def{};
+                        def.id = id;
+                        def.name = item.get("name") ? item.get("name")->asStr(id) : id;
+                        def.family = item.get("family") ? item.get("family")->asStr() : "";
+                        def.category = item.get("category") ? item.get("category")->asStr("CUSTOM") : "CUSTOM";
+                        def.mechanic = toLowerAsciiLocal(item.get("mechanic") ? item.get("mechanic")->asStr() : "");
+                        def.visibility = toLowerAsciiLocal(item.get("visibility") ? item.get("visibility")->asStr() : "");
+                        if (const JsonVal* tags = item.get("tags"); tags && tags->kind == JsonVal::Kind::Arr) {
+                            for (const auto& t : tags->arr) {
+                                std::string ts = toLowerAsciiLocal(t.asStr());
+                                if (!ts.empty()) def.tags.push_back(std::move(ts));
+                            }
+                        }
+                        def.layout = item.get("layout") ? item.get("layout")->asStr("columns") : "columns";
+                        def.wrapRanks = item.get("wrap_ranks") ? item.get("wrap_ranks")->asBool(false) : false;
+                        def.kingDeadEnd = item.get("king_dead_end") ? item.get("king_dead_end")->asBool(false) : false;
+                        def.tableauBuild = toLowerAsciiLocal(item.get("tableau_build") ? item.get("tableau_build")->asStr() : "");
+                        def.emptyTableau = toLowerAsciiLocal(item.get("empty_tableau") ? item.get("empty_tableau")->asStr() : "");
+                        def.moveGroup = toLowerAsciiLocal(item.get("move_group") ? item.get("move_group")->asStr() : "");
+                        def.foundationMode = toLowerAsciiLocal(item.get("foundation_mode") ? item.get("foundation_mode")->asStr() : "");
+                        def.ribbonRule = toLowerAsciiLocal(item.get("ribbon_rule") ? item.get("ribbon_rule")->asStr() : "");
+                        def.description = item.get("description") ? item.get("description")->asStr() : "";
+                        def.decks = static_cast<uint8_t>(std::clamp(item.get("decks") ? item.get("decks")->asInt(1) : 1, 1, 8));
+                        def.deckCards = static_cast<uint16_t>(std::max(0, item.get("deck_cards") ? item.get("deck_cards")->asInt(0) : 0));
+                        def.excludeRedRoyals = item.get("exclude_red_royals") ? item.get("exclude_red_royals")->asBool(false) : false;
+                        def.suitCount = static_cast<uint8_t>(std::clamp(item.get("suit_count") ? item.get("suit_count")->asInt(4) : 4, 1, 4));
+                        def.jokers = static_cast<uint8_t>(std::clamp(item.get("jokers") ? item.get("jokers")->asInt(0) : 0, 0, 2));
+                        def.gridCols = static_cast<uint8_t>(std::clamp(item.get("grid_cols") ? item.get("grid_cols")->asInt(0) : 0, 0, 20));
+                        def.supportsSolver = item.get("supports_solver") ? item.get("supports_solver")->asBool(true) : true;
+                        def.preferCuratedSolvable = item.get("prefer_curated_solvable") ? item.get("prefer_curated_solvable")->asBool(false) : false;
+                        def.dynamicLayout = item.get("dynamic_layout") ? item.get("dynamic_layout")->asBool(false) : false;
+                        def.allowUndo = item.get("allow_undo") ? item.get("allow_undo")->asBool(true) : true;
+                        if (const JsonVal* ex = item.get("exclude_ranks"); ex && ex->kind == JsonVal::Kind::Arr) {
+                            for (const auto& v : ex->arr) {
+                                int r = v.asInt(0);
+                                if (r >= 1 && r <= 13) def.excludeRanks.push_back(static_cast<uint8_t>(r));
+                            }
+                        }
+                        def.tableaus = static_cast<uint8_t>(std::clamp(item.get("tableaus") ? item.get("tableaus")->asInt(7) : 7, 0, 104));
+                        def.foundations = static_cast<uint8_t>(std::clamp(item.get("foundations") ? item.get("foundations")->asInt(4) : 4, 0, 16));
+                        def.freecells = static_cast<uint8_t>(std::clamp(item.get("freecells") ? item.get("freecells")->asInt(0) : 0, 0, 16));
+                        if (const JsonVal* tdc = item.get("tableau_deal_counts"); tdc && tdc->kind == JsonVal::Kind::Arr) {
+                            for (const auto& v : tdc->arr) {
+                                def.tableauDealCounts.push_back(static_cast<uint8_t>(std::max(0, v.asInt(0))));
+                            }
+                        }
+                        def.tableauAllFaceUp = item.get("tableau_all_face_up") ? item.get("tableau_all_face_up")->asBool(false) : false;
+                        def.foundationStarterCard = item.get("foundation_starter_card") ? item.get("foundation_starter_card")->asBool(false) : false;
+                        def.stockDealMode = item.get("stock_deal_mode") ? item.get("stock_deal_mode")->asStr("waste_draw_1") : "waste_draw_1";
+                        def.stockDealCount = item.get("stock_deal_count") ? item.get("stock_deal_count")->asInt(1) : 1;
+                        def.maxRedeals = item.get("max_redeals") ? item.get("max_redeals")->asInt(0) : 0;
+                        def.demoSeed = static_cast<uint32_t>(std::max(1, item.get("demo_seed") ? item.get("demo_seed")->asInt(2026) : 2026));
+                        if (const JsonVal* ds = item.get("demo_seeds"); ds && ds->kind == JsonVal::Kind::Arr) {
+                            for (const auto& v : ds->arr) {
+                                int s = v.asInt(0);
+                                if (s > 0) def.demoSeeds.push_back(static_cast<uint32_t>(s));
+                            }
+                        }
+                        if (const JsonVal* dk = item.get("deck") ? item.get("deck") : item.get("default_deck")) def.defaultDeckSlug = dk->asStr();
+                        if (const JsonVal* th = item.get("theme") ? item.get("theme") : item.get("default_theme")) def.defaultTableThemeSlug = th->asStr();
+                        if (const JsonVal* pf = item.get("postfx")) def.defaultPostFxId = pf->asStr();
+                        if (const JsonVal* am = item.get("ambience")) def.defaultAmbienceId = am->asStr();
+                        if (const JsonVal* sp = item.get("sound_pack")) def.defaultSoundPackId = sp->asStr();
+                        if (const JsonVal* pr = item.get("preset")) def.defaultPresetId = pr->asStr();
+                        if (const JsonVal* sid = item.get("series_id")) def.seriesId = toLowerAsciiLocal(sid->asStr());
+                        if (const JsonVal* sn = item.get("series_name")) def.seriesName = sn->asStr();
+                        def.seriesOrder = item.get("series_order") ? item.get("series_order")->asInt(0) : 0;
+
+                        def.filePath = (std::filesystem::path(targetDir) / file).string();
+                        def.isScripted = true;
+                        // scriptSource intentionally left empty for O(1) lazy loading on newDeal()
+
+                        const std::string nameLow = toLowerAsciiLocal(def.name);
+                        const std::string famLow = toLowerAsciiLocal(def.family);
+                        if (id == "spiderette" || nameLow == "spiderette") def.nativeVariant = GameVariant::Spider1Suit;
+                        else if (id == "golf" || nameLow == "golf") def.nativeVariant = GameVariant::Golf;
+                        else if (nameLow.find("spider") != std::string::npos || famLow == "spider") {
+                            if (nameLow.find("1") != std::string::npos || id.find("_1") != std::string::npos) def.nativeVariant = GameVariant::Spider1Suit;
+                            else if (nameLow.find("2") != std::string::npos || id.find("_2") != std::string::npos) def.nativeVariant = GameVariant::Spider2Suits;
+                            else if (nameLow.find("3") != std::string::npos || id.find("_3") != std::string::npos) def.nativeVariant = GameVariant::Spider3Suits;
+                            else def.nativeVariant = GameVariant::Spider4Suits;
+                        } else if (nameLow.find("freecell") != std::string::npos || id == "freecell") def.nativeVariant = GameVariant::FreeCell;
+                        else if (nameLow.find("draw 3") != std::string::npos || id.find("draw_3") != std::string::npos) def.nativeVariant = GameVariant::KlondikeDraw3;
+                        else if (nameLow.find("draw 1") != std::string::npos || id.find("draw_1") != std::string::npos) def.nativeVariant = GameVariant::KlondikeDraw1;
+
+                        registerGame(def);
+                        manifestFiles.insert(toLowerAsciiLocal(file));
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback scan: eagerly load any newly dropped .eats files not yet in manifest.json
     for (const auto& entry : std::filesystem::directory_iterator(targetDir, ec)) {
         if (!entry.is_regular_file(ec)) continue;
         const auto ext = entry.path().extension().string();
         if (ext == ".eats") {
+            const std::string fnameLow = toLowerAsciiLocal(entry.path().filename().string());
+            if (manifestFiles.count(fnameLow) > 0) continue;
             EatsLoadResult pkgRes;
             if (EatsPackageLoader::loadFile(entry.path().string(), pkgRes) && !pkgRes.gameIds.empty()) {
                 continue;

@@ -36,6 +36,14 @@ if ($runningGame) {
     Start-Sleep -Milliseconds 250
 }
 
+# Regenerate lazy game manifest (games/manifest.json) so new/edited .eats files are always indexed
+$manifestScript = Join-Path $PSScriptRoot "tools\generate_games_manifest.py"
+if (Test-Path $manifestScript) {
+    Write-Host "[SolEngine] Regenerating games/manifest.json..." -ForegroundColor Yellow
+    python $manifestScript
+    if ($LASTEXITCODE -ne 0) { throw "Failed to generate games/manifest.json." }
+}
+
 cmake -B build -S . -DBUILD_TESTING=OFF
 if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed." }
 

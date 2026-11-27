@@ -38,6 +38,7 @@ void SettingsDialog::randomizeSeed() {
 
 void SettingsDialog::open(const std::string& activeGameId, const std::string& activeGameName) {
     isOpen_ = true;
+    livePreviewDirty_ = false;
     activeGameId_ = activeGameId;
     activeGameName_ = activeGameName;
     if (activeGameId_.empty()) {
@@ -71,6 +72,7 @@ void SettingsDialog::open(const std::string& activeGameId, const std::string& ac
 
 void SettingsDialog::close() {
     isOpen_ = false;
+    livePreviewDirty_ = false;
     editingSeed_ = false;
     draggingVolume_ = false;
     draggingAmbienceVolume_ = false;
@@ -87,7 +89,10 @@ void SettingsDialog::close() {
     draggingCloudOpacity_ = false;
 }
 
-void SettingsDialog::applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& foley, const AppSettings& s) {
+void SettingsDialog::applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& foley, const AppSettings& s, bool updatePreviewCard) {
+    if (updatePreviewCard) {
+        livePreviewDirty_ = true;
+    }
     board.setCardDeviation(s.cardDeviation);
     foley.setMasterVolume(s.masterVolume);
     foley.setMuted(s.muted);
@@ -98,17 +103,19 @@ void SettingsDialog::applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& f
     auto& cache = CardTextureCache::instance();
     cache.setCornerStyle(s.cardCorners);
     cache.setLowPolySeed(s.lowPolySeed);
-    const auto& decks = cache.availableDecks();
-    size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
-    if (const auto* dDef = cache.getDeckDef(dIdx)) {
-        if (&s == &tempSettings_) {
-            tempSettings_.deckTheme = dDef->legacyId;
+    if (updatePreviewCard) {
+        const auto& decks = cache.availableDecks();
+        size_t dIdx = cache.findDeckIndex(s.deckSlug, s.deckTheme);
+        if (const auto* dDef = cache.getDeckDef(dIdx)) {
+            if (&s == &tempSettings_) {
+                tempSettings_.deckTheme = dDef->legacyId;
+            }
+            cache.updatePreviewCardByDef(*dDef, s.cardWear, s.cardStock);
+        } else if (!decks.empty()) {
+            cache.updatePreviewCardByDef(decks[0], s.cardWear, s.cardStock);
+        } else {
+            cache.updatePreviewCard(s.deckTheme, s.cardWear, s.cardStock);
         }
-        cache.updatePreviewCardByDef(*dDef, s.cardWear, s.cardStock);
-    } else if (!decks.empty()) {
-        cache.updatePreviewCardByDef(decks[0], s.cardWear, s.cardStock);
-    } else {
-        cache.updatePreviewCard(s.deckTheme, s.cardWear, s.cardStock);
     }
     cache.setActiveCardBack(s.cardBackId);
 
@@ -142,8 +149,12 @@ void SettingsDialog::applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& f
 }
 
 void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley) {
+    if (!livePreviewDirty_) {
+        return;
+    }
+    livePreviewDirty_ = false;
     const AppSettings s = SettingsManager::instance().resolveForGame(activeGameId_);
-    applyLivePreview(board, foley, s);
+    applyLivePreview(board, foley, s, /*updatePreviewCard=*/false);
 }
 
 void SettingsDialog::render(
@@ -2635,6 +2646,11 @@ void SettingsDialog::commitSettings() {
         g.menuDisplayMode = tempSettings_.menuDisplayMode;
         g.toolbarScale = tempSettings_.toolbarScale;
         g.toolbarItems = tempSettings_.toolbarItems;
+        g.autoPlayFxEnabled = tempSettings_.autoPlayFxEnabled;
+        g.autoPlayFxOutline = tempSettings_.autoPlayFxOutline;
+        g.autoPlayFxDim = tempSettings_.autoPlayFxDim;
+        g.autoPlayFxParticles = tempSettings_.autoPlayFxParticles;
+        g.autoPlayFxZoomPan = tempSettings_.autoPlayFxZoomPan;
         g.masterVolume = tempSettings_.masterVolume;
         g.muted = tempSettings_.muted;
         g.shuffleStyle = tempSettings_.shuffleStyle;

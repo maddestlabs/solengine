@@ -1,0 +1,83 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Deep Vault (.eats)
+# Brooding subterranean hum, dual detuned resonant stone drones, sparse distant
+# iron/chain clinks, sifting masonry dust, and far-off hollow vault groans.
+# ==============================================================================
+
+sol.define_ambience({
+    id: "deep_vault",
+    name: "Deep Vault",
+    master_gain: 1.0,
+    layers: [
+        # 1. Deep tectonic sub-hum
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 95.0,
+            q: 0.707,
+            gain: 0.40,
+            lfo_rate: 0.04,
+            lfo_depth: 20.0,
+            amp_mod: 0.12
+        },
+        # 2. Low resonant stone chamber drone
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 185.0,
+            q: 4.5,
+            gain: 0.19,
+            lfo_rate: 0.045,
+            lfo_depth: 55.0,
+            amp_mod: 0.32
+        },
+        # 3. Upper harmonic draft with offset LFO ("breathing stone")
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 430.0,
+            q: 5.2,
+            gain: 0.10,
+            lfo_rate: 0.073,
+            lfo_depth: 120.0,
+            amp_mod: 0.38
+        },
+        # 4. Sparse distant iron & chain clinks (high-Q metallic bursts)
+        {
+            type: "stochastic_grains",
+            rate: 0.11,
+            freq_min: 2100.0,
+            freq_max: 4600.0,
+            decay: 0.065,
+            q: 14.0,
+            gain: 0.18,
+            stereo_spread: 0.88
+        },
+        # 5. Sifting dry masonry dust & ancient sand
+        {
+            type: "stochastic_grains",
+            rate: 0.32,
+            freq_min: 4400.0,
+            freq_max: 8400.0,
+            decay: 0.055,
+            q: 1.2,
+            gain: 0.09,
+            stereo_spread: 0.85
+        },
+        # 6. Far-off hollow vault groan / shifting stone resonance
+        {
+            type: "chirp_spawner",
+            tonal: true,
+            rate: 0.055,
+            freq_min: 115.0,
+            freq_max: 195.0,
+            freq_sweep: 0.86,
+            decay: 1.15,
+            gain: 0.22,
+            stereo_spread: 0.72
+        }
+    ]
+})

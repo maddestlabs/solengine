@@ -1,0 +1,221 @@
+# =============================================================================
+# SolEngine Game Family: Calculation (.eats)
+# Consolidated variants:
+#   - Calculation (Broken Intervals)
+# References: [MoreheadMottSmith1949], [Parlett1979]
+# =============================================================================
+
+def calc_next_rank(f_zone):
+    fsz = zone_size(f_zone)
+    if fsz == 0 or fsz >= 13:
+        return 0
+    step = f_zone - 1
+    top_r = card_rank(f_zone, fsz - 1)
+    return ((top_r - 1 + step) % 13) + 1
+
+def calc_is_playable_now(r):
+    f = 2
+    while f <= 5:
+        if calc_next_rank(f) == r:
+            return True
+        f = f + 1
+    return False
+
+def calc_rank_str(r):
+    if r == 1:
+        return "A"
+    if r == 11:
+        return "J"
+    if r == 12:
+        return "Q"
+    if r == 13:
+        return "K"
+    return str(r)
+
+def calc_refresh_badges():
+    f = 2
+    while f <= 5:
+        step = f - 1
+        nr = calc_next_rank(f)
+        if nr == 0:
+            set_zone_badge(f, "top", "DONE", True)
+        else:
+            set_zone_badge(f, "top", "+" + str(step) + ": " + calc_rank_str(nr), False)
+        f = f + 1
+    return True
+
+def calc_on_deal():
+    # Pre-place one Ace, Two, Three, and Four (any suit) onto Foundations 2..5
+    target_r = 1
+    while target_r <= 4:
+        f_zone = target_r + 1
+        sz = zone_size(0)
+        i = sz - 1
+        found = False
+        while i >= 0 and not found:
+            if card_rank(0, i) == target_r:
+                extract_card(0, i, f_zone)
+                flip_card(f_zone, zone_size(f_zone) - 1, True)
+                found = True
+            i = i - 1
+        target_r = target_r + 1
+    calc_refresh_badges()
+    return True
+
+def calc_on_turn_end():
+    calc_refresh_badges()
+    return True
+
+def calc_min_dist(r):
+    # Minimum number of steps (1..12) until rank r is needed on any incomplete foundation
+    if r == 13:
+        return 12
+    best = 12
+    f = 2
+    while f <= 5:
+        fsz = zone_size(f)
+        if fsz > 0 and fsz < 13:
+            step = f - 1
+            cur = card_rank(f, fsz - 1)
+            d = 1
+            rem = 13 - fsz
+            while d <= rem and d < best:
+                cur = ((cur - 1 + step) % 13) + 1
+                if cur == r:
+                    best = d
+                d = d + 1
+        f = f + 1
+    return best
+
+def calc_eval():
+    score = 0
+    f = 2
+    while f <= 5:
+        score = score + zone_size(f) * 350
+        f = f + 1
+
+    z = 6
+    while z <= 9:
+        sz = zone_size(z)
+        if sz == 0:
+            score = score + 15
+        else:
+            prev_d = 13
+            i = 0
+            while i < sz:
+                r = card_rank(z, i)
+                d = calc_min_dist(r)
+                if r == 13:
+                    if i == 0:
+                        score = score + 45
+                    else:
+                        score = score - i * 90
+                elif i > 0:
+                    if d <= prev_d:
+                        score = score + 25
+                    else:
+                        score = score - (d - prev_d) * 18
+                prev_d = d
+                i = i + 1
+        z = z + 1
+    return score
+
+def calc_can_pick(z, i):
+    sz = zone_size(z)
+    if sz == 0 or i != sz - 1:
+        return False
+    # Top card of Draw/Waste (1) or top card of any of the 4 Waste Piles (6..9)
+    if z == 1 or (z >= 6 and z <= 9):
+        return True
+    return False
+
+def calc_can_drop(from_z, i, to_z):
+    if from_z == to_z or zone_size(from_z) == 0:
+        return False
+    sz = zone_size(from_z)
+    if i != sz - 1:
+        return False
+    r = card_rank(from_z, i)
+
+    # Foundations (2..5): build up by +1, +2, +3, +4 mod 13, ignoring suit
+    if to_z >= 2 and to_z <= 5:
+        return r == calc_next_rank(to_z)
+
+    # 4 Tableau/Waste Piles (6..9): accept any card from Draw slot (1) ONLY; no pile-to-pile moves
+    if to_z >= 6 and to_z <= 9:
+        return from_z == 1
+
+    return False
+
+def calc_stock():
+    # Must place the current drawn card before turning the next card from Stock
+    if zone_size(1) > 0:
+        return False
+    if zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, 1)
+        flip_card(1, zone_size(1) - 1, True)
+        return True
+    return False
+
+def calc_status():
+    total = zone_size(2) + zone_size(3) + zone_size(4) + zone_size(5)
+    if total == 52:
+        return "victory"
+    return "playing"
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "calculation",
+    name: "Calculation",
+    family: "Calculation",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["classic", "skill", "math", "waste_piles", "single_deck"],
+    layout: "columns",
+    tableau_build: "any",
+    empty_tableau: "any",
+    move_group: "single",
+    foundation_mode: "custom",
+    description: "Pure-skill classic. Build 4 suitless foundations by +1, +2, +3, and +4 (ending on Kings) using 4 waste piles.",
+    decks: 1,
+    tableaus: 4,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [0, 0, 0, 0],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "waste_draw_1",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    demo_seed: 71,
+    demo_seeds: [71, 128, 167],
+    eval_heuristic: calc_eval,
+    on_deal: calc_on_deal,
+    can_pick: calc_can_pick,
+    can_drop: calc_can_drop,
+    on_stock_click: calc_stock,
+    on_turn_end: calc_on_turn_end,
+    get_status: calc_status,
+    doc: {
+        meta: [3, "Medium", 2, "High Skill", 5, "Master"],
+        aliases: ["Broken Intervals"],
+        goal: [
+            "Build all 4 Foundations to King in intervals of +1, +2, +3, and +4 (ignoring suit).",
+            "Stock is exhausted and no remaining waste-pile top cards can play to Foundations."
+        ],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to turn 1 card into the Draw slot (must play current drawn card first; no redeals)." },
+            { index: 1, name: "Draw Slot", desc: "Play the drawn card onto a Foundation or park it on any of the 4 Waste Piles." },
+            { index: 2, name: "Foundation +1 (A->K)", desc: "Build by +1 ignoring suit: A, 2, 3, 4, 5, 6, 7, 8, 9, 10, J, Q, K.", examples: ["AS", "2H", "3C"] },
+            { index: 3, name: "Foundation +2 (2->K)", desc: "Build by +2 ignoring suit: 2, 4, 6, 8, 10, Q, A, 3, 5, 7, 9, J, K.", examples: ["2D", "4S", "6H"] },
+            { index: 4, name: "Foundation +3 (3->K)", desc: "Build by +3 ignoring suit: 3, 6, 9, Q, 2, 5, 8, J, A, 4, 7, 10, K.", examples: ["3C", "6D", "9S"] },
+            { index: 5, name: "Foundation +4 (4->K)", desc: "Build by +4 ignoring suit: 4, 8, Q, 3, 7, J, 2, 6, 10, A, 5, 9, K.", examples: ["4H", "8C", "QD"] },
+            { index: 6, name: "Waste Piles (1-4)", desc: "Park any drawn card here; top card may only move to Foundations (never between waste piles)." }
+        ]
+    }
+})

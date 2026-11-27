@@ -153,7 +153,8 @@ public:
     void drawSvgPath(const std::string& pathD, float cx, float cy, float scale, uint32_t color);
 
     // Typography & Rank Glyphs
-    void drawText(const std::string& text, float x, float y, float size, uint32_t color, const std::string& align = "left");
+    void drawText(const std::string& text, float x, float y, float size, uint32_t color,
+                  const std::string& align = "left", const std::string& font = "");
     void drawRank(const std::string& rank, float x, float y, float size, uint32_t color = 0);
 
     // Classic Deck High-Level Compositing

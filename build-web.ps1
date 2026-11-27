@@ -115,6 +115,19 @@ $emccVer = (emcc --version)[0]
 Write-Host "    Found Emscripten: $emccVer" -ForegroundColor Green
 
 # ------------------------------------------------------------------
+# STEP 1b: Regenerate Lazy Game Manifest (games/manifest.json)
+# ------------------------------------------------------------------
+$manifestScript = Join-Path $rootDir "tools\generate_games_manifest.py"
+if (Test-Path $manifestScript) {
+    Write-Host "`n[*] STEP 1b: Regenerating games/manifest.json..." -ForegroundColor Yellow
+    python $manifestScript
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to generate games/manifest.json."
+        exit $LASTEXITCODE
+    }
+}
+
+# ------------------------------------------------------------------
 # STEP 2: Configure & Build Web Target
 # ------------------------------------------------------------------
 $buildDir = Join-Path $rootDir "build-web"
@@ -199,7 +212,7 @@ function Sync-WebAssetDir {
     if (-not (Test-Path $DestDir)) {
         New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
     }
-    $sourceFiles = Get-ChildItem -Path $SourceDir -Filter "*.eats" -File
+    $sourceFiles = Get-ChildItem -Path $SourceDir -File | Where-Object { $_.Extension -eq ".eats" -or $_.Extension -eq ".json" }
     $sourceNames = @($sourceFiles | ForEach-Object { $_.Name })
     Get-ChildItem -Path $DestDir -File | Where-Object { $sourceNames -notcontains $_.Name } | ForEach-Object {
         Remove-Item -Path $_.FullName -Force

@@ -3,6 +3,7 @@
 # Consolidated variants:
 #   - La Belle Lucie
 #   - The Fan
+#   - Cruel
 # =============================================================================
 
 # --- Shared Parameterized Fan Rules ---
@@ -147,6 +148,173 @@ sol.define_game({
         zones: [
             { index: 0, name: "Foundations (1-4)", desc: "Build up by same suit from Ace to King.", examples: ["AS", "2S", "3S"] },
             { index: 4, name: "Fans (1-18)", desc: "Build down in the SAME SUIT; only the top card may move; Kings only fill empty fans.", examples: ["KS", "QS", "JS"] }
+        ]
+    }
+})
+
+# --- Cruel Rules (Generic Columns: 0=Stock/Redeal, 1=Waste(unused), 2..5=Foundations, 6..17=12 Piles of 4) ---
+
+def cruel_on_deal():
+    # Pre-place all 4 Aces onto Foundations 2..5
+    f_zone = 2
+    i = zone_size(0) - 1
+    while i >= 0 and f_zone <= 5:
+        if card_rank(0, i) == 1:
+            extract_card(0, i, f_zone)
+            flip_card(f_zone, zone_size(f_zone) - 1, True)
+            f_zone = f_zone + 1
+        i = i - 1
+
+    # Deal remaining 48 cards into 12 tableau piles (6..17), 4 cards each face-up
+    z = 6
+    while z <= 17 and zone_size(0) > 0:
+        k = 0
+        while k < 4 and zone_size(0) > 0:
+            top = zone_size(0) - 1
+            move_cards(0, top, z)
+            flip_card(z, zone_size(z) - 1, True)
+            k = k + 1
+        z = z + 1
+
+    return True
+
+def cruel_eval():
+    score = 0
+    z = 2
+    while z <= 5:
+        score = score + zone_size(z) * 180
+        z = z + 1
+    z = 6
+    while z <= 17:
+        sz = zone_size(z)
+        i = 0
+        while i < sz - 1:
+            if card_suit(z, i) == card_suit(z, i + 1) and card_rank(z, i) == card_rank(z, i + 1) + 1:
+                score = score + 25
+            i = i + 1
+        z = z + 1
+    return score
+
+def cruel_can_pick(z, i):
+    sz = zone_size(z)
+    if z < 6 or z > 17 or sz == 0:
+        return False
+    return i == sz - 1
+
+def cruel_can_drop(from_z, i, to_z):
+    if from_z == to_z or from_z < 6 or from_z > 17 or zone_size(from_z) == 0:
+        return False
+    if i != zone_size(from_z) - 1:
+        return False
+    r = card_rank(from_z, i)
+    s = card_suit(from_z, i)
+
+    if to_z >= 2 and to_z <= 5:
+        fsz = zone_size(to_z)
+        if fsz == 0:
+            return r == 1
+        return card_suit(to_z, fsz - 1) == s and r == card_rank(to_z, fsz - 1) + 1
+
+    if to_z >= 6 and to_z <= 17:
+        tsz = zone_size(to_z)
+        if tsz == 0:
+            return False
+        return card_suit(to_z, tsz - 1) == s and card_rank(to_z, tsz - 1) == r + 1
+
+    return False
+
+def cruel_redeal():
+    # Only allow redeal if re-packing in 4s from left to right actually changes pile layout
+    last_non_empty = -1
+    z = 6
+    while z <= 17:
+        if zone_size(z) > 0:
+            last_non_empty = z
+        z = z + 1
+    if last_non_empty < 6:
+        return False
+    would_change = False
+    z = 6
+    while z < last_non_empty:
+        if zone_size(z) != 4:
+            would_change = True
+        z = z + 1
+    if zone_size(last_non_empty) > 4:
+        would_change = True
+    if not would_change:
+        return False
+
+    # Gather from pile 12 (zone 17) down to pile 1 (zone 6), top-to-bottom
+    z = 17
+    while z >= 6:
+        while zone_size(z) > 0:
+            top = zone_size(z) - 1
+            move_cards(z, top, 0)
+        z = z - 1
+
+    if zone_size(0) == 0:
+        return False
+
+    # Re-deal in packets of 4 from left to right (zones 6..17)
+    z = 6
+    while z <= 17 and zone_size(0) > 0:
+        k = 0
+        while k < 4 and zone_size(0) > 0:
+            top = zone_size(0) - 1
+            move_cards(0, top, z)
+            flip_card(z, zone_size(z) - 1, True)
+            k = k + 1
+        z = z + 1
+
+    return True
+
+def cruel_status():
+    total = zone_size(2) + zone_size(3) + zone_size(4) + zone_size(5)
+    if total == 52:
+        return "victory"
+    return "playing"
+
+sol.define_game({
+    id: "cruel",
+    name: "Cruel",
+    family: "Cruel",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "open",
+    tags: ["classic", "open", "fans", "same_suit", "ordered_redeal", "single_deck"],
+    layout: "columns",
+    tableau_build: "same_suit",
+    empty_tableau: "none",
+    move_group: "single",
+    foundation_mode: "suit_up",
+    description: "Classic open puzzle. 4 pre-placed Aces, 12 piles of 4, same-suit building, and unlimited unshuffled redeals in 4s.",
+    decks: 1,
+    tableaus: 12,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 0,
+    max_redeals: -1,
+    # TODO: mine verified solvable demo_seeds
+    demo_seed: 10,
+    demo_seeds: [10, 24, 35, 55, 70, 80, 83, 101],
+    eval_heuristic: cruel_eval,
+    on_deal: cruel_on_deal,
+    can_pick: cruel_can_pick,
+    can_drop: cruel_can_drop,
+    on_stock_click: cruel_redeal,
+    get_status: cruel_status,
+    doc: {
+        meta: [2, "Quick", 2, "Pure Skill", 4, "Strategic"],
+        aliases: ["Perseverance (related)"],
+        goal: ["Build all 4 Foundations up in suit from the pre-placed Aces to Kings.", "No legal moves remain and redealing no longer changes the piles."],
+        zones: [
+            { index: 0, name: "Ordered Redeal", desc: "Click after making at least one move to gather all piles in order (without shuffling) and re-deal in groups of 4." },
+            { index: 2, name: "Foundations (1-4)", desc: "Start with all 4 Aces pre-placed; build up in suit to King.", examples: ["AS", "2S", "3S"] },
+            { index: 6, name: "Tableau Piles (1-12)", desc: "12 open piles of 4. Build down in the SAME SUIT; single top cards only; empty spaces cannot be filled.", examples: ["KS", "QS", "JS"] }
         ]
     }
 })

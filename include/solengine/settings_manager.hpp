@@ -100,7 +100,7 @@ struct AppSettings {
     GuiThemeStyle guiTheme{GuiThemeStyle::ClockworkEngine};
     CardWearLevel cardWear{CardWearLevel::Natural};
     CardStock cardStock{CardStock::SmoothParchment};
-    CardCornerStyle cardCorners{CardCornerStyle::Auto};
+    CardCornerStyle cardCorners{CardCornerStyle::Round};
     float cardDeviation{0.50f}; // 0.0 = perfectly neat (0px, 0 deg), 0.25 = Subtle (+-2.5px, +-1.25 deg), 1.0 = maximum organic skew (+-10px, +-5 deg)
     ResponsiveLayoutMode layoutMode{ResponsiveLayoutMode::Auto};
     StockPosition stockPosition{StockPosition::Auto};
@@ -130,10 +130,16 @@ struct AppSettings {
     float ambienceVolume{0.55f};
     bool randomizeOnNewDeal{true};
     bool guaranteeSolvable{true};
+    int statCardMode{0}; // 0 = Expanded, 1 = Collapsed Pill, 2 = Hidden
     uint32_t lastSeed{2026u};
     bool autoFinish{true};
+    bool autoPlayFxEnabled{true};
+    bool autoPlayFxOutline{true};
+    bool autoPlayFxDim{true};
+    bool autoPlayFxParticles{true};
+    bool autoPlayFxZoomPan{true};
     bool showTableMarkings{true}; // true = guides/runes/wells, false = pure bare tabletop (cards only)
-    VictoryAnimOverride victoryAnimOverride{VictoryAnimOverride::GameDefault};
+    VictoryAnimOverride victoryAnimOverride{VictoryAnimOverride::SpiralVortex};
     std::vector<std::string> favorites{
         "klondike_draw_1",
         "klondike_draw_3",

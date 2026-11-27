@@ -139,6 +139,7 @@ private:
     bool allowPartialDemo_{true};
     bool demoFallbackToSeed_{false};
     bool isPartialDemo_{false};
+    bool isLiveDemoMode_{false};
 
     // Annotated Replay & Guided Tutorial state
     bool isReplayMode_{false};

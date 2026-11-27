@@ -110,6 +110,8 @@ struct ShowcaseCameraState {
     bool userPanActive{false};
     float spotlightAlpha{0.0f};
     float targetSpotlightAlpha{0.0f};
+    bool hasFocusHighlight{false};
+    bool showFocusOutline{true};
     int focusPileA{-1};
     int focusCardA{-1};
     int focusPileB{-1};

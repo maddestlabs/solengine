@@ -10,6 +10,8 @@
 
 namespace solengine {
 
+struct SolitaireGameDef;
+
 struct PendingScriptAction {
     float remainingSec{0.0f};
     std::string fnName;
@@ -34,6 +36,10 @@ struct ScriptBoardContext {
     float safeBottom{0.0f};
     float safeLeft{0.0f};
     std::vector<PendingScriptAction>* pendingActions{nullptr};
+    bool suppressWidgets{false};
+    uint32_t seed{2026u};
+    uint32_t layoutSeed{2026u};
+    SolitaireGameDef* gameDef{nullptr};
 };
 
 /**
@@ -59,6 +65,7 @@ public:
     [[nodiscard]] const std::string& lastError() const noexcept { return lastError_; }
 
     // Hook presence queries
+    [[nodiscard]] bool hasOnConfigure() const noexcept { return hasOnConfigure_; }
     [[nodiscard]] bool hasOnDeal() const noexcept { return hasOnDeal_; }
     [[nodiscard]] bool hasCanPick() const noexcept { return hasCanPick_; }
     [[nodiscard]] bool hasCanDrop() const noexcept { return hasCanDrop_; }
@@ -69,6 +76,7 @@ public:
     [[nodiscard]] bool hasOnStockClick() const noexcept { return hasOnStockClick_; }
     [[nodiscard]] bool hasOnTurnEnd() const noexcept { return hasOnTurnEnd_; }
     [[nodiscard]] bool hasOnVictory() const noexcept { return hasOnVictory_; }
+    [[nodiscard]] bool hasOnDemoStep() const noexcept { return hasOnDemoStep_; }
     [[nodiscard]] bool hasOnLayout() const noexcept { return hasOnLayout_; }
     [[nodiscard]] bool hasGetStatus() const noexcept { return hasGetStatus_; }
     [[nodiscard]] bool hasEvalHeuristic() const noexcept { return hasEvalHeuristic_; }
@@ -76,6 +84,7 @@ public:
     [[nodiscard]] const VictoryChoreography& victoryChoreography() const noexcept { return victoryChoreography_; }
 
     // Rule hook invocations
+    bool invokeOnConfigure(ScriptBoardContext& ctx, uint32_t layoutSeed);
     bool invokeOnDeal(ScriptBoardContext& ctx);
     [[nodiscard]] bool invokeCanPick(ScriptBoardContext& ctx, uint8_t zoneIdx, size_t cardIdx);
     [[nodiscard]] bool invokeCanDrop(ScriptBoardContext& ctx, uint8_t fromZone, size_t cardIdx, uint8_t toZone);
@@ -86,6 +95,7 @@ public:
     bool invokeOnStockClick(ScriptBoardContext& ctx);
     bool invokeOnTurnEnd(ScriptBoardContext& ctx);
     bool invokeOnVictory(ScriptBoardContext& ctx);
+    bool invokeOnDemoStep(ScriptBoardContext& ctx);
     bool invokeOnLayout(ScriptBoardContext& ctx, float boardW, float boardH);
     bool invokeNamedAction(ScriptBoardContext& ctx, const std::string& fnName);
     [[nodiscard]] GameStatus invokeGetStatus(ScriptBoardContext& ctx);
@@ -97,6 +107,7 @@ public:
     static void applyTransaction(ScriptBoardContext& ctx, const TurnTransaction& tx);
     static void revertTransaction(ScriptBoardContext& ctx, const TurnTransaction& tx);
     [[nodiscard]] static bool isCardBlocked(const std::vector<Pile>& piles, size_t pileIdx, size_t cardIdx, float cardW, float cardH) noexcept;
+    [[nodiscard]] static bool isCardBlockedByPile(const std::vector<Pile>& piles, size_t pileIdx, size_t cardIdx, size_t otherPileIdx, float cardW, float cardH) noexcept;
 
 private:
     void registerHostApi();
@@ -110,6 +121,7 @@ private:
     bool loaded_{false};
     std::unordered_map<std::string, eatsbits::eatscript::Value> boundCallables_;
 
+    bool hasOnConfigure_{false};
     bool hasOnDeal_{false};
     bool hasCanPick_{false};
     bool hasCanDrop_{false};
@@ -120,9 +132,17 @@ private:
     bool hasOnStockClick_{false};
     bool hasOnTurnEnd_{false};
     bool hasOnVictory_{false};
+    bool hasOnDemoStep_{false};
     bool hasOnLayout_{false};
     bool hasGetStatus_{false};
     bool hasEvalHeuristic_{false};
+    struct LayoutSlot {
+        float ux{0.0f};
+        float uy{0.0f};
+        float deg{0.0f};
+        int32_t z{0};
+    };
+    std::vector<LayoutSlot> layoutSlots_;
     GameDocManifest docManifest_;
     VictoryChoreography victoryChoreography_;
 };

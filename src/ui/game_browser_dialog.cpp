@@ -171,10 +171,13 @@ void GameBrowserDialog::update(float dt) {
         previewDebounceTimer_ -= clampedDt;
         if (previewDebounceTimer_ <= 0.0f) {
             previewSolvePending_ = false;
-            if (previewDef_.supportsSolver) {
+            if (previewDef_.supportsSolver || previewBoard_.hasScriptDemoStep()) {
                 previewAutoPlay_.setSpeed(previewSpeed_);
                 const uint32_t maxStates = (previewDef_.decks >= 2) ? 20000u : 12000u;
                 previewAutoPlay_.startPreview(previewBoard_, maxStates, 450.0f);
+                if (previewUserPaused_ && previewAutoPlay_.isPlaying()) {
+                    previewAutoPlay_.pause();
+                }
             } else {
                 previewHeuristicMode_ = true;
                 previewHeuristicTimer_ = 0.35f;

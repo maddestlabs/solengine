@@ -24,12 +24,12 @@ namespace solengine {
 
 SeedDialog::SeedDialog() = default;
 
-void SeedDialog::recordHistory(uint32_t seed, const std::string& gameId, const std::string& gameName) {
+void SeedDialog::recordHistory(uint32_t seed, const std::string& gameId, const std::string& gameName, uint32_t layoutSeed) {
     if (seed == 0u) return;
 
     const std::string displayName = !gameName.empty() ? gameName : (!gameId.empty() ? gameId : std::string("Solitaire"));
     for (auto it = history_.begin(); it != history_.end(); ++it) {
-        if (it->seed == seed && it->gameId == gameId) {
+        if (it->seed == seed && it->layoutSeed == layoutSeed && it->gameId == gameId) {
             SeedHistoryEntry existing = std::move(*it);
             if (!displayName.empty()) existing.gameName = displayName;
             history_.erase(it);
@@ -39,16 +39,57 @@ void SeedDialog::recordHistory(uint32_t seed, const std::string& gameId, const s
         }
     }
 
-    history_.insert(history_.begin(), SeedHistoryEntry{seed, gameId, displayName});
+    history_.insert(history_.begin(), SeedHistoryEntry{seed, layoutSeed, gameId, displayName});
     if (history_.size() > kMaxHistory) {
         history_.resize(kMaxHistory);
     }
     clampHistoryScroll();
 }
 
-void SeedDialog::open(uint32_t currentSeed, const std::string& variantName, const std::string& gameId) {
+std::string SeedDialog::formatSeedText() const {
+    if (layoutSeed_ != 0u) {
+        return std::to_string(seed_) + ":" + std::to_string(layoutSeed_);
+    }
+    return std::to_string(seed_);
+}
+
+bool SeedDialog::parseSeedText(const std::string& text, uint32_t& outSeed, uint32_t& outLayoutSeed) {
+    std::string left;
+    std::string right;
+    bool seenColon = false;
+    for (char c : text) {
+        if (c == ':' && !seenColon) {
+            seenColon = true;
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(c))) {
+            if (!seenColon) {
+                if (left.size() < 10) left.push_back(c);
+            } else {
+                if (right.size() < 10) right.push_back(c);
+            }
+        }
+    }
+    if (left.empty()) return false;
+    try {
+        outSeed = static_cast<uint32_t>(std::stoul(left));
+        if (seenColon && !right.empty()) {
+            outLayoutSeed = static_cast<uint32_t>(std::stoul(right));
+        } else {
+            outLayoutSeed = 0u;
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void SeedDialog::open(uint32_t currentSeed, const std::string& variantName, const std::string& gameId,
+                      uint32_t currentLayoutSeed, bool supportsLayoutLock) {
     seed_ = currentSeed;
-    seedText_ = std::to_string(currentSeed);
+    layoutSeed_ = currentLayoutSeed;
+    supportsLayoutLock_ = supportsLayoutLock;
+    seedText_ = formatSeedText();
     variantName_ = variantName;
     targetGameId_ = gameId;
     activeBoardSeed_ = currentSeed;
@@ -63,13 +104,13 @@ void SeedDialog::open(uint32_t currentSeed, const std::string& variantName, cons
     // Ensure the currently active deal is present in history without reordering existing entries
     bool found = false;
     for (const auto& entry : history_) {
-        if (entry.seed == currentSeed && entry.gameId == gameId) {
+        if (entry.seed == currentSeed && entry.layoutSeed == currentLayoutSeed && entry.gameId == gameId) {
             found = true;
             break;
         }
     }
     if (!found && currentSeed != 0u) {
-        recordHistory(currentSeed, gameId, variantName);
+        recordHistory(currentSeed, gameId, variantName, currentLayoutSeed);
     }
 }
 
@@ -80,8 +121,8 @@ void SeedDialog::close() noexcept {
 
 void SeedDialog::randomizeSeed() {
     seed_ = generateRandomSeed();
-    seedText_ = std::to_string(seed_);
-    recordHistory(seed_, targetGameId_, variantName_);
+    seedText_ = formatSeedText();
+    recordHistory(seed_, targetGameId_, variantName_, layoutSeed_);
     historyScrollOffset_ = 0;
 }
 
@@ -138,50 +179,44 @@ bool SeedDialog::pasteFromClipboard(void* nativeWindow, SolitaireBoard& board, A
         }
     }
 
-    std::string digits;
-    for (char c : text) {
-        if (std::isdigit(static_cast<unsigned char>(c))) {
-            digits.push_back(c);
-            if (digits.size() >= 10) break;
-        }
-    }
-    if (!digits.empty()) {
-        try {
-            unsigned long val = std::stoul(digits);
-            seed_ = static_cast<uint32_t>(val);
-            seedText_ = std::to_string(seed_);
-            return true;
-        } catch (...) {}
+    uint32_t parsedSeed = 0u;
+    uint32_t parsedLayout = 0u;
+    if (parseSeedText(text, parsedSeed, parsedLayout)) {
+        seed_ = parsedSeed;
+        layoutSeed_ = parsedLayout;
+        seedText_ = formatSeedText();
+        return true;
     }
     return false;
 }
 
 void SeedDialog::commitDeal(SolitaireBoard& board, AudioFoleyEngine& foley) {
-    try {
-        if (!seedText_.empty()) {
-            unsigned long val = std::stoul(seedText_);
-            seed_ = static_cast<uint32_t>(val);
-        } else {
-            seed_ = 2026u;
-        }
-    } catch (...) {
+    uint32_t parsedSeed = 2026u;
+    uint32_t parsedLayout = layoutSeed_;
+    if (parseSeedText(seedText_, parsedSeed, parsedLayout)) {
+        seed_ = parsedSeed;
+        layoutSeed_ = parsedLayout;
+    } else {
         seed_ = 2026u;
     }
 
-    commitHistoryReplay(seed_, targetGameId_, variantName_, board, foley);
+    commitHistoryReplay(seed_, layoutSeed_, targetGameId_, variantName_, board, foley);
 }
 
 void SeedDialog::commitHistoryReplay(
     uint32_t seed,
+    uint32_t layoutSeed,
     const std::string& gameId,
     const std::string& gameName,
     SolitaireBoard& board,
     AudioFoleyEngine& foley
 ) {
     seed_ = (seed == 0u) ? 2026u : seed;
-    seedText_ = std::to_string(seed_);
-    recordHistory(seed_, gameId, gameName);
+    layoutSeed_ = layoutSeed;
+    seedText_ = formatSeedText();
+    recordHistory(seed_, gameId, gameName, layoutSeed_);
 
+    board.setLayoutSeed(layoutSeed_);
     SettingsManager::instance().settings().lastSeed = seed_;
     SettingsManager::instance().save();
 
@@ -255,6 +290,8 @@ void SeedDialog::render(
     const float headerH = 46.0f;
     const float inputH = 38.0f;
     const float btnRowH = 34.0f;
+    const float lockRowH = supportsLayoutLock_ ? 32.0f : 0.0f;
+    const float lockRowGap = supportsLayoutLock_ ? 10.0f : 0.0f;
     const float histRowH = 30.0f;
     const float histRowGap = 4.0f;
     const float histHeaderH = 22.0f;
@@ -270,7 +307,7 @@ void SeedDialog::render(
     }
 
     dialogW_ = std::min(500.0f, screenW - 24.0f);
-    dialogH_ = headerH + 20.0f + 18.0f + inputH + 14.0f + btnRowH + 16.0f + histSectionH + btmH + 18.0f;
+    dialogH_ = headerH + 20.0f + 18.0f + inputH + 14.0f + btnRowH + lockRowGap + lockRowH + 16.0f + histSectionH + btmH + 18.0f;
     dialogX_ = (screenW - dialogW_) * 0.5f;
     dialogY_ = std::max(12.0f, (screenH - dialogH_) * 0.5f);
 
@@ -333,8 +370,11 @@ void SeedDialog::render(
     const float contentW = dialogW_ - 48.0f;
 
     // Label above Seed Input
+    const char* seedLabel = supportsLayoutLock_
+        ? "DEAL SEED (OR DEAL:LAYOUT FOR LOCKED SHAPE):"
+        : "RANDOMIZATION SEED (31-BIT INTEGER):";
     eatsbits::ui::glyph::drawVectorText(
-        r, "RANDOMIZATION SEED (31-BIT INTEGER):", contentX, curY, 11.0f,
+        r, seedLabel, contentX, curY, 11.0f,
         cPal.dialParchmentR, cPal.dialParchmentG, cPal.dialParchmentB, 0.90f
     );
     curY += 18.0f;
@@ -408,7 +448,32 @@ void SeedDialog::render(
     const bool randHov = (mouseX >= randX && mouseX <= randX + randW && mouseY >= curY && mouseY <= curY + btnRowH);
     clockwork_ui::drawBrassButton(r, randX, curY, randW, btnRowH, 4.0f, "RANDOM", randHov, false, 11.0f);
 
-    curY += btnRowH + 16.0f;
+    curY += btnRowH;
+
+    // --- Optional Procedural Layout Lock Row ---
+    if (supportsLayoutLock_) {
+        curY += lockRowGap;
+        const bool isLocked = (layoutSeed_ != 0u);
+        const float lockW = (contentW - btnGap) * 0.65f;
+        const float newLayW = contentW - lockW - btnGap;
+        const float lockX = contentX;
+        const float newLayX = lockX + lockW + btnGap;
+        const bool lockHov = (mouseX >= lockX && mouseX <= lockX + lockW && mouseY >= curY && mouseY <= curY + lockRowH);
+        const bool newLayHov = (mouseX >= newLayX && mouseX <= newLayX + newLayW && mouseY >= curY && mouseY <= curY + lockRowH);
+
+        std::string lockLbl = isLocked
+            ? ("LAYOUT LOCKED (#" + std::to_string(layoutSeed_) + ")")
+            : "LOCK CURRENT LAYOUT";
+        if (isLocked) {
+            clockwork_ui::drawFurnaceButton(r, lockX, curY, lockW, lockRowH, 4.0f, lockLbl.c_str(), lockHov, true, 10.5f);
+        } else {
+            clockwork_ui::drawPewterButton(r, lockX, curY, lockW, lockRowH, 4.0f, lockLbl.c_str(), lockHov, false, 10.5f);
+        }
+        clockwork_ui::drawBrassButton(r, newLayX, curY, newLayW, lockRowH, 4.0f, "NEW LAYOUT", newLayHov, false, 10.5f);
+        curY += lockRowH;
+    }
+
+    curY += 16.0f;
 
     // --- Session Seed History Section ---
     if (visibleHistoryRows_ > 0) {
@@ -494,6 +559,9 @@ void SeedDialog::render(
 
             // Seed number
             std::string seedLbl = "#" + std::to_string(entry.seed);
+            if (entry.layoutSeed != 0u) {
+                seedLbl += ":" + std::to_string(entry.layoutSeed);
+            }
             eatsbits::ui::glyph::drawVectorText(
                 r, seedLbl.c_str(), textX, rowY + 9.0f, 11.5f,
                 cPal.brassHighlightR, cPal.brassHighlightG, cPal.brassHighlightB, 1.0f
@@ -597,7 +665,7 @@ bool SeedDialog::handleMouseButton(
     if (mouseX >= decX && mouseX <= decX + stepBtnW && mouseY >= curY && mouseY <= curY + inputH) {
         if (seed_ > 1) {
             --seed_;
-            seedText_ = std::to_string(seed_);
+            seedText_ = formatSeedText();
             foley.triggerSound(FoleySound::WoodClick, 0.6f);
         }
         return true;
@@ -607,7 +675,7 @@ bool SeedDialog::handleMouseButton(
     const float incX = decX + stepBtnW + stepBtnGap;
     if (mouseX >= incX && mouseX <= incX + stepBtnW && mouseY >= curY && mouseY <= curY + inputH) {
         ++seed_;
-        seedText_ = std::to_string(seed_);
+        seedText_ = formatSeedText();
         foley.triggerSound(FoleySound::WoodClick, 0.6f);
         return true;
     }
@@ -655,7 +723,38 @@ bool SeedDialog::handleMouseButton(
         return true;
     }
 
-    curY += btnRowH + 16.0f;
+    curY += btnRowH;
+
+    // Optional Procedural Layout Lock Row hit testing
+    if (supportsLayoutLock_) {
+        const float lockRowH = 32.0f;
+        const float lockRowGap = 10.0f;
+        curY += lockRowGap;
+        const float lockW = (contentW - btnGap) * 0.65f;
+        const float newLayW = contentW - lockW - btnGap;
+        const float lockX = contentX;
+        const float newLayX = lockX + lockW + btnGap;
+
+        if (mouseX >= lockX && mouseX <= lockX + lockW && mouseY >= curY && mouseY <= curY + lockRowH) {
+            if (layoutSeed_ != 0u) {
+                layoutSeed_ = 0u;
+            } else {
+                layoutSeed_ = (seed_ != 0u) ? seed_ : 2026u;
+            }
+            seedText_ = formatSeedText();
+            foley.triggerSound(FoleySound::WoodClick, 0.75f);
+            return true;
+        }
+        if (mouseX >= newLayX && mouseX <= newLayX + newLayW && mouseY >= curY && mouseY <= curY + lockRowH) {
+            layoutSeed_ = generateRandomSeed();
+            seedText_ = formatSeedText();
+            foley.triggerSound(FoleySound::Shuffle, 0.8f);
+            return true;
+        }
+        curY += lockRowH;
+    }
+
+    curY += 16.0f;
 
     // Session Seed History hit testing
     if (visibleHistoryRows_ > 0) {
@@ -706,10 +805,11 @@ bool SeedDialog::handleMouseButton(
                 const float playY = rowY + (histRowH - playBtnH) * 0.5f;
                 if (mouseX >= playX && mouseX <= playX + playBtnW &&
                     mouseY >= playY && mouseY <= playY + playBtnH) {
-                    commitHistoryReplay(entry.seed, entry.gameId, entry.gameName, board, foley);
+                    commitHistoryReplay(entry.seed, entry.layoutSeed, entry.gameId, entry.gameName, board, foley);
                 } else {
                     seed_ = entry.seed;
-                    seedText_ = std::to_string(entry.seed);
+                    layoutSeed_ = entry.layoutSeed;
+                    seedText_ = formatSeedText();
                     targetGameId_ = entry.gameId;
                     if (!entry.gameName.empty()) {
                         variantName_ = entry.gameName;
@@ -796,9 +896,15 @@ bool SeedDialog::handleKey(
     if (key == 259 && editingSeed_) {
         if (!seedText_.empty()) {
             seedText_.pop_back();
-            try {
-                seed_ = seedText_.empty() ? 0u : static_cast<uint32_t>(std::stoul(seedText_));
-            } catch (...) {}
+            uint32_t ps = 0u;
+            uint32_t pl = 0u;
+            if (parseSeedText(seedText_, ps, pl)) {
+                seed_ = ps;
+                layoutSeed_ = pl;
+            } else {
+                seed_ = 0u;
+                layoutSeed_ = 0u;
+            }
             foley.triggerSound(FoleySound::WoodClick, 0.5f);
         }
         return true;
@@ -810,11 +916,16 @@ bool SeedDialog::handleKey(
 bool SeedDialog::handleChar(unsigned int codepoint) {
     if (!isOpen_ || !editingSeed_) return false;
 
-    if (codepoint >= '0' && codepoint <= '9' && seedText_.size() < 10) {
+    const bool isDigit = (codepoint >= '0' && codepoint <= '9');
+    const bool isColon = (codepoint == ':' && supportsLayoutLock_ && seedText_.find(':') == std::string::npos && !seedText_.empty());
+    if ((isDigit || isColon) && seedText_.size() < 21) {
         seedText_.push_back(static_cast<char>(codepoint));
-        try {
-            seed_ = static_cast<uint32_t>(std::stoul(seedText_));
-        } catch (...) {}
+        uint32_t ps = 0u;
+        uint32_t pl = 0u;
+        if (parseSeedText(seedText_, ps, pl)) {
+            seed_ = ps;
+            layoutSeed_ = pl;
+        }
         return true;
     }
 

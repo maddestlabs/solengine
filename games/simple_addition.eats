@@ -224,6 +224,22 @@ def f14_status():
         return "victory"
     return "playing"
 
+def bt_deal():
+    set_zone_badge(0, "top", "SUM = 10", True)
+    return True
+
+def el_deal():
+    set_zone_badge(0, "top", "SUM = 11 / JQK", True)
+    return True
+
+def th_deal():
+    set_zone_badge(0, "top", "SUM = 13 / K", True)
+    return True
+
+def f14_deal():
+    set_zone_badge(2, "top", "SUM = 14", True)
+    return True
+
 # =============================================================================
 # Variant Definitions
 # =============================================================================
@@ -253,6 +269,7 @@ sol.define_game({
     demo_seed: 3,
     demo_seeds: [3, 63, 100, 156, 180, 225, 243, 249, 286, 295, 335, 375],
     eval_heuristic: sa_eval,
+    on_deal: bt_deal,
     can_pick: bt_pick,
     can_target: bt_can_target,
     on_target: bt_on_target,
@@ -295,6 +312,7 @@ sol.define_game({
     demo_seed: 1,
     demo_seeds: [1, 24, 34, 41, 42, 48, 54, 97, 122, 133, 588, 591],
     eval_heuristic: sa_eval,
+    on_deal: el_deal,
     can_pick: el_pick,
     can_target: el_can_target,
     on_target: el_on_target,
@@ -338,6 +356,7 @@ sol.define_game({
     demo_seed: 399,
     demo_seeds: [399, 400, 587, 592, 1580, 1596, 1599, 1600],
     eval_heuristic: sa_eval,
+    on_deal: th_deal,
     can_pick: th_pick,
     can_drop: th_can_drop,
     on_drop: th_on_drop,
@@ -382,6 +401,7 @@ sol.define_game({
     demo_seed: 1,
     demo_seeds: [1, 6, 8, 13, 14, 21, 23, 26, 31, 33, 37, 46],
     eval_heuristic: f14_eval,
+    on_deal: f14_deal,
     can_pick: f14_pick,
     can_target: f14_can_target,
     on_target: f14_on_target,

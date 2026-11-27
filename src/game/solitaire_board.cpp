@@ -104,7 +104,8 @@ bool SolitaireBoard::restoreSessionState(
     const std::vector<Pile>& piles,
     const std::vector<MoveCommand>& undoStack,
     const std::vector<MoveCommand>& redoStack,
-    const std::string& gameId
+    const std::string& gameId,
+    const BoardBlackboard* restoredBlackboard
 ) {
     if (piles.empty()) return false;
     constexpr float kLocalPi = 3.14159265358979323846f;
@@ -137,7 +138,7 @@ bool SolitaireBoard::restoreSessionState(
     redoStack_ = redoStack;
     txUndoStack_.clear();
     txRedoStack_.clear();
-    blackboard_ = {};
+    blackboard_ = restoredBlackboard ? *restoredBlackboard : BoardBlackboard{};
     scriptEngine_.reset();
     if (!activeDef_.scriptSource.empty()) {
         scriptEngine_.loadScriptForGame(activeDef_.scriptSource, activeDef_.id);
@@ -178,6 +179,9 @@ void SolitaireBoard::newDeal(uint32_t seed, GameVariant variant) {
 void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
     statusCacheDirty_ = true;
     pendingActions_.clear();
+    if (!activeDef_.id.empty() && activeDef_.id != gameDef.id) {
+        layoutSeed_ = 0u;
+    }
     activeDef_ = gameDef;
     seed_ = seed;
     rngState_ = seed;
@@ -197,6 +201,11 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
         scriptEngine_.loadScriptForGame(gameDef.scriptSource, gameDef.id);
     } else if (!gameDef.filePath.empty()) {
         scriptEngine_.loadFileForGame(gameDef.filePath, gameDef.id);
+    }
+    if (scriptEngine_.hasOnConfigure()) {
+        auto cfgCtx = makeScriptContext(nullptr);
+        cfgCtx.gameDef = &activeDef_;
+        scriptEngine_.invokeOnConfigure(cfgCtx, effectiveLayoutSeed());
     }
     activeHint_ = {};
     piles_.clear();
@@ -956,6 +965,12 @@ void SolitaireBoard::newDeal(uint32_t seed, const SolitaireGameDef& gameDef) {
     }
 
     computeLayout(viewportW_, viewportH_);
+    if (scriptEngine_.hasOnConfigure() && scriptEngine_.hasOnTurnEnd()) {
+        TurnTransaction postDealTx;
+        auto postCtx = makeScriptContext(&postDealTx);
+        scriptEngine_.invokeOnTurnEnd(postCtx);
+        updateCardTargets();
+    }
     float originX = 0.0f;
     float originY = 0.0f;
     dealOrigin(originX, originY);
@@ -1060,8 +1075,40 @@ void SolitaireBoard::computeLayout(float viewportWidth, float viewportHeight) {
     const float baseMarginY = isMobile
         ? std::clamp(viewportH_ * 0.012f, 6.0f, 12.0f)
         : std::clamp(viewportH_ * 0.014f, 8.0f, 18.0f);
+    bool hasTopBadge = false;
+    for (const auto& b : blackboard_.badges) {
+        if (!b.text.empty() && b.anchor == "top") {
+            hasTopBadge = true;
+            break;
+        }
+    }
+    const float badgeTopPad = hasTopBadge ? (isMobile ? 16.0f : 22.0f) : 0.0f;
     const float marginX = baseMarginX + std::max(safeLeft_, safeRight_);
-    const float marginY = baseMarginY + safeTop_;
+
+    // Reserve top space for full-width portrait stats banner when a `top_right_slot` card reflows above the board
+    float portraitBannerTopPad = 0.0f;
+    if (viewportH_ > viewportW_) {
+        const float maxBannerW = std::max(140.0f, viewportW_ - 2.0f * marginX);
+        for (const auto& wc : blackboard_.widgetCards) {
+            if (wc.anchor == "top_right_slot" && (!wc.rows.empty() || !wc.title.empty())) {
+                size_t barCount = 0;
+                size_t kvCount = 0;
+                for (const auto& row : wc.rows) {
+                    if (row.kind == BoardCardRow::Kind::Bar) ++barCount;
+                    else ++kvCount;
+                }
+                const size_t twoColRows = barCount + (kvCount + 1) / 2;
+                const float bFontSz = std::clamp(maxBannerW * 0.036f, 8.5f, 12.5f);
+                const float bPadY = std::clamp(maxBannerW * 0.022f, 6.0f, 10.0f);
+                const float bRowH = bFontSz + 7.5f;
+                const float bHeaderH = wc.title.empty() ? 0.0f : (bFontSz + 9.0f);
+                const float bH = bPadY * 2.0f + bHeaderH + static_cast<float>(twoColRows) * bRowH;
+                portraitBannerTopPad = std::max(portraitBannerTopPad, bH + 10.0f);
+            }
+        }
+    }
+
+    const float marginY = baseMarginY + safeTop_ + badgeTopPad + portraitBannerTopPad;
     const float bottomReserved = std::max(24.0f, 12.0f + safeBottom_); // Minimal reservation for bottom telemetry + safe area
 
     const float availW = std::max(120.0f, viewportW_ - 2.0f * marginX);
@@ -1948,7 +1995,11 @@ void SolitaireBoard::updateAnimations(float dt) {
             for (const auto& fn : dueActions) {
                 scriptEngine_.invokeNamedAction(ctx, fn);
             }
-            if (activeDef_.allowUndo && !tx.ops.empty()) {
+            if (activeDef_.allowUndo && (!tx.ops.empty() || tx.hasWidgetSnapshot)) {
+                if (tx.hasWidgetSnapshot) {
+                    tx.nextWidgetCards = blackboard_.widgetCards;
+                    tx.nextBadges = blackboard_.badges;
+                }
                 txUndoStack_.push_back(std::move(tx));
                 txRedoStack_.clear();
             }
@@ -2023,7 +2074,11 @@ void SolitaireBoard::finalizeScriptTurn(ScriptBoardContext& ctx, TurnTransaction
         updateCardTargets();
         scriptEngine_.invokeOnTurnEnd(ctx);
     }
-    if (recordUndo && activeDef_.allowUndo && !tx.ops.empty()) {
+    if (recordUndo && activeDef_.allowUndo && (!tx.ops.empty() || tx.hasWidgetSnapshot)) {
+        if (tx.hasWidgetSnapshot) {
+            tx.nextWidgetCards = blackboard_.widgetCards;
+            tx.nextBadges = blackboard_.badges;
+        }
         txUndoStack_.push_back(std::move(tx));
         txRedoStack_.clear();
     }
@@ -2035,6 +2090,19 @@ void SolitaireBoard::finalizeScriptTurn(ScriptBoardContext& ctx, TurnTransaction
         cardH_ = layoutCtx.cardH;
     }
     updateCardTargets();
+}
+
+bool SolitaireBoard::executeDemoStep() {
+    if (isInputLocked()) return false;
+    if (!scriptEngine_.hasOnDemoStep()) return false;
+    clearHint();
+    TurnTransaction tx;
+    auto ctx = makeScriptContext(&tx);
+    if (!scriptEngine_.invokeOnDemoStep(ctx)) {
+        return false;
+    }
+    finalizeScriptTurn(ctx, tx);
+    return true;
 }
 
 bool SolitaireBoard::drawFromStock() {
@@ -2982,6 +3050,7 @@ bool SolitaireBoard::undo() {
     if (!txUndoStack_.empty()) {
         clearHint();
         clearSelection();
+        statusCacheDirty_ = true;
         TurnTransaction tx = std::move(txUndoStack_.back());
         txUndoStack_.pop_back();
         auto ctx = makeScriptContext(nullptr);
@@ -3083,6 +3152,7 @@ bool SolitaireBoard::redo() {
     if (!txRedoStack_.empty()) {
         clearHint();
         clearSelection();
+        statusCacheDirty_ = true;
         TurnTransaction tx = std::move(txRedoStack_.back());
         txRedoStack_.pop_back();
         auto ctx = makeScriptContext(nullptr);
@@ -3238,6 +3308,8 @@ ScriptBoardContext SolitaireBoard::makeScriptContext(TurnTransaction* tx) noexce
     ctx.blackboard = &blackboard_;
     ctx.score = &score_;
     ctx.rngState = &rngState_;
+    ctx.seed = seed_;
+    ctx.layoutSeed = effectiveLayoutSeed();
     ctx.activeTx = tx;
     ctx.cardW = cardW_;
     ctx.cardH = cardH_;
@@ -3248,6 +3320,7 @@ ScriptBoardContext SolitaireBoard::makeScriptContext(TurnTransaction* tx) noexce
     ctx.safeBottom = safeBottom_;
     ctx.safeLeft = safeLeft_;
     ctx.pendingActions = &pendingActions_;
+    ctx.suppressWidgets = solverSim_;
     return ctx;
 }
 
@@ -3257,6 +3330,8 @@ ScriptBoardContext SolitaireBoard::makeConstScriptContext() const noexcept {
     ctx.blackboard = const_cast<BoardBlackboard*>(&blackboard_);
     ctx.score = const_cast<int32_t*>(&score_);
     ctx.rngState = const_cast<uint32_t*>(&rngState_);
+    ctx.seed = seed_;
+    ctx.layoutSeed = effectiveLayoutSeed();
     ctx.activeTx = nullptr;
     ctx.cardW = cardW_;
     ctx.cardH = cardH_;

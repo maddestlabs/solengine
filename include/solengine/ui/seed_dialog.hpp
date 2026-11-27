@@ -16,6 +16,7 @@ struct ThemePalette;
 
 struct SeedHistoryEntry {
     uint32_t seed{0u};
+    uint32_t layoutSeed{0u};
     std::string gameId;
     std::string gameName;
 };
@@ -25,12 +26,13 @@ public:
     SeedDialog();
     ~SeedDialog() = default;
 
-    void open(uint32_t currentSeed, const std::string& variantName, const std::string& gameId = "");
+    void open(uint32_t currentSeed, const std::string& variantName, const std::string& gameId = "",
+              uint32_t currentLayoutSeed = 0u, bool supportsLayoutLock = false);
     void close() noexcept;
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
 
     /// Record a generated or dealt seed into the in-memory session history (most recent first).
-    void recordHistory(uint32_t seed, const std::string& gameId, const std::string& gameName);
+    void recordHistory(uint32_t seed, const std::string& gameId, const std::string& gameName, uint32_t layoutSeed = 0u);
     [[nodiscard]] const std::vector<SeedHistoryEntry>& history() const noexcept { return history_; }
 
     void render(
@@ -76,18 +78,22 @@ private:
     static constexpr size_t kMaxHistory = 64;
 
     void randomizeSeed();
+    [[nodiscard]] std::string formatSeedText() const;
+    static bool parseSeedText(const std::string& text, uint32_t& outSeed, uint32_t& outLayoutSeed);
     void copyTextToClipboard(const std::string& text, void* nativeWindow);
     void copyToClipboard(void* nativeWindow);
     void copyReplayToClipboard(const SolitaireBoard& board, void* nativeWindow);
     bool pasteFromClipboard(void* nativeWindow, SolitaireBoard& board, AudioFoleyEngine& foley);
     void commitDeal(SolitaireBoard& board, AudioFoleyEngine& foley);
-    void commitHistoryReplay(uint32_t seed, const std::string& gameId, const std::string& gameName,
+    void commitHistoryReplay(uint32_t seed, uint32_t layoutSeed, const std::string& gameId, const std::string& gameName,
                              SolitaireBoard& board, AudioFoleyEngine& foley);
     [[nodiscard]] int computeVisibleHistoryRows(float screenH) const noexcept;
     void clampHistoryScroll() noexcept;
 
     bool isOpen_{false};
     uint32_t seed_{2026u};
+    uint32_t layoutSeed_{0u};
+    bool supportsLayoutLock_{false};
     std::string seedText_{"2026"};
     std::string variantName_{"Klondike"};
     std::string targetGameId_;

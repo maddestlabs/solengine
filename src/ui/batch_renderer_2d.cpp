@@ -4054,6 +4054,10 @@ private:
             @fragment
             fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 var col = in.color;
+                // Screen-space UV derivatives evaluated in uniform control flow for AA micro-normals
+                let uvDeriv = fwidth(in.localUV);
+                var cardMicroNorm = vec2<f32>(0.0, 0.0);
+                var cardMicroAA = 1.0;
                 let baseMode = in.mode & 15u;
                 let isSceneLit = (in.mode & 16u) != 0u;
                 if (baseMode == 1u || baseMode == 4u) {
@@ -4085,7 +4089,7 @@ private:
                         finalAlpha = in.color.a * clamp(0.5 - dist, 0.0, 1.0);
                     }
                     var shadowRgb = in.color.rgb;
-                    if (isSceneLit) {
+                    if (isSceneLit && outset > 0.5) {
                         let gobo = evalGoboMask(in.worldPos, 0.0, true);
                         let contactKeep = select(0.25, 0.48, hasShadowVec) * contactFactor;
                         let dirScale = mix(0.28, 1.0, gobo);
@@ -4118,24 +4122,52 @@ private:
                         let stockIdx = floor(cond / 10.0);
                         let wearLvl = cond - stockIdx * 10.0;
 
-                        // 1. Paper Stock Procedural Finish (subtle albedo + micro-normal relief for specular)
+                        // 1. Paper Stock Procedural Finish (compute basis once for both albedo + micro-normal relief)
                         if (stockIdx >= 0.9 && stockIdx < 1.9) {
-                            // Cambric Linen: woven micro-embossing grid
-                            let linen = (sin(in.localUV.x * 320.0) * sin(in.localUV.y * 320.0)) * 0.016;
+                            // Cambric / Casino Air-Cushion Linen: square aspect-corrected dimple embossing
+                            let lUV = in.localUV * vec2<f32>(515.0, 721.0);
+                            let fw = max(uvDeriv.x * 515.0, uvDeriv.y * 721.0);
+                            let aa = smoothstep(3.0, 0.75, fw);
+                            let sx = sin(lUV.x);
+                            let cx = cos(lUV.x);
+                            let sy = sin(lUV.y);
+                            let cy = cos(lUV.y);
+                            let linen = (sx * sy) * 0.015 * aa;
                             col = vec4<f32>(col.rgb * (1.0 + linen), col.a);
+                            cardMicroNorm = vec2<f32>(cx * sy * 0.36 + cx * 0.05, sx * cy * 0.36 + cy * 0.05) * aa;
+                            cardMicroAA = aa;
                         } else if (stockIdx >= 1.9 && stockIdx < 2.9) {
-                            // Antique Laid: horizontal wire ribbing with chain lines
-                            let laid = (sin(in.localUV.y * 420.0) * 0.014) + (sin(in.localUV.x * 28.0) * 0.008);
+                            // Antique Laid: horizontal wire ribbing with vertical chain lines
+                            let ly = in.localUV.y * 420.0;
+                            let lx = in.localUV.x * 28.0;
+                            let aa = smoothstep(3.0, 0.75, uvDeriv.y * 420.0);
+                            let laid = (sin(ly) * 0.015 * aa) + (sin(lx) * 0.008);
                             col = vec4<f32>(col.rgb * (1.0 + laid), col.a);
+                            cardMicroNorm = vec2<f32>(cos(lx) * 0.05, cos(ly) * 0.16 * aa);
+                            cardMicroAA = aa;
                         } else if (stockIdx >= 2.9 && stockIdx < 3.9) {
-                            // Cotton Tooth: micro-fiber tooth grain
-                            let toothSeed = in.localUV * 460.0;
-                            let toothN = fract(sin(dot(toothSeed, vec2<f32>(12.9898, 78.233))) * 43758.5453);
-                            col = vec4<f32>(col.rgb * (1.0 + (toothN - 0.5) * 0.028), col.a);
+                            // Cotton Tooth: coarse organic micro-fiber tooth grain
+                            let tSeed = floor(in.localUV * vec2<f32>(360.0, 504.0));
+                            let hX = fract(sin(dot(tSeed, vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;
+                            let hY = fract(sin(dot(tSeed, vec2<f32>(39.346, 11.135))) * 43758.5453) - 0.5;
+                            let aa = smoothstep(2.4, 0.6, max(uvDeriv.x * 360.0, uvDeriv.y * 504.0));
+                            col = vec4<f32>(col.rgb * (1.0 + hX * 0.028 * aa), col.a);
+                            cardMicroNorm = vec2<f32>(hX, hY) * (0.14 * aa);
+                            cardMicroAA = aa;
                         } else if (stockIdx >= 3.9 && stockIdx < 4.9) {
-                            // Smooth Satin: soft luminous sheen
+                            // Smooth Parchment: soft calendered satin sheen
                             let satinGrad = 1.0 - length(in.localUV - vec2<f32>(0.5)) * 0.7;
                             col = vec4<f32>(col.rgb * (0.99 + 0.02 * satinGrad), col.a);
+                            let pUV = in.localUV * vec2<f32>(220.0, 308.0);
+                            cardMicroNorm = vec2<f32>(cos(pUV.x), sin(pUV.y)) * 0.025;
+                        } else if (stockIdx >= 5.9 && stockIdx < 6.9) {
+                            // Gilded Foil: fine anisotropic brushed metallic micro-grain
+                            let fPhase = in.localUV.x * 460.0 + in.localUV.y * 90.0;
+                            let aa = smoothstep(3.0, 0.75, uvDeriv.x * 460.0);
+                            let brush = sin(fPhase) * 0.012 * aa;
+                            col = vec4<f32>(col.rgb * (1.0 + brush), col.a);
+                            cardMicroNorm = vec2<f32>(cos(fPhase) * 0.14, cos(fPhase) * 0.03) * aa;
+                            cardMicroAA = aa;
                         }
 
                         // 2. Physical Card Wear Patina & Aging
@@ -4197,68 +4229,125 @@ private:
                         let uCenter = in.localUV.x - 0.5;
                         let vCenter = in.localUV.y - 0.5;
 
-                        // Camber scale driven by card wear setting
+                        // Camber scale driven by card wear setting (plastic stays flatter than paper)
                         let cond = in.localPos.y;
                         let stockIdx = floor(cond / 10.0);
                         let wearVal = cond - stockIdx * 10.0;
+                        let isPlastic = (stockIdx >= 4.9 && stockIdx < 5.9);
+                        let isFoil = (stockIdx >= 5.9 && stockIdx < 6.9);
                         // Pristine cards are flat (0.05); Natural is subtle (0.35); Played (0.80); Vintage (1.30)
-                        let camberScale = select(0.05, select(0.35, select(0.80, 1.30, wearVal >= 2.5), wearVal >= 1.5), wearVal >= 0.5);
+                        let baseCamber = select(0.05, select(0.35, select(0.80, 1.30, wearVal >= 2.5), wearVal >= 1.5), wearVal >= 0.5);
+                        let camberScale = select(baseCamber, baseCamber * 0.55, isPlastic);
 
-                        // Surface normal with subtle convex arch across the card face + stock micro-normals
-                        var normX = -uCenter * (0.22 * camberScale);
-                        var normY = -vCenter * (0.12 * camberScale);
-                        if (stockIdx >= 0.9 && stockIdx < 1.9) {
-                            // Cambric Linen micro-embossed weave normal
-                            let lx = in.localUV.x * 320.0;
-                            let ly = in.localUV.y * 320.0;
-                            normX = normX + cos(lx) * sin(ly) * 0.13;
-                            normY = normY + sin(lx) * cos(ly) * 0.13;
-                        } else if (stockIdx >= 1.9 && stockIdx < 2.9) {
-                            // Antique Laid wire ribbing normal
-                            normY = normY + cos(in.localUV.y * 420.0) * 0.11;
-                            normX = normX + cos(in.localUV.x * 28.0) * 0.04;
-                        } else if (stockIdx >= 2.9 && stockIdx < 3.9) {
-                            // Cotton Tooth micro-fiber normal jitter
-                            let tSeed = floor(in.localUV * 460.0);
-                            let hX = fract(sin(dot(tSeed, vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;
-                            let hY = fract(sin(dot(tSeed, vec2<f32>(39.346, 11.135))) * 43758.5453) - 0.5;
-                            normX = normX + hX * 0.09;
-                            normY = normY + hY * 0.09;
-                        }
+                        // Subtle die-cut edge bevel normal along outer ~1.5% border for realistic rim glint
+                        let bL = smoothstep(0.018, 0.0, in.localUV.x);
+                        let bR = smoothstep(0.982, 1.0, in.localUV.x);
+                        let bT = smoothstep(0.013, 0.0, in.localUV.y);
+                        let bB = smoothstep(0.987, 1.0, in.localUV.y);
+                        let isCoated = (stockIdx >= 0.9 && stockIdx < 1.9) || isPlastic || isFoil;
+                        let bevelAmp = select(0.09, 0.22, isCoated);
+
+                        // Surface normal: convex card arch + precomputed AA stock micro-normal + edge bevel
+                        let normX = -uCenter * (0.22 * camberScale) + cardMicroNorm.x + (bR - bL) * bevelAmp;
+                        let normY = -vCenter * (0.12 * camberScale) + cardMicroNorm.y + (bB - bT) * bevelAmp;
                         let cardNorm = normalize(vec3<f32>(normX, normY, 1.0));
 
-                        // 3D vector to dynamic light source
+                        // 3D vector to dynamic light source + virtual perspective eye above table center
+                        let vpSafe = max(uniforms.viewport.xy, vec2<f32>(1.0));
+                        let viewZ = max(900.0, max(vpSafe.x, vpSafe.y) * 1.15);
+                        let viewDir = normalize(vec3<f32>((vpSafe * 0.5 - in.worldPos) * 0.42, viewZ));
                         let toLight = vec3<f32>(uniforms.lightPos.xy - in.worldPos, max(140.0, uniforms.lightPos.z));
                         let lightDir = normalize(toLight);
-                        let nDotL = max(0.0, dot(cardNorm, lightDir));
-
-                        // Dual-lobe clearcoat gloss + Schlick Fresnel + overhead softbox sheen
-                        let viewDir = vec3<f32>(0.0, 0.0, 1.0);
                         let halfDir = normalize(lightDir + viewDir);
+                        let nDotL = max(0.0, dot(cardNorm, lightDir));
                         let nDotH = max(0.0, dot(cardNorm, halfDir));
-                        let nDotV = max(0.0, cardNorm.z);
-                        let fresnel = 0.045 + 0.955 * pow(1.0 - nDotV, 5.0);
+                        let nDotV = max(0.001, dot(cardNorm, viewDir));
 
-                        let wearRough = clamp(wearVal * 0.35, 0.0, 0.85);
-                        let stockGloss = select(1.0, 0.55, stockIdx >= 2.9 && stockIdx < 3.9);
-                        let glossAmt = (1.0 - wearRough * 0.55) * stockGloss;
+                        // Branchless Schlick Fresnel (multiplication chain, no transcendental pow)
+                        let omV = 1.0 - nDotV;
+                        let omV2 = omV * omV;
+                        let fresnel = 0.045 + 0.955 * omV2 * omV2 * omV;
 
-                        let specPower = mix(64.0, 26.0, clamp(camberScale * 0.5 + wearRough * 0.5, 0.0, 1.0));
+                        let wearRough = clamp(wearVal * 0.32, 0.0, 0.85);
+                        let wearGloss = 1.0 - wearRough * 0.48;
+
+                        // Per-stock material profile: crisp power, satin power, satin mix, spec scale, softbox scale, relief shading
+                        var specPower = mix(48.0, 24.0, wearRough);
+                        var satinPower = 12.0;
+                        var satinMix = 0.20;
+                        var specScale = 0.18;
+                        var softboxScale = 0.036;
+                        var reliefShade = 0.07 * camberScale;
+                        var specTint = uniforms.lightColor.rgb;
+
+                        if (stockIdx >= 0.9 && stockIdx < 1.9) {
+                            // Casino Linen (USPCC Air-Cushion): high clearcoat riding on dimple micro-normals
+                            specPower = mix(115.0, 42.0, wearRough) * mix(0.55, 1.0, cardMicroAA);
+                            satinPower = 16.0;
+                            satinMix = 0.28;
+                            specScale = 0.46;
+                            softboxScale = 0.072;
+                            reliefShade = 0.09 + 0.06 * camberScale;
+                        } else if (stockIdx >= 1.9 && stockIdx < 2.9) {
+                            // Antique Laid: low-gloss tactile matte-satin, stronger directional ridge shading
+                            specPower = mix(24.0, 14.0, wearRough);
+                            satinPower = 8.0;
+                            satinMix = 0.35;
+                            specScale = 0.11;
+                            softboxScale = 0.018;
+                            reliefShade = 0.14 + 0.06 * camberScale;
+                        } else if (stockIdx >= 2.9 && stockIdx < 3.9) {
+                            // Cotton Rag: near-matte thirsty pasteboard
+                            specPower = mix(14.0, 9.0, wearRough);
+                            satinPower = 6.0;
+                            satinMix = 0.40;
+                            specScale = 0.06;
+                            softboxScale = 0.010;
+                            reliefShade = 0.15 + 0.06 * camberScale;
+                        } else if (stockIdx >= 3.9 && stockIdx < 4.9) {
+                            // Smooth Parchment: calendered unbroken satin sheen
+                            specPower = mix(72.0, 34.0, wearRough);
+                            satinPower = 14.0;
+                            satinMix = 0.24;
+                            specScale = 0.28;
+                            softboxScale = 0.055;
+                            reliefShade = 0.06 * camberScale;
+                        } else if (isPlastic) {
+                            // Plastic Gloss (KEM/Copag): sleek high-gloss dielectric clearcoat
+                            specPower = mix(160.0, 70.0, wearRough);
+                            satinPower = 20.0;
+                            satinMix = 0.22;
+                            specScale = 0.56;
+                            softboxScale = 0.105;
+                            reliefShade = 0.05 * camberScale;
+                        } else if (isFoil) {
+                            // Gilded Foil: conductor-like metallic sheen with warm champagne-gold luster
+                            specPower = mix(130.0, 55.0, wearRough) * mix(0.65, 1.0, cardMicroAA);
+                            satinPower = 14.0;
+                            satinMix = 0.48;
+                            specScale = 0.72;
+                            softboxScale = 0.125;
+                            reliefShade = 0.11 + 0.06 * camberScale;
+                            let goldTint = vec3<f32>(1.0, 0.88, 0.62);
+                            let cardMetal = mix(goldTint, max(col.rgb * 1.35, goldTint * 0.65), 0.42);
+                            specTint = uniforms.lightColor.rgb * cardMetal;
+                        }
+
                         let specCrisp = pow(nDotH, specPower);
-                        let specSatin = pow(nDotH, 11.0) * 0.20;
+                        let specSatin = pow(nDotH, satinPower) * satinMix;
 
-                        let vpSafe = max(uniforms.viewport.xy, vec2<f32>(1.0));
                         let vuv = in.worldPos / vpSafe;
                         let luv = uniforms.lightPos.xy / vpSafe;
                         let sbDist = length((vuv - mix(vec2<f32>(0.5, 0.35), luv, 0.65)) * vec2<f32>(0.85, 1.45));
-                        let softbox = exp(-sbDist * sbDist * 4.2) * 0.048;
+                        let softbox = exp(-sbDist * sbDist * 4.2) * softboxScale;
 
-                        let specIntensity = ((specCrisp * (0.85 + fresnel * 1.6) + specSatin) * 0.22 + softbox)
-                                          * glossAmt * strength * falloff;
-                        specHighlight = uniforms.lightColor.rgb * specIntensity;
+                        let fresnelBoost = select(1.7, 2.4, isFoil);
+                        let specIntensity = ((specCrisp * (0.85 + fresnel * fresnelBoost) + specSatin) * specScale + softbox)
+                                          * wearGloss * strength * falloff;
+                        specHighlight = specTint * specIntensity;
 
-                        // Modulate gain by physical curvature so edges shade naturally
-                        gain = gain * mix(1.0 - 0.07 * camberScale, 1.0 + 0.07 * camberScale, nDotL);
+                        // Modulate gain by physical curvature + stock micro-relief so ridges & edges shade naturally
+                        gain = gain * mix(1.0 - reliefShade, 1.0 + reliefShade, nDotL);
                     } else if (baseMode == 6u) {
                         let lacquerLevel = in.localPos.x;
                         if (lacquerLevel > 0.001) {

@@ -1,0 +1,363 @@
+# =============================================================================
+# SolEngine Game Family: Poker Squares (.eats)
+# Consolidated variants:
+#   - Poker Squares (American Scoring, 5x5 Grid)
+# References: [Parlett1979]
+# =============================================================================
+
+# Grid Layout Zone Map (solitaire_board.cpp: layout == "grid"):
+#   0     : Active Card Slot (Foundation 0 — auto-drawn 1 card at a time)
+#   1..25 : 5x5 Grid (row r in 0..4, col c in 0..4 => z = 1 + r * 5 + c)
+#   26    : Stock (remaining cards)
+
+def ps_count_eq(target, r0, r1, r2, r3, r4):
+    c = 0
+    if r0 == target:
+        c = c + 1
+    if r1 == target:
+        c = c + 1
+    if r2 == target:
+        c = c + 1
+    if r3 == target:
+        c = c + 1
+    if r4 == target:
+        c = c + 1
+    return c
+
+def ps_eval_hand(z0, z1, z2, z3, z4):
+    if zone_size(z0) == 0 or zone_size(z1) == 0 or zone_size(z2) == 0 or zone_size(z3) == 0 or zone_size(z4) == 0:
+        return 0
+
+    r0 = card_rank(z0, 0)
+    r1 = card_rank(z1, 0)
+    r2 = card_rank(z2, 0)
+    r3 = card_rank(z3, 0)
+    r4 = card_rank(z4, 0)
+
+    s0 = card_suit(z0, 0)
+    s1 = card_suit(z1, 0)
+    s2 = card_suit(z2, 0)
+    s3 = card_suit(z3, 0)
+    s4 = card_suit(z4, 0)
+
+    is_flush = (s0 == s1 and s1 == s2 and s2 == s3 and s3 == s4)
+
+    csum = ps_count_eq(r0, r0, r1, r2, r3, r4)
+    csum = csum + ps_count_eq(r1, r0, r1, r2, r3, r4)
+    csum = csum + ps_count_eq(r2, r0, r1, r2, r3, r4)
+    csum = csum + ps_count_eq(r3, r0, r1, r2, r3, r4)
+    csum = csum + ps_count_eq(r4, r0, r1, r2, r3, r4)
+
+    if csum == 17:
+        return 50
+    if csum == 13:
+        return 25
+    if csum == 11:
+        return 10
+    if csum == 9:
+        return 5
+    if csum == 7:
+        return 2
+
+    mn = min(r0, min(r1, min(r2, min(r3, r4))))
+    mx = max(r0, max(r1, max(r2, max(r3, r4))))
+    rsum = r0 + r1 + r2 + r3 + r4
+
+    is_broadway = (mn == 1 and mx == 13 and rsum == 47)
+    is_straight = (mx - mn == 4)
+
+    if is_flush and is_broadway:
+        return 100
+    if is_flush and is_straight:
+        return 75
+    if is_flush:
+        return 20
+    if is_broadway or is_straight:
+        return 15
+    return 0
+
+def ps_score_tag(pts):
+    if pts >= 100:
+        return "RF 100"
+    if pts >= 75:
+        return "SF 75"
+    if pts >= 50:
+        return "4K 50"
+    if pts >= 25:
+        return "FH 25"
+    if pts >= 20:
+        return "FL 20"
+    if pts >= 15:
+        return "ST 15"
+    if pts >= 10:
+        return "3K 10"
+    if pts >= 5:
+        return "2P 5"
+    if pts >= 2:
+        return "1P 2"
+    return "0"
+
+def ps_refresh_widgets(total, placed):
+    set_board_card("scorecard", "POKER SCORES", "right_of_grid")
+    clear_card_rows("scorecard")
+    add_card_bar("scorecard", "GOAL", total, 100)
+    add_card_row("scorecard", "CARDS", str(placed) + "/25")
+    add_card_row("scorecard", "ROYAL FLUSH", "100")
+    add_card_row("scorecard", "STR FLUSH", "75")
+    add_card_row("scorecard", "4 OF A KIND", "50")
+    add_card_row("scorecard", "FULL HOUSE", "25")
+    add_card_row("scorecard", "FLUSH", "20")
+    add_card_row("scorecard", "STRAIGHT", "15")
+    add_card_row("scorecard", "3 OF A KIND", "10")
+    add_card_row("scorecard", "TWO PAIR", "5")
+    add_card_row("scorecard", "ONE PAIR", "2")
+    return True
+
+def ps_recompute_score():
+    total = 0
+    r = 0
+    while r < 5:
+        b = 1 + r * 5
+        pts = ps_eval_hand(b, b + 1, b + 2, b + 3, b + 4)
+        total = total + pts
+        set_zone_badge(b + 4, "right", ps_score_tag(pts), pts > 0)
+        r = r + 1
+    c = 0
+    while c < 5:
+        b = 1 + c
+        pts = ps_eval_hand(b, b + 5, b + 10, b + 15, b + 20)
+        total = total + pts
+        set_zone_badge(b + 20, "bottom", ps_score_tag(pts), pts > 0)
+        c = c + 1
+
+    placed = 0
+    z = 1
+    while z <= 25:
+        if zone_size(z) > 0:
+            placed = placed + 1
+        z = z + 1
+
+    prev_score = get_stat("SCORE", 0)
+    if total != prev_score:
+        add_score(total - prev_score)
+    set_stat("SCORE", total)
+    set_stat("PLACED", placed)
+    ps_refresh_widgets(total, placed)
+    return total
+
+def ps_draw_next():
+    if zone_size(0) == 0 and zone_size(26) > 0 and get_stat("PLACED", 0) < 25:
+        top = zone_size(26) - 1
+        move_cards(26, top, 0)
+        flip_card(0, zone_size(0) - 1, True)
+        return True
+    return False
+
+def ps_on_deal():
+    set_stat("SCORE", 0)
+    set_stat("PLACED", 0)
+    ps_draw_next()
+    ps_recompute_score()
+    return True
+
+def ps_can_pick(z, i):
+    if z == 0 and zone_size(0) > 0 and i == zone_size(0) - 1:
+        return True
+    return False
+
+def ps_can_drop(from_z, i, to_z):
+    if from_z != 0 or zone_size(0) == 0 or i != zone_size(0) - 1:
+        return False
+    if to_z >= 1 and to_z <= 25 and zone_size(to_z) == 0:
+        return True
+    return False
+
+def ps_on_turn_end():
+    ps_recompute_score()
+    ps_draw_next()
+    return True
+
+def ps_stock():
+    return ps_draw_next()
+
+def ps_line_synergy(z0, z1, z2, z3, z4):
+    # Score partial-line poker potential (same-rank pairs/trips/quads + flush potential)
+    cnt = 0
+    if zone_size(z0) > 0:
+        cnt = cnt + 1
+    if zone_size(z1) > 0:
+        cnt = cnt + 1
+    if zone_size(z2) > 0:
+        cnt = cnt + 1
+    if zone_size(z3) > 0:
+        cnt = cnt + 1
+    if zone_size(z4) > 0:
+        cnt = cnt + 1
+    if cnt <= 1:
+        return 0
+    if cnt == 5:
+        return ps_eval_hand(z0, z1, z2, z3, z4) * 30
+
+    # Pairwise rank-match and suit-match synergy across occupied cells in this line
+    syn = 0
+    all_same_suit = True
+    first_suit = -1
+    # Helper check across the 5 cells using scalar variables
+    r0 = 0
+    s0 = -1
+    if zone_size(z0) > 0:
+        r0 = card_rank(z0, 0)
+        s0 = card_suit(z0, 0)
+    r1 = 0
+    s1 = -1
+    if zone_size(z1) > 0:
+        r1 = card_rank(z1, 0)
+        s1 = card_suit(z1, 0)
+    r2 = 0
+    s2 = -1
+    if zone_size(z2) > 0:
+        r2 = card_rank(z2, 0)
+        s2 = card_suit(z2, 0)
+    r3 = 0
+    s3 = -1
+    if zone_size(z3) > 0:
+        r3 = card_rank(z3, 0)
+        s3 = card_suit(z3, 0)
+    r4 = 0
+    s4 = -1
+    if zone_size(z4) > 0:
+        r4 = card_rank(z4, 0)
+        s4 = card_suit(z4, 0)
+
+    if s0 >= 0:
+        first_suit = s0
+    if s1 >= 0:
+        if first_suit < 0:
+            first_suit = s1
+        elif s1 != first_suit:
+            all_same_suit = False
+    if s2 >= 0:
+        if first_suit < 0:
+            first_suit = s2
+        elif s2 != first_suit:
+            all_same_suit = False
+    if s3 >= 0:
+        if first_suit < 0:
+            first_suit = s3
+        elif s3 != first_suit:
+            all_same_suit = False
+    if s4 >= 0:
+        if first_suit < 0:
+            first_suit = s4
+        elif s4 != first_suit:
+            all_same_suit = False
+
+    if all_same_suit:
+        syn = syn + cnt * cnt * 18
+
+    # Count rank matches among occupied cells
+    matches = 0
+    if r0 > 0 and r1 == r0:
+        matches = matches + 1
+    if r0 > 0 and r2 == r0:
+        matches = matches + 1
+    if r0 > 0 and r3 == r0:
+        matches = matches + 1
+    if r0 > 0 and r4 == r0:
+        matches = matches + 1
+    if r1 > 0 and r2 == r1:
+        matches = matches + 1
+    if r1 > 0 and r3 == r1:
+        matches = matches + 1
+    if r1 > 0 and r4 == r1:
+        matches = matches + 1
+    if r2 > 0 and r3 == r2:
+        matches = matches + 1
+    if r2 > 0 and r4 == r2:
+        matches = matches + 1
+    if r3 > 0 and r4 == r3:
+        matches = matches + 1
+
+    syn = syn + matches * 65
+    return syn
+
+def ps_eval():
+    score = get_stat("PLACED", 0) * 10
+    r = 0
+    while r < 5:
+        b = 1 + r * 5
+        score = score + ps_line_synergy(b, b + 1, b + 2, b + 3, b + 4)
+        r = r + 1
+    c = 0
+    while c < 5:
+        b = 1 + c
+        score = score + ps_line_synergy(b, b + 5, b + 10, b + 15, b + 20)
+        c = c + 1
+    return score
+
+def ps_status():
+    placed = get_stat("PLACED", 0)
+    if placed >= 25:
+        if get_stat("SCORE", 0) >= 100:
+            return "victory"
+        return "defeat"
+    return "playing"
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "poker_squares",
+    name: "Poker Squares",
+    family: "Poker Squares",
+    category: "POPULAR",
+    mechanic: "grid_scoring",
+    visibility: "half_open",
+    tags: ["classic", "grid", "scoring", "poker", "single_deck"],
+    layout: "grid",
+    tableau_build: "none",
+    empty_tableau: "any",
+    move_group: "single",
+    foundation_mode: "none",
+    description: "Classic 5x5 poker-hand puzzle. Place 25 drawn cards to build 10 scoring poker hands (5 rows + 5 columns); score 100+ to win.",
+    decks: 1,
+    tableaus: 25,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 5,
+    tableau_deal_counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "waste_draw_1",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    supports_solver: True,
+    prefer_curated_solvable: True,
+    demo_seed: 5,
+    demo_seeds: [5, 9, 14, 25, 33],
+    eval_heuristic: ps_eval,
+    on_deal: ps_on_deal,
+    can_pick: ps_can_pick,
+    can_drop: ps_can_drop,
+    on_stock_click: ps_stock,
+    on_turn_end: ps_on_turn_end,
+    get_status: ps_status,
+    doc: {
+        meta: [1, "Very Quick", 3, "Moderate", 4, "Strategic"],
+        aliases: ["Poker Patience", "Poker Solitaire"],
+        goal: [
+            "Fill the 5x5 grid with 25 cards and score at least 100 points across the 10 rows and columns (American scoring).",
+            "All 25 cards are placed with a total score below 100."
+        ],
+        stats: [
+            { key: "SCORE", name: "Poker Score", desc: "Total American-system score across all 5 rows and 5 columns (Pair=2, 2P=5, 3K=10, Str=15, Fl=20, FH=25, 4K=50, SF=75, RF=100)." },
+            { key: "PLACED", name: "Cards Placed", desc: "Number of cards placed onto the 5x5 grid (out of 25)." }
+        ],
+        zones: [
+            { index: 0, name: "Active Card", desc: "Drag this card onto any open square in the 5x5 grid (placements are permanent)." },
+            { index: 1, name: "5x5 Poker Grid", desc: "Each completed row and column is scored as a 5-card poker hand." },
+            { index: 26, name: "Stock", desc: "Remaining deck; the next card draws automatically after each placement." }
+        ]
+    }
+})

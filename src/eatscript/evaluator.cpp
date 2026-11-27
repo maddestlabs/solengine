@@ -125,6 +125,20 @@ void Evaluator::registerBuiltins() {
         if (args.size() < 3) return Value(args.empty() ? 0.0 : args[0].asNumber());
         return Value(std::clamp(args[0].asNumber(), args[1].asNumber(), args[2].asNumber()));
     });
+    registerFunction("str", [](const auto& args, const auto&) {
+        return Value(args.empty() ? std::string() : args[0].toString());
+    });
+    registerFunction("int", [](const auto& args, const auto&) {
+        return Value(static_cast<double>(args.empty() ? 0 : args[0].asInt(0)));
+    });
+    registerFunction("len", [](const auto& args, const auto&) {
+        if (args.empty()) return Value(0.0);
+        const auto& v = args[0];
+        if (v.isString()) return Value(static_cast<double>(v.stringVal.size()));
+        if (v.isList()) return Value(static_cast<double>(v.listVal.size()));
+        if (v.isDict()) return Value(static_cast<double>(v.dictVal.size()));
+        return Value(0.0);
+    });
 
     // eat.param(...) constructor
     auto eatParamFn = [](const std::vector<Value>& args, const std::map<std::string, Value>& kwargs) -> Value {

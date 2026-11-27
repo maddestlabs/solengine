@@ -104,10 +104,16 @@ bool SettingsManager::load() {
             settings_.variant = static_cast<GameVariant>(std::clamp(g["variant"].asInt(0), 0, static_cast<int>(GameVariant::CustomScript)));
             settings_.randomizeOnNewDeal = g["randomizeOnNewDeal"].asBool(true);
             settings_.guaranteeSolvable = g["guaranteeSolvable"].asBool(true);
+            settings_.statCardMode = std::clamp(g["statCardMode"].asInt(0), 0, 2);
             settings_.lastSeed = g["lastSeed"].asUInt(2026u);
             settings_.autoFinish = g["autoFinish"].asBool(true);
+            settings_.autoPlayFxEnabled = g["autoPlayFxEnabled"].asBool(true);
+            settings_.autoPlayFxOutline = g["autoPlayFxOutline"].asBool(true);
+            settings_.autoPlayFxDim = g["autoPlayFxDim"].asBool(true);
+            settings_.autoPlayFxParticles = g["autoPlayFxParticles"].asBool(true);
+            settings_.autoPlayFxZoomPan = g["autoPlayFxZoomPan"].asBool(true);
             settings_.victoryAnimOverride = static_cast<VictoryAnimOverride>(
-                std::clamp(g["victoryAnimOverride"].asInt(0), 0, static_cast<int>(VictoryAnimOverride::Fireworks)));
+                std::clamp(g["victoryAnimOverride"].asInt(static_cast<int>(VictoryAnimOverride::SpiralVortex)), 0, static_cast<int>(VictoryAnimOverride::Fireworks)));
         }
 
         if (root.contains("appearance") && root["appearance"].isObject()) {
@@ -178,7 +184,7 @@ bool SettingsManager::load() {
             }
             settings_.cardWear = static_cast<CardWearLevel>(std::clamp(a["cardWear"].asInt(static_cast<int>(CardWearLevel::Pristine)), 0, static_cast<int>(CardWearLevel::Count) - 1));
             settings_.cardStock = static_cast<CardStock>(std::clamp(a["cardStock"].asInt(static_cast<int>(CardStock::None)), 0, static_cast<int>(CardStock::Count) - 1));
-            settings_.cardCorners = static_cast<CardCornerStyle>(std::clamp(a["cardCorners"].asInt(0), 0, static_cast<int>(CardCornerStyle::Count) - 1));
+            settings_.cardCorners = static_cast<CardCornerStyle>(std::clamp(a["cardCorners"].asInt(static_cast<int>(CardCornerStyle::Round)), 0, static_cast<int>(CardCornerStyle::Count) - 1));
             settings_.cardDeviation = std::clamp(a["cardDeviation"].asFloat(0.25f), 0.0f, 1.0f);
             settings_.layoutMode = static_cast<ResponsiveLayoutMode>(std::clamp(a["layoutMode"].asInt(0), 0, 2));
             settings_.stockPosition = static_cast<StockPosition>(std::clamp(a["stockPosition"].asInt(0), 0, 3));
@@ -333,8 +339,14 @@ bool SettingsManager::save() {
     g["variant"] = static_cast<int>(settings_.variant);
     g["randomizeOnNewDeal"] = settings_.randomizeOnNewDeal;
     g["guaranteeSolvable"] = settings_.guaranteeSolvable;
+    g["statCardMode"] = settings_.statCardMode;
     g["lastSeed"] = static_cast<double>(settings_.lastSeed);
     g["autoFinish"] = settings_.autoFinish;
+    g["autoPlayFxEnabled"] = settings_.autoPlayFxEnabled;
+    g["autoPlayFxOutline"] = settings_.autoPlayFxOutline;
+    g["autoPlayFxDim"] = settings_.autoPlayFxDim;
+    g["autoPlayFxParticles"] = settings_.autoPlayFxParticles;
+    g["autoPlayFxZoomPan"] = settings_.autoPlayFxZoomPan;
     g["victoryAnimOverride"] = static_cast<int>(settings_.victoryAnimOverride);
     root["game"] = g;
 

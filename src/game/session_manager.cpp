@@ -85,7 +85,7 @@ bool SessionManager::saveSession(const SolitaireBoard& board) {
     }
 
     json::Object root;
-    root["version"] = 1;
+    root["version"] = 2;
     root["seed"] = static_cast<double>(board.seed());
     root["rngState"] = static_cast<double>(board.rngState());
     root["variant"] = static_cast<int>(board.variant());
@@ -108,12 +108,91 @@ bool SessionManager::saveSession(const SolitaireBoard& board) {
             cObj["suit"] = static_cast<int>(c.suit);
             cObj["rank"] = static_cast<int>(c.rank);
             cObj["faceUp"] = c.faceUp;
+            if (!c.stats.empty()) {
+                json::Object stObj;
+                for (const auto& [k, v] : c.stats) {
+                    stObj[k] = static_cast<int>(v);
+                }
+                cObj["stats"] = stObj;
+            }
+            if (!c.tags.empty()) {
+                json::Array tgArr;
+                for (const auto& t : c.tags) {
+                    tgArr.push_back(json::Value{t});
+                }
+                cObj["tags"] = tgArr;
+            }
             cardsArr.push_back(json::Value{cObj});
         }
         pObj["cards"] = cardsArr;
         pilesArr.push_back(json::Value{pObj});
     }
     root["piles"] = pilesArr;
+
+    // Serialize blackboard (RPG stats, widget stat cards, zone badges)
+    const auto& bb = board.blackboard();
+    if (!bb.intStats.empty() || !bb.strStats.empty() || !bb.hudStats.empty() ||
+        !bb.widgetCards.empty() || !bb.badges.empty()) {
+        json::Object bbObj;
+        if (!bb.intStats.empty()) {
+            json::Object intObj;
+            for (const auto& [k, v] : bb.intStats) intObj[k] = static_cast<int>(v);
+            bbObj["intStats"] = intObj;
+        }
+        if (!bb.strStats.empty()) {
+            json::Object strObj;
+            for (const auto& [k, v] : bb.strStats) strObj[k] = v;
+            bbObj["strStats"] = strObj;
+        }
+        if (!bb.hudStats.empty()) {
+            json::Array hudArr;
+            for (const auto& k : bb.hudStats) hudArr.push_back(json::Value{k});
+            bbObj["hudStats"] = hudArr;
+        }
+        if (!bb.widgetCards.empty()) {
+            json::Array wcArr;
+            for (const auto& wc : bb.widgetCards) {
+                json::Object wObj;
+                wObj["id"] = wc.id;
+                wObj["title"] = wc.title;
+                wObj["anchor"] = wc.anchor;
+                wObj["x"] = wc.x;
+                wObj["y"] = wc.y;
+                wObj["w"] = wc.w;
+                wObj["h"] = wc.h;
+                json::Array rowsArr;
+                for (const auto& row : wc.rows) {
+                    json::Object rObj;
+                    rObj["kind"] = static_cast<int>(row.kind);
+                    rObj["label"] = row.label;
+                    rObj["value"] = row.value;
+                    rObj["barVal"] = static_cast<int>(row.barVal);
+                    rObj["barMax"] = static_cast<int>(row.barMax);
+                    rObj["active"] = row.active;
+                    rowsArr.push_back(json::Value{rObj});
+                }
+                wObj["rows"] = rowsArr;
+                wcArr.push_back(json::Value{wObj});
+            }
+            bbObj["widgetCards"] = wcArr;
+        }
+        if (!bb.badges.empty()) {
+            json::Array bArr;
+            for (const auto& b : bb.badges) {
+                json::Object bObj;
+                bObj["id"] = b.id;
+                bObj["anchor"] = b.anchor;
+                bObj["zoneIdx"] = static_cast<int>(b.zoneIdx);
+                bObj["x"] = b.x;
+                bObj["y"] = b.y;
+                bObj["text"] = b.text;
+                bObj["highlight"] = b.highlight;
+                bArr.push_back(json::Value{bObj});
+            }
+            bbObj["badges"] = bArr;
+        }
+        root["blackboard"] = bbObj;
+    }
 
     // Serialize undo stack
     json::Array undoArr;
@@ -240,6 +319,16 @@ bool SessionManager::loadSession(SolitaireBoard& board) {
                     c.suit = static_cast<Suit>(cVal["suit"].asInt(0));
                     c.rank = static_cast<Rank>(cVal["rank"].asInt(1));
                     c.faceUp = cVal["faceUp"].asBool(false);
+                    if (cVal.contains("stats") && cVal["stats"].isObject()) {
+                        for (const auto& [k, v] : cVal["stats"].asObject()) {
+                            c.stats[k] = static_cast<int32_t>(v.asInt(0));
+                        }
+                    }
+                    if (cVal.contains("tags") && cVal["tags"].isArray()) {
+                        for (const auto& tv : cVal["tags"].asArray()) {
+                            if (tv.isString()) c.tags.push_back(tv.asString());
+                        }
+                    }
                     pile.cards.push_back(c);
                 }
             }
@@ -278,7 +367,72 @@ bool SessionManager::loadSession(SolitaireBoard& board) {
             }
         }
 
-        bool ok = board.restoreSessionState(seed, rngState, variant, score, moveCount, elapsedSeconds, piles, undoStack, redoStack, gameId);
+        BoardBlackboard restoredBb{};
+        bool hasBlackboard = false;
+        if (root.contains("blackboard") && root["blackboard"].isObject()) {
+            hasBlackboard = true;
+            const auto& bbVal = root["blackboard"];
+            if (bbVal.contains("intStats") && bbVal["intStats"].isObject()) {
+                for (const auto& [k, v] : bbVal["intStats"].asObject()) {
+                    restoredBb.intStats[k] = static_cast<int32_t>(v.asInt(0));
+                }
+            }
+            if (bbVal.contains("strStats") && bbVal["strStats"].isObject()) {
+                for (const auto& [k, v] : bbVal["strStats"].asObject()) {
+                    if (v.isString()) restoredBb.strStats[k] = v.asString();
+                }
+            }
+            if (bbVal.contains("hudStats") && bbVal["hudStats"].isArray()) {
+                for (const auto& v : bbVal["hudStats"].asArray()) {
+                    if (v.isString()) restoredBb.hudStats.push_back(v.asString());
+                }
+            }
+            if (bbVal.contains("widgetCards") && bbVal["widgetCards"].isArray()) {
+                for (const auto& wv : bbVal["widgetCards"].asArray()) {
+                    if (!wv.isObject()) continue;
+                    BoardWidgetCard wc{};
+                    wc.id = wv["id"].asString();
+                    wc.title = wv["title"].asString();
+                    wc.anchor = wv["anchor"].asString();
+                    wc.x = wv["x"].asFloat(0.0f);
+                    wc.y = wv["y"].asFloat(0.0f);
+                    wc.w = wv["w"].asFloat(0.0f);
+                    wc.h = wv["h"].asFloat(0.0f);
+                    if (wv.contains("rows") && wv["rows"].isArray()) {
+                        for (const auto& rv : wv["rows"].asArray()) {
+                            if (!rv.isObject()) continue;
+                            BoardCardRow row{};
+                            row.kind = static_cast<BoardCardRow::Kind>(std::clamp(rv["kind"].asInt(0), 0, 2));
+                            row.label = rv["label"].asString();
+                            row.value = rv["value"].asString();
+                            row.barVal = static_cast<int32_t>(rv["barVal"].asInt(0));
+                            row.barMax = std::max(1, static_cast<int32_t>(rv["barMax"].asInt(100)));
+                            row.active = rv["active"].asBool(false);
+                            wc.rows.push_back(std::move(row));
+                        }
+                    }
+                    restoredBb.widgetCards.push_back(std::move(wc));
+                }
+            }
+            if (bbVal.contains("badges") && bbVal["badges"].isArray()) {
+                for (const auto& bv : bbVal["badges"].asArray()) {
+                    if (!bv.isObject()) continue;
+                    BoardBadge b{};
+                    b.id = bv["id"].asString();
+                    b.anchor = bv["anchor"].asString();
+                    b.zoneIdx = static_cast<int32_t>(bv["zoneIdx"].asInt(-1));
+                    b.x = bv["x"].asFloat(0.0f);
+                    b.y = bv["y"].asFloat(0.0f);
+                    b.text = bv["text"].asString();
+                    b.highlight = bv["highlight"].asBool(false);
+                    restoredBb.badges.push_back(std::move(b));
+                }
+            }
+        }
+
+        bool ok = board.restoreSessionState(seed, rngState, variant, score, moveCount, elapsedSeconds,
+                                            piles, undoStack, redoStack, gameId,
+                                            hasBlackboard ? &restoredBb : nullptr);
         if (ok) {
             std::cout << "[SolEngine] Successfully restored in-progress game session (Seed #" << seed << ", Moves: " << moveCount << ").\n";
         }

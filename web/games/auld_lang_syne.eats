@@ -1,0 +1,137 @@
+# =============================================================================
+# SolEngine Game Family: Auld Lang Syne (.eats)
+# Consolidated variants:
+#   - Auld Lang Syne (authentic suitless-foundation rules)
+# References: [KellerWorstSolitaire], [Parlett1979]
+#   See Michael Keller's "The Worst Solitaire Mistake? — Auld Lang Syne":
+#   https://www.solitairelaboratory.com/worstsolitaire.html
+# =============================================================================
+
+# Generic Columns Zone Map (solitaire_board.cpp: layout == "columns"):
+#   0    : Stock (48 cards after extracting 4 Aces; deals 4 cards at a time, 0 redeals)
+#   1    : Waste (unused)
+#   2..5 : 4 Foundations (all 4 Aces pre-placed; build up A->K REGARDLESS OF SUIT)
+#   6..9 : 4 Reserve/Tableau Piles (no building; top card only plays to Foundations)
+
+def als_on_deal():
+    # Pre-place all 4 Aces onto Foundations 2..5
+    f_zone = 2
+    i = zone_size(0) - 1
+    while i >= 0 and f_zone <= 5:
+        if card_rank(0, i) == 1:
+            extract_card(0, i, f_zone)
+            flip_card(f_zone, zone_size(f_zone) - 1, True)
+            f_zone = f_zone + 1
+        i = i - 1
+
+    # Deal initial row of 4 cards onto piles 6..9
+    z = 6
+    while z <= 9 and zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, z)
+        flip_card(z, zone_size(z) - 1, True)
+        z = z + 1
+    return True
+
+def als_eval():
+    score = 0
+    f = 2
+    while f <= 5:
+        score = score + zone_size(f) * 250
+        f = f + 1
+    z = 6
+    while z <= 9:
+        if zone_size(z) == 0:
+            score = score + 30
+        z = z + 1
+    score = score + zone_size(0) * 15
+    return score
+
+def als_can_pick(z, i):
+    sz = zone_size(z)
+    if z < 6 or z > 9 or sz == 0:
+        return False
+    return i == sz - 1
+
+def als_can_drop(from_z, i, to_z):
+    if from_z < 6 or from_z > 9 or zone_size(from_z) == 0:
+        return False
+    if i != zone_size(from_z) - 1:
+        return False
+    if to_z < 2 or to_z > 5:
+        return False
+
+    fsz = zone_size(to_z)
+    if fsz == 0 or fsz >= 13:
+        return False
+    # Authentic Auld Lang Syne builds up in rank REGARDLESS OF SUIT
+    return card_rank(from_z, i) == card_rank(to_z, fsz - 1) + 1
+
+def als_stock():
+    if zone_size(0) == 0:
+        return False
+    z = 6
+    while z <= 9 and zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, z)
+        flip_card(z, zone_size(z) - 1, True)
+        z = z + 1
+    return True
+
+def als_status():
+    total = zone_size(2) + zone_size(3) + zone_size(4) + zone_size(5)
+    if total == 52:
+        return "victory"
+    return "playing"
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "auld_lang_syne",
+    name: "Auld Lang Syne",
+    family: "Auld Lang Syne",
+    category: "POPULAR",
+    mechanic: "building",
+    visibility: "half_open",
+    tags: ["classic", "quick", "luck", "row_deal", "single_deck"],
+    layout: "columns",
+    tableau_build: "none",
+    empty_tableau: "none",
+    move_group: "single",
+    foundation_mode: "rank_up",
+    description: "Infamous Victorian curiosity. 4 pre-placed Aces build up regardless of suit; no tableau building; deal 4 cards at a time.",
+    decks: 1,
+    tableaus: 4,
+    foundations: 4,
+    freecells: 0,
+    tableau_deal_counts: [0, 0, 0, 0],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 4,
+    max_redeals: 0,
+    # TODO: mine verified solvable demo_seeds (notoriously low win rate!)
+    demo_seed: 4753,
+    demo_seeds: [4753],
+    eval_heuristic: als_eval,
+    on_deal: als_on_deal,
+    can_pick: als_can_pick,
+    can_drop: als_can_drop,
+    on_stock_click: als_stock,
+    get_status: als_status,
+    doc: {
+        meta: [1, "Very Quick", 5, "Pure Luck", 1, "Casual"],
+        aliases: ["Scots Wha Hae", "Tam O'Shanter (variant)"],
+        goal: [
+            "Build all 4 Foundations up from Ace to King regardless of suit.",
+            "Stock is exhausted and no top reserve cards can play onto Foundations."
+        ],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to deal 1 face-up card onto each of the 4 reserve piles (no redeals)." },
+            { index: 2, name: "Foundations (1-4)", desc: "Start with all 4 Aces pre-placed; build up in rank to King REGARDLESS OF SUIT." },
+            { index: 6, name: "Reserve Piles (1-4)", desc: "No tableau building; only top cards may move directly to Foundations." }
+        ]
+    }
+})

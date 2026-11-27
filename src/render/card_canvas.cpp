@@ -7,12 +7,14 @@
 #include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/eatscript/vm.hpp"
 #include "eatsbits/ui/monospace_font_8x16.hpp"
+#include "eatsbits/ui/blit_fonts.hpp"
 #include "nanosvg.h"
 #include "nanosvgrast.h"
 #include "stb_image.h"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -1362,42 +1364,92 @@ void CardCanvas::drawSvgPath(const std::string& pathD, float cx, float cy, float
     rasterizeSvgFragment(ss.str(), 0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_));
 }
 
-void CardCanvas::drawText(const std::string& text, float x, float y, float size, uint32_t color, const std::string& align) {
+void CardCanvas::drawText(const std::string& text, float x, float y, float size, uint32_t color,
+                          const std::string& align, const std::string& font) {
     if (symmetryActive_) {
-        symmetryQueue_.push_back([this, text, x, y, size, color, align]() { drawText(text, x, y, size, color, align); });
+        symmetryQueue_.push_back([this, text, x, y, size, color, align, font]() {
+            drawText(text, x, y, size, color, align, font);
+        });
     }
     if (text.empty() || size <= 0.0f) return;
     if (color == 0) color = 0xFF1A1A1A;
 
-    const float charH = 16.0f;
-    const float charAdvance = 8.5f;
-    const float scale = size / charH;
-    const float totalW = static_cast<float>(text.size()) * charAdvance * scale;
+    std::string fontLower;
+    fontLower.reserve(font.size());
+    for (char c : font) fontLower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-    float startX = x;
-    if (align == "center") {
-        startX = x - totalW * 0.5f;
-    } else if (align == "right") {
-        startX = x - totalW;
-    }
+    const bool useCondensed = (fontLower == "condensed" || fontLower == "condensed7" || fontLower == "pixel_condensed" || fontLower == "pixel");
 
     std::string hex = formatColorHex(color);
     std::ostringstream pathD;
 
-    for (size_t ci = 0; ci < text.size(); ++ci) {
-        uint8_t ch = static_cast<uint8_t>(text[ci]);
-        const uint8_t* glyph = eatsbits::ui::getGlyph8x16Bitmap(ch);
-        float gx = startX + static_cast<float>(ci) * charAdvance * scale;
+    if (useCondensed) {
+        const float pxScale = size / static_cast<float>(eatsbits::ui::blitfont::kCondensed7Height);
+        const float totalW = eatsbits::ui::blitfont::measureWidth(text, pxScale);
 
-        for (int row = 0; row < 16; ++row) {
-            uint8_t rowBits = glyph[row];
-            if (rowBits == 0) continue;
-            for (int col = 0; col < 8; ++col) {
-                if (rowBits & (1 << (7 - col))) {
-                    float px = gx + static_cast<float>(col) * scale;
-                    float py = y + static_cast<float>(row) * scale;
-                    pathD << "M " << px << " " << py
-                          << " h " << scale << " v " << scale << " h " << -scale << " Z ";
+        float startX = x;
+        if (align == "center") {
+            startX = x - totalW * 0.5f;
+        } else if (align == "right") {
+            startX = x - totalW;
+        }
+
+        float penX = startX;
+        for (char ch : text) {
+            const auto& g = eatsbits::ui::blitfont::condensedGlyph(ch);
+            const int gw = static_cast<int>(g.width);
+            if (ch != ' ') {
+                for (int row = 0; row < 8; ++row) {
+                    const uint8_t rowBits = g.rows[row];
+                    if (rowBits == 0u) continue;
+                    int col = 0;
+                    while (col < gw) {
+                        if (((rowBits >> (gw - 1 - col)) & 1u) == 0u) {
+                            ++col;
+                            continue;
+                        }
+                        const int runStart = col;
+                        while (col < gw && (((rowBits >> (gw - 1 - col)) & 1u) != 0u)) {
+                            ++col;
+                        }
+                        const float px = penX + static_cast<float>(runStart) * pxScale;
+                        const float py = y + static_cast<float>(row) * pxScale;
+                        const float pw = static_cast<float>(col - runStart) * pxScale;
+                        pathD << "M " << px << " " << py
+                              << " h " << pw << " v " << pxScale << " h " << -pw << " Z ";
+                    }
+                }
+            }
+            penX += static_cast<float>(gw + 1) * pxScale;
+        }
+    } else {
+        const float charH = 16.0f;
+        const float charAdvance = 8.5f;
+        const float scale = size / charH;
+        const float totalW = static_cast<float>(text.size()) * charAdvance * scale;
+
+        float startX = x;
+        if (align == "center") {
+            startX = x - totalW * 0.5f;
+        } else if (align == "right") {
+            startX = x - totalW;
+        }
+
+        for (size_t ci = 0; ci < text.size(); ++ci) {
+            uint8_t ch = static_cast<uint8_t>(text[ci]);
+            const uint8_t* glyph = eatsbits::ui::getGlyph8x16Bitmap(ch);
+            float gx = startX + static_cast<float>(ci) * charAdvance * scale;
+
+            for (int row = 0; row < 16; ++row) {
+                uint8_t rowBits = glyph[row];
+                if (rowBits == 0) continue;
+                for (int col = 0; col < 8; ++col) {
+                    if (rowBits & (1 << (7 - col))) {
+                        float px = gx + static_cast<float>(col) * scale;
+                        float py = y + static_cast<float>(row) * scale;
+                        pathD << "M " << px << " " << py
+                              << " h " << scale << " v " << scale << " h " << -scale << " Z ";
+                    }
                 }
             }
         }
@@ -5056,7 +5108,8 @@ void CardCanvas::bindToEvaluator(eatsbits::eatscript::Evaluator& eval, CardCanva
         auto colVal = eatsbits::eatscript::resolveArg(args, kwargs, 4, "color", eatsbits::eatscript::Value("#ffffff"));
         uint32_t col = colVal.isString() ? CardCanvas::parseColor(colVal.asString()) : static_cast<uint32_t>(colVal.asInt(0xFFFFFFFF));
         std::string align = eatsbits::eatscript::resolveArg(args, kwargs, 5, "align", eatsbits::eatscript::Value("left")).asString();
-        canvas->drawText(textVal.asString(), x, y, size, col, align);
+        std::string font = eatsbits::eatscript::resolveArg(args, kwargs, 6, "font", eatsbits::eatscript::Value("")).asString();
+        canvas->drawText(textVal.asString(), x, y, size, col, align, font);
         return eatsbits::eatscript::Value(true);
     };
 

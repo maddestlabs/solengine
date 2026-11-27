@@ -1,0 +1,151 @@
+# =============================================================================
+# SolEngine Game Family: Aces Up (.eats)
+# Consolidated variants:
+#   - Aces Up (Idiot's Delight / Firing Squad / Drivel)
+# References: [MoreheadMottSmith1949], [Parlett1979]
+# =============================================================================
+
+# Generic Columns Zone Map (solitaire_board.cpp: layout == "columns"):
+#   0     : Stock (48 cards remaining after initial 4-card deal)
+#   1     : Waste (unused)
+#   2     : Discard Pile (Foundation 0 — goal: discard all 48 non-Ace cards)
+#   3..6  : 4 Tableau Columns (Aces are HIGH = value 14)
+
+def aces_up_val(r):
+    if r == 1:
+        return 14
+    return r
+
+def aces_up_can_discard(z):
+    sz = zone_size(z)
+    if z < 3 or z > 6 or sz == 0:
+        return False
+    s = card_suit(z, sz - 1)
+    v = aces_up_val(card_rank(z, sz - 1))
+    oz = 3
+    while oz <= 6:
+        if oz != z:
+            osz = zone_size(oz)
+            if osz > 0 and card_suit(oz, osz - 1) == s and aces_up_val(card_rank(oz, osz - 1)) > v:
+                return True
+        oz = oz + 1
+    return False
+
+def aces_up_eval():
+    score = zone_size(2) * 200
+    z = 3
+    while z <= 6:
+        sz = zone_size(z)
+        if sz == 0:
+            score = score + 80
+        else:
+            i = 0
+            while i < sz:
+                if card_rank(z, i) == 1:
+                    if i == 0:
+                        score = score + 60
+                    else:
+                        score = score - i * 45
+                i = i + 1
+        z = z + 1
+    return score
+
+def aces_up_can_pick(z, i):
+    sz = zone_size(z)
+    if z < 3 or z > 6 or sz == 0:
+        return False
+    return i == sz - 1
+
+def aces_up_can_drop(from_z, i, to_z):
+    if from_z == to_z or from_z < 3 or from_z > 6 or zone_size(from_z) == 0:
+        return False
+    if i != zone_size(from_z) - 1:
+        return False
+
+    # Dragging to Discard Pile (Zone 2)
+    if to_z == 2:
+        return aces_up_can_discard(from_z)
+
+    # Moving top card into an empty Tableau column (Zones 3..6)
+    if to_z >= 3 and to_z <= 6:
+        return zone_size(to_z) == 0
+
+    return False
+
+def aces_up_on_card_click(z, i):
+    sz = zone_size(z)
+    if z < 3 or z > 6 or sz == 0 or i != sz - 1:
+        return False
+    if aces_up_can_discard(z):
+        move_cards(z, sz - 1, 2)
+        flip_card(2, zone_size(2) - 1, True)
+        return True
+    return False
+
+def aces_up_stock():
+    if zone_size(0) == 0:
+        return False
+    z = 3
+    while z <= 6 and zone_size(0) > 0:
+        top = zone_size(0) - 1
+        move_cards(0, top, z)
+        flip_card(z, zone_size(z) - 1, True)
+        z = z + 1
+    return True
+
+def aces_up_status():
+    if zone_size(0) == 0 and zone_size(2) >= 48:
+        return "victory"
+    return "playing"
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "aces_up",
+    name: "Aces Up",
+    family: "Aces Up",
+    category: "POPULAR",
+    mechanic: "pairing",
+    visibility: "half_open",
+    tags: ["classic", "quick", "discard", "row_deal", "single_deck"],
+    layout: "columns",
+    tableau_build: "none",
+    empty_tableau: "any",
+    move_group: "single",
+    foundation_mode: "discard",
+    description: "Fast-paced classic. Click to discard any top card outranked by another same-suit top card (Aces high); leave only the 4 Aces.",
+    decks: 1,
+    tableaus: 4,
+    foundations: 1,
+    freecells: 0,
+    tableau_deal_counts: [1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 4,
+    max_redeals: 0,
+    # TODO: mine verified solvable demo_seeds
+    demo_seed: 50,
+    demo_seeds: [50, 65, 154, 155, 220, 236, 242, 256],
+    eval_heuristic: aces_up_eval,
+    can_pick: aces_up_can_pick,
+    can_drop: aces_up_can_drop,
+    on_card_click: aces_up_on_card_click,
+    on_stock_click: aces_up_stock,
+    get_status: aces_up_status,
+    doc: {
+        meta: [1, "Very Quick", 4, "High Luck", 2, "Casual"],
+        aliases: ["Idiot's Delight", "Firing Squad", "Drivel"],
+        goal: [
+            "Discard all 48 non-Ace cards so only the 4 Aces remain on the tableau.",
+            "Stock is exhausted and no more discards or empty-column moves can free a discard."
+        ],
+        zones: [
+            { index: 0, name: "Stock", desc: "Click to deal 1 face-up card onto each of the 4 tableau columns (no redeals)." },
+            { index: 2, name: "Discard Pile", desc: "Click or drag any top tableau card that is lower in the SAME SUIT than another exposed top card (Aces are high)." },
+            { index: 3, name: "Tableau Columns (1-4)", desc: "Any top card may move into an empty column to uncover buried cards beneath it." }
+        ]
+    }
+})

@@ -113,6 +113,35 @@ def sc_classic_eval():
 def sc_rookie_eval():
     return sc_eval(70, 35, 30, 180)
 
+def sc_refresh_card():
+    hp = get_stat("HP", 20)
+    wpn = get_stat("WEAPON", 0)
+    cap = get_stat("CAP", 99)
+    pot = get_stat("POTION_USED", 0)
+    flee = get_stat("FLEE_USED", 0)
+
+    set_board_card("rpg_stats", "STATUS", "top_right_slot")
+    clear_card_rows("rpg_stats")
+    add_card_bar("rpg_stats", "HP", hp, 20)
+    if wpn > 0:
+        add_card_row("rpg_stats", "WEAPON:", str(wpn))
+        if cap >= 99:
+            add_card_row("rpg_stats", "CAPACITY:", "ANY")
+        else:
+            add_card_row("rpg_stats", "CAPACITY:", "<=" + str(cap))
+    else:
+        add_card_row("rpg_stats", "WEAPON:", "NONE")
+        add_card_row("rpg_stats", "CAPACITY:", "--")
+    if pot == 0:
+        add_card_pill("rpg_stats", "POTION", "OK", True)
+    else:
+        add_card_pill("rpg_stats", "POTION", "USED", False)
+    if flee == 0:
+        add_card_pill("rpg_stats", "FLEE", "OK", True)
+    else:
+        add_card_pill("rpg_stats", "FLEE", "LOCKED", False)
+    return True
+
 def sc_on_deal():
     set_stat("HP", 20)
     set_stat("WEAPON", 0)
@@ -124,6 +153,7 @@ def sc_on_deal():
         if zone_size(z) > 0:
             sc_tag_card_rpg(z, 0)
         z = z + 1
+    sc_refresh_card()
     return True
 
 def sc_can_pick(z, i):
@@ -187,6 +217,7 @@ def sc_on_stock_click():
 def sc_on_turn_end():
     if sc_room_card_count() <= 1 and zone_size(0) > 0:
         sc_refill_room()
+    sc_refresh_card()
     return True
 
 def sc_get_status():
@@ -224,7 +255,6 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 6,
     demo_seeds: [6, 13, 53, 79, 142, 179, 237, 238],
-    default_deck: "scoundrel_lowpoly",
     eval_heuristic: sc_classic_eval,
     on_deal: sc_on_deal,
     can_pick: sc_can_pick,
@@ -290,7 +320,6 @@ sol.define_game({
     max_redeals: 0,
     demo_seed: 17,
     demo_seeds: [17, 18, 19, 21, 22, 30, 33, 45],
-    default_deck: "scoundrel_lowpoly",
     eval_heuristic: sc_rookie_eval,
     on_deal: sc_on_deal,
     can_pick: sc_can_pick,

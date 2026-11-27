@@ -20,6 +20,7 @@
 #include "solengine/command_registry.hpp"
 #include "solengine/eats_package_loader.hpp"
 #include "eatsbits/ui/glyph/vector_font.hpp"
+#include "eatsbits/ui/blit_fonts.hpp"
 #include "eatsbits/eatscript/evaluator.hpp"
 #include "eatsbits/ui/base64.hpp"
 #include "stb_image.h"
@@ -108,8 +109,17 @@ enum HudButtonId : int {
     BtnHelp       = 30,
     BtnGameTitlePill = 31,
     BtnGuidedToggle = 32,
-    BtnRewindBranch = 33
+    BtnRewindBranch = 33,
+    BtnAutoPlayFxToggle = 34,
+    BtnAutoPlayFxMenu = 35
 };
+
+struct StatHudHitState {
+    float mouseX{-1000.0f};
+    float mouseY{-1000.0f};
+    std::vector<std::array<float, 4>> toggleRects;
+};
+static StatHudHitState s_statHudHit;
 
 struct HudButtonRect {
     int id;
@@ -404,9 +414,12 @@ std::vector<HudButtonRect> buildTransportButtons(
 
     const bool showGuidedBtn = controller.isReplayMode();
     const float guidedW = showGuidedBtn ? 56.0f : 0.0f;
+    constexpr float fxMainW = 36.0f;
+    constexpr float fxMenuW = 16.0f;
     const float takeOverW = btnW;
     const float extraW = showGuidedBtn ? (guidedW + gap) : 0.0f;
-    const float totalW = 5.0f * btnW + takeOverW + extraW + 5.0f * gap + 24.0f;
+    const float fxSplitW = fxMainW + fxMenuW;
+    const float totalW = 5.0f * btnW + fxSplitW + takeOverW + extraW + 6.0f * gap + 24.0f;
     const float barX = (width - totalW) * 0.5f;
     const float barY = height - 52.0f - safeBottom;
 
@@ -440,6 +453,12 @@ std::vector<HudButtonRect> buildTransportButtons(
                                controller.isGuidedMode() ? "GUIDE" : "WATCH", SvgIconId::None));
         curX += guidedW + gap;
     }
+
+    // 5c. Auto-Play FX Split Button (Master toggle + attached upward popover chevron)
+    btns.push_back(makeBtn(BtnAutoPlayFxToggle, curX, curY, fxMainW, btnH, "FX", SvgIconId::None));
+    curX += fxMainW;
+    btns.push_back(makeBtn(BtnAutoPlayFxMenu, curX, curY, fxMenuW, btnH, "", SvgIconId::None));
+    curX += fxMenuW + gap;
 
     // 6. Stop / Take Over
     btns.push_back(makeBtn(BtnTakeOver, curX, curY, takeOverW, btnH, "", SvgIconId::Stop));
@@ -1111,6 +1130,15 @@ void drawPhysicalDeckRim(
         baseR = std::min(1.0f, baseR * 1.02f);
         baseG *= 0.97f;
         baseB *= 0.89f;
+    } else if (stock == CardStock::PlasticGloss) {
+        baseR = std::min(1.0f, baseR * 1.07f);
+        baseG = std::min(1.0f, baseG * 1.08f);
+        baseB = std::min(1.0f, baseB * 1.12f);
+    } else if (stock == CardStock::GildedFoil) {
+        // Burnished gilded gold deck edges
+        baseR = 0.88f;
+        baseG = 0.72f;
+        baseB = 0.34f;
     }
 
     // 1. Cut paper cardstock rim base
@@ -1645,8 +1673,45 @@ void drawTransportBar(
                              pal.trimR, pal.trimG, pal.trimB, 0.90f, 1.5f, 4);
 
     // 3. Draw Buttons
+    const auto& fxCfg = SettingsManager::instance().settings();
+    const int fxActiveCount =
+        (fxCfg.autoPlayFxOutline ? 1 : 0) +
+        (fxCfg.autoPlayFxDim ? 1 : 0) +
+        (fxCfg.autoPlayFxParticles ? 1 : 0) +
+        (fxCfg.autoPlayFxZoomPan ? 1 : 0);
+    const bool fxAnyActive = fxCfg.autoPlayFxEnabled && (fxActiveCount > 0);
+    const bool fxPartial = fxCfg.autoPlayFxEnabled && (fxActiveCount > 0 && fxActiveCount < 4);
+
     for (const auto& b : buttons) {
         bool hov = (hoveredBtnId == b.id);
+        if (b.id == BtnAutoPlayFxToggle) {
+            drawCarvedButton(r, b, hov, fxAnyActive, pal);
+            if (fxPartial) {
+                // Subtle amber dot in top-right corner indicates customized subset of FX is active
+                r.drawCircle(b.x + b.w - 5.5f, b.y + 5.5f, 2.3f,
+                             pal.accentR, pal.accentG, pal.accentB, 0.95f, 8);
+            } else if (!fxAnyActive) {
+                // Subtle diagonal dim strike across the FX badge when all FX are off
+                r.drawLine(b.x + 7.0f, b.y + b.h - 7.0f, b.x + b.w - 7.0f, b.y + 7.0f,
+                           pal.trimR * 0.65f, pal.trimG * 0.65f, pal.trimB * 0.65f, 0.55f, 1.3f);
+            }
+            continue;
+        }
+        if (b.id == BtnAutoPlayFxMenu) {
+            drawCarvedButton(r, b, hov, false, pal);
+            // Crisp upward chevron (▴) centered inside the 16px split-menu half
+            const float cx = b.x + b.w * 0.5f;
+            const float cy = b.y + b.h * 0.5f;
+            const float chevR = hov ? pal.accentR : pal.trimR;
+            const float chevG = hov ? pal.accentG : pal.trimG;
+            const float chevB = hov ? pal.accentB : pal.trimB;
+            r.drawLine(cx - 3.6f, cy + 2.0f, cx, cy - 2.2f, chevR, chevG, chevB, 0.95f, 1.6f);
+            r.drawLine(cx, cy - 2.2f, cx + 3.6f, cy + 2.0f, chevR, chevG, chevB, 0.95f, 1.6f);
+            // Hairline separator on the shared split seam
+            r.drawLine(b.x, b.y + 4.0f, b.x, b.y + b.h - 4.0f,
+                       pal.trimR, pal.trimG, pal.trimB, 0.45f, 1.0f);
+            continue;
+        }
         bool hi = (b.id == BtnPlayPause && controller.isPlaying()) ||
                   (b.id == BtnGuidedToggle && controller.isGuidedMode()) ||
                   (b.id == BtnRewindBranch);
@@ -3302,7 +3367,8 @@ void updateShowcaseCamera(
     const float cw = board.cardWidth();
     const float ch = board.cardHeight();
 
-    const SolverMove* activeMove = (autoPlay.isPlaying() || autoPlay.isWaitingForMove()) ? autoPlay.peekNextMove() : nullptr;
+    const SolverMove* autoPlayMove = (autoPlay.isPlaying() || autoPlay.isWaitingForMove()) ? autoPlay.peekNextMove() : nullptr;
+    const SolverMove* activeMove = autoPlayMove;
     SolverMove dirSynthMove{};
     if (!activeMove && directorMoveFrom >= 0 && directorMoveTo >= 0) {
         dirSynthMove.fromPile = static_cast<uint8_t>(directorMoveFrom);
@@ -3312,13 +3378,27 @@ void updateShowcaseCamera(
     }
 
     if (activeMove) {
-        const SolverMove* mv = activeMove;
-        cam.focusPileA = static_cast<int>(mv->fromPile);
-        cam.focusCardA = static_cast<int>(mv->cardIndex);
-        cam.focusPileB = static_cast<int>(mv->toPile);
-        cam.targetSpotlightAlpha = 0.42f;
+        const auto& apFx = SettingsManager::instance().settings();
+        const bool isAutoPlayMove = (autoPlayMove != nullptr);
+        const bool fxOutline = !isAutoPlayMove || (apFx.autoPlayFxEnabled && apFx.autoPlayFxOutline);
+        const bool fxDim     = !isAutoPlayMove || (apFx.autoPlayFxEnabled && apFx.autoPlayFxDim);
+        const bool fxZoomPan = !isAutoPlayMove || (apFx.autoPlayFxEnabled && apFx.autoPlayFxZoomPan);
 
-        if (mv->fromPile < piles.size() && mv->toPile < piles.size()) {
+        const SolverMove* mv = activeMove;
+        cam.hasFocusHighlight = (fxDim || fxOutline);
+        cam.showFocusOutline = fxOutline;
+        if (cam.hasFocusHighlight) {
+            cam.focusPileA = static_cast<int>(mv->fromPile);
+            cam.focusCardA = static_cast<int>(mv->cardIndex);
+            cam.focusPileB = static_cast<int>(mv->toPile);
+        } else {
+            cam.focusPileA = -1;
+            cam.focusCardA = -1;
+            cam.focusPileB = -1;
+        }
+        cam.targetSpotlightAlpha = fxDim ? 0.42f : 0.0f;
+
+        if (fxZoomPan && mv->fromPile < piles.size() && mv->toPile < piles.size()) {
             const Pile& sp = piles[mv->fromPile];
             const Pile& dp = piles[mv->toPile];
             float sx0 = sp.x, sy0 = sp.y, sx1 = sp.x + cw, sy1 = sp.y + ch;
@@ -3351,6 +3431,10 @@ void updateShowcaseCamera(
             const float cy = (minY + maxY) * 0.5f;
             cam.targetFocusX = (halfW < width * 0.5f) ? std::clamp(cx, halfW, width - halfW) : (width * 0.5f);
             cam.targetFocusY = (halfH < height * 0.5f) ? std::clamp(cy, halfH, height - halfH) : (height * 0.5f);
+        } else if (!fxZoomPan) {
+            cam.targetZoom = 1.0f;
+            cam.targetFocusX = width * 0.5f;
+            cam.targetFocusY = height * 0.5f;
         }
     } else if (directorFocusZone >= 0 && static_cast<size_t>(directorFocusZone) < piles.size()) {
         float zx0 = 0.0f, zy0 = 0.0f, zw = 0.0f, zh = 0.0f;
@@ -3372,6 +3456,8 @@ void updateShowcaseCamera(
             cam.targetFocusY = height * 0.5f;
         }
         cam.targetSpotlightAlpha = 0.36f;
+        cam.hasFocusHighlight = true;
+        cam.showFocusOutline = true;
         cam.focusPileA = directorFocusZone;
         cam.focusCardA = 0;
         cam.focusPileB = -1;
@@ -3380,6 +3466,8 @@ void updateShowcaseCamera(
         cam.targetFocusX = width * 0.5f;
         cam.targetFocusY = height * 0.5f;
         cam.targetSpotlightAlpha = 0.34f;
+        cam.hasFocusHighlight = true;
+        cam.showFocusOutline = true;
         cam.focusPileA = highlightedHelpZone;
         cam.focusCardA = 0;
         cam.focusPileB = -1;
@@ -3399,6 +3487,8 @@ void updateShowcaseCamera(
         cam.targetFocusX = cam.userFocusX;
         cam.targetFocusY = cam.userFocusY;
         cam.targetSpotlightAlpha = 0.0f;
+        cam.hasFocusHighlight = false;
+        cam.showFocusOutline = false;
         cam.focusPileA = -1;
         cam.focusCardA = -1;
         cam.focusPileB = -1;
@@ -3664,6 +3754,442 @@ void TableRenderer::renderBoard(
     const float ch = board.cardHeight();
     const auto& piles = board.piles();
 
+    // 2b. Diegetic Tabletop Zone Badges & Info/Score Cards (responsive world-space, beneath moving/dragged cards)
+    if (!hideHud) {
+        s_statHudHit.toggleRects.clear();
+        const auto& bb = board.blackboard();
+        const int statMode = std::clamp(SettingsManager::instance().settings().statCardMode, 0, 2);
+
+        // Precompute occupied card/pile rects for smart empty-space auto-placement
+        struct BoardRect { float x, y, w, h; };
+        std::vector<BoardRect> occupiedRects;
+        occupiedRects.reserve(piles.size() * 2 + 8);
+        float minLeft = width, maxRight = 0.0f, minTop = height, maxBottom = 0.0f;
+        bool hasTableau = false;
+        for (const auto& p : piles) {
+            if (p.type == PileType::Tableau) {
+                minLeft = std::min(minLeft, p.x);
+                maxRight = std::max(maxRight, p.x + cw);
+                minTop = std::min(minTop, p.y);
+                maxBottom = std::max(maxBottom, p.y + ch);
+                hasTableau = true;
+            }
+            if (p.cards.empty()) {
+                occupiedRects.push_back(BoardRect{p.x, p.y, cw, ch});
+            } else {
+                // Include first and last card in each pile to cover full fanned extent
+                const auto& c0 = p.cards.front();
+                occupiedRects.push_back(BoardRect{c0.targetX, c0.targetY, cw, ch});
+                if (p.cards.size() > 1) {
+                    const auto& c1 = p.cards.back();
+                    occupiedRects.push_back(BoardRect{c1.targetX, c1.targetY, cw, ch});
+                }
+            }
+        }
+
+        auto findBestOpenRect = [&](float boxW, float boxH, float& outX, float& outY, float& outOverlap) {
+            const float pad = 10.0f;
+            const float safeL = board.safeLeft() + 12.0f;
+            const float safeR = width - board.safeRight() - 12.0f;
+            const float safeT = board.safeTop() + 14.0f;
+            const float safeB = height - board.safeBottom() - 42.0f; // clear bottom telemetry rail
+            const float midX = std::clamp((safeL + safeR - boxW) * 0.5f, safeL, std::max(safeL, safeR - boxW));
+            const float midY = std::clamp((safeT + safeB - boxH) * 0.5f, safeT, std::max(safeT, safeB - boxH));
+
+            std::array<std::pair<float, float>, 9> candidates = {{
+                {safeR - boxW, safeT},                                                       // 0: Top-Right (preferred)
+                {safeR - boxW, safeB - boxH},                                                // 1: Bottom-Right
+                {safeL,        safeT},                                                       // 2: Top-Left
+                {safeL,        safeB - boxH},                                                // 3: Bottom-Left
+                {safeR - boxW, midY},                                                        // 4: Mid-Right
+                {safeL,        midY},                                                        // 5: Mid-Left
+                {midX,         safeT},                                                       // 6: Top-Center
+                {hasTableau ? (maxRight + 14.0f) : (safeR - boxW), std::clamp(minTop, safeT, std::max(safeT, safeB - boxH))}, // 7: Right of Board
+                {hasTableau ? (minLeft - boxW - 14.0f) : safeL,    std::clamp(minTop, safeT, std::max(safeT, safeB - boxH))}  // 8: Left of Board
+            }};
+
+            float bestScore = 1e30f;
+            float bestOverlap = 0.0f;
+            float bestX = safeR - boxW;
+            float bestY = safeT;
+
+            for (size_t ci = 0; ci < candidates.size(); ++ci) {
+                const float cx = std::clamp(candidates[ci].first, safeL, std::max(safeL, safeR - boxW));
+                const float cy = std::clamp(candidates[ci].second, safeT, std::max(safeT, safeB - boxH));
+                float overlap = 0.0f;
+                for (const auto& o : occupiedRects) {
+                    const float ix = std::min(cx + boxW + pad, o.x + o.w) - std::max(cx - pad, o.x);
+                    const float iy = std::min(cy + boxH + pad, o.y + o.h) - std::max(cy - pad, o.y);
+                    if (ix > 0.0f && iy > 0.0f) {
+                        overlap += ix * iy;
+                    }
+                }
+                // Tiny tie-breaker preserves clean corner preference among zero-overlap spots
+                const float score = overlap + static_cast<float>(ci) * 1.5f;
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestOverlap = overlap;
+                    bestX = cx;
+                    bestY = cy;
+                }
+            }
+            outX = bestX;
+            outY = bestY;
+            outOverlap = bestOverlap;
+        };
+
+        const bool hasAnyStatHud = !bb.widgetCards.empty() || !bb.badges.empty();
+
+        if (statMode == 1 && hasAnyStatHud) {
+            // Unified Collapsed Pill: hides all stat cards & badges into a single sleek corner tab
+            std::string pillLabel = "STATS";
+            for (const auto& wc : bb.widgetCards) {
+                if (!wc.title.empty()) {
+                    pillLabel = wc.title;
+                    break;
+                }
+            }
+            pillLabel += "  [+]";
+            const float pFontSz = 10.5f;
+            const float textW = static_cast<float>(pillLabel.size()) * pFontSz * 0.60f;
+            const float pillW = std::clamp(textW + 18.0f, 92.0f, 220.0f);
+            const float pillH = 24.0f;
+            float px = 0.0f, py = 0.0f, pOverlap = 0.0f;
+            findBestOpenRect(pillW, pillH, px, py, pOverlap);
+
+            const bool hov = (s_statHudHit.mouseX >= px && s_statHudHit.mouseX <= px + pillW &&
+                              s_statHudHit.mouseY >= py && s_statHudHit.mouseY <= py + pillH);
+            r.drawRectDropShadow(px, py, pillW, pillH, 5.0f, 3.0f, light, 0.36f);
+            r.drawRoundedRect(px, py, pillW, pillH, 5.0f,
+                              hov ? 0.98f : 0.94f, hov ? 0.94f : 0.90f, hov ? 0.86f : 0.82f, 0.94f, 3);
+            r.drawRoundedRectOutline(px, py, pillW, pillH, 5.0f,
+                                     hov ? 0.78f : 0.56f, hov ? 0.62f : 0.48f, hov ? 0.34f : 0.36f, 0.90f, 1.2f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, pillLabel, px + (pillW - textW) * 0.5f, py + (pillH - pFontSz) * 0.5f,
+                                                pFontSz, 0.22f, 0.16f, 0.10f, 0.98f);
+            s_statHudHit.toggleRects.push_back({px, py, pillW, pillH});
+        }
+
+        if (statMode == 0) {
+        const float badgeFontSz = std::clamp(cw * 0.12f, 5.5f, 12.0f);
+        const float badgePadX = std::clamp(cw * 0.06f, 3.0f, 6.0f);
+        const float badgePadY = std::clamp(cw * 0.035f, 2.0f, 3.5f);
+        const float badgeGap = std::clamp(cw * 0.055f, 2.5f, 6.0f);
+        const float badgePillH = badgeFontSz + badgePadY * 2.0f;
+
+        for (const auto& badge : bb.badges) {
+            if (badge.text.empty()) continue;
+            if (badge.zoneIdx < 0 || static_cast<size_t>(badge.zoneIdx) >= piles.size()) continue;
+            const auto& zp = piles[static_cast<size_t>(badge.zoneIdx)];
+            const float textW = static_cast<float>(badge.text.size()) * badgeFontSz * 0.60f;
+            const float pillW = std::max(cw * 0.28f, textW + badgePadX * 2.0f);
+            float bx = zp.x + (cw - pillW) * 0.5f;
+            float by = zp.y - badgePillH - badgeGap;
+            if (badge.anchor == "bottom") {
+                by = zp.y + ch + badgeGap;
+            } else if (badge.anchor == "right") {
+                bx = zp.x + cw + badgeGap;
+                by = zp.y + (ch - badgePillH) * 0.5f;
+            } else if (badge.anchor == "left") {
+                bx = zp.x - pillW - badgeGap;
+                by = zp.y + (ch - badgePillH) * 0.5f;
+            }
+            bx = std::clamp(bx, 3.0f, std::max(3.0f, width - pillW - 3.0f));
+            by = std::clamp(by, 3.0f, std::max(3.0f, height - badgePillH - 3.0f));
+
+            const float bgR = badge.highlight ? 0.28f : pal.woodR0 * 0.68f;
+            const float bgG = badge.highlight ? 0.22f : pal.woodG0 * 0.68f;
+            const float bgB = badge.highlight ? 0.08f : pal.woodB0 * 0.68f;
+            const float brR = badge.highlight ? 0.96f : pal.trimR;
+            const float brG = badge.highlight ? 0.80f : pal.trimG;
+            const float brB = badge.highlight ? 0.34f : pal.trimB;
+            const float pillRad = std::clamp(cw * 0.05f, 3.0f, 5.0f);
+            r.drawRoundedRect(bx, by, pillW, badgePillH, pillRad, bgR, bgG, bgB, badge.highlight ? 0.94f : 0.84f, 3);
+            r.drawRoundedRectOutline(bx, by, pillW, badgePillH, pillRad, brR, brG, brB, badge.highlight ? 0.92f : 0.58f, 1.0f, 3);
+            eatsbits::ui::glyph::drawVectorText(r, badge.text, bx + (pillW - textW) * 0.5f, by + badgePadY, badgeFontSz,
+                                                badge.highlight ? 1.0f : 0.94f,
+                                                badge.highlight ? 0.92f : 0.90f,
+                                                badge.highlight ? 0.62f : 0.80f, 0.96f);
+        }
+
+        const float effRu = CardTextureCache::instance().effectiveRu();
+        const float cardRad = (effRu <= 0.001f) ? 3.0f : std::max(2.5f, effRu * cw);
+        for (const auto& wc : bb.widgetCards) {
+            if (wc.rows.empty() && wc.title.empty()) continue;
+
+            bool twoColMode = false;
+            bool compactStripMode = false;
+            float fontSz = std::clamp(cw * 0.11f, 6.5f, 11.5f);
+            float padX = std::clamp(cw * 0.09f, 5.0f, 10.0f);
+            float padY = std::clamp(ch * 0.055f, 4.0f, 8.0f);
+            float rowH = fontSz + std::clamp(cw * 0.075f, 4.5f, 8.0f);
+            float headerH = wc.title.empty() ? 0.0f : (fontSz + padY + 4.0f);
+            float hudW = (wc.w > 10.0f) ? wc.w : std::clamp(cw * 1.55f, 112.0f, 210.0f);
+            float hudH = (wc.h > 10.0f) ? wc.h : (padY * 2.0f + headerH + static_cast<float>(wc.rows.size()) * rowH);
+            float hudX = width - board.safeRight() - hudW - 12.0f;
+            float hudY = board.safeTop() + 14.0f;
+            float placedOverlap = 0.0f;
+
+            if (wc.anchor == "custom") {
+                hudX = wc.x;
+                hudY = wc.y;
+            } else if (wc.anchor == "top_right" || wc.anchor == "auto" || wc.anchor.empty()) {
+                findBestOpenRect(hudW, hudH, hudX, hudY, placedOverlap);
+            } else if (wc.anchor == "top_right_slot" && piles.size() >= 2) {
+                const bool wantPortraitBanner = hasTableau && (height > width || cw < 105.0f);
+                bool usedPortraitBanner = false;
+                if (wantPortraitBanner) {
+                    const float gridSpanW = std::max(cw * 3.0f, maxRight - minLeft);
+                    const float maxAvailW = std::max(140.0f, width - board.safeLeft() - board.safeRight() - 16.0f);
+                    const float bannerW = std::min(maxAvailW, gridSpanW);
+                    const float bannerX = std::clamp((minLeft + maxRight - bannerW) * 0.5f,
+                                                     board.safeLeft() + 8.0f,
+                                                     std::max(board.safeLeft() + 8.0f, width - board.safeRight() - bannerW - 8.0f));
+                    const float bannerY = board.safeTop() + std::clamp(height * 0.012f, 6.0f, 12.0f);
+                    const float availAboveH = piles[0].y - bannerY - 6.0f;
+
+                    size_t barCount = 0;
+                    size_t kvCount = 0;
+                    for (const auto& row : wc.rows) {
+                        if (row.kind == BoardCardRow::Kind::Bar) ++barCount;
+                        else ++kvCount;
+                    }
+                    const size_t twoColRows = barCount + (kvCount + 1) / 2;
+                    const float bFontSz = std::clamp(bannerW * 0.036f, 8.5f, 12.5f);
+                    const float bPadX = std::clamp(bannerW * 0.035f, 8.0f, 14.0f);
+                    const float bPadY = std::clamp(bannerW * 0.022f, 6.0f, 10.0f);
+                    const float bRowH = bFontSz + 7.5f;
+                    const float bHeaderH = wc.title.empty() ? 0.0f : (bFontSz + 9.0f);
+                    const float bH = bPadY * 2.0f + bHeaderH + static_cast<float>(twoColRows) * bRowH;
+
+                    if (availAboveH >= bH) {
+                        twoColMode = true;
+                        hudW = bannerW;
+                        hudH = bH;
+                        hudX = bannerX;
+                        hudY = bannerY;
+                        fontSz = bFontSz;
+                        padX = bPadX;
+                        padY = bPadY;
+                        rowH = bRowH;
+                        headerH = bHeaderH;
+                        usedPortraitBanner = true;
+                    }
+                }
+                if (!usedPortraitBanner) {
+                    // Exact 1:1 card-proportional scaling locked to cw x ch (Scoundrel landscape)
+                    hudW = cw;
+                    hudH = ch;
+                    hudX = piles.back().x;
+                    hudY = piles[0].y;
+                    padX = std::max(3.5f, cw * 0.075f);
+                    padY = std::max(3.5f, ch * 0.055f);
+                    const float nRows = std::max(1.0f, static_cast<float>(wc.rows.size()));
+                    headerH = wc.title.empty() ? 0.0f : std::clamp(ch * 0.145f, 10.0f, 20.0f);
+                    rowH = (hudH - padY * 2.0f - headerH) / nRows;
+                    fontSz = std::clamp(std::min(cw * 0.102f, rowH * 0.60f), 4.8f, 11.5f);
+                }
+            } else if (wc.anchor == "top_left") {
+                hudX = board.safeLeft() + 12.0f;
+            } else if (wc.anchor == "right_of_grid" && hasTableau) {
+                const float badgeMargin = std::clamp(cw * 0.56f, 34.0f, 56.0f);
+                const float desiredX = maxRight + badgeMargin;
+                if (desiredX + hudW + 6.0f <= width - board.safeRight()) {
+                    // Wide / Landscape: full vertical card neatly to the right of the grid
+                    hudX = desiredX;
+                    hudY = std::max(board.safeTop() + 10.0f, minTop);
+                } else {
+                    // Narrow / Portrait: reflow below the grid (and below bottom column badges)
+                    const float gridSpanW = std::max(cw * 3.0f, maxRight - minLeft);
+                    const float maxAvailW = std::max(120.0f, width - board.safeLeft() - board.safeRight() - 16.0f);
+                    hudW = std::min(maxAvailW, gridSpanW);
+                    hudX = std::clamp((minLeft + maxRight - hudW) * 0.5f,
+                                      board.safeLeft() + 8.0f,
+                                      std::max(board.safeLeft() + 8.0f, width - board.safeRight() - hudW - 8.0f));
+                    const float belowY = maxBottom + badgePillH + badgeGap * 2.0f + 6.0f;
+                    const float availBelowH = (height - board.safeBottom() - 22.0f) - belowY;
+
+                    size_t barCount = 0;
+                    size_t kvCount = 0;
+                    for (const auto& row : wc.rows) {
+                        if (row.kind == BoardCardRow::Kind::Bar) ++barCount;
+                        else ++kvCount;
+                    }
+                    const size_t twoColRows = barCount + (kvCount + 1) / 2;
+                    fontSz = std::clamp(cw * 0.115f, 6.0f, 10.5f);
+                    padX = std::clamp(cw * 0.08f, 6.0f, 10.0f);
+                    padY = std::clamp(cw * 0.05f, 4.0f, 7.0f);
+                    rowH = fontSz + 5.5f;
+                    headerH = wc.title.empty() ? 0.0f : (fontSz + 8.0f);
+                    const float twoColH = padY * 2.0f + headerH + static_cast<float>(twoColRows) * rowH;
+
+                    if (availBelowH >= twoColH) {
+                        twoColMode = true;
+                        hudH = twoColH;
+                        hudY = belowY;
+                    } else {
+                        // Tight vertical space: compact 1-row live strip (Bar + first stat)
+                        compactStripMode = true;
+                        headerH = 0.0f;
+                        hudH = padY * 2.0f + rowH + 2.0f;
+                        hudY = std::min(belowY, height - board.safeBottom() - hudH - 20.0f);
+                    }
+                }
+            }
+            hudX = std::clamp(hudX, 4.0f, std::max(4.0f, width - hudW - 4.0f));
+            hudY = std::clamp(hudY, 4.0f, std::max(4.0f, height - hudH - 4.0f));
+            occupiedRects.push_back(BoardRect{hudX, hudY, hudW, hudH});
+
+            // Collapse button rect in top-right of card header
+            const float colBtnS = std::clamp(headerH > 0.0f ? (headerH - 2.0f) : 16.0f, 14.0f, 20.0f);
+            const float colBtnX = hudX + hudW - padX - colBtnS + 2.0f;
+            const float colBtnY = hudY + padY - 1.0f;
+            const bool colBtnHov = (s_statHudHit.mouseX >= colBtnX && s_statHudHit.mouseX <= colBtnX + colBtnS &&
+                                    s_statHudHit.mouseY >= colBtnY && s_statHudHit.mouseY <= colBtnY + colBtnS);
+            const bool bodyHov = !colBtnHov &&
+                                 (s_statHudHit.mouseX >= hudX && s_statHudHit.mouseX <= hudX + hudW &&
+                                  s_statHudHit.mouseY >= hudY && s_statHudHit.mouseY <= hudY + hudH);
+            const float hudAlpha = (placedOverlap > 0.0f && bodyHov) ? 0.26f : 1.0f;
+
+            r.drawRectDropShadow(hudX, hudY, hudW, hudH, cardRad, 4.0f, light, 0.44f * hudAlpha);
+            r.drawRoundedRect(hudX, hudY, hudW, hudH, cardRad,
+                              0.95f, 0.92f, 0.84f, 0.97f * hudAlpha, 3);
+            r.drawRoundedRectOutline(hudX, hudY, hudW, hudH, cardRad,
+                                     0.56f, 0.48f, 0.36f, 0.85f * hudAlpha, 1.3f, 3);
+            r.drawRoundedRectOutline(hudX + 2.5f, hudY + 2.5f, hudW - 5.0f, hudH - 5.0f, std::max(1.5f, cardRad - 2.0f),
+                                     0.72f, 0.62f, 0.44f, 0.45f * hudAlpha, 0.85f, 3);
+
+            // Draw compact [-] collapse button and register hit rect
+            r.drawRoundedRect(colBtnX, colBtnY, colBtnS, colBtnS, 3.0f,
+                              colBtnHov ? 0.78f : 0.64f, colBtnHov ? 0.66f : 0.54f, colBtnHov ? 0.46f : 0.38f,
+                              (colBtnHov ? 0.90f : 0.45f) * hudAlpha, 3);
+            r.drawLine(colBtnX + 4.0f, colBtnY + colBtnS * 0.5f,
+                       colBtnX + colBtnS - 4.0f, colBtnY + colBtnS * 0.5f,
+                       0.22f, 0.16f, 0.10f, 0.95f * hudAlpha, 1.5f);
+            s_statHudHit.toggleRects.push_back({colBtnX - 2.0f, colBtnY - 2.0f, colBtnS + 4.0f, colBtnS + 4.0f});
+
+            float ry = hudY + padY;
+            const float innerW = hudW - padX * 2.0f;
+            const bool usePixel360Font =
+                (SettingsManager::instance().settings().renderResolution == RenderResolutionMode::Pixel360p);
+            const float texel360 = (usePixel360Font && width > 0.0f && height > 0.0f)
+                ? (1.0f / std::min(1.0f, std::min(640.0f / width, 360.0f / height)))
+                : 1.0f;
+            const float bmpH = static_cast<float>(eatsbits::ui::blitfont::kCondensed7Height) * texel360;
+
+            if (!wc.title.empty() && headerH > 0.0f) {
+                if (usePixel360Font) {
+                    const float titleY = ry + std::max(0.0f, (headerH - 4.0f - bmpH) * 0.5f);
+                    eatsbits::ui::blitfont::drawPixelText(r, wc.title, hudX + padX, titleY, texel360,
+                                                          0.22f, 0.16f, 0.10f, 0.98f, texel360);
+                } else {
+                    eatsbits::ui::glyph::drawVectorText(r, wc.title, hudX + padX, ry, fontSz * 1.02f,
+                                                        0.22f, 0.16f, 0.10f, 0.98f);
+                }
+                const float divY = hudY + padY + headerH - 3.5f;
+                r.drawRoundedRect(hudX + padX, divY, innerW, 1.0f, 0.5f,
+                                  0.52f, 0.42f, 0.28f, 0.55f, 3);
+                ry = hudY + padY + headerH;
+            }
+
+            auto drawSingleRow = [&](const BoardCardRow& row, float rx, float rrw, float curY) {
+                if (row.kind == BoardCardRow::Kind::Bar) {
+                    const float barH = std::clamp(rowH - 3.5f, 9.0f, 18.0f);
+                    const float frac = std::clamp(static_cast<float>(row.barVal) / static_cast<float>(std::max(1, row.barMax)), 0.0f, 1.0f);
+                    r.drawRoundedRect(rx, curY, rrw, barH, 3.5f, 0.20f, 0.16f, 0.12f, 0.88f, 3);
+                    if (frac > 0.001f) {
+                        const float fR = (frac >= 1.0f) ? 0.18f : 0.78f;
+                        const float fG = (frac >= 1.0f) ? 0.64f : 0.52f;
+                        const float fB = (frac >= 1.0f) ? 0.28f : 0.14f;
+                        r.drawRoundedRect(rx + 1.5f, curY + 1.5f,
+                                          std::max(3.0f, (rrw - 3.0f) * frac), std::max(2.0f, barH - 3.0f),
+                                          2.5f, fR, fG, fB, 0.96f, 3);
+                    }
+                    char barTxt[64];
+                    std::snprintf(barTxt, sizeof(barTxt), "%s %d/%d", row.label.c_str(), row.barVal, row.barMax);
+                    if (usePixel360Font) {
+                        eatsbits::ui::blitfont::drawPixelText(r, barTxt, rx + texel360 * 2.0f, curY + (barH - bmpH) * 0.5f,
+                                                              texel360, 0.98f, 0.96f, 0.90f, 0.98f, texel360);
+                    } else {
+                        eatsbits::ui::glyph::drawVectorText(r, barTxt, rx + 4.0f, curY + (barH - fontSz * 0.88f) * 0.5f, fontSz * 0.88f,
+                                                            0.98f, 0.96f, 0.90f, 0.98f);
+                    }
+                } else if (row.kind == BoardCardRow::Kind::Pill) {
+                    const std::string line = row.label + ": " + row.value;
+                    if (usePixel360Font) {
+                        eatsbits::ui::blitfont::drawPixelText(r, line, rx, curY + std::max(0.0f, (rowH - bmpH) * 0.5f),
+                                                              texel360,
+                                                              row.active ? 0.14f : 0.48f,
+                                                              row.active ? 0.52f : 0.44f,
+                                                              row.active ? 0.22f : 0.40f, 0.96f,
+                                                              texel360);
+                    } else {
+                        eatsbits::ui::glyph::drawVectorText(r, line, rx, curY + 1.5f, fontSz * 0.92f,
+                                                            row.active ? 0.14f : 0.48f,
+                                                            row.active ? 0.52f : 0.44f,
+                                                            row.active ? 0.22f : 0.40f, 0.96f);
+                    }
+                } else {
+                    if (usePixel360Font) {
+                        const float ty = curY + std::max(0.0f, (rowH - bmpH) * 0.5f);
+                        eatsbits::ui::blitfont::drawPixelText(r, row.label, rx, ty, texel360,
+                                                              0.28f, 0.22f, 0.16f, 0.95f, texel360);
+                        const float valW = eatsbits::ui::blitfont::measureWidth(row.value, texel360);
+                        eatsbits::ui::blitfont::drawPixelText(r, row.value, rx + rrw - valW, ty, texel360,
+                                                              0.62f, 0.14f, 0.12f, 0.98f, texel360);
+                    } else {
+                        eatsbits::ui::glyph::drawVectorText(r, row.label, rx, curY + 1.5f, fontSz * 0.92f,
+                                                            0.28f, 0.22f, 0.16f, 0.95f);
+                        const float valW = static_cast<float>(row.value.size()) * (fontSz * 0.92f) * 0.60f;
+                        eatsbits::ui::glyph::drawVectorText(r, row.value, rx + rrw - valW, curY + 1.5f, fontSz * 0.92f,
+                                                            0.62f, 0.14f, 0.12f, 0.98f);
+                    }
+                }
+            };
+
+            if (compactStripMode) {
+                // Draw first Bar on left 60% and first KeyValue on right 36%
+                const float leftW = innerW * 0.58f;
+                const float rightX = hudX + padX + leftW + innerW * 0.06f;
+                const float rightW = innerW * 0.36f;
+                bool drewBar = false, drewKv = false;
+                for (const auto& row : wc.rows) {
+                    if (!drewBar && row.kind == BoardCardRow::Kind::Bar) {
+                        drawSingleRow(row, hudX + padX, leftW, ry);
+                        drewBar = true;
+                    } else if (!drewKv && row.kind != BoardCardRow::Kind::Bar) {
+                        drawSingleRow(row, rightX, rightW, ry);
+                        drewKv = true;
+                    }
+                }
+            } else if (twoColMode) {
+                std::vector<const BoardCardRow*> kvRows;
+                for (const auto& row : wc.rows) {
+                    if (row.kind == BoardCardRow::Kind::Bar) {
+                        drawSingleRow(row, hudX + padX, innerW, ry);
+                        ry += rowH;
+                    } else {
+                        kvRows.push_back(&row);
+                    }
+                }
+                const float colGap = std::max(10.0f, padX * 1.4f);
+                const float colW = (innerW - colGap) * 0.5f;
+                const size_t half = (kvRows.size() + 1) / 2;
+                for (size_t idx = 0; idx < kvRows.size(); ++idx) {
+                    const bool rightCol = (idx >= half);
+                    const size_t rIdx = rightCol ? (idx - half) : idx;
+                    const float rx = hudX + padX + (rightCol ? (colW + colGap) : 0.0f);
+                    drawSingleRow(*kvRows[idx], rx, colW, ry + static_cast<float>(rIdx) * rowH);
+                }
+            } else {
+                for (const auto& row : wc.rows) {
+                    drawSingleRow(row, hudX + padX, innerW, ry);
+                    ry += rowH;
+                }
+            }
+        }
+        } // end if (statMode == 0)
+    }
+
     auto isCardMoving = [](const Card& c) noexcept -> bool {
         const float dx = c.x - c.targetX;
         const float dy = c.y - c.targetY;
@@ -3802,8 +4328,12 @@ void TableRenderer::renderBoard(
     }
 
     // 3b. Showcase Spotlight Scrim & Focused Pile Lift
-    if (showcaseCamera && showcaseCamera->spotlightAlpha > 0.01f) {
-        r.drawRect(-width, -height, width * 3.0f, height * 3.0f, 0.0f, 0.0f, 0.0f, showcaseCamera->spotlightAlpha);
+    const bool drawScrim = (showcaseCamera && showcaseCamera->spotlightAlpha > 0.01f);
+    const bool drawOutline = (showcaseCamera && showcaseCamera->hasFocusHighlight && showcaseCamera->showFocusOutline);
+    if (drawScrim || drawOutline) {
+        if (drawScrim) {
+            r.drawRect(-width, -height, width * 3.0f, height * 3.0f, 0.0f, 0.0f, 0.0f, showcaseCamera->spotlightAlpha);
+        }
 
         const float effRu = CardTextureCache::instance().effectiveRu();
         const float cardRad = (effRu <= 0.001f) ? 2.0f : std::max(2.0f, effRu * cw);
@@ -3812,9 +4342,11 @@ void TableRenderer::renderBoard(
             if (pIdx < 0 || static_cast<size_t>(pIdx) >= piles.size()) return;
             const Pile& fp = piles[static_cast<size_t>(pIdx)];
             if (fp.cards.empty()) {
-                ScopedCardRotation rotGuard(r, fp.angle, fp.x + cw * 0.5f, fp.y + ch * 0.5f);
-                r.drawRoundedRectOutline(fp.x - 2.0f, fp.y - 2.0f, cw + 4.0f, ch + 4.0f, cardRad + 2.0f,
-                                         pal.accentR, pal.accentG, pal.accentB, 0.85f, 2.2f, 4);
+                if (drawOutline) {
+                    ScopedCardRotation rotGuard(r, fp.angle, fp.x + cw * 0.5f, fp.y + ch * 0.5f);
+                    r.drawRoundedRectOutline(fp.x - 2.0f, fp.y - 2.0f, cw + 4.0f, ch + 4.0f, cardRad + 2.0f,
+                                             pal.accentR, pal.accentG, pal.accentB, 0.85f, 2.2f, 4);
+                }
                 return;
             }
             const bool tightlyStacked = (fp.type == PileType::Stock || fp.type == PileType::Foundation || fp.type == PileType::FreeCell);
@@ -3826,14 +4358,16 @@ void TableRenderer::renderBoard(
 
             // Draw all card outlines underneath the card bodies so overlapping cards in a
             // highlighted run occlude interior borders, leaving only the outer stack perimeter.
-            for (size_t ci = startIdx; ci < fp.cards.size(); ++ci) {
-                const Card& fc = fp.cards[ci];
-                if (isCardMoving(fc)) continue;
-                const CardScreenRect rect = computeCardScreenRect(fc, fc.x, fc.y, cw, ch, wearLvl);
-                ScopedCardRotation rotGuard(r, fc.angle, rect.x + rect.w * 0.5f, rect.y + rect.h * 0.5f);
-                r.drawRoundedRectOutline(rect.x - 2.0f, rect.y - 2.0f, rect.w + 4.0f, rect.h + 4.0f,
-                                         rect.radius + 2.0f, pal.accentR, pal.accentG, pal.accentB,
-                                         0.82f, 2.6f, 4);
+            if (drawOutline) {
+                for (size_t ci = startIdx; ci < fp.cards.size(); ++ci) {
+                    const Card& fc = fp.cards[ci];
+                    if (isCardMoving(fc)) continue;
+                    const CardScreenRect rect = computeCardScreenRect(fc, fc.x, fc.y, cw, ch, wearLvl);
+                    ScopedCardRotation rotGuard(r, fc.angle, rect.x + rect.w * 0.5f, rect.y + rect.h * 0.5f);
+                    r.drawRoundedRectOutline(rect.x - 2.0f, rect.y - 2.0f, rect.w + 4.0f, rect.h + 4.0f,
+                                             rect.radius + 2.0f, pal.accentR, pal.accentG, pal.accentB,
+                                             0.82f, 2.6f, 4);
+                }
             }
             for (size_t ci = startIdx; ci < fp.cards.size(); ++ci) {
                 const Card& fc = fp.cards[ci];
@@ -4027,8 +4561,8 @@ void TableRenderer::renderBoard(
                                             0.94f, 0.90f, 0.82f, 0.95f);
     }
 
-    // 7. Dynamic Felt Gesture Laser Trail & Visual Hint Overlay
-    if (isGesturing) {
+    // 7. Dynamic Felt Gesture Laser Trail & Visual Hint Overlay (disabled while zoomed in)
+    if (isGesturing && !camZoomed) {
         const float gdx = gestureCurX - gestureStartX;
         const float gdy = gestureCurY - gestureStartY;
         const float gdist = std::hypot(gdx, gdy);
@@ -4216,7 +4750,7 @@ void TableRenderer::renderBoard(
     {
         const auto& bb = board.blackboard();
         auto itHp = bb.intStats.find("HP");
-        if (itHp != bb.intStats.end() && piles.size() >= 7) {
+        if (bb.widgetCards.empty() && itHp != bb.intStats.end() && piles.size() >= 7) {
             const int hp = std::clamp(itHp->second, 0, 99);
             const int maxHp = std::max(20, bb.getInt("MAX_HP", 20));
             const int wpn = bb.getInt("WEAPON", 0);
@@ -4459,19 +4993,25 @@ void TableRenderer::renderBoard(
         drawReplayCommentaryCaption(r, board, *autoPlay, width, height, pal, light);
     }
     } else if (screensaverMode) {
-        // Subtle Screensaver Mode watermark
-        const char* ssLabel = "SCREENSAVER  |  TAP ANYWHERE TO EXIT";
-        const float fontSz = 10.0f;
-        const float txtW = eatsbits::ui::glyph::getVectorTextWidth(fontSz, ssLabel);
-        const float pillW = txtW + 24.0f;
-        const float pillH = 24.0f;
-        const float pillX = (width - pillW) * 0.5f;
-        const float pillY = height - pillH - 14.0f - board.safeBottom();
-        r.drawRoundedRect(pillX, pillY, pillW, pillH, pillH * 0.5f, 0.05f, 0.04f, 0.03f, 0.45f, 6);
-        r.drawRoundedRectOutline(pillX, pillY, pillW, pillH, pillH * 0.5f,
-                                 pal.accentR, pal.accentG, pal.accentB, 0.35f, 1.0f, 6);
-        eatsbits::ui::glyph::drawVectorText(r, ssLabel, pillX + 12.0f, pillY + 7.0f, fontSz,
-                                            0.92f, 0.90f, 0.85f, 0.65f);
+        // Subtle animated SolEngine Clockwork Logo at bottom center (matched to Settings icon size)
+        const auto& ts = SettingsManager::instance().settings();
+        float orbSize = 38.0f;
+        if (ts.toolbarScale == ToolbarScale::Compact) {
+            orbSize = 30.0f;
+        } else if (ts.toolbarScale == ToolbarScale::Large) {
+            orbSize = 46.0f;
+        }
+        const float logoR = orbSize * 0.5f;
+        const float logoCx = width * 0.5f;
+        const float logoCy = height - 14.0f - board.safeBottom() - logoR;
+        clockwork_ui::ClockworkLogoConfig logoCfg;
+        logoCfg.animated = true;
+        logoCfg.showGauges = (logoR >= 22.0f);
+        logoCfg.showPipes = (logoR >= 18.0f);
+        logoCfg.showGlow = true;
+        logoCfg.useSceneLight = true;
+        logoCfg.alpha = 0.78f;
+        clockwork_ui::drawClockworkLogo(r, logoCx, logoCy, logoR, sAnimTime, logoCfg);
     }
 
     // 10. Responsive Help Sidebar
@@ -5127,6 +5667,179 @@ void drawToolbarConfigMenu(
     );
 }
 
+struct AutoPlayFxMenuLayout {
+    float menuX{0.0f};
+    float menuY{0.0f};
+    float menuW{216.0f};
+    float menuH{0.0f};
+    float pad{8.0f};
+    float headerH{26.0f};
+    float itemH{26.0f};
+    float itemsStartY{0.0f};
+    float footerY{0.0f};
+    float footerBtnH{22.0f};
+    float allOnX{0.0f};
+    float allOffX{0.0f};
+    float footerBtnW{0.0f};
+};
+
+AutoPlayFxMenuLayout computeAutoPlayFxMenuLayout(
+    float screenW,
+    float screenH,
+    float anchorX,
+    float anchorY
+) noexcept {
+    AutoPlayFxMenuLayout l{};
+    constexpr int kNumItems = 4;
+    constexpr float footerPadTop = 8.0f;
+    l.menuH = l.headerH + 6.0f + static_cast<float>(kNumItems) * l.itemH + footerPadTop + l.footerBtnH + l.pad;
+    l.menuX = std::clamp(anchorX - l.menuW * 0.5f, 8.0f, std::max(8.0f, screenW - l.menuW - 8.0f));
+    l.menuY = std::clamp(anchorY - l.menuH - 10.0f, 8.0f, std::max(8.0f, screenH - l.menuH - 8.0f));
+    l.itemsStartY = l.menuY + l.headerH + 6.0f;
+    l.footerY = l.itemsStartY + static_cast<float>(kNumItems) * l.itemH + footerPadTop;
+    l.footerBtnW = (l.menuW - l.pad * 2.0f - 6.0f) * 0.5f;
+    l.allOnX = l.menuX + l.pad;
+    l.allOffX = l.allOnX + l.footerBtnW + 6.0f;
+    return l;
+}
+
+void drawAutoPlayFxMenu(
+    eatsbits::ui::BatchRenderer2D& r,
+    float screenW,
+    float screenH,
+    float anchorX,
+    float anchorY,
+    float mouseX,
+    float mouseY,
+    const AppSettings& s
+) {
+    const auto& cpal = clockwork_ui::palette();
+    const AutoPlayFxMenuLayout l = computeAutoPlayFxMenuLayout(screenW, screenH, anchorX, anchorY);
+
+    // 1. Drop shadow
+    eatsbits::ui::LightSource2D light{screenW * 0.5f, -200.0f, 500.0f};
+    r.drawRectDropShadow(l.menuX, l.menuY, l.menuW, l.menuH, 8.0f, 16.0f, light, 0.72f);
+
+    // 2. Chassis background + brass border
+    r.drawRoundedRectGradient(
+        l.menuX, l.menuY, l.menuW, l.menuH, 8.0f,
+        cpal.chassisLightR, cpal.chassisLightG, cpal.chassisLightB,
+        cpal.chassisDarkR, cpal.chassisDarkG, cpal.chassisDarkB,
+        0.97f, 6
+    );
+    r.drawRoundedRectOutline(
+        l.menuX, l.menuY, l.menuW, l.menuH, 8.0f,
+        cpal.brassMidR, cpal.brassMidG, cpal.brassMidB, 0.95f, 1.4f, 6
+    );
+
+    // 3. Header
+    eatsbits::ui::glyph::drawVectorText(
+        r, "AUTO-PLAY FX", l.menuX + 12.0f, l.menuY + 7.5f, 10.0f,
+        cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.95f
+    );
+    const char* statusTag = s.autoPlayFxEnabled ? "ON" : "OFF";
+    const float tagW = eatsbits::ui::glyph::getVectorTextWidth(9.0f, statusTag);
+    eatsbits::ui::glyph::drawVectorText(
+        r, statusTag, l.menuX + l.menuW - l.pad - tagW - 4.0f, l.menuY + 8.0f, 9.0f,
+        s.autoPlayFxEnabled ? cpal.brassHighlightR : 0.62f,
+        s.autoPlayFxEnabled ? cpal.brassHighlightG : 0.58f,
+        s.autoPlayFxEnabled ? cpal.brassHighlightB : 0.52f,
+        s.autoPlayFxEnabled ? 0.95f : 0.75f
+    );
+    r.drawLine(l.menuX + 10.0f, l.menuY + l.headerH, l.menuX + l.menuW - 10.0f, l.menuY + l.headerH,
+               cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 0.75f, 1.0f);
+
+    // 4. Four FX toggle rows
+    struct FxRowDef {
+        const char* label;
+        bool checked;
+    };
+    const FxRowDef rows[4] = {
+        { "Card Outline",      s.autoPlayFxOutline },
+        { "Background Dim",    s.autoPlayFxDim },
+        { "Move Particles",    s.autoPlayFxParticles },
+        { "Camera Zoom / Pan", s.autoPlayFxZoomPan }
+    };
+
+    float curY = l.itemsStartY;
+    for (int i = 0; i < 4; ++i) {
+        const bool hovered = (mouseX >= l.menuX + l.pad && mouseX <= l.menuX + l.menuW - l.pad &&
+                              mouseY >= curY && mouseY <= curY + l.itemH);
+        const bool active = s.autoPlayFxEnabled && rows[i].checked;
+        if (hovered) {
+            r.drawRoundedRect(
+                l.menuX + l.pad, curY, l.menuW - l.pad * 2.0f, l.itemH, 4.0f,
+                cpal.furnaceAmberR, cpal.furnaceAmberG, cpal.furnaceAmberB, 0.16f, 4
+            );
+        }
+
+        const float cbSize = 13.0f;
+        const float cbX = l.menuX + l.pad + 6.0f;
+        const float cbY = curY + (l.itemH - cbSize) * 0.5f;
+
+        r.drawRoundedRect(cbX, cbY, cbSize, cbSize, 3.0f,
+                          active ? cpal.furnaceAmberR : cpal.chassisDarkR,
+                          active ? cpal.furnaceAmberG : cpal.chassisDarkG,
+                          active ? cpal.furnaceAmberB : cpal.chassisDarkB,
+                          active ? 0.88f : 0.75f, 4);
+        r.drawRoundedRectOutline(cbX, cbY, cbSize, cbSize, 3.0f,
+                                 cpal.brassMidR, cpal.brassMidG, cpal.brassMidB,
+                                 s.autoPlayFxEnabled ? 0.92f : 0.45f, 1.0f, 4);
+
+        if (rows[i].checked) {
+            const float checkAlpha = s.autoPlayFxEnabled ? 1.0f : 0.40f;
+            eatsbits::ui::glyph::drawVectorText(
+                r, "x", cbX + 2.5f, cbY + 1.5f, 9.0f,
+                cpal.brassBrightR, cpal.brassBrightG, cpal.brassBrightB, checkAlpha
+            );
+        }
+
+        eatsbits::ui::glyph::drawVectorText(
+            r, rows[i].label, cbX + cbSize + 10.0f, curY + 7.0f, 10.0f,
+            active ? 0.92f : 0.58f,
+            active ? 0.89f : 0.55f,
+            active ? 0.82f : 0.50f,
+            1.0f
+        );
+
+        curY += l.itemH;
+    }
+
+    // 5. Divider + quick preset pills (All On / All Off)
+    r.drawLine(l.menuX + 10.0f, l.footerY - 4.0f, l.menuX + l.menuW - 10.0f, l.footerY - 4.0f,
+               cpal.brassDarkR, cpal.brassDarkG, cpal.brassDarkB, 0.55f, 1.0f);
+
+    auto drawFooterPill = [&](float px, const char* txt) {
+        const bool hov = (mouseX >= px && mouseX <= px + l.footerBtnW &&
+                          mouseY >= l.footerY && mouseY <= l.footerY + l.footerBtnH);
+        r.drawRoundedRect(
+            px, l.footerY, l.footerBtnW, l.footerBtnH, 4.0f,
+            hov ? cpal.furnaceAmberR : cpal.chassisDarkR,
+            hov ? cpal.furnaceAmberG : cpal.chassisDarkG,
+            hov ? cpal.furnaceAmberB : cpal.chassisDarkB,
+            hov ? 0.35f : 0.60f, 4
+        );
+        r.drawRoundedRectOutline(
+            px, l.footerY, l.footerBtnW, l.footerBtnH, 4.0f,
+            hov ? cpal.brassHighlightR : cpal.brassMidR,
+            hov ? cpal.brassHighlightG : cpal.brassMidG,
+            hov ? cpal.brassHighlightB : cpal.brassMidB,
+            0.85f, 1.0f, 4
+        );
+        const float tw = eatsbits::ui::glyph::getVectorTextWidth(9.5f, txt);
+        eatsbits::ui::glyph::drawVectorText(
+            r, txt, px + (l.footerBtnW - tw) * 0.5f, l.footerY + 5.5f, 9.5f,
+            hov ? cpal.brassHighlightR : 0.85f,
+            hov ? cpal.brassHighlightG : 0.82f,
+            hov ? cpal.brassHighlightB : 0.78f,
+            1.0f
+        );
+    };
+
+    drawFooterPill(l.allOnX, "All On");
+    drawFooterPill(l.allOffX, "All Off");
+}
+
 } // namespace
 
 #if defined(__EMSCRIPTEN__)
@@ -5241,6 +5954,7 @@ struct InteractiveContext {
         if (newZoom <= 1.002f) {
             resetUserCamera();
         } else {
+            isGesturing = false;
             showcaseCam.userFocusX = boardX - (screenX - vw * 0.5f) / newZoom;
             showcaseCam.userFocusY = boardY - (screenY - vh * 0.5f) / newZoom;
             clampUserCamera();
@@ -5623,6 +6337,7 @@ struct InteractiveContext {
     bool prevKey5 = false;
     bool prevKey6 = false;
     bool prevKey7 = false;
+    bool prevKeyI = false;
     bool prevKeyO = false;
     bool prevKeyBack = false;
     bool prevKeyTab = false;
@@ -5681,6 +6396,23 @@ struct InteractiveContext {
     bool toolbarConfigOpen = false;
     float toolbarConfigAnchorX = 0.0f;
     float toolbarConfigAnchorY = 0.0f;
+
+    bool autoPlayFxMenuOpen = false;
+    float autoPlayFxMenuAnchorX = 0.0f;
+    float autoPlayFxMenuAnchorY = 0.0f;
+
+    void anchorAutoPlayFxMenuToButton() {
+        auto btns = buildTransportButtons(static_cast<float>(width), static_cast<float>(height), autoPlayController, board.safeBottom());
+        for (const auto& b : btns) {
+            if (b.id == BtnAutoPlayFxToggle) {
+                autoPlayFxMenuAnchorX = b.x + (b.w + 16.0f) * 0.5f;
+                autoPlayFxMenuAnchorY = b.y;
+                return;
+            }
+        }
+        autoPlayFxMenuAnchorX = static_cast<float>(width) * 0.5f;
+        autoPlayFxMenuAnchorY = static_cast<float>(height) - 52.0f - board.safeBottom();
+    }
 
     bool autoCascadeActive = false;
     float autoCascadeTimer = 0.0f;
@@ -6929,6 +7661,8 @@ struct InteractiveContext {
                 case CardStock::AntiqueLaid:     return "Antique Laid";
                 case CardStock::CottonRag:       return "Cotton Rag";
                 case CardStock::SmoothParchment: return "Smooth Parchment";
+                case CardStock::PlasticGloss:    return "Plastic Gloss";
+                case CardStock::GildedFoil:      return "Gilded Foil";
                 default:                         return "None";
             }
         };
@@ -7213,6 +7947,21 @@ struct InteractiveContext {
             }
         });
         commandRegistry.registerCommand({
+            "settings.stat_cards", "Cycle Stat Cards", "Switch in-game stat cards between Expanded, Compact Pill, and Hidden",
+            "I", "stats hud info card collapse hide show", CommandCategory::Settings, false,
+            []() {
+                const int m = SettingsManager::instance().settings().statCardMode;
+                if (m == 1) return "COMPACT";
+                if (m == 2) return "HIDDEN";
+                return "EXPANDED";
+            },
+            [](const std::string&) {
+                auto& s = SettingsManager::instance().settings();
+                s.statCardMode = (s.statCardMode + 1) % 3;
+                SettingsManager::instance().save();
+            }
+        });
+        commandRegistry.registerCommand({
             "settings.toolbar_anchor", "Cycle Toolbar Corner", "Move the Clockwork toolbar to the next screen corner",
             "", "hud dock corner menu", CommandCategory::Settings, false, nullptr,
             [this](const std::string&) { triggerAction(BtnMenuAnchor); }
@@ -7286,7 +8035,7 @@ struct InteractiveContext {
         const std::string gname = !board.activeGameDef().name.empty()
             ? board.activeGameDef().name
             : std::string(SolitaireBoard::variantName(board.variant()));
-        seedDialog.recordHistory(board.seed(), gid, gname);
+        seedDialog.recordHistory(board.seed(), gid, gname, board.layoutSeed());
     }
 
     void launchReplayTrack(const ReplayTrack& track, bool guidedOverride = false) {
@@ -7834,7 +8583,37 @@ struct InteractiveContext {
             case BtnRewindBranch:
                 autoPlayController.rewindToBranch(board, &foley);
                 break;
+            case BtnAutoPlayFxToggle: {
+                auto& s = SettingsManager::instance().settings();
+                const bool anyOn = s.autoPlayFxOutline || s.autoPlayFxDim || s.autoPlayFxParticles || s.autoPlayFxZoomPan;
+                if (s.autoPlayFxEnabled && anyOn) {
+                    s.autoPlayFxEnabled = false;
+                } else {
+                    s.autoPlayFxEnabled = true;
+                    if (!anyOn) {
+                        s.autoPlayFxOutline = true;
+                        s.autoPlayFxDim = true;
+                        s.autoPlayFxParticles = true;
+                        s.autoPlayFxZoomPan = true;
+                    }
+                }
+                SettingsManager::instance().save();
+                foley.triggerSound(FoleySound::WoodClick, 0.8f);
+                break;
+            }
+            case BtnAutoPlayFxMenu:
+                if (autoPlayFxMenuOpen) {
+                    autoPlayFxMenuOpen = false;
+                } else {
+                    anchorAutoPlayFxMenuToButton();
+                    autoPlayFxMenuOpen = true;
+                    playMenuOpen = false;
+                    toolbarConfigOpen = false;
+                }
+                foley.triggerSound(FoleySound::WoodClick, 0.8f);
+                break;
             case BtnTakeOver:
+                autoPlayFxMenuOpen = false;
                 autoPlayController.stop();
                 foley.triggerSound(FoleySound::Deal, 0.75f);
                 break;
@@ -7847,7 +8626,7 @@ struct InteractiveContext {
                 const std::string gname = !board.activeGameDef().name.empty()
                     ? board.activeGameDef().name
                     : std::string(SolitaireBoard::variantName(board.variant()));
-                seedDialog.open(board.seed(), gname, activeGameId());
+                seedDialog.open(board.seed(), gname, activeGameId(), board.layoutSeed(), board.hasScriptConfigure());
                 foley.triggerSound(FoleySound::Flip, 0.8f);
                 break;
             }
@@ -8196,6 +8975,9 @@ struct InteractiveContext {
             feltPanning = false;
         }
 
+        if (autoPlayFxMenuOpen && !autoPlayController.isActive()) {
+            autoPlayFxMenuOpen = false;
+        }
         if (screensaverActive) {
             if ((leftDown && !prevLeftDown) || (rightDown && !prevRightDown)) {
                 exitScreensaverMode(true);
@@ -8339,6 +9121,55 @@ struct InteractiveContext {
                     toolbarConfigOpen = false;
                 }
             }
+        } else if (autoPlayFxMenuOpen) {
+            if (leftDown && !prevLeftDown) {
+                const AutoPlayFxMenuLayout l = computeAutoPlayFxMenuLayout(
+                    static_cast<float>(width), static_cast<float>(height),
+                    autoPlayFxMenuAnchorX, autoPlayFxMenuAnchorY
+                );
+                if (uiFmx >= l.menuX && uiFmx <= l.menuX + l.menuW && uiFmy >= l.menuY && uiFmy <= l.menuY + l.menuH) {
+                    auto& s = SettingsManager::instance().settings();
+                    bool* fields[4] = {
+                        &s.autoPlayFxOutline,
+                        &s.autoPlayFxDim,
+                        &s.autoPlayFxParticles,
+                        &s.autoPlayFxZoomPan
+                    };
+                    float curY = l.itemsStartY;
+                    for (int i = 0; i < 4; ++i) {
+                        if (uiFmx >= l.menuX + l.pad && uiFmx <= l.menuX + l.menuW - l.pad &&
+                            uiFmy >= curY && uiFmy <= curY + l.itemH) {
+                            if (!s.autoPlayFxEnabled) {
+                                s.autoPlayFxEnabled = true;
+                                *fields[i] = true;
+                            } else {
+                                *fields[i] = !(*fields[i]);
+                            }
+                            SettingsManager::instance().save();
+                            foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                            break;
+                        }
+                        curY += l.itemH;
+                    }
+                    if (uiFmy >= l.footerY && uiFmy <= l.footerY + l.footerBtnH) {
+                        if (uiFmx >= l.allOnX && uiFmx <= l.allOnX + l.footerBtnW) {
+                            s.autoPlayFxEnabled = true;
+                            s.autoPlayFxOutline = true;
+                            s.autoPlayFxDim = true;
+                            s.autoPlayFxParticles = true;
+                            s.autoPlayFxZoomPan = true;
+                            SettingsManager::instance().save();
+                            foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                        } else if (uiFmx >= l.allOffX && uiFmx <= l.allOffX + l.footerBtnW) {
+                            s.autoPlayFxEnabled = false;
+                            SettingsManager::instance().save();
+                            foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                        }
+                    }
+                } else {
+                    autoPlayFxMenuOpen = false;
+                }
+            }
         } else if (helpOpen && !leftDown) {
             if (std::hypot(fmx - prevHelpMouseX, fmy - prevHelpMouseY) > 0.5f) {
                 prevHelpMouseX = fmx;
@@ -8369,11 +9200,26 @@ struct InteractiveContext {
         const bool modalOpen = loadingDialog.isOpen() || asyncManager.isBusy.load() ||
                                commandPaletteDialog.isOpen() || seedDialog.isOpen() ||
                                gameBrowserDialog.isOpen() || settingsDialog.isOpen();
+        s_statHudHit.mouseX = fmx;
+        s_statHudHit.mouseY = fmy;
         if (modalOpen) {
             hoveredBtn = -1;
         }
-        if (!modalOpen && leftDown && !prevLeftDown && !playMenuOpen && !toolbarConfigOpen) {
-            if (helpOpen && [&]() {
+        if (!modalOpen && leftDown && !prevLeftDown && !playMenuOpen && !toolbarConfigOpen && !autoPlayFxMenuOpen) {
+            bool hitStatToggle = false;
+            for (const auto& tr : s_statHudHit.toggleRects) {
+                if (fmx >= tr[0] && fmx <= tr[0] + tr[2] && fmy >= tr[1] && fmy <= tr[1] + tr[3]) {
+                    auto& s = SettingsManager::instance().settings();
+                    s.statCardMode = (s.statCardMode == 0) ? 1 : 0;
+                    SettingsManager::instance().save();
+                    foley.triggerSound(FoleySound::WoodClick, 0.72f);
+                    hitStatToggle = true;
+                    break;
+                }
+            }
+            if (hitStatToggle) {
+                // Click handled by Stat Card collapse/expand toggle
+            } else if (helpOpen && [&]() {
                 HelpOddsInfo oddsSnap;
                 { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
                 const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasHelpVideoThumb());
@@ -8506,13 +9352,14 @@ struct InteractiveContext {
                         autoPlayController.stop();
                     }
                     board.clearSelection();
-                    // Clicked on empty table felt -> Start Gesture or Zoomed Felt Pan!
-                    isGesturing = true;
+                    // Clicked on empty table felt -> Zoomed Felt Pan when scaled in, or Felt Gesture at 1x
+                    const bool zoomedIn = (showcaseCam.userZoom > 1.002f || showcaseCam.zoom > 1.002f);
+                    isGesturing = !zoomedIn;
+                    feltPanning = (showcaseCam.userZoom > 1.002f);
                     gestureStartX = fmx;
                     gestureStartY = fmy;
                     gestureCurX = fmx;
                     gestureCurY = fmy;
-                    feltPanning = (showcaseCam.userZoom > 1.002f);
                     feltPanLastX = fmx;
                     feltPanLastY = fmy;
                 }
@@ -8568,8 +9415,16 @@ struct InteractiveContext {
                     holdTriggered = true;
                     toolbarConfigOpen = true;
                     playMenuOpen = false;
+                    autoPlayFxMenuOpen = false;
                     toolbarConfigAnchorX = pressStartX;
                     toolbarConfigAnchorY = pressStartY;
+                    foley.triggerSound(FoleySound::WoodClick, 0.85f);
+                } else if (pressedToolbarBtn == BtnAutoPlayFxToggle) {
+                    holdTriggered = true;
+                    anchorAutoPlayFxMenuToButton();
+                    autoPlayFxMenuOpen = true;
+                    playMenuOpen = false;
+                    toolbarConfigOpen = false;
                     foley.triggerSound(FoleySound::WoodClick, 0.85f);
                 }
             }
@@ -8604,7 +9459,7 @@ struct InteractiveContext {
                     helpScrollY = std::clamp(helpInitialScrollY - (fmy - helpDragStartY), 0.0f, helpMaxScrollY);
                 }
             }
-        } else if (leftDown && isGesturing) {
+        } else if (leftDown && (isGesturing || feltPanning)) {
             gestureCurX = fmx;
             gestureCurY = fmy;
             if (feltPanning) {
@@ -8740,9 +9595,10 @@ struct InteractiveContext {
                 draggedCardIdx = -1;
                 dragOffsetX = 0.0f;
                 dragOffsetY = 0.0f;
-            } else if (isGesturing) {
-                isGesturing = false;
+            } else if (isGesturing || feltPanning) {
+                const bool wasGesturing = isGesturing;
                 const bool wasFeltPan = feltPanning;
+                isGesturing = false;
                 feltPanning = false;
                 if (!middleDown && !pinchActive) {
                     showcaseCam.userPanActive = false;
@@ -8763,7 +9619,7 @@ struct InteractiveContext {
                         lastFeltTapX = gestureCurX;
                         lastFeltTapY = gestureCurY;
                     }
-                } else if (!wasFeltPan && gdist > 36.0f) {
+                } else if (wasGesturing && !wasFeltPan && showcaseCam.userZoom <= 1.002f && showcaseCam.zoom <= 1.002f && gdist > 36.0f) {
                     if (std::abs(gdx) > std::abs(gdy) * 1.25f) {
                         if (gdx < 0.0f) {
                             // Swipe Left on Felt -> UNDO
@@ -8793,8 +9649,15 @@ struct InteractiveContext {
             } else if (hoveredBtn == BtnToolbarResize) {
                 toolbarConfigOpen = true;
                 playMenuOpen = false;
+                autoPlayFxMenuOpen = false;
                 toolbarConfigAnchorX = fmx;
                 toolbarConfigAnchorY = fmy;
+                foley.triggerSound(FoleySound::WoodClick, 0.85f);
+            } else if (hoveredBtn == BtnAutoPlayFxToggle || hoveredBtn == BtnAutoPlayFxMenu) {
+                anchorAutoPlayFxMenuToButton();
+                autoPlayFxMenuOpen = true;
+                playMenuOpen = false;
+                toolbarConfigOpen = false;
                 foley.triggerSound(FoleySound::WoodClick, 0.85f);
             } else if (hoveredBtn < 0) {
                 int hitPile = -1;
@@ -8966,6 +9829,8 @@ struct InteractiveContext {
                     playMenuOpen = false;
                 } else if (toolbarConfigOpen) {
                     toolbarConfigOpen = false;
+                } else if (autoPlayFxMenuOpen) {
+                    autoPlayFxMenuOpen = false;
                 } else {
                     if (menuOpen) menuOpen = false;
                     if (autoPlayController.isActive()) autoPlayController.stop();
@@ -9039,6 +9904,12 @@ struct InteractiveContext {
             if (edgeKey(GLFW_KEY_5, prevKey5)) switchVariant(GameVariant::Spider2Suits);
             if (edgeKey(GLFW_KEY_6, prevKey6)) switchVariant(GameVariant::Spider4Suits);
             if (edgeKey(GLFW_KEY_7, prevKey7)) switchVariant(GameVariant::Golf);
+            if (edgeKey(GLFW_KEY_I, prevKeyI)) {
+                auto& s = SettingsManager::instance().settings();
+                s.statCardMode = (s.statCardMode + 1) % 3;
+                SettingsManager::instance().save();
+                foley.triggerSound(FoleySound::WoodClick, 0.72f);
+            }
         }
 
         autoPlayController.update(dt, board, &foley);
@@ -9174,9 +10045,12 @@ struct InteractiveContext {
                     foley.triggerSound(FoleySound::MagicTine, 0.38f);
                 }
             }
+            const auto& apFxCfg = SettingsManager::instance().settings();
+            const bool allowAutoPlayParticles = apFxCfg.autoPlayFxEnabled && apFxCfg.autoPlayFxParticles;
             if (!autoPlayController.isPlaying()) {
                 lastTrailedMoveIdx = SIZE_MAX;
-            } else if (autoPlayController.showMoveTrails() &&
+            } else if (allowAutoPlayParticles &&
+                       autoPlayController.showMoveTrails() &&
                        autoPlayController.moveProgress() >= 0.30f &&
                        lastTrailedMoveIdx != autoPlayController.currentMoveIndex()) {
                 if (const SolverMove* nextMv = autoPlayController.peekNextMove()) {
@@ -9656,6 +10530,11 @@ struct InteractiveContext {
                                       toolbarConfigAnchorX, toolbarConfigAnchorY, uiFmx, uiFmy,
                                       SettingsManager::instance().settings(),
                                       dummyScale, dummyToggle, dummyClose);
+            }
+            if (autoPlayFxMenuOpen && autoPlayController.isActive()) {
+                drawAutoPlayFxMenu(renderer, static_cast<float>(width), static_cast<float>(height),
+                                   autoPlayFxMenuAnchorX, autoPlayFxMenuAnchorY, uiFmx, uiFmy,
+                                   SettingsManager::instance().settings());
             }
             if (!recordMovesPath.empty() && !recordStatusBanner.empty() && recordStatusTimer > 0.0f) {
                 const float fw = static_cast<float>(width);

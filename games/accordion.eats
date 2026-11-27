@@ -37,7 +37,7 @@ def rib_collapse(start_z, end_z):
     return True
 
 def rib_layout_grid(start_z, count, cols_land, cols_port, has_top_bar, stock_z, disc_z, bw, bh):
-    pad_top = max(16.0, get_safe_top() + 12.0)
+    pad_top = max(34.0, get_safe_top() + 26.0)
     pad_bot = max(48.0, get_safe_bottom() + 44.0)
     pad_x = max(18.0, max(get_safe_left(), get_safe_right()) + 14.0)
     avail_w = max(200.0, bw - 2.0 * pad_x)
@@ -276,12 +276,23 @@ def acc_can_drop(max_z, from_z, i, to_z):
         return False
     return rib_match(from_z, to_z)
 
+def acc_refresh_badge(max_z):
+    piles_left = 0
+    z = 0
+    while z <= max_z:
+        if zone_size(z) > 0:
+            piles_left = piles_left + 1
+        z = z + 1
+    set_zone_badge(0, "top", "PILES: " + str(piles_left), piles_left <= 5)
+    return True
+
 def acc_on_drop(max_z, from_z, i, to_z):
     if not acc_can_drop(max_z, from_z, i, to_z):
         return False
     move_cards(from_z, 0, to_z)
     rib_collapse(0, max_z)
     add_score(10)
+    acc_refresh_badge(max_z)
     return True
 
 def acc_click(max_z, z, i):
@@ -315,6 +326,7 @@ def acc32_click(z, i):
     return acc_click(31, z, i)
 
 def acc32_layout(bw, bh):
+    acc_refresh_badge(31)
     return rib_layout_grid(0, 32, 8, 6, False, 0, 0, bw, bh)
 
 # --- Accordion 52-Card Bindings ---
@@ -334,6 +346,7 @@ def acc52_click(z, i):
     return acc_click(51, z, i)
 
 def acc52_layout(bw, bh):
+    acc_refresh_badge(51)
     return rib_layout_grid(0, 52, 13, 8, False, 0, 0, bw, bh)
 
 # =============================================================================

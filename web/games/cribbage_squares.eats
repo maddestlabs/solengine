@@ -1,0 +1,406 @@
+# =============================================================================
+# SolEngine Game Family: Cribbage Squares (.eats)
+# Consolidated variants:
+#   - Cribbage Squares (4x4 Grid + Starter Card)
+# References: [Parlett1979]
+# =============================================================================
+
+# Grid Layout Zone Map (solitaire_board.cpp: layout == "grid"):
+#   0     : Active Draw Slot (Foundation 0 — auto-drawn 1 card at a time)
+#   1     : Starter / Cut Card (Foundation 1 — 17th card auto-flipped once grid is full)
+#   2..17 : 4x4 Grid (row r in 0..3, col c in 0..3 => z = 2 + r * 4 + c)
+#   18    : Stock (remaining cards)
+
+def cs_pip(r):
+    if r >= 10:
+        return 10
+    return r
+
+def cs_rank_cnt(target, r0, r1, r2, r3, r4, has_st):
+    c = 0
+    if r0 == target:
+        c = c + 1
+    if r1 == target:
+        c = c + 1
+    if r2 == target:
+        c = c + 1
+    if r3 == target:
+        c = c + 1
+    if has_st and r4 == target:
+        c = c + 1
+    return c
+
+def cs_eval_hand(z0, z1, z2, z3):
+    if zone_size(z0) == 0 or zone_size(z1) == 0 or zone_size(z2) == 0 or zone_size(z3) == 0:
+        return 0
+
+    r0 = card_rank(z0, 0)
+    r1 = card_rank(z1, 0)
+    r2 = card_rank(z2, 0)
+    r3 = card_rank(z3, 0)
+
+    s0 = card_suit(z0, 0)
+    s1 = card_suit(z1, 0)
+    s2 = card_suit(z2, 0)
+    s3 = card_suit(z3, 0)
+
+    has_st = zone_size(1) > 0
+    r4 = 0
+    s4 = -1
+    if has_st:
+        r4 = card_rank(1, 0)
+        s4 = card_suit(1, 0)
+
+    p0 = cs_pip(r0)
+    p1 = cs_pip(r1)
+    p2 = cs_pip(r2)
+    p3 = cs_pip(r3)
+    p4 = 0
+    if has_st:
+        p4 = cs_pip(r4)
+
+    pts = 0
+
+    # 1. Fifteens (2 pts each) — all 2-, 3-, 4-, 5-card subsets summing to 15
+    if p0 + p1 == 15:
+        pts = pts + 2
+    if p0 + p2 == 15:
+        pts = pts + 2
+    if p0 + p3 == 15:
+        pts = pts + 2
+    if p1 + p2 == 15:
+        pts = pts + 2
+    if p1 + p3 == 15:
+        pts = pts + 2
+    if p2 + p3 == 15:
+        pts = pts + 2
+    if p0 + p1 + p2 == 15:
+        pts = pts + 2
+    if p0 + p1 + p3 == 15:
+        pts = pts + 2
+    if p0 + p2 + p3 == 15:
+        pts = pts + 2
+    if p1 + p2 + p3 == 15:
+        pts = pts + 2
+    if p0 + p1 + p2 + p3 == 15:
+        pts = pts + 2
+
+    if has_st:
+        if p0 + p4 == 15:
+            pts = pts + 2
+        if p1 + p4 == 15:
+            pts = pts + 2
+        if p2 + p4 == 15:
+            pts = pts + 2
+        if p3 + p4 == 15:
+            pts = pts + 2
+        if p0 + p1 + p4 == 15:
+            pts = pts + 2
+        if p0 + p2 + p4 == 15:
+            pts = pts + 2
+        if p0 + p3 + p4 == 15:
+            pts = pts + 2
+        if p1 + p2 + p4 == 15:
+            pts = pts + 2
+        if p1 + p3 + p4 == 15:
+            pts = pts + 2
+        if p2 + p3 + p4 == 15:
+            pts = pts + 2
+        if p0 + p1 + p2 + p4 == 15:
+            pts = pts + 2
+        if p0 + p1 + p3 + p4 == 15:
+            pts = pts + 2
+        if p0 + p2 + p3 + p4 == 15:
+            pts = pts + 2
+        if p1 + p2 + p3 + p4 == 15:
+            pts = pts + 2
+        if p0 + p1 + p2 + p3 + p4 == 15:
+            pts = pts + 2
+
+    # 2. Pairs (2 pts per matching rank pair)
+    if r0 == r1:
+        pts = pts + 2
+    if r0 == r2:
+        pts = pts + 2
+    if r0 == r3:
+        pts = pts + 2
+    if r1 == r2:
+        pts = pts + 2
+    if r1 == r3:
+        pts = pts + 2
+    if r2 == r3:
+        pts = pts + 2
+    if has_st:
+        if r0 == r4:
+            pts = pts + 2
+        if r1 == r4:
+            pts = pts + 2
+        if r2 == r4:
+            pts = pts + 2
+        if r3 == r4:
+            pts = pts + 2
+
+    # 3. Runs (exact multiplicity for single/double/triple/double-double runs)
+    run_len = 0
+    run_mult = 1
+    rk = 1
+    while rk <= 13:
+        cnt = cs_rank_cnt(rk, r0, r1, r2, r3, r4, has_st)
+        if cnt > 0:
+            run_len = run_len + 1
+            run_mult = run_mult * cnt
+        else:
+            if run_len >= 3:
+                pts = pts + run_len * run_mult
+            run_len = 0
+            run_mult = 1
+        rk = rk + 1
+    if run_len >= 3:
+        pts = pts + run_len * run_mult
+
+    # 4. Flush (4 pts for all 4 grid cards same suit; +1 if Starter matches)
+    if s0 == s1 and s1 == s2 and s2 == s3:
+        pts = pts + 4
+        if has_st and s4 == s0:
+            pts = pts + 1
+
+    # 5. His Nobs (1 pt for Jack in hand matching Starter suit)
+    if has_st:
+        if (r0 == 11 and s0 == s4) or (r1 == 11 and s1 == s4) or (r2 == 11 and s2 == s4) or (r3 == 11 and s3 == s4):
+            pts = pts + 1
+
+    return pts
+
+def cs_refresh_widgets(total, placed):
+    set_board_card("crib_scores", "CRIBBAGE", "right_of_grid")
+    clear_card_rows("crib_scores")
+    add_card_bar("crib_scores", "GOAL", total, 61)
+    add_card_row("crib_scores", "CARDS", str(placed) + "/16")
+    add_card_row("crib_scores", "FIFTEEN", "2")
+    add_card_row("crib_scores", "PAIR", "2")
+    add_card_row("crib_scores", "RUN (3-5)", "3-5")
+    add_card_row("crib_scores", "FLUSH", "4-5")
+    add_card_row("crib_scores", "HIS NOBS", "1")
+    add_card_row("crib_scores", "TARGET", "61+")
+    if zone_size(1) > 0:
+        set_zone_badge(1, "top", "STARTER", True)
+    else:
+        set_zone_badge(1, "top", "CUT (17TH)", False)
+    return True
+
+def cs_recompute_score():
+    total = 0
+    r = 0
+    while r < 4:
+        b = 2 + r * 4
+        pts = cs_eval_hand(b, b + 1, b + 2, b + 3)
+        total = total + pts
+        set_zone_badge(b + 3, "right", str(pts), pts > 0)
+        r = r + 1
+    c = 0
+    while c < 4:
+        b = 2 + c
+        pts = cs_eval_hand(b, b + 4, b + 8, b + 12)
+        total = total + pts
+        set_zone_badge(b + 12, "bottom", str(pts), pts > 0)
+        c = c + 1
+
+    placed = 0
+    z = 2
+    while z <= 17:
+        if zone_size(z) > 0:
+            placed = placed + 1
+        z = z + 1
+
+    prev_score = get_stat("SCORE", 0)
+    if total != prev_score:
+        add_score(total - prev_score)
+    set_stat("SCORE", total)
+    set_stat("PLACED", placed)
+    cs_refresh_widgets(total, placed)
+    return total
+
+def cs_draw_next():
+    placed = get_stat("PLACED", 0)
+    if placed >= 16:
+        if zone_size(1) == 0 and zone_size(18) > 0:
+            top = zone_size(18) - 1
+            move_cards(18, top, 1)
+            flip_card(1, zone_size(1) - 1, True)
+            cs_recompute_score()
+            return True
+        return False
+    if zone_size(0) == 0 and zone_size(18) > 0:
+        top = zone_size(18) - 1
+        move_cards(18, top, 0)
+        flip_card(0, zone_size(0) - 1, True)
+        return True
+    return False
+
+def cs_on_deal():
+    set_stat("SCORE", 0)
+    set_stat("PLACED", 0)
+    cs_draw_next()
+    cs_recompute_score()
+    return True
+
+def cs_can_pick(z, i):
+    if z == 0 and zone_size(0) > 0 and i == zone_size(0) - 1:
+        return True
+    return False
+
+def cs_can_drop(from_z, i, to_z):
+    if from_z != 0 or zone_size(0) == 0 or i != zone_size(0) - 1:
+        return False
+    if to_z >= 2 and to_z <= 17 and zone_size(to_z) == 0:
+        return True
+    return False
+
+def cs_on_turn_end():
+    cs_recompute_score()
+    cs_draw_next()
+    return True
+
+def cs_stock():
+    return cs_draw_next()
+
+def cs_line_synergy(z0, z1, z2, z3):
+    cnt = 0
+    if zone_size(z0) > 0:
+        cnt = cnt + 1
+    if zone_size(z1) > 0:
+        cnt = cnt + 1
+    if zone_size(z2) > 0:
+        cnt = cnt + 1
+    if zone_size(z3) > 0:
+        cnt = cnt + 1
+    if cnt <= 1:
+        return 0
+    if cnt == 4:
+        return cs_eval_hand(z0, z1, z2, z3) * 35
+
+    r0 = 0
+    p0 = 0
+    if zone_size(z0) > 0:
+        r0 = card_rank(z0, 0)
+        p0 = cs_pip(r0)
+    r1 = 0
+    p1 = 0
+    if zone_size(z1) > 0:
+        r1 = card_rank(z1, 0)
+        p1 = cs_pip(r1)
+    r2 = 0
+    p2 = 0
+    if zone_size(z2) > 0:
+        r2 = card_rank(z2, 0)
+        p2 = cs_pip(r2)
+    r3 = 0
+    p3 = 0
+    if zone_size(z3) > 0:
+        r3 = card_rank(z3, 0)
+        p3 = cs_pip(r3)
+
+    syn = 0
+    # Fifteens synergy (5s + 10-point cards, or pairs summing to 15)
+    if p0 > 0 and p1 > 0 and p0 + p1 == 15:
+        syn = syn + 70
+    if p0 > 0 and p2 > 0 and p0 + p2 == 15:
+        syn = syn + 70
+    if p0 > 0 and p3 > 0 and p0 + p3 == 15:
+        syn = syn + 70
+    if p1 > 0 and p2 > 0 and p1 + p2 == 15:
+        syn = syn + 70
+    if p1 > 0 and p3 > 0 and p1 + p3 == 15:
+        syn = syn + 70
+    if p2 > 0 and p3 > 0 and p2 + p3 == 15:
+        syn = syn + 70
+
+    # Pair synergy
+    if r0 > 0 and r1 == r0:
+        syn = syn + 55
+    if r0 > 0 and r2 == r0:
+        syn = syn + 55
+    if r0 > 0 and r3 == r0:
+        syn = syn + 55
+    if r1 > 0 and r2 == r1:
+        syn = syn + 55
+    if r1 > 0 and r3 == r1:
+        syn = syn + 55
+    if r2 > 0 and r3 == r2:
+        syn = syn + 55
+
+    return syn
+
+def cs_eval():
+    score = get_stat("PLACED", 0) * 12
+    r = 0
+    while r < 4:
+        b = 2 + r * 4
+        score = score + cs_line_synergy(b, b + 1, b + 2, b + 3)
+        r = r + 1
+    c = 0
+    while c < 4:
+        b = 2 + c
+        score = score + cs_line_synergy(b, b + 4, b + 8, b + 12)
+        c = c + 1
+    return score
+
+def cs_status():
+    placed = get_stat("PLACED", 0)
+    if placed >= 16 and zone_size(1) > 0:
+        if get_stat("SCORE", 0) >= 61:
+            return "victory"
+        return "defeat"
+    return "playing"
+
+sol.define_game({
+    id: "cribbage_squares",
+    name: "Cribbage Squares",
+    family: "Cribbage Squares",
+    category: "POPULAR",
+    mechanic: "grid_scoring",
+    visibility: "half_open",
+    tags: ["classic", "grid", "scoring", "cribbage", "single_deck"],
+    layout: "grid",
+    tableau_build: "none",
+    empty_tableau: "any",
+    move_group: "single",
+    foundation_mode: "none",
+    description: "Classic 4x4 cribbage puzzle. Place 16 cards into a square, flip the 17th Starter card, and score 61+ across all 8 hands (4 rows + 4 columns).",
+    decks: 1,
+    grid_cols: 4,
+    tableaus: 16,
+    foundations: 2,
+    freecells: 0,
+    tableau_deal_counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "waste_draw_1",
+    stock_deal_count: 1,
+    max_redeals: 0,
+    supports_solver: True,
+    prefer_curated_solvable: True,
+    demo_seed: 1,
+    demo_seeds: [1, 2, 3, 5, 7],
+    eval_heuristic: cs_eval,
+    on_deal: cs_on_deal,
+    can_pick: cs_can_pick,
+    can_drop: cs_can_drop,
+    on_stock_click: cs_stock,
+    on_turn_end: cs_on_turn_end,
+    get_status: cs_status,
+    doc: {
+        meta: [1, "Quick", 3, "Moderate", 4, "Tactical"],
+        aliases: ["Cribbage Patience", "Cribbage Solitaire"],
+        goal: ["Score 61 or more cribbage points across all 4 rows and 4 columns plus the 17th Starter card.", "Finish all 16 placements with fewer than 61 points."],
+        zones: [
+            { index: 0, name: "Active Card", desc: "Current card drawn from Stock. Drag or click to place into any empty grid square." },
+            { index: 1, name: "Starter Card", desc: "17th card automatically cut after placing all 16 cards; shared by all 8 hands for Fifteens, Pairs, Runs, Flushes, and His Nobs." },
+            { index: 2, name: "4x4 Cribbage Grid", desc: "Each of the 4 rows and 4 columns is scored as a 5-card cribbage hand with the Starter card." }
+        ],
+        stats: [
+            { key: "SCORE", name: "Cribbage Points", desc: "Combined cribbage score across all 8 hands (61+ wins)." },
+            { key: "PLACED", name: "Cards Placed", desc: "Number of cards placed into the 4x4 grid (out of 16)." }
+        ]
+    }
+})

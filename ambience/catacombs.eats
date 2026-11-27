@@ -1,0 +1,83 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Dripping Catacombs (.eats)
+# Cold cavern pressure bed, hollow tunnel wind moans, faint underground seep,
+# two-tier resonant water drips, and rare distant cavern bat chirps.
+# ==============================================================================
+
+sol.define_ambience({
+    id: "catacombs",
+    name: "Dripping Catacombs",
+    master_gain: 1.0,
+    layers: [
+        # 1. Deep cavern atmospheric pressure bed
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 125.0,
+            q: 0.707,
+            gain: 0.36,
+            lfo_rate: 0.05,
+            lfo_depth: 28.0,
+            amp_mod: 0.14
+        },
+        # 2. Hollow wind sighing through narrow crypt tunnels
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 270.0,
+            q: 3.1,
+            gain: 0.22,
+            lfo_rate: 0.06,
+            lfo_depth: 150.0,
+            amp_mod: 0.42
+        },
+        # 3. Faint distant subterranean trickle & dampness
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 1250.0,
+            q: 0.85,
+            gain: 0.075,
+            lfo_rate: 0.14,
+            lfo_depth: 260.0,
+            amp_mod: 0.22
+        },
+        # 4. Crisp water droplets off stone ceilings (high-Q resonant plinks, Deep Vault style)
+        {
+            type: "stochastic_grains",
+            rate: 0.55,
+            freq_min: 2200.0,
+            freq_max: 4800.0,
+            decay: 0.055,
+            q: 14.5,
+            gain: 0.19,
+            stereo_spread: 0.88
+        },
+        # 5. Slower, deeper resonant drops into standing cavern pools
+        {
+            type: "stochastic_grains",
+            rate: 0.22,
+            freq_min: 1150.0,
+            freq_max: 2300.0,
+            decay: 0.075,
+            q: 16.0,
+            gain: 0.20,
+            stereo_spread: 0.82
+        },
+        # 6. Rare, soft high-register cavern bat chirps in the upper vault
+        {
+            type: "chirp_spawner",
+            tonal: true,
+            rate: 0.06,
+            freq_min: 2900.0,
+            freq_max: 4700.0,
+            freq_sweep: 0.82,
+            decay: 0.10,
+            gain: 0.09,
+            stereo_spread: 0.90
+        }
+    ]
+})

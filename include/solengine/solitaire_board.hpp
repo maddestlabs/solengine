@@ -35,6 +35,12 @@ public:
     [[nodiscard]] bool isSpiderette() const noexcept { return activeDef_.id == "spiderette" || activeDef_.name.find("Spiderette") != std::string::npos; }
     [[nodiscard]] bool isGolf() const noexcept { return isGolfVariant(variant_) || activeDef_.family == "Golf" || activeDef_.id == "golf"; }
     [[nodiscard]] uint32_t seed() const noexcept { return seed_; }
+    [[nodiscard]] uint32_t layoutSeed() const noexcept { return layoutSeed_; }
+    [[nodiscard]] uint32_t effectiveLayoutSeed() const noexcept { return layoutSeed_ != 0u ? layoutSeed_ : seed_; }
+    [[nodiscard]] bool isLayoutLocked() const noexcept { return layoutSeed_ != 0u; }
+    void setLayoutSeed(uint32_t ls) noexcept { layoutSeed_ = ls; }
+    void toggleLayoutLock() noexcept { layoutSeed_ = (layoutSeed_ != 0u) ? 0u : effectiveLayoutSeed(); }
+    [[nodiscard]] bool hasScriptConfigure() const noexcept { return scriptEngine_.hasOnConfigure(); }
     [[nodiscard]] uint32_t rngState() const noexcept { return rngState_; }
     [[nodiscard]] int32_t score() const noexcept { return score_; }
     [[nodiscard]] uint32_t moveCount() const noexcept { return moveCount_; }
@@ -49,6 +55,8 @@ public:
     [[nodiscard]] bool hasScriptStockClick() const noexcept { return scriptEngine_.hasOnStockClick(); }
     [[nodiscard]] bool hasScriptCanPick() const noexcept { return scriptEngine_.hasCanPick(); }
     [[nodiscard]] bool hasScriptCanDrop() const noexcept { return scriptEngine_.hasCanDrop(); }
+    [[nodiscard]] bool hasScriptDemoStep() const noexcept { return scriptEngine_.hasOnDemoStep(); }
+    void setSolverSimulation(bool sim) noexcept { solverSim_ = sim; }
     [[nodiscard]] bool hasScriptCanTarget() const noexcept { return scriptEngine_.hasCanTarget(); }
     [[nodiscard]] bool canPickScriptCard(uint8_t pileIdx, size_t cardIdx) const;
     [[nodiscard]] const GameDocManifest& docManifest() const noexcept { return scriptEngine_.docManifest(); }
@@ -76,7 +84,8 @@ public:
         const std::vector<Pile>& piles,
         const std::vector<MoveCommand>& undoStack,
         const std::vector<MoveCommand>& redoStack,
-        const std::string& gameId = ""
+        const std::string& gameId = "",
+        const BoardBlackboard* restoredBlackboard = nullptr
     );
 
     // Layout calculation for responsive desktop & mobile aspect ratios
@@ -91,6 +100,7 @@ public:
 
     // Core interactions
     bool drawFromStock();
+    bool executeDemoStep();
     bool canMoveCards(uint8_t fromPileIdx, size_t startCardIdx, uint8_t toPileIdx) const;
     bool executeMove(uint8_t fromPileIdx, size_t startCardIdx, uint8_t toPileIdx, bool recordUndo = true);
     bool executeCardTarget(uint8_t fromPileIdx, size_t fromCardIdx, uint8_t toPileIdx, size_t toCardIdx, bool recordUndo = true);
@@ -158,6 +168,7 @@ private:
     ScriptBoardContext makeConstScriptContext() const noexcept;
 
     uint32_t seed_{2026u};
+    uint32_t layoutSeed_{0u};
     uint32_t rngState_{2026u};
     GameVariant variant_{GameVariant::KlondikeDraw1};
     SolitaireGameDef activeDef_;
@@ -193,6 +204,7 @@ private:
     std::vector<PendingScriptAction> pendingActions_;
     mutable GameStatus cachedGameStatus_{GameStatus::Playing};
     mutable bool statusCacheDirty_{true};
+    bool solverSim_{false};
     HintMove activeHint_{};
     std::array<float, 32> pendingDealPans_{};
     uint8_t pendingDealCount_{0};

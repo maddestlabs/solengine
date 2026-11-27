@@ -1,0 +1,211 @@
+# =============================================================================
+# SolEngine Game Family: Gaps (.eats)
+# Consolidated variants:
+#   - Gaps (Montana / Spaces / Addiction)
+# References: [MoreheadMottSmith1949], [Parlett1979]
+# =============================================================================
+
+# Grid Layout Zone Map (solitaire_board.cpp: layout == "grid"):
+#   0      : Removed Aces (Foundation 0 — 4 Aces extracted on deal)
+#   1..52  : 4 rows x 13 columns grid (row r in 0..3, col c in 0..12 => z = 1 + r * 13 + c)
+#   53     : Stock / Redeal Trigger (temporary gather & shuffle pile on redeal)
+
+def gaps_row_locked_len(row):
+    base = 1 + row * 13
+    if zone_size(base) == 0:
+        return 0
+    if card_rank(base, 0) != 2:
+        return 0
+    suit = card_suit(base, 0)
+    locked = 1
+    c = 1
+    while c < 12:
+        z = base + c
+        if zone_size(z) == 0:
+            return locked
+        if card_suit(z, 0) != suit or card_rank(z, 0) != c + 2:
+            return locked
+        locked = locked + 1
+        c = c + 1
+    return locked
+
+def gaps_refresh_badges():
+    redeals = get_stat("REDEALS_LEFT", 0)
+    set_zone_badge(53, "top", "REDEALS: " + str(redeals), redeals > 0)
+    return True
+
+def gaps_on_deal():
+    # Remove all 4 Aces from the 4x13 grid (1..52) into Zone 0, creating the 4 initial gaps
+    z = 1
+    while z <= 52:
+        if zone_size(z) > 0 and card_rank(z, 0) == 1:
+            move_cards(z, 0, 0)
+            flip_card(0, zone_size(0) - 1, True)
+        z = z + 1
+    set_stat("REDEALS_LEFT", 2)
+    gaps_refresh_badges()
+    return True
+
+def gaps_eval():
+    # Lightweight heuristic: locked left-aligned prefixes + live gaps + redeals
+    score = (gaps_row_locked_len(0) + gaps_row_locked_len(1) + gaps_row_locked_len(2) + gaps_row_locked_len(3)) * 250
+    z = 1
+    while z <= 52:
+        if zone_size(z) == 0:
+            col = (z - 1) % 13
+            if col == 0:
+                score = score + 45
+            else:
+                lz = z - 1
+                if zone_size(lz) > 0 and card_rank(lz, 0) < 13:
+                    score = score + 35
+        z = z + 1
+    score = score + get_stat("REDEALS_LEFT", 0) * 15
+    return score
+
+def gaps_can_pick(z, i):
+    if z < 1 or z > 52 or zone_size(z) == 0 or i != 0:
+        return False
+    return True
+
+def gaps_can_drop(from_z, i, to_z):
+    if from_z == to_z or from_z < 1 or from_z > 52 or zone_size(from_z) == 0 or i != 0:
+        return False
+    if to_z < 1 or to_z > 52 or zone_size(to_z) != 0:
+        return False
+
+    col = (to_z - 1) % 13
+    r = card_rank(from_z, 0)
+    s = card_suit(from_z, 0)
+
+    # Leftmost column accepts any Two
+    if col == 0:
+        return r == 2
+
+    # Any other gap accepts the next rank in the same suit as its left neighbor
+    left_z = to_z - 1
+    if zone_size(left_z) == 0:
+        return False
+    lr = card_rank(left_z, 0)
+    if lr >= 13:
+        return False
+    return card_suit(left_z, 0) == s and r == lr + 1
+
+def gaps_redeal():
+    redeals = get_stat("REDEALS_LEFT", 0)
+    if redeals <= 0:
+        return False
+
+    l0 = gaps_row_locked_len(0)
+    l1 = gaps_row_locked_len(1)
+    l2 = gaps_row_locked_len(2)
+    l3 = gaps_row_locked_len(3)
+
+    # Gather all unlocked cards into Stock (Zone 53)
+    row = 0
+    while row < 4:
+        base = 1 + row * 13
+        c = l0
+        if row == 1:
+            c = l1
+        elif row == 2:
+            c = l2
+        elif row == 3:
+            c = l3
+        while c < 13:
+            z = base + c
+            if zone_size(z) > 0:
+                move_cards(z, 0, 53)
+            c = c + 1
+        row = row + 1
+
+    if zone_size(53) == 0:
+        return False
+
+    shuffle_zone(53)
+
+    # Re-deal leaving 1 gap immediately after each row's locked sequence
+    row = 0
+    while row < 4:
+        base = 1 + row * 13
+        c = l0 + 1
+        if row == 1:
+            c = l1 + 1
+        elif row == 2:
+            c = l2 + 1
+        elif row == 3:
+            c = l3 + 1
+        while c < 13 and zone_size(53) > 0:
+            z = base + c
+            top = zone_size(53) - 1
+            move_cards(53, top, z)
+            flip_card(z, 0, True)
+            c = c + 1
+        row = row + 1
+
+    set_stat("REDEALS_LEFT", redeals - 1)
+    gaps_refresh_badges()
+    return True
+
+def gaps_status():
+    total = gaps_row_locked_len(0) + gaps_row_locked_len(1) + gaps_row_locked_len(2) + gaps_row_locked_len(3)
+    if total == 48:
+        return "victory"
+    return "playing"
+
+# =============================================================================
+# Variant Definitions
+# =============================================================================
+
+sol.define_game({
+    id: "gaps",
+    name: "Gaps",
+    family: "Gaps",
+    category: "POPULAR",
+    mechanic: "sequence",
+    visibility: "open",
+    tags: ["classic", "open", "grid", "redeal", "single_deck"],
+    layout: "grid",
+    tableau_build: "same_suit_up",
+    empty_tableau: "custom",
+    move_group: "single",
+    foundation_mode: "none",
+    description: "Classic 4x13 grid puzzle (Montana). Shift cards into gaps to form 2-to-King suit rows; 2 partial-lock redeals.",
+    decks: 1,
+    tableaus: 52,
+    foundations: 1,
+    freecells: 0,
+    grid_cols: 13,
+    tableau_deal_counts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    tableau_all_face_up: True,
+    foundation_starter_card: False,
+    stock_deal_mode: "deal_to_all_columns",
+    stock_deal_count: 0,
+    max_redeals: 2,
+    prefer_curated_solvable: True,
+    # TODO: mine verified solvable demo_seeds
+    demo_seed: 43,
+    demo_seeds: [43],
+    eval_heuristic: gaps_eval,
+    on_deal: gaps_on_deal,
+    can_pick: gaps_can_pick,
+    can_drop: gaps_can_drop,
+    on_stock_click: gaps_redeal,
+    get_status: gaps_status,
+    doc: {
+        meta: [3, "Medium", 2, "Strategic", 4, "Tactical"],
+        aliases: ["Montana", "Spaces", "Addiction"],
+        goal: [
+            "Arrange all 4 rows in ascending same-suit order from 2 to King (leaving the 4 gaps at the right end).",
+            "No legal gap moves remain and all redeals are spent."
+        ],
+        stats: [
+            { key: "REDEALS_LEFT", name: "Redeals Remaining", desc: "Click the Stock slot to shuffle and re-deal all unlocked cards (keeps left-aligned 2..N suit runs locked)." }
+        ],
+        zones: [
+            { index: 0, name: "Removed Aces", desc: "All 4 Aces are removed at the start to open the 4 initial gaps." },
+            { index: 1, name: "4x13 Grid", desc: "Move any Two into a leftmost gap, or move the next same-suit card into a gap to the right of its predecessor. Gaps after Kings are dead." },
+            { index: 53, name: "Redeal Trigger", desc: "Click when stuck to gather, shuffle, and re-deal all unlocked cards (up to 2 redeals)." }
+        ]
+    }
+})
