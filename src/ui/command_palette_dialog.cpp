@@ -45,20 +45,19 @@ void CommandPaletteDialog::open() {
         onBeforeOpen();
     }
     isOpen_ = true;
-    isMouseDown_ = false;
-    isDragging_ = false;
+    draggingScrollbar_ = false;
     searchQuery_.clear();
     selectedCategory_ = CommandCategory::All;
     highlightedIndex_ = 0;
-    scrollOffsetY_ = 0.0f;
+    scroller_.reset(0.0f);
     cursorBlinkTimer_ = 0.0f;
     refreshFilter();
 }
 
 void CommandPaletteDialog::close() noexcept {
     isOpen_ = false;
-    isMouseDown_ = false;
-    isDragging_ = false;
+    draggingScrollbar_ = false;
+    scroller_.cancelDrag();
 #if defined(__EMSCRIPTEN__)
     EM_ASM({
         if (window.closeMobileKeyboard) {
@@ -76,9 +75,14 @@ void CommandPaletteDialog::toggle() {
     }
 }
 
+void CommandPaletteDialog::update(float dt) noexcept {
+    if (!isOpen_) return;
+    scroller_.update(dt);
+}
+
 void CommandPaletteDialog::setSearchQuery(const std::string& text) {
     searchQuery_ = text;
-    scrollOffsetY_ = 0.0f;
+    scroller_.reset(0.0f);
     highlightedIndex_ = 0;
     cursorBlinkTimer_ = 0.0f;
     refreshFilter();
@@ -103,13 +107,7 @@ void CommandPaletteDialog::ensureVisible(int index) {
     const float itemTop = static_cast<float>(index) * (kRowHeight + kRowPad);
     const float itemBottom = itemTop + kRowHeight;
     const float visibleH = std::max(10.0f, listAreaH_ - kRowPad * 2.0f);
-
-    if (itemTop < scrollOffsetY_) {
-        scrollOffsetY_ = itemTop;
-    } else if (itemBottom > scrollOffsetY_ + visibleH) {
-        scrollOffsetY_ = itemBottom - visibleH;
-    }
-    scrollOffsetY_ = std::clamp(scrollOffsetY_, 0.0f, maxScrollY_);
+    scroller_.ensureRangeVisible(itemTop, itemBottom, visibleH, true);
 }
 
 bool CommandPaletteDialog::executeHighlighted(bool keepOpen, AudioFoleyEngine& foley) {
@@ -144,7 +142,7 @@ void CommandPaletteDialog::cycleCategory(int delta, AudioFoleyEngine& foley) {
     int next = (static_cast<int>(selectedCategory_) + delta) % count;
     if (next < 0) next += count;
     selectedCategory_ = static_cast<CommandCategory>(next);
-    scrollOffsetY_ = 0.0f;
+    scroller_.reset(0.0f);
     highlightedIndex_ = 0;
     refreshFilter();
     foley.triggerSound(FoleySound::WoodClick, 0.55f);
@@ -325,10 +323,10 @@ void CommandPaletteDialog::render(
                              pal.trimR, pal.trimG, pal.trimB, 0.36f, 1.0f, 4);
 
     const float totalContentH = static_cast<float>(filteredMatches_.size()) * (kRowHeight + kRowPad) + kRowPad;
-    maxScrollY_ = std::max(0.0f, totalContentH - listAreaH_);
-    scrollOffsetY_ = std::clamp(scrollOffsetY_, 0.0f, maxScrollY_);
+    scroller_.setBounds(totalContentH, listAreaH_);
+    const float scrollY = scroller_.offset();
 
-    const bool hasScrollbar = (maxScrollY_ > 1.0f);
+    const bool hasScrollbar = (scroller_.maxOffset() > 1.0f);
     const float rowX = dialogX_ + 20.0f;
     const float rowW = dialogW_ - (hasScrollbar ? 48.0f : 40.0f);
 
@@ -347,11 +345,11 @@ void CommandPaletteDialog::render(
                 if (!m.command) continue;
                 const auto& cmd = *m.command;
 
-                const float ry = listAreaY_ + kRowPad + static_cast<float>(i) * (kRowHeight + kRowPad) - scrollOffsetY_;
+                const float ry = listAreaY_ + kRowPad + static_cast<float>(i) * (kRowHeight + kRowPad) - scrollY;
                 if (ry + kRowHeight < listAreaY_ || ry > listAreaY_ + listAreaH_) continue;
 
                 const bool isHighlighted = (static_cast<int>(i) == highlightedIndex_);
-                const bool isHov = (!isDragging_ &&
+                const bool isHov = (!scroller_.isDragging() && !draggingScrollbar_ &&
                                     mouseX >= rowX && mouseX <= rowX + rowW &&
                                     mouseY >= ry && mouseY <= ry + kRowHeight &&
                                     mouseY >= listAreaY_ && mouseY <= listAreaY_ + listAreaH_);
@@ -452,16 +450,20 @@ void CommandPaletteDialog::render(
         }
     }
 
-    // Subtle scrollbar thumb when overflowing
+    // Subtle scrollbar thumb when overflowing (auto-brightens & compresses on iOS overscroll)
     if (hasScrollbar) {
-        const float trackX = dialogX_ + dialogW_ - 22.0f;
         const float trackY = listAreaY_ + 6.0f;
         const float trackH = std::max(20.0f, listAreaH_ - 12.0f);
-        const float thumbH = std::max(22.0f, trackH * (listAreaH_ / totalContentH));
-        const float ratio = scrollOffsetY_ / std::max(1.0f, maxScrollY_);
-        const float thumbY = trackY + ratio * (trackH - thumbH);
-        r.drawRoundedRect(trackX, trackY, 4.0f, trackH, 2.0f, 0.12f, 0.11f, 0.10f, 0.60f, 2);
-        r.drawRoundedRect(trackX, thumbY, 4.0f, thumbH, 2.0f, pal.trimR, pal.trimG, pal.trimB, 0.70f, 2);
+        const bool sbHov = (mouseX >= dialogX_ + dialogW_ - 28.0f && mouseX <= dialogX_ + dialogW_ - 14.0f &&
+                            mouseY >= trackY && mouseY <= trackY + trackH) || draggingScrollbar_;
+        const float activeAlpha = sbHov ? 1.0f : std::max(0.30f, scroller_.indicatorAlpha());
+        const float trackW = sbHov ? 6.0f : 4.0f;
+        const float trackX = dialogX_ + dialogW_ - 18.0f - trackW;
+        float thumbY = trackY;
+        float thumbH = 22.0f;
+        scroller_.computeThumb(trackY, trackH, thumbY, thumbH);
+        r.drawRoundedRect(trackX, trackY, trackW, trackH, trackW * 0.5f, 0.12f, 0.11f, 0.10f, 0.55f * activeAlpha, 2);
+        r.drawRoundedRect(trackX, thumbY, trackW, thumbH, trackW * 0.5f, pal.trimR, pal.trimG, pal.trimB, 0.85f * activeAlpha, 2);
     }
 
     // 7. Footer keyboard legend
@@ -537,7 +539,7 @@ bool CommandPaletteDialog::handleMouseButton(
                 if (chipX + cw > dialogX_ + dialogW_ - 16.0f) break;
                 if (mouseX >= chipX && mouseX <= chipX + cw) {
                     selectedCategory_ = cat;
-                    scrollOffsetY_ = 0.0f;
+                    scroller_.reset(0.0f);
                     highlightedIndex_ = 0;
                     refreshFilter();
                     foley.triggerSound(FoleySound::WoodClick, 0.65f);
@@ -547,28 +549,45 @@ bool CommandPaletteDialog::handleMouseButton(
             }
         }
 
-        // List area drag/click start
+        // Scrollbar thumb grab
+        if (scroller_.maxOffset() > 1.0f &&
+            mouseX >= dialogX_ + dialogW_ - 28.0f && mouseX <= dialogX_ + dialogW_ - 14.0f &&
+            mouseY >= listAreaY_ && mouseY <= listAreaY_ + listAreaH_) {
+            draggingScrollbar_ = true;
+            const float trackY = listAreaY_ + 6.0f;
+            const float trackH = std::max(20.0f, listAreaH_ - 12.0f);
+            float thumbY = trackY;
+            float thumbH = 22.0f;
+            scroller_.computeThumb(trackY, trackH, thumbY, thumbH);
+            const float denom = std::max(1.0f, trackH - thumbH);
+            const float frac = std::clamp((mouseY - trackY - thumbH * 0.5f) / denom, 0.0f, 1.0f);
+            scroller_.setOffsetImmediate(frac * scroller_.maxOffset());
+            return true;
+        }
+
+        // List area kinetic drag/click start
         if (mouseY >= listAreaY_ && mouseY <= listAreaY_ + listAreaH_) {
-            isMouseDown_ = true;
-            isDragging_ = false;
-            dragStartY_ = mouseY;
-            initialScrollY_ = scrollOffsetY_;
+            scroller_.beginDrag(mouseX, mouseY);
             return true;
         }
     } else if (action == 0) { // Release
-        if (isMouseDown_) {
-            isMouseDown_ = false;
-            if (isDragging_) {
-                isDragging_ = false;
+        if (draggingScrollbar_) {
+            draggingScrollbar_ = false;
+            return true;
+        }
+        if (scroller_.isPointerDown()) {
+            const bool suppressClick = scroller_.endDrag();
+            if (suppressClick) {
                 return true;
             }
 
             if (mouseY >= listAreaY_ && mouseY <= listAreaY_ + listAreaH_) {
-                const bool hasScrollbar = (maxScrollY_ > 1.0f);
+                const bool hasScrollbar = (scroller_.maxOffset() > 1.0f);
                 const float rowX = dialogX_ + 20.0f;
                 const float rowW = dialogW_ - (hasScrollbar ? 48.0f : 40.0f);
+                const float scrollY = scroller_.offset();
                 for (size_t i = 0; i < filteredMatches_.size(); ++i) {
-                    const float ry = listAreaY_ + kRowPad + static_cast<float>(i) * (kRowHeight + kRowPad) - scrollOffsetY_;
+                    const float ry = listAreaY_ + kRowPad + static_cast<float>(i) * (kRowHeight + kRowPad) - scrollY;
                     if (mouseX >= rowX && mouseX <= rowX + rowW &&
                         mouseY >= ry && mouseY <= ry + kRowHeight) {
                         highlightedIndex_ = static_cast<int>(i);
@@ -586,16 +605,18 @@ bool CommandPaletteDialog::handleMouseButton(
 
 void CommandPaletteDialog::handleMouseMove(float mouseX, float mouseY) {
     if (!isOpen_) return;
-    (void)mouseX;
-    if (isMouseDown_) {
-        const float dy = mouseY - dragStartY_;
-        if (!isDragging_ && std::abs(dy) > 4.0f) {
-            isDragging_ = true;
-        }
-        if (isDragging_) {
-            scrollOffsetY_ = std::clamp(initialScrollY_ - dy, 0.0f, maxScrollY_);
-        }
+    if (draggingScrollbar_ && scroller_.maxOffset() > 1.0f) {
+        const float trackY = listAreaY_ + 6.0f;
+        const float trackH = std::max(20.0f, listAreaH_ - 12.0f);
+        float thumbY = trackY;
+        float thumbH = 22.0f;
+        scroller_.computeThumb(trackY, trackH, thumbY, thumbH);
+        const float denom = std::max(1.0f, trackH - thumbH);
+        const float frac = std::clamp((mouseY - trackY - thumbH * 0.5f) / denom, 0.0f, 1.0f);
+        scroller_.setOffsetImmediate(frac * scroller_.maxOffset());
+        return;
     }
+    scroller_.moveDrag(mouseX, mouseY);
 }
 
 bool CommandPaletteDialog::handleKey(
@@ -640,7 +661,7 @@ bool CommandPaletteDialog::handleKey(
             } else {
                 searchQuery_.pop_back();
             }
-            scrollOffsetY_ = 0.0f;
+            scroller_.reset(0.0f);
             highlightedIndex_ = 0;
             cursorBlinkTimer_ = 0.0f;
             refreshFilter();
@@ -706,7 +727,7 @@ bool CommandPaletteDialog::handleChar(unsigned int codepoint) {
     if (codepoint >= 32 && codepoint <= 126) {
         searchQuery_ += static_cast<char>(codepoint);
         cursorBlinkTimer_ = 0.0f;
-        scrollOffsetY_ = 0.0f;
+        scroller_.reset(0.0f);
         highlightedIndex_ = 0;
         refreshFilter();
         return true;
@@ -716,7 +737,7 @@ bool CommandPaletteDialog::handleChar(unsigned int codepoint) {
 
 bool CommandPaletteDialog::handleScroll(float yoffset) {
     if (!isOpen_) return false;
-    scrollOffsetY_ = std::clamp(scrollOffsetY_ - yoffset * 34.0f, 0.0f, maxScrollY_);
+    scroller_.handleWheel(yoffset, 44.0f);
     return true;
 }
 

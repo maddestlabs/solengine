@@ -4,6 +4,7 @@
 #include "solengine/game_definition.hpp"
 #include "solengine/solitaire_board.hpp"
 #include "solengine/auto_play_controller.hpp"
+#include "solengine/ui/kinetic_scroller.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include <string>
 #include <vector>
@@ -85,10 +86,8 @@ private:
 
     bool isOpen_{false};
     bool searchFocused_{true};
-    bool isMouseDown_{false};
-    bool isDragging_{false};
-    float dragStartY_{0.0f};
-    float initialScrollY_{0.0f};
+    bool draggingScrollbar_{false};
+    KineticScroller scroller_{};
     std::string activeGameId_{""};
     std::string searchQuery_{""};
     std::string selectedCategory_{"ALL"};
@@ -97,8 +96,6 @@ private:
     int highlightedIndex_{0};
     int lastClickedIndex_{-1};
     std::chrono::steady_clock::time_point lastClickTime_{};
-    float scrollOffsetY_{0.0f};
-    float maxScrollY_{0.0f};
     float cursorBlinkTimer_{0.0f};
 
     std::vector<SolitaireGameDef> filteredGames_;

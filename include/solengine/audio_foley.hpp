@@ -263,7 +263,7 @@ public:
     bool init(bool enableHardwareDevice = true);
     void shutdown();
 
-    void triggerSound(uint16_t soundId, float intensity = 1.0f, float pan = 0.0f);
+    void triggerSound(uint16_t soundId, float intensity = 1.0f, float pan = 0.0f, float pitchScale = 1.0f);
     void mixSamples(float* outInterleavedStereo, uint32_t frameCount, uint32_t sampleRate = 48000) noexcept;
 
     // External narration / voice-over WAV playback (mixed cleanly on the audio thread)
@@ -534,10 +534,11 @@ private:
         uint16_t soundId{0};
         float intensity{1.0f};
         float pan{0.0f};
+        float pitchScale{1.0f};
     };
 
     void allocateVoice(const Voice& v) noexcept;
-    void handleTrigger(uint16_t soundId, float intensity, float pan, float sampleRate) noexcept;
+    void handleTrigger(uint16_t soundId, float intensity, float pan, float sampleRate, float pitchScale = 1.0f) noexcept;
     uint32_t nextRng() noexcept {
         rngState_ ^= rngState_ << 13;
         rngState_ ^= rngState_ >> 17;

@@ -3,6 +3,7 @@
 
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include "solengine/replay_track.hpp"
+#include "solengine/ui/kinetic_scroller.hpp"
 #include <functional>
 #include <string>
 #include <vector>
@@ -29,6 +30,7 @@ public:
     void open(uint32_t currentSeed, const std::string& variantName, const std::string& gameId = "",
               uint32_t currentLayoutSeed = 0u, bool supportsLayoutLock = false);
     void close() noexcept;
+    void update(float dt) noexcept;
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
 
     /// Record a generated or dealt seed into the in-memory session history (most recent first).
@@ -105,8 +107,14 @@ private:
     float replayCopyFeedbackTimer_{0.0f};
 
     std::vector<SeedHistoryEntry> history_;
-    int historyScrollOffset_{0};
+    KineticScroller historyScroller_{};
     int visibleHistoryRows_{0};
+    float histViewX_{0.0f};
+    float histViewY_{0.0f};
+    float histViewW_{0.0f};
+    float histViewH_{0.0f};
+    int pressedHistoryIdx_{-1};
+    bool pressedHistoryPlay_{false};
 
     // Dialog layout bounds
     float dialogX_{0.0f};

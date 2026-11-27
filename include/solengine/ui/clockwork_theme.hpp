@@ -128,7 +128,8 @@ void drawStepperBar(
     eatsbits::ui::BatchRenderer2D& r,
     float rowX, float curY, float rowW, float rowH,
     const std::string& text,
-    bool prevHov, bool nextHov, bool centerHov
+    bool prevHov, bool nextHov, bool centerHov,
+    bool showDropdownHint = false
 );
 
 void drawGlassSlider(

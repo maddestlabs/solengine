@@ -697,7 +697,8 @@ void drawStepperBar(
     eatsbits::ui::BatchRenderer2D& r,
     float rowX, float curY, float rowW, float rowH,
     const std::string& text,
-    bool prevHov, bool nextHov, bool centerHov
+    bool prevHov, bool nextHov, bool centerHov,
+    bool showDropdownHint
 ) {
     const auto& pal = palette();
     const float btnW = 32.0f;
@@ -730,10 +731,23 @@ void drawStepperBar(
     drawRivet(r, labelX + labelW - 4.5f, curY + rowH - 4.5f, 1.5f, true, pal.brassBrightR, pal.brassBrightG, pal.brassBrightB, 0.85f);
 
     // Bar label text
-    float labelTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, text);
+    const float textRightPad = showDropdownHint ? 18.0f : 8.0f;
+    const float textLeftPad = 8.0f;
+    const float availTextW = std::max(16.0f, labelW - textLeftPad - textRightPad);
+    std::string dispText = text;
+    float labelTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, dispText);
+    if (labelTxtW > availTextW) {
+        while (dispText.size() > 3 && eatsbits::ui::glyph::getVectorTextWidth(11.0f, dispText + "...") > availTextW) {
+            dispText.pop_back();
+        }
+        dispText += "...";
+        labelTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, dispText);
+    }
+    const float centeredX = labelX + (labelW - labelTxtW) * 0.5f;
+    const float textX = std::clamp(centeredX, labelX + textLeftPad, labelX + labelW - textRightPad - labelTxtW);
     eatsbits::ui::glyph::drawVectorText(
-        r, text.c_str(),
-        labelX + (labelW - labelTxtW) * 0.5f,
+        r, dispText.c_str(),
+        textX,
         curY + (rowH - 11.0f) * 0.5f,
         11.0f,
         centerHov ? pal.furnaceCoreR : pal.brassHighlightR,
@@ -741,6 +755,18 @@ void drawStepperBar(
         centerHov ? pal.furnaceCoreB : pal.brassBrightB,
         1.0f
     );
+
+    // Subtle dropdown chevron indicating click/tap opens a scrollable list
+    if (showDropdownHint && labelW > 48.0f) {
+        const float cx = labelX + labelW - 13.5f;
+        const float cy = curY + rowH * 0.5f - 1.5f;
+        const float cr = centerHov ? pal.furnaceCoreR : pal.brassBrightR;
+        const float cg = centerHov ? pal.furnaceCoreG : pal.brassBrightG;
+        const float cb = centerHov ? pal.furnaceCoreB : pal.brassBrightB;
+        const float ca = centerHov ? 0.98f : 0.72f;
+        r.drawLine(cx - 3.2f, cy, cx, cy + 3.2f, cr, cg, cb, ca, 1.4f);
+        r.drawLine(cx, cy + 3.2f, cx + 3.2f, cy, cr, cg, cb, ca, 1.4f);
+    }
 
     // Right [ > ] Stepper Button
     drawPewterButton(r, nextX, curY, btnW, rowH, 4.0f, ">", nextHov, false, 12.0f);

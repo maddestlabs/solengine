@@ -16,9 +16,12 @@
     <meta name="description" content="Procedural Solitaire Sandbox built in C++20 and WebGPU with dynamic table lighting and custom Eatscript games, themes, and decks.">
     <link rel="canonical" href="https://solitaireengine.org/">
     <link rel="manifest" href="manifest.json">
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/svg+xml" href="solengine_logo.svg">
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
 
     <!-- Fonts (non-render-blocking so loading screen paints immediately) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1071,7 +1074,7 @@
         }
 
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').then((reg) => {
+            navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' }).then((reg) => {
                 console.log('[SolEngine PWA] Registered with scope:', reg.scope);
                 if (!window.crossOriginIsolated && window.isSecureContext && (navigator.serviceWorker.controller || reg.active)) {
                     triggerCoiReload();
@@ -1079,6 +1082,10 @@
             }).catch((err) => {
                 console.warn('[SolEngine PWA] ServiceWorker registration failed:', err);
             });
+        }
+
+        if (navigator.storage && typeof navigator.storage.persist === 'function') {
+            navigator.storage.persist().catch(() => {});
         }
 
         // Mobile Soft Keyboard Input Bridge

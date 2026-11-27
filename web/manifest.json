@@ -3,7 +3,7 @@
   "name": "Solitaire Engine",
   "short_name": "SolEngine",
   "description": "Procedural Solitaire Sandbox built in C++20 and WebGPU.",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
@@ -12,12 +12,6 @@
   "theme_color": "#0d140e",
   "categories": ["games", "card", "entertainment", "board"],
   "icons": [
-    {
-      "src": "app_icon.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
     {
       "src": "icon-192.png",
       "sizes": "192x192",
@@ -41,6 +35,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "solengine_logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }

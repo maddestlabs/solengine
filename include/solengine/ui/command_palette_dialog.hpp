@@ -2,6 +2,7 @@
 #define SOLENGINE_COMMAND_PALETTE_DIALOG_HPP
 
 #include "solengine/command_registry.hpp"
+#include "solengine/ui/kinetic_scroller.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include <functional>
 #include <string>
@@ -27,6 +28,7 @@ public:
     void open();
     void close() noexcept;
     void toggle();
+    void update(float dt) noexcept;
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
 
     void setSearchQuery(const std::string& text);
@@ -72,16 +74,12 @@ private:
 
     CommandRegistry* registry_{nullptr};
     bool isOpen_{false};
-    bool isMouseDown_{false};
-    bool isDragging_{false};
-    float dragStartY_{0.0f};
-    float initialScrollY_{0.0f};
+    bool draggingScrollbar_{false};
+    KineticScroller scroller_{};
 
     std::string searchQuery_;
     CommandCategory selectedCategory_{CommandCategory::All};
     int highlightedIndex_{0};
-    float scrollOffsetY_{0.0f};
-    float maxScrollY_{0.0f};
     float cursorBlinkTimer_{0.0f};
 
     std::vector<CommandMatch> filteredMatches_;

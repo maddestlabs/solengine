@@ -1,6 +1,6 @@
 # SolEngine
 
-> **Procedural Solitaire Sandbox** — craft your own solitaire games, tabletops, decks, and audio with Eatscript and WebGPU.
+> **Procedural Solitaire Sandbox** — delve into an endless array of solitaire classics and new twists on vintage mechanics and themes. Then craft your own solitaire games, tabletops, decks, sounds and more with easy scripting through a robust API. Or just let AI do all the work.
 
 [![Play Online](https://img.shields.io/badge/Play%20Online-solitaireengine.org-brightgreen?style=flat-square&logo=github)](https://solitaireengine.org/)
 [![Repository](https://img.shields.io/badge/Repository-maddestlabs%2Fsolengine-blue?style=flat-square&logo=github)](https://github.com/maddestlabs/solengine)
@@ -25,7 +25,7 @@ Play instantly in your browser:
 ## The Core
 
 ### Scripting
-SolEngine is built around **Eatscript**: a Pythonic scripting dialect where game logic, layout topology, and card movement are defined:
+SolEngine is built around **Eatscript**: a Pythonic scripting dialect with access to everything from visuals and audio to gameplay mechanics and layouts.
 - **Classic Solitaries baked in:** *Klondike (Draw 1 & 3)*, *FreeCell*, *Spider (1, 2, & 4 Suits)*, *Yukon*.
 - **Modernized Solitaires baked twice:** *Scoundrel*, *Scoundrel Rookie*.
 - **Custom Variations & Bundles:** Craft your own game rules, tabletop shaders, decks, sound packs, ambience, post-FX, presets, and multi-game series via unified `.eats` scripts (`sol.define_game`, `sol.define_theme`, `sol.define_deck`, `sol.define_ambience`, `sol.define_sound_pack`, `sol.define_postfx`, `sol.define_preset`, `sol.define_series`). Share a single bundled `.eats` file or a multi-file GitHub Gist live on the web via `?gist=<GIST_ID>`. See [docs/eats-v2-revamp.md](docs/eats-v2-revamp.md) for the full format specification.
@@ -35,7 +35,7 @@ Table backgrounds in SolEngine are forged in WebGPU fragment shaders while card 
 
 ### Features
 - **One-Tap Smart Moves:** Hover or select any card or substack and single-click to immediately route it to Foundations or Tableau columns.
-- **Auto-solver / Auto-play:** Toggle 'Solvable' mode on and wait just a moment for a guaranteed game. Use Auto-play to learn new games, move through history and easily finish games.
+- **Auto-solver / Auto-play:** Toggleable 'Solvable' mode guarantees solvable games. Use Auto-play to learn new games, move through history and easily finish games. Or use its screensaver feature to set your device to blissful gameplay scenes.
 - **Soothing environments:** Realistic shadows and configurable environmental lighting coupled with synthesized audio depicting real world settings provide a relaxing backdrop for gameplay.
 - **Extensible:** Create your own Eatscript code to extend the game to infinity minus realistic engine constraints.
 

@@ -2,9 +2,12 @@
 #define SOLENGINE_SETTINGS_DIALOG_HPP
 
 #include "solengine/settings_manager.hpp"
+#include "solengine/ui/option_list_dialog.hpp"
+#include "solengine/ui/kinetic_scroller.hpp"
 #include "eatsbits/ui/batch_renderer_2d.hpp"
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace solengine {
 
@@ -24,6 +27,7 @@ public:
 
     void open(const std::string& activeGameId = "", const std::string& activeGameName = "");
     void close();
+    void update(float dt) noexcept;
     [[nodiscard]] bool isOpen() const noexcept { return isOpen_; }
     [[nodiscard]] bool isPeekingPostFx() const noexcept { return peekingPostFx_; }
     void setLowCapabilityHardware(bool lowCap) noexcept { lowCapabilityHardware_ = lowCap; }
@@ -77,6 +81,12 @@ private:
     void applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& foley, const AppSettings& s, bool updatePreviewCard = true);
     void revertLiveState(SolitaireBoard& board, AudioFoleyEngine& foley);
     void commitSettings();
+    void openOptionPicker(
+        std::string title,
+        std::vector<OptionListItem> items,
+        int selectedIndex,
+        std::function<void(int, SolitaireBoard&, AudioFoleyEngine&)> onApply
+    );
 
     bool isOpen_{false};
     bool livePreviewDirty_{false};
@@ -142,21 +152,20 @@ private:
     float lightStrTrackW_{280.0f};
     float lightStrTrackH_{26.0f};
 
-    // Themes tab vertical scroll state (for mobile/compact viewports)
-    float themeScrollY_{0.0f};
-    float themeMaxScrollY_{0.0f};
+    // Scrollable tab content state (kinetic iOS-style scrolling across tabs 0-3)
+    KineticScroller contentScroller_{};
     float contentRectX_{0.0f};
     float contentRectY_{0.0f};
     float contentRectW_{0.0f};
     float contentRectH_{0.0f};
-    bool pointerDownInContent_{false};
-    bool draggingThemeScroll_{false};
     bool draggingThemeScrollbar_{false};
     float themeSbTrackY_{0.0f};
     float themeSbTrackH_{0.0f};
     float themeSbThumbH_{20.0f};
-    float dragStartY_{0.0f};
-    float dragLastY_{0.0f};
+
+    // Nested scrollable list picker for "< option >" steppers
+    OptionListDialog optionPicker_;
+    std::function<void(int, SolitaireBoard&, AudioFoleyEngine&)> pendingOptionApply_;
 };
 
 } // namespace solengine

@@ -99,7 +99,9 @@ void SeedDialog::open(uint32_t currentSeed, const std::string& variantName, cons
     cursorBlink_ = 0.0f;
     copyFeedbackTimer_ = 0.0f;
     replayCopyFeedbackTimer_ = 0.0f;
-    historyScrollOffset_ = 0;
+    historyScroller_.reset(0.0f);
+    pressedHistoryIdx_ = -1;
+    pressedHistoryPlay_ = false;
 
     // Ensure the currently active deal is present in history without reordering existing entries
     bool found = false;
@@ -117,13 +119,21 @@ void SeedDialog::open(uint32_t currentSeed, const std::string& variantName, cons
 void SeedDialog::close() noexcept {
     isOpen_ = false;
     editingSeed_ = false;
+    historyScroller_.cancelDrag();
+    pressedHistoryIdx_ = -1;
+    pressedHistoryPlay_ = false;
+}
+
+void SeedDialog::update(float dt) noexcept {
+    if (!isOpen_) return;
+    historyScroller_.update(dt);
 }
 
 void SeedDialog::randomizeSeed() {
     seed_ = generateRandomSeed();
     seedText_ = formatSeedText();
     recordHistory(seed_, targetGameId_, variantName_, layoutSeed_);
-    historyScrollOffset_ = 0;
+    historyScroller_.scrollTo(0.0f, true);
 }
 
 void SeedDialog::copyTextToClipboard(const std::string& text, void* nativeWindow) {
@@ -239,20 +249,22 @@ int SeedDialog::computeVisibleHistoryRows(float screenH) const noexcept {
 }
 
 void SeedDialog::clampHistoryScroll() noexcept {
+    const float histRowH = 30.0f;
+    const float histRowGap = 4.0f;
     const int total = static_cast<int>(history_.size());
-    const int maxOffset = std::max(0, total - std::max(1, visibleHistoryRows_));
-    historyScrollOffset_ = std::clamp(historyScrollOffset_, 0, maxOffset);
+    const float totalH = (total > 0)
+        ? (static_cast<float>(total) * histRowH + static_cast<float>(std::max(0, total - 1)) * histRowGap)
+        : 0.0f;
+    const float viewH = (visibleHistoryRows_ > 0)
+        ? (static_cast<float>(visibleHistoryRows_) * histRowH + static_cast<float>(std::max(0, visibleHistoryRows_ - 1)) * histRowGap)
+        : 0.0f;
+    historyScroller_.setBounds(totalH, std::max(1.0f, viewH));
 }
 
 bool SeedDialog::handleScroll(float yoffset) {
     if (!isOpen_ || history_.empty()) return false;
     if (visibleHistoryRows_ <= 0) return true;
-    const int total = static_cast<int>(history_.size());
-    if (total <= visibleHistoryRows_) return true;
-
-    const int step = (yoffset > 0.0f) ? -1 : 1;
-    historyScrollOffset_ += step;
-    clampHistoryScroll();
+    historyScroller_.handleWheel(yoffset, 34.0f);
     return true;
 }
 
@@ -489,21 +501,31 @@ void SeedDialog::render(
         );
 
         const int totalHist = static_cast<int>(history_.size());
+        const float stride = histRowH + histRowGap;
+        const float rowsH = static_cast<float>(visibleHistoryRows_) * histRowH
+                          + static_cast<float>(std::max(0, visibleHistoryRows_ - 1)) * histRowGap;
+        const float totalHistH = static_cast<float>(totalHist) * histRowH
+                               + static_cast<float>(std::max(0, totalHist - 1)) * histRowGap;
+        historyScroller_.setBounds(totalHistH, rowsH);
+        const float scrollY = historyScroller_.offset();
+        const int firstVisIdx = std::clamp(static_cast<int>(std::floor((historyScroller_.clampedOffset() + stride * 0.45f) / stride)),
+                                           0, std::max(0, totalHist - visibleHistoryRows_));
+
         if (totalHist > visibleHistoryRows_) {
             const float navW = 24.0f;
             const float navH = 20.0f;
             const float dnX = contentX + contentW - navW;
             const float upX = dnX - navW - 4.0f;
-            const bool canUp = historyScrollOffset_ > 0;
-            const bool canDn = (historyScrollOffset_ + visibleHistoryRows_) < totalHist;
+            const bool canUp = historyScroller_.clampedOffset() > 1.0f;
+            const bool canDn = historyScroller_.clampedOffset() < historyScroller_.maxOffset() - 1.0f;
             const bool upHov = canUp && (mouseX >= upX && mouseX <= upX + navW && mouseY >= curY && mouseY <= curY + navH);
             const bool dnHov = canDn && (mouseX >= dnX && mouseX <= dnX + navW && mouseY >= curY && mouseY <= curY + navH);
 
             clockwork_ui::drawPewterButton(r, upX, curY, navW, navH, 3.0f, "^", upHov, false, 11.0f);
             clockwork_ui::drawPewterButton(r, dnX, curY, navW, navH, 3.0f, "v", dnHov, false, 11.0f);
 
-            std::string rangeStr = std::to_string(historyScrollOffset_ + 1) + "-" +
-                                   std::to_string(std::min(totalHist, historyScrollOffset_ + visibleHistoryRows_)) +
+            std::string rangeStr = std::to_string(firstVisIdx + 1) + "-" +
+                                   std::to_string(std::min(totalHist, firstVisIdx + visibleHistoryRows_)) +
                                    "/" + std::to_string(totalHist);
             const float rangeW = eatsbits::ui::glyph::FontEngine::instance().measureText(rangeStr, 9.5f);
             eatsbits::ui::glyph::drawVectorText(
@@ -514,84 +536,109 @@ void SeedDialog::render(
 
         curY += histHeaderH + 4.0f;
 
+        const bool hasHistSb = (historyScroller_.maxOffset() > 1.0f);
+        const float rowListW = contentW - (hasHistSb ? 10.0f : 0.0f);
+        histViewX_ = contentX;
+        histViewY_ = curY;
+        histViewW_ = contentW;
+        histViewH_ = rowsH;
+
         const float playBtnW = 54.0f;
         const float playBtnH = 22.0f;
         const float playBtnPad = 6.0f;
 
-        for (int row = 0; row < visibleHistoryRows_; ++row) {
-            const int idx = historyScrollOffset_ + row;
-            if (idx < 0 || idx >= totalHist) break;
-            const auto& entry = history_[static_cast<size_t>(idx)];
+        {
+            auto scissor = r.makeScissorScope(contentX - 1.0f, curY - 1.0f, contentW + 2.0f, rowsH + 2.0f);
+            const bool inView = (mouseX >= contentX && mouseX <= contentX + rowListW &&
+                                 mouseY >= curY && mouseY <= curY + rowsH);
 
-            const float rowY = curY + static_cast<float>(row) * (histRowH + histRowGap);
-            const bool isSelected = (entry.seed == seed_ && entry.gameId == targetGameId_);
-            const bool isCurrent = (entry.seed == activeBoardSeed_ && entry.gameId == activeBoardGameId_);
-            const float playX = contentX + contentW - playBtnW - playBtnPad;
-            const float playY = rowY + (histRowH - playBtnH) * 0.5f;
-            const bool playHov = (mouseX >= playX && mouseX <= playX + playBtnW &&
-                                  mouseY >= playY && mouseY <= playY + playBtnH);
-            const bool rowHov = !playHov &&
-                                (mouseX >= contentX && mouseX <= contentX + contentW &&
-                                 mouseY >= rowY && mouseY <= rowY + histRowH);
+            for (int idx = 0; idx < totalHist; ++idx) {
+                const auto& entry = history_[static_cast<size_t>(idx)];
+                const float rowY = curY + static_cast<float>(idx) * stride - scrollY;
+                if (rowY + histRowH < curY - 2.0f || rowY > curY + rowsH + 2.0f) continue;
 
-            // Row background plate
-            const float bgBoost = isSelected ? 0.05f : (rowHov ? 0.03f : 0.0f);
-            r.drawRoundedRect(
-                contentX, rowY, contentW, histRowH, 4.0f,
-                0.08f + bgBoost, 0.07f + bgBoost * 0.8f, 0.06f + bgBoost * 0.5f, 0.94f, 4
-            );
-            r.drawRoundedRectOutline(
-                contentX, rowY, contentW, histRowH, 4.0f,
-                isSelected ? cPal.furnaceAmberR : (rowHov ? cPal.brassBrightR : cPal.brassDarkR),
-                isSelected ? cPal.furnaceAmberG : (rowHov ? cPal.brassBrightG : cPal.brassDarkG),
-                isSelected ? cPal.furnaceAmberB : (rowHov ? cPal.brassBrightB : cPal.brassDarkB),
-                isSelected ? 0.92f : (rowHov ? 0.80f : 0.45f),
-                isSelected ? 1.3f : 1.0f, 4
-            );
+                const bool isSelected = (entry.seed == seed_ && entry.gameId == targetGameId_);
+                const bool isCurrent = (entry.seed == activeBoardSeed_ && entry.gameId == activeBoardGameId_);
+                const float playX = contentX + rowListW - playBtnW - playBtnPad;
+                const float playY = rowY + (histRowH - playBtnH) * 0.5f;
+                const bool playHov = !historyScroller_.isDragging() && inView &&
+                                     (mouseX >= playX && mouseX <= playX + playBtnW &&
+                                      mouseY >= playY && mouseY <= playY + playBtnH);
+                const bool rowHov = !historyScroller_.isDragging() && inView && !playHov &&
+                                    (mouseX >= contentX && mouseX <= contentX + rowListW &&
+                                     mouseY >= rowY && mouseY <= rowY + histRowH);
 
-            // Active deal indicator dot
-            float textX = contentX + 10.0f;
-            if (isCurrent) {
-                r.drawCircle(contentX + 10.0f, rowY + histRowH * 0.5f, 3.2f,
-                             cPal.furnaceAmberR, cPal.furnaceAmberG, cPal.furnaceAmberB, 0.95f, 10);
-                textX = contentX + 19.0f;
-            }
+                // Row background plate
+                const float bgBoost = isSelected ? 0.05f : (rowHov ? 0.03f : 0.0f);
+                r.drawRoundedRect(
+                    contentX, rowY, rowListW, histRowH, 4.0f,
+                    0.08f + bgBoost, 0.07f + bgBoost * 0.8f, 0.06f + bgBoost * 0.5f, 0.94f, 4
+                );
+                r.drawRoundedRectOutline(
+                    contentX, rowY, rowListW, histRowH, 4.0f,
+                    isSelected ? cPal.furnaceAmberR : (rowHov ? cPal.brassBrightR : cPal.brassDarkR),
+                    isSelected ? cPal.furnaceAmberG : (rowHov ? cPal.brassBrightG : cPal.brassDarkG),
+                    isSelected ? cPal.furnaceAmberB : (rowHov ? cPal.brassBrightB : cPal.brassDarkB),
+                    isSelected ? 0.92f : (rowHov ? 0.80f : 0.45f),
+                    isSelected ? 1.3f : 1.0f, 4
+                );
 
-            // Seed number
-            std::string seedLbl = "#" + std::to_string(entry.seed);
-            if (entry.layoutSeed != 0u) {
-                seedLbl += ":" + std::to_string(entry.layoutSeed);
-            }
-            eatsbits::ui::glyph::drawVectorText(
-                r, seedLbl.c_str(), textX, rowY + 9.0f, 11.5f,
-                cPal.brassHighlightR, cPal.brassHighlightG, cPal.brassHighlightB, 1.0f
-            );
+                // Active deal indicator dot
+                float textX = contentX + 10.0f;
+                if (isCurrent) {
+                    r.drawCircle(contentX + 10.0f, rowY + histRowH * 0.5f, 3.2f,
+                                 cPal.furnaceAmberR, cPal.furnaceAmberG, cPal.furnaceAmberB, 0.95f, 10);
+                    textX = contentX + 19.0f;
+                }
 
-            // Game name / ID reference (truncated to fit cleanly before PLAY button)
-            const float seedLblW = eatsbits::ui::glyph::FontEngine::instance().measureText(seedLbl, 11.5f);
-            const float gameTextX = textX + std::max(88.0f, seedLblW + 10.0f);
-            const float maxGameW = (playX - 8.0f) - gameTextX;
-            if (maxGameW > 24.0f) {
-                std::string gLabel = !entry.gameName.empty() ? entry.gameName : entry.gameId;
-                auto& fe = eatsbits::ui::glyph::FontEngine::instance();
-                if (fe.measureText(gLabel, 10.5f) > maxGameW) {
-                    while (gLabel.size() > 3 && fe.measureText(gLabel + "...", 10.5f) > maxGameW) {
-                        gLabel.pop_back();
-                    }
-                    gLabel += "...";
+                // Seed number
+                std::string seedLbl = "#" + std::to_string(entry.seed);
+                if (entry.layoutSeed != 0u) {
+                    seedLbl += ":" + std::to_string(entry.layoutSeed);
                 }
                 eatsbits::ui::glyph::drawVectorText(
-                    r, gLabel.c_str(), gameTextX, rowY + 9.5f, 10.5f,
-                    cPal.furnaceAmberR, cPal.furnaceAmberG, cPal.furnaceAmberB, 0.88f
+                    r, seedLbl.c_str(), textX, rowY + 9.0f, 11.5f,
+                    cPal.brassHighlightR, cPal.brassHighlightG, cPal.brassHighlightB, 1.0f
                 );
-            }
 
-            // Compact 1-tap PLAY button
-            clockwork_ui::drawBrassButton(r, playX, playY, playBtnW, playBtnH, 3.5f, "PLAY", playHov, false, 10.0f);
+                // Game name / ID reference (truncated to fit cleanly before PLAY button)
+                const float seedLblW = eatsbits::ui::glyph::FontEngine::instance().measureText(seedLbl, 11.5f);
+                const float gameTextX = textX + std::max(88.0f, seedLblW + 10.0f);
+                const float maxGameW = (playX - 8.0f) - gameTextX;
+                if (maxGameW > 24.0f) {
+                    std::string gLabel = !entry.gameName.empty() ? entry.gameName : entry.gameId;
+                    auto& fe = eatsbits::ui::glyph::FontEngine::instance();
+                    if (fe.measureText(gLabel, 10.5f) > maxGameW) {
+                        while (gLabel.size() > 3 && fe.measureText(gLabel + "...", 10.5f) > maxGameW) {
+                            gLabel.pop_back();
+                        }
+                        gLabel += "...";
+                    }
+                    eatsbits::ui::glyph::drawVectorText(
+                        r, gLabel.c_str(), gameTextX, rowY + 9.5f, 10.5f,
+                        cPal.furnaceAmberR, cPal.furnaceAmberG, cPal.furnaceAmberB, 0.88f
+                    );
+                }
+
+                // Compact 1-tap PLAY button
+                clockwork_ui::drawBrassButton(r, playX, playY, playBtnW, playBtnH, 3.5f, "PLAY", playHov, false, 10.0f);
+            }
         }
 
-        const float rowsH = static_cast<float>(visibleHistoryRows_) * histRowH
-                          + static_cast<float>(std::max(0, visibleHistoryRows_ - 1)) * histRowGap;
+        // Subtle iOS-style scrollbar indicator
+        if (hasHistSb) {
+            const float sbX = contentX + contentW - 5.0f;
+            const float sbTrackY = curY + 2.0f;
+            const float sbTrackH = std::max(20.0f, rowsH - 4.0f);
+            float thumbY = sbTrackY;
+            float thumbH = 20.0f;
+            historyScroller_.computeThumb(sbTrackY, sbTrackH, thumbY, thumbH);
+            const float activeAlpha = std::max(0.32f, historyScroller_.indicatorAlpha());
+            r.drawRoundedRect(sbX, sbTrackY, 4.0f, sbTrackH, 2.0f, 0.08f, 0.07f, 0.06f, 0.45f * activeAlpha, 2);
+            r.drawRoundedRect(sbX, thumbY, 4.0f, thumbH, 2.0f,
+                              cPal.brassBrightR, cPal.brassBrightG, cPal.brassBrightB, 0.85f * activeAlpha, 2);
+        }
+
         curY += rowsH + 16.0f;
     } else {
         curY += 8.0f;
@@ -622,7 +669,34 @@ bool SeedDialog::handleMouseButton(
     void* nativeWindow
 ) {
     if (!isOpen_) return false;
-    if (button != 0 || action != 1) return true; // Absorb all clicks inside modal backdrop
+    if (button != 0) return true;
+
+    if (action == 0) {
+        if (historyScroller_.isPointerDown()) {
+            const bool suppressClick = historyScroller_.endDrag();
+            const int prevIdx = pressedHistoryIdx_;
+            const bool wasPlay = pressedHistoryPlay_;
+            pressedHistoryIdx_ = -1;
+            pressedHistoryPlay_ = false;
+            if (!suppressClick && prevIdx >= 0 && prevIdx < static_cast<int>(history_.size())) {
+                const auto entry = history_[static_cast<size_t>(prevIdx)];
+                if (wasPlay) {
+                    commitHistoryReplay(entry.seed, entry.layoutSeed, entry.gameId, entry.gameName, board, foley);
+                } else {
+                    seed_ = entry.seed;
+                    layoutSeed_ = entry.layoutSeed;
+                    seedText_ = formatSeedText();
+                    if (!entry.gameId.empty()) targetGameId_ = entry.gameId;
+                    if (!entry.gameName.empty()) variantName_ = entry.gameName;
+                    editingSeed_ = true;
+                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                }
+            }
+        }
+        return true;
+    }
+
+    if (action != 1) return true; // Absorb all clicks inside modal backdrop
 
     // Check outside dialog click -> Close
     if (mouseX < dialogX_ || mouseX > dialogX_ + dialogW_ ||
@@ -770,17 +844,18 @@ bool SeedDialog::handleMouseButton(
             const float navH = 20.0f;
             const float dnX = contentX + contentW - navW;
             const float upX = dnX - navW - 4.0f;
+            const float stride = histRowH + histRowGap;
 
             if (mouseX >= upX && mouseX <= upX + navW && mouseY >= curY && mouseY <= curY + navH) {
-                if (historyScrollOffset_ > 0) {
-                    --historyScrollOffset_;
+                if (historyScroller_.clampedOffset() > 1.0f) {
+                    historyScroller_.scrollTo(historyScroller_.clampedOffset() - stride, true);
                     foley.triggerSound(FoleySound::WoodClick, 0.55f);
                 }
                 return true;
             }
             if (mouseX >= dnX && mouseX <= dnX + navW && mouseY >= curY && mouseY <= curY + navH) {
-                if (historyScrollOffset_ + visibleHistoryRows_ < totalHist) {
-                    ++historyScrollOffset_;
+                if (historyScroller_.clampedOffset() < historyScroller_.maxOffset() - 1.0f) {
+                    historyScroller_.scrollTo(historyScroller_.clampedOffset() + stride, true);
                     foley.triggerSound(FoleySound::WoodClick, 0.55f);
                 }
                 return true;
@@ -789,40 +864,38 @@ bool SeedDialog::handleMouseButton(
 
         curY += histHeaderH + 4.0f;
 
+        const float stride = histRowH + histRowGap;
+        const float rowsH = static_cast<float>(visibleHistoryRows_) * histRowH
+                          + static_cast<float>(std::max(0, visibleHistoryRows_ - 1)) * histRowGap;
+        const bool hasHistSb = (historyScroller_.maxOffset() > 1.0f);
+        const float rowListW = contentW - (hasHistSb ? 10.0f : 0.0f);
         const float playBtnW = 54.0f;
         const float playBtnH = 22.0f;
         const float playBtnPad = 6.0f;
 
-        for (int row = 0; row < visibleHistoryRows_; ++row) {
-            const int idx = historyScrollOffset_ + row;
-            if (idx < 0 || idx >= totalHist) break;
-            const auto entry = history_[static_cast<size_t>(idx)];
-
-            const float rowY = curY + static_cast<float>(row) * (histRowH + histRowGap);
-            if (mouseX >= contentX && mouseX <= contentX + contentW &&
-                mouseY >= rowY && mouseY <= rowY + histRowH) {
-                const float playX = contentX + contentW - playBtnW - playBtnPad;
-                const float playY = rowY + (histRowH - playBtnH) * 0.5f;
-                if (mouseX >= playX && mouseX <= playX + playBtnW &&
-                    mouseY >= playY && mouseY <= playY + playBtnH) {
-                    commitHistoryReplay(entry.seed, entry.layoutSeed, entry.gameId, entry.gameName, board, foley);
-                } else {
-                    seed_ = entry.seed;
-                    layoutSeed_ = entry.layoutSeed;
-                    seedText_ = formatSeedText();
-                    targetGameId_ = entry.gameId;
-                    if (!entry.gameName.empty()) {
-                        variantName_ = entry.gameName;
+        if (mouseX >= contentX && mouseX <= contentX + contentW &&
+            mouseY >= curY && mouseY <= curY + rowsH) {
+            const bool caught = historyScroller_.beginDrag(mouseX, mouseY);
+            pressedHistoryIdx_ = -1;
+            pressedHistoryPlay_ = false;
+            if (!caught) {
+                const float scrollY = historyScroller_.offset();
+                for (int idx = 0; idx < totalHist; ++idx) {
+                    const float rowY = curY + static_cast<float>(idx) * stride - scrollY;
+                    if (mouseY >= rowY && mouseY <= rowY + histRowH &&
+                        mouseX >= contentX && mouseX <= contentX + rowListW) {
+                        pressedHistoryIdx_ = idx;
+                        const float playX = contentX + rowListW - playBtnW - playBtnPad;
+                        const float playY = rowY + (histRowH - playBtnH) * 0.5f;
+                        pressedHistoryPlay_ = (mouseX >= playX && mouseX <= playX + playBtnW &&
+                                               mouseY >= playY && mouseY <= playY + playBtnH);
+                        break;
                     }
-                    editingSeed_ = true;
-                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
                 }
-                return true;
             }
+            return true;
         }
 
-        const float rowsH = static_cast<float>(visibleHistoryRows_) * histRowH
-                          + static_cast<float>(std::max(0, visibleHistoryRows_ - 1)) * histRowGap;
         curY += rowsH + 16.0f;
     } else {
         curY += 8.0f;
@@ -850,8 +923,15 @@ bool SeedDialog::handleMouseButton(
     return true;
 }
 
-bool SeedDialog::handleMouseMove(float /*mouseX*/, float /*mouseY*/) {
-    return isOpen_;
+bool SeedDialog::handleMouseMove(float mouseX, float mouseY) {
+    if (!isOpen_) return false;
+    if (historyScroller_.isPointerDown()) {
+        if (historyScroller_.moveDrag(mouseX, mouseY)) {
+            pressedHistoryIdx_ = -1;
+            pressedHistoryPlay_ = false;
+        }
+    }
+    return true;
 }
 
 bool SeedDialog::handleKey(

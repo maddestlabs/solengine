@@ -6,6 +6,7 @@
 #include "solengine/solitaire_board.hpp"
 #include "solengine/audio_foley.hpp"
 #include "solengine/card_texture_cache.hpp"
+#include "solengine/card_back.hpp"
 #include "solengine/procedural_background.hpp"
 #include "solengine/postfx_system.hpp"
 #include "eatsbits/ui/glyph/font_engine.hpp"
@@ -39,6 +40,10 @@ void SettingsDialog::randomizeSeed() {
 void SettingsDialog::open(const std::string& activeGameId, const std::string& activeGameName) {
     isOpen_ = true;
     livePreviewDirty_ = false;
+    contentScroller_.reset(0.0f);
+    draggingThemeScrollbar_ = false;
+    optionPicker_.close();
+    pendingOptionApply_ = nullptr;
     activeGameId_ = activeGameId;
     activeGameName_ = activeGameName;
     if (activeGameId_.empty()) {
@@ -73,6 +78,10 @@ void SettingsDialog::open(const std::string& activeGameId, const std::string& ac
 void SettingsDialog::close() {
     isOpen_ = false;
     livePreviewDirty_ = false;
+    contentScroller_.cancelDrag();
+    draggingThemeScrollbar_ = false;
+    optionPicker_.close();
+    pendingOptionApply_ = nullptr;
     editingSeed_ = false;
     draggingVolume_ = false;
     draggingAmbienceVolume_ = false;
@@ -87,6 +96,14 @@ void SettingsDialog::close() {
     draggingLightWaverSpeed_ = false;
     draggingLightFlicker_ = false;
     draggingCloudOpacity_ = false;
+}
+
+void SettingsDialog::update(float dt) noexcept {
+    if (!isOpen_) return;
+    contentScroller_.update(dt);
+    if (optionPicker_.isOpen()) {
+        optionPicker_.update(dt);
+    }
 }
 
 void SettingsDialog::applyLivePreview(SolitaireBoard& board, AudioFoleyEngine& foley, const AppSettings& s, bool updatePreviewCard) {
@@ -157,6 +174,18 @@ void SettingsDialog::revertLiveState(SolitaireBoard& board, AudioFoleyEngine& fo
     applyLivePreview(board, foley, s, /*updatePreviewCard=*/false);
 }
 
+void SettingsDialog::openOptionPicker(
+    std::string title,
+    std::vector<OptionListItem> items,
+    int selectedIndex,
+    std::function<void(int, SolitaireBoard&, AudioFoleyEngine&)> onApply
+) {
+    contentScroller_.cancelDrag();
+    draggingThemeScrollbar_ = false;
+    pendingOptionApply_ = std::move(onApply);
+    optionPicker_.open(std::move(title), std::move(items), selectedIndex);
+}
+
 void SettingsDialog::render(
     eatsbits::ui::BatchRenderer2D& r,
     float screenW,
@@ -167,6 +196,14 @@ void SettingsDialog::render(
     float timeSec
 ) {
     if (!isOpen_) return;
+
+    const float rawMouseX = mouseX;
+    const float rawMouseY = mouseY;
+    if (optionPicker_.isOpen()) {
+        // Prevent hover states from bleeding through behind the option picker modal
+        mouseX = -1000.0f;
+        mouseY = -1000.0f;
+    }
 
     // 1. Semi-transparent darkened backdrop covering entire window
     r.drawRect(0.0f, 0.0f, screenW, screenH, 0.0f, 0.0f, 0.0f, 0.60f);
@@ -363,14 +400,19 @@ void SettingsDialog::render(
         bool saveHov = (mouseX >= saveBtnX && mouseX <= saveBtnX + saveBtnW && mouseY >= pBarY && mouseY <= pBarY + pBarH);
 
         if (isClockwork) {
-            clockwork_ui::drawStepperBar(r, contentX, pBarY, stepW, pBarH, pLabel, pPrevHov, pNextHov, pCenterHov);
+            clockwork_ui::drawStepperBar(r, contentX, pBarY, stepW, pBarH, pLabel, pPrevHov, pNextHov, pCenterHov, true);
             clockwork_ui::drawBrassButton(r, saveBtnX, pBarY, saveBtnW, pBarH, 4.0f, actionBtnLabel, saveHov, false, 10.0f);
         } else {
             r.drawRoundedRect(contentX, pBarY, stepW, pBarH, 4.0f, pal.woodR0 + 0.04f, pal.woodG0 + 0.03f, pal.woodB0 + 0.02f, 0.94f, 4);
-            r.drawRoundedRectOutline(contentX, pBarY, stepW, pBarH, 4.0f, pal.trimR, pal.trimG, pal.trimB, 0.65f, 1.1f, 4);
+            r.drawRoundedRectOutline(contentX, pBarY, stepW, pBarH, 4.0f, pCenterHov ? pal.accentR : pal.trimR, pCenterHov ? pal.accentG : pal.trimG, pCenterHov ? pal.accentB : pal.trimB, pCenterHov ? 0.90f : 0.65f, 1.1f, 4);
             float pTxtW = eatsbits::ui::glyph::getVectorTextWidth(10.5f, pLabel.c_str());
             eatsbits::ui::glyph::drawVectorText(r, "<", contentX + 10.0f, pBarY + 8.0f, 11.5f, pPrevHov ? pal.accentR : 0.88f, pPrevHov ? pal.accentG : 0.85f, pPrevHov ? pal.accentB : 0.80f, 1.0f);
-            eatsbits::ui::glyph::drawVectorText(r, pLabel.c_str(), contentX + (stepW - pTxtW) * 0.5f, pBarY + 8.5f, 10.5f, curPreset ? pal.accentR : 0.92f, curPreset ? pal.accentG : 0.90f, curPreset ? pal.accentB : 0.85f, 1.0f);
+            eatsbits::ui::glyph::drawVectorText(r, pLabel.c_str(), contentX + (stepW - pTxtW) * 0.5f, pBarY + 8.5f, 10.5f, (curPreset || pCenterHov) ? pal.accentR : 0.92f, (curPreset || pCenterHov) ? pal.accentG : 0.90f, (curPreset || pCenterHov) ? pal.accentB : 0.85f, 1.0f);
+            // Subtle dropdown chevron before '>' button
+            const float chevX = nextBtnX - 10.0f;
+            const float chevY = pBarY + pBarH * 0.5f - 1.5f;
+            r.drawLine(chevX - 3.0f, chevY, chevX, chevY + 3.0f, pCenterHov ? pal.accentR : pal.trimR, pCenterHov ? pal.accentG : pal.trimG, pCenterHov ? pal.accentB : pal.trimB, 0.80f, 1.3f);
+            r.drawLine(chevX, chevY + 3.0f, chevX + 3.0f, chevY, pCenterHov ? pal.accentR : pal.trimR, pCenterHov ? pal.accentG : pal.trimG, pCenterHov ? pal.accentB : pal.trimB, 0.80f, 1.3f);
             eatsbits::ui::glyph::drawVectorText(r, ">", nextBtnX + 10.0f, pBarY + 8.0f, 11.5f, pNextHov ? pal.accentR : 0.88f, pNextHov ? pal.accentG : 0.85f, pNextHov ? pal.accentB : 0.80f, 1.0f);
 
             r.drawRoundedRect(saveBtnX, pBarY, saveBtnW, pBarH, 4.0f, pal.woodR0 + 0.08f + (saveHov ? 0.08f : 0.0f), pal.woodG0 + 0.06f, pal.woodB0 + 0.04f, 0.96f, 4);
@@ -410,7 +452,7 @@ void SettingsDialog::render(
         // --- TAB 0: MAIN (RESOLUTION, GAME & SEED) ---
         auto scissor = r.makeScissorScope(contentX + 2.0f, contentY + 2.0f, contentW - 4.0f, contentH - 4.0f);
         const bool mouseInContent = (mouseX >= contentX && mouseX <= contentX + contentW && mouseY >= contentY && mouseY <= contentY + contentH);
-        curY -= themeScrollY_;
+        curY -= contentScroller_.offset();
 
         // Prominent 1-click Render Resolution & Pixel Art Mode selector
         drawSectionHeader("RENDER RESOLUTION & PIXEL ART MODE");
@@ -654,35 +696,35 @@ void SettingsDialog::render(
             int rows = static_cast<int>((favDefs.size() + 1) / 2);
             favEndY = curY + rows * (favBtnH + 8.0f);
         }
-        const float totalBottom = favEndY + 12.0f + themeScrollY_;
-        themeMaxScrollY_ = std::max(0.0f, totalBottom - (contentY + contentH));
-        themeScrollY_ = std::clamp(themeScrollY_, 0.0f, themeMaxScrollY_);
-        if (themeMaxScrollY_ > 1.0f) {
+        const float scrollY = contentScroller_.offset();
+        const float totalBottom = favEndY + 12.0f + scrollY;
+        contentScroller_.setBounds(totalBottom - contentY, contentH);
+        if (contentScroller_.maxOffset() > 1.0f) {
             const float sbTrackY = contentY + 8.0f;
             const float sbTrackH = contentH - 16.0f;
-            const float visibleFrac = std::clamp(contentH / std::max(1.0f, totalBottom - contentY), 0.15f, 1.0f);
-            const float thumbH = std::max(22.0f, sbTrackH * visibleFrac);
-            const float scrollFrac = themeScrollY_ / themeMaxScrollY_;
-            const float thumbY = sbTrackY + (sbTrackH - thumbH) * scrollFrac;
+            float thumbY = sbTrackY;
+            float thumbH = 22.0f;
+            contentScroller_.computeThumb(sbTrackY, sbTrackH, thumbY, thumbH);
             themeSbTrackY_ = sbTrackY;
             themeSbTrackH_ = sbTrackH;
             themeSbThumbH_ = thumbH;
             const bool sbHov = (mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
                                 mouseY >= sbTrackY && mouseY <= sbTrackY + sbTrackH) || draggingThemeScrollbar_;
+            const float activeAlpha = sbHov ? 1.0f : std::max(0.30f, contentScroller_.indicatorAlpha());
             const float sbW = sbHov ? 7.0f : 5.0f;
             const float sbX = contentX + contentW - sbW - 4.0f;
-            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, sbHov ? 0.65f : 0.45f, 2);
+            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, (sbHov ? 0.65f : 0.45f) * activeAlpha, 2);
             r.drawRoundedRect(sbX, thumbY, sbW, thumbH, sbW * 0.5f,
                               isClockwork ? cpal.brassBrightR : pal.accentR,
                               isClockwork ? cpal.brassBrightG : pal.accentG,
-                              isClockwork ? cpal.brassBrightB : pal.accentB, sbHov ? 0.95f : 0.78f, 2);
+                              isClockwork ? cpal.brassBrightB : pal.accentB, (sbHov ? 0.95f : 0.85f) * activeAlpha, 2);
         }
     } else if (currentTab_ == 1) {
         // --- TAB 1: THEMES & PHYSICAL FINISHES (Scrollable on compact/mobile viewports) ---
         auto scissor = r.makeScissorScope(contentX + 2.0f, contentY + 2.0f, contentW - 4.0f, contentH - 4.0f);
         const bool mouseInContent = (mouseX >= contentX && mouseX <= contentX + contentW && mouseY >= contentY && mouseY <= contentY + contentH);
         const float startCurY = curY;
-        curY -= themeScrollY_;
+        curY -= contentScroller_.offset();
 
         const bool useTwoCol = (dialogW_ >= 420.0f);
         const float col1W = useTwoCol ? (contentW * (dialogW_ < 540.0f ? 0.60f : 0.56f)) : contentW;
@@ -695,13 +737,13 @@ void SettingsDialog::render(
         const float labelW = rowW - 2.0f * (btnW + 6.0f);
         const float nextX = rowX + rowW - btnW;
 
-        auto drawStepper = [&](const std::string& text) {
+        auto drawStepper = [&](const std::string& text, bool showDropdownHint = true) {
             bool prevHov = mouseInContent && (mouseX >= rowX && mouseX <= rowX + btnW && mouseY >= curY && mouseY <= curY + rowH);
             bool nextHov = mouseInContent && (mouseX >= nextX && mouseX <= nextX + btnW && mouseY >= curY && mouseY <= curY + rowH);
             bool centerHov = mouseInContent && (mouseX >= labelX && mouseX <= labelX + labelW && mouseY >= curY && mouseY <= curY + rowH);
 
             if (isClockwork) {
-                clockwork_ui::drawStepperBar(r, rowX, curY, rowW, rowH, text, prevHov, nextHov, centerHov);
+                clockwork_ui::drawStepperBar(r, rowX, curY, rowW, rowH, text, prevHov, nextHov, centerHov, showDropdownHint);
                 return;
             }
 
@@ -744,6 +786,12 @@ void SettingsDialog::render(
                                                 centerHov ? pal.accentR : 0.96f,
                                                 centerHov ? pal.accentG : 0.93f,
                                                 centerHov ? pal.accentB : 0.87f, 1.0f);
+            if (showDropdownHint && labelW > 48.0f) {
+                const float chevX = labelX + labelW - 11.0f;
+                const float chevY = curY + rowH * 0.5f - 1.5f;
+                r.drawLine(chevX - 3.0f, chevY, chevX, chevY + 3.0f, centerHov ? pal.accentR : pal.trimR, centerHov ? pal.accentG : pal.trimG, centerHov ? pal.accentB : pal.trimB, 0.80f, 1.3f);
+                r.drawLine(chevX, chevY + 3.0f, chevX + 3.0f, chevY, centerHov ? pal.accentR : pal.trimR, centerHov ? pal.accentG : pal.trimG, centerHov ? pal.accentB : pal.trimB, 0.80f, 1.3f);
+            }
 
             // Right [ > ] button
             r.drawRoundedRect(nextX, curY, btnW, rowH, 4.0f,
@@ -793,7 +841,7 @@ void SettingsDialog::render(
                                     CardTextureCache::instance().cardBackSupportsSeed(tempSettings_.cardBackId);
         if (showSeedOption) {
             std::string seedStr = "Low-Poly Seed: " + std::to_string(tempSettings_.lowPolySeed);
-            drawStepper(seedStr);
+            drawStepper(seedStr, false);
             curY += rowH + rowGap;
         }
         curY += 8.0f - rowGap;
@@ -877,7 +925,7 @@ void SettingsDialog::render(
         // --- SAMPLE AREA (Real-time Shader Stock & Wear) ---
         const float col2X = useTwoCol ? (contentX + col1W + 4.0f) : (contentX + 16.0f);
         const float col2W = useTwoCol ? (contentW - col1W - 8.0f) : (contentW - 36.0f);
-        const float col2Y = useTwoCol ? (startCurY - 2.0f - themeScrollY_) : (curY + 38.0f);
+        const float col2Y = useTwoCol ? (startCurY - 2.0f - contentScroller_.offset()) : (curY + 38.0f);
 
         // Header: "Sample"
         const char* titleStr = "Sample";
@@ -984,21 +1032,20 @@ void SettingsDialog::render(
         eatsbits::ui::glyph::drawVectorText(r, badgeCorn.c_str(),  col2X + (col2W - bCornW) * 0.5f,  infoY + 24.0f, 8.5f,
                                             0.80f, 0.78f, 0.74f, 0.85f);
 
-        // Compute scrollable height & clamp themeScrollY_
-        const float col1Bottom = curY + 34.0f + themeScrollY_;
-        const float col2Bottom = infoY + 42.0f + themeScrollY_;
+        // Compute scrollable height for kinetic scroller
+        const float scrollY = contentScroller_.offset();
+        const float col1Bottom = curY + 34.0f + scrollY;
+        const float col2Bottom = infoY + 42.0f + scrollY;
         const float totalBottom = std::max(col1Bottom, col2Bottom);
-        themeMaxScrollY_ = std::max(0.0f, totalBottom - (contentY + contentH));
-        themeScrollY_ = std::clamp(themeScrollY_, 0.0f, themeMaxScrollY_);
+        contentScroller_.setBounds(totalBottom - contentY, contentH);
 
         // Subtle vertical scrollbar indicator when content overflows
-        if (themeMaxScrollY_ > 1.0f) {
+        if (contentScroller_.maxOffset() > 1.0f) {
             const float sbTrackY = contentY + 8.0f;
             const float sbTrackH = std::max(24.0f, contentH - 16.0f);
-            const float visibleRatio = std::clamp(contentH / std::max(1.0f, totalBottom - contentY), 0.15f, 1.0f);
-            const float thumbH = std::max(24.0f, sbTrackH * visibleRatio);
-            const float scrollFrac = themeScrollY_ / themeMaxScrollY_;
-            const float thumbY = sbTrackY + (sbTrackH - thumbH) * scrollFrac;
+            float thumbY = sbTrackY;
+            float thumbH = 24.0f;
+            contentScroller_.computeThumb(sbTrackY, sbTrackH, thumbY, thumbH);
 
             themeSbTrackY_ = sbTrackY;
             themeSbTrackH_ = sbTrackH;
@@ -1006,20 +1053,21 @@ void SettingsDialog::render(
 
             const bool sbHov = (mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
                                 mouseY >= sbTrackY && mouseY <= sbTrackY + sbTrackH) || draggingThemeScrollbar_;
+            const float activeAlpha = sbHov ? 1.0f : std::max(0.30f, contentScroller_.indicatorAlpha());
             const float sbW = sbHov ? 7.0f : 5.0f;
             const float sbX = contentX + contentW - sbW - 4.0f;
-            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, sbHov ? 0.65f : 0.45f, 2);
+            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, (sbHov ? 0.65f : 0.45f) * activeAlpha, 2);
             r.drawRoundedRect(sbX, thumbY, sbW, thumbH, sbW * 0.5f,
                               isClockwork ? cpal.brassBrightR : pal.accentR,
                               isClockwork ? cpal.brassBrightG : pal.accentG,
-                              isClockwork ? cpal.brassBrightB : pal.accentB, sbHov ? 0.95f : 0.78f, 2);
+                              isClockwork ? cpal.brassBrightB : pal.accentB, (sbHov ? 0.95f : 0.85f) * activeAlpha, 2);
         }
     } else if (currentTab_ == 2) {
         // --- TAB 2: SCENE (Tabletop, Lighting & Atmosphere, Post-Processing) ---
         auto scissor = r.makeScissorScope(contentX + 2.0f, contentY + 2.0f, contentW - 4.0f, contentH - 4.0f);
         const bool mouseInContent = (mouseX >= contentX && mouseX <= contentX + contentW && mouseY >= contentY && mouseY <= contentY + contentH);
         const float startCurY = curY;
-        curY -= themeScrollY_;
+        curY -= contentScroller_.offset();
 
         const float rowX = contentX + 16.0f;
         const float rowW = contentW - 38.0f;
@@ -1035,15 +1083,21 @@ void SettingsDialog::render(
             bool nextHov = mouseInContent && (mouseX >= nextX && mouseX <= nextX + btnW && mouseY >= curY && mouseY <= curY + rowH);
             bool centerHov = mouseInContent && (mouseX >= labelX && mouseX <= labelX + labelW && mouseY >= curY && mouseY <= curY + rowH);
             if (isClockwork) {
-                clockwork_ui::drawStepperBar(r, rowX, curY, rowW, rowH, text, prevHov, nextHov, centerHov);
+                clockwork_ui::drawStepperBar(r, rowX, curY, rowW, rowH, text, prevHov, nextHov, centerHov, true);
             } else {
                 r.drawRoundedRect(rowX, curY, btnW, rowH, 4.0f, pal.woodR0 + 0.05f + (prevHov ? 0.08f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
                 r.drawRoundedRectOutline(rowX, curY, btnW, rowH, 4.0f, prevHov ? pal.accentR : pal.trimR, prevHov ? pal.accentG : pal.trimG, prevHov ? pal.accentB : pal.trimB, prevHov ? 1.0f : 0.65f, 1.1f, 4);
                 eatsbits::ui::glyph::drawVectorText(r, "<", rowX + 11.0f, curY + 7.0f, 12.0f, prevHov ? pal.accentR : 0.92f, prevHov ? pal.accentG : 0.88f, prevHov ? pal.accentB : 0.82f, 1.0f);
                 r.drawRoundedRect(labelX, curY, labelW, rowH, 4.0f, pal.woodR1 + 0.03f, pal.woodG1 + 0.03f, pal.woodB1 + 0.03f, 0.92f, 4);
-                r.drawRoundedRectOutline(labelX, curY, labelW, rowH, 4.0f, centerHov ? pal.accentR : pal.trimR, centerHov ? pal.accentG : pal.trimG, centerHov ? pal.accentB : pal.trimB, 0.60f, 1.0f, 4);
+                r.drawRoundedRectOutline(labelX, curY, labelW, rowH, 4.0f, centerHov ? pal.accentR : pal.trimR, centerHov ? pal.accentG : pal.trimG, centerHov ? pal.accentB : pal.trimB, centerHov ? 0.90f : 0.60f, 1.0f, 4);
                 float tw = eatsbits::ui::glyph::getVectorTextWidth(11.0f, text);
                 eatsbits::ui::glyph::drawVectorText(r, text.c_str(), labelX + (labelW - tw) * 0.5f, curY + 7.5f, 11.0f, centerHov ? pal.accentR : 0.96f, centerHov ? pal.accentG : 0.93f, centerHov ? pal.accentB : 0.87f, 1.0f);
+                if (labelW > 48.0f) {
+                    const float chevX = labelX + labelW - 11.0f;
+                    const float chevY = curY + rowH * 0.5f - 1.5f;
+                    r.drawLine(chevX - 3.0f, chevY, chevX, chevY + 3.0f, centerHov ? pal.accentR : pal.trimR, centerHov ? pal.accentG : pal.trimG, centerHov ? pal.accentB : pal.trimB, 0.80f, 1.3f);
+                    r.drawLine(chevX, chevY + 3.0f, chevX + 3.0f, chevY, centerHov ? pal.accentR : pal.trimR, centerHov ? pal.accentG : pal.trimG, centerHov ? pal.accentB : pal.trimB, 0.80f, 1.3f);
+                }
                 r.drawRoundedRect(nextX, curY, btnW, rowH, 4.0f, pal.woodR0 + 0.05f + (nextHov ? 0.08f : 0.0f), pal.woodG0 + 0.04f, pal.woodB0 + 0.03f, 0.95f, 4);
                 r.drawRoundedRectOutline(nextX, curY, btnW, rowH, 4.0f, nextHov ? pal.accentR : pal.trimR, nextHov ? pal.accentG : pal.trimG, nextHov ? pal.accentB : pal.trimB, nextHov ? 1.0f : 0.65f, 1.1f, 4);
                 eatsbits::ui::glyph::drawVectorText(r, ">", nextX + 11.0f, curY + 7.0f, 12.0f, nextHov ? pal.accentR : 0.92f, nextHov ? pal.accentG : 0.88f, nextHov ? pal.accentB : 0.82f, 1.0f);
@@ -1256,34 +1310,34 @@ void SettingsDialog::render(
         }
 
         // Scrollbar math for Scene tab
-        const float totalBottom = curY + 12.0f + themeScrollY_;
-        themeMaxScrollY_ = std::max(0.0f, totalBottom - (contentY + contentH));
-        themeScrollY_ = std::clamp(themeScrollY_, 0.0f, themeMaxScrollY_);
-        if (themeMaxScrollY_ > 1.0f) {
+        const float scrollY = contentScroller_.offset();
+        const float totalBottom = curY + 12.0f + scrollY;
+        contentScroller_.setBounds(totalBottom - contentY, contentH);
+        if (contentScroller_.maxOffset() > 1.0f) {
             const float sbTrackY = contentY + 8.0f;
             const float sbTrackH = std::max(24.0f, contentH - 16.0f);
-            const float visibleRatio = std::clamp(contentH / std::max(1.0f, totalBottom - contentY), 0.15f, 1.0f);
-            const float thumbH = std::max(24.0f, sbTrackH * visibleRatio);
-            const float scrollFrac = themeScrollY_ / themeMaxScrollY_;
-            const float thumbY = sbTrackY + (sbTrackH - thumbH) * scrollFrac;
+            float thumbY = sbTrackY;
+            float thumbH = 24.0f;
+            contentScroller_.computeThumb(sbTrackY, sbTrackH, thumbY, thumbH);
             themeSbTrackY_ = sbTrackY;
             themeSbTrackH_ = sbTrackH;
             themeSbThumbH_ = thumbH;
             const bool sbHov = (mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
                                 mouseY >= sbTrackY && mouseY <= sbTrackY + sbTrackH) || draggingThemeScrollbar_;
+            const float activeAlpha = sbHov ? 1.0f : std::max(0.30f, contentScroller_.indicatorAlpha());
             const float sbW = sbHov ? 7.0f : 5.0f;
             const float sbX = contentX + contentW - sbW - 4.0f;
-            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, sbHov ? 0.65f : 0.45f, 2);
+            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, (sbHov ? 0.65f : 0.45f) * activeAlpha, 2);
             r.drawRoundedRect(sbX, thumbY, sbW, thumbH, sbW * 0.5f,
                               isClockwork ? cpal.brassBrightR : pal.accentR,
                               isClockwork ? cpal.brassBrightG : pal.accentG,
-                              isClockwork ? cpal.brassBrightB : pal.accentB, sbHov ? 0.95f : 0.78f, 2);
+                              isClockwork ? cpal.brassBrightB : pal.accentB, (sbHov ? 0.95f : 0.85f) * activeAlpha, 2);
         }
         (void)startCurY;
     } else if (currentTab_ == 3) {
         // --- TAB 3: DISPLAY & RESPONSIVE ---
         auto scissor = r.makeScissorScope(contentX + 2.0f, contentY + 2.0f, contentW - 4.0f, contentH - 4.0f);
-        curY -= themeScrollY_;
+        curY -= contentScroller_.offset();
 
         drawSectionHeader("RESPONSIVE LAYOUT & ASPECT-RATIO ADAPTATION");
         const char* layoutModes[3] = { "AUTO (ADAPTIVE)", "DESKTOP (CLASSIC)", "MOBILE (COMPACT)" };
@@ -1419,28 +1473,28 @@ void SettingsDialog::render(
         }
 
         // Scrollbar math for Display tab (2 rows of victory buttons: 34 + 28 = 62px)
-        const float totalBottom = curY + 62.0f + 12.0f + themeScrollY_;
-        themeMaxScrollY_ = std::max(0.0f, totalBottom - (contentY + contentH));
-        themeScrollY_ = std::clamp(themeScrollY_, 0.0f, themeMaxScrollY_);
-        if (themeMaxScrollY_ > 1.0f) {
+        const float scrollY = contentScroller_.offset();
+        const float totalBottom = curY + 62.0f + 12.0f + scrollY;
+        contentScroller_.setBounds(totalBottom - contentY, contentH);
+        if (contentScroller_.maxOffset() > 1.0f) {
             const float sbTrackY = contentY + 8.0f;
             const float sbTrackH = std::max(24.0f, contentH - 16.0f);
-            const float visibleRatio = std::clamp(contentH / std::max(1.0f, totalBottom - contentY), 0.15f, 1.0f);
-            const float thumbH = std::max(24.0f, sbTrackH * visibleRatio);
-            const float scrollFrac = themeScrollY_ / themeMaxScrollY_;
-            const float thumbY = sbTrackY + (sbTrackH - thumbH) * scrollFrac;
+            float thumbY = sbTrackY;
+            float thumbH = 24.0f;
+            contentScroller_.computeThumb(sbTrackY, sbTrackH, thumbY, thumbH);
             themeSbTrackY_ = sbTrackY;
             themeSbTrackH_ = sbTrackH;
             themeSbThumbH_ = thumbH;
             const bool sbHov = (mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
                                 mouseY >= sbTrackY && mouseY <= sbTrackY + sbTrackH) || draggingThemeScrollbar_;
+            const float activeAlpha = sbHov ? 1.0f : std::max(0.30f, contentScroller_.indicatorAlpha());
             const float sbW = sbHov ? 7.0f : 5.0f;
             const float sbX = contentX + contentW - sbW - 4.0f;
-            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, sbHov ? 0.65f : 0.45f, 2);
+            r.drawRoundedRect(sbX, sbTrackY, sbW, sbTrackH, sbW * 0.5f, 0.08f, 0.07f, 0.06f, (sbHov ? 0.65f : 0.45f) * activeAlpha, 2);
             r.drawRoundedRect(sbX, thumbY, sbW, thumbH, sbW * 0.5f,
                               isClockwork ? cpal.brassBrightR : pal.accentR,
                               isClockwork ? cpal.brassBrightG : pal.accentG,
-                              isClockwork ? cpal.brassBrightB : pal.accentB, sbHov ? 0.95f : 0.78f, 2);
+                              isClockwork ? cpal.brassBrightB : pal.accentB, (sbHov ? 0.95f : 0.85f) * activeAlpha, 2);
         }
     } else {
         // --- TAB 4: AUDIO ---
@@ -1622,6 +1676,11 @@ void SettingsDialog::render(
         float applyTxtW = eatsbits::ui::glyph::getVectorTextWidth(11.0f, "APPLY & CLOSE");
         eatsbits::ui::glyph::drawVectorText(r, "APPLY & CLOSE", applyBtnX + (applyBtnW - applyTxtW) * 0.5f, footerY + (applyBtnH - 11.0f) * 0.5f, 11.0f, pal.accentR, pal.accentG, pal.accentB, 1.0f);
     }
+
+    // 7. Nested Option Picker Modal Overlay (when active)
+    if (optionPicker_.isOpen()) {
+        optionPicker_.render(r, screenW, screenH, rawMouseX, rawMouseY, pal, isClockwork, timeSec);
+    }
 }
 
 bool SettingsDialog::handleMouseButton(
@@ -1633,6 +1692,16 @@ bool SettingsDialog::handleMouseButton(
     AudioFoleyEngine& foley
 ) {
     if (!isOpen_) return false;
+    if (optionPicker_.isOpen()) {
+        const bool handled = optionPicker_.handleMouseButton(button, action, mouseX, mouseY, foley);
+        int pickedIdx = -1;
+        if (optionPicker_.takeSelection(pickedIdx) && pendingOptionApply_) {
+            auto fn = std::move(pendingOptionApply_);
+            pendingOptionApply_ = nullptr;
+            fn(pickedIdx, board, foley);
+        }
+        return handled;
+    }
     if (button != 0) return true;
     if (action == 0) {
         draggingVolume_ = false;
@@ -1650,10 +1719,9 @@ bool SettingsDialog::handleMouseButton(
         draggingLightWaverSpeed_ = false;
         draggingLightFlicker_ = false;
         draggingCloudOpacity_ = false;
-        pointerDownInContent_ = false;
         draggingThemeScrollbar_ = false;
-        if (draggingThemeScroll_) {
-            draggingThemeScroll_ = false;
+        if (contentScroller_.isPointerDown()) {
+            contentScroller_.endDrag();
             return true;
         }
         return true;
@@ -1697,7 +1765,7 @@ bool SettingsDialog::handleMouseButton(
     for (int t = 0; t < 5; ++t) {
         float tx = dialogX_ + 16.0f + t * tabW;
         if (mouseX >= tx && mouseX <= tx + tabW - 4.0f && mouseY >= tabY && mouseY <= tabY + tabH) {
-            if (currentTab_ != t) themeScrollY_ = 0.0f;
+            if (currentTab_ != t) contentScroller_.reset(0.0f);
             currentTab_ = t;
             editingSeed_ = false;
             foley.triggerSound(FoleySound::WoodClick, 0.75f);
@@ -1741,21 +1809,47 @@ bool SettingsDialog::handleMouseButton(
                 return true;
             }
             if (mouseX >= contentX && mouseX <= nextBtnX + stepBtnW && !presets.empty()) {
-                int delta = (mouseX < contentX + stepBtnW) ? -1 : 1;
                 int curIdx = -1; // -1 = CUSTOM
                 for (int i = 0; i < static_cast<int>(presets.size()); ++i) {
                     if (presets[i].id == selectedPresetId_) { curIdx = i; break; }
                 }
-                int total = static_cast<int>(presets.size()) + 1;
-                int nextIdx = ((curIdx + 1 + delta + total) % total) - 1;
-                if (nextIdx < 0) {
-                    selectedPresetId_.clear();
+                if (mouseX < contentX + stepBtnW || mouseX >= nextBtnX) {
+                    int delta = (mouseX < contentX + stepBtnW) ? -1 : 1;
+                    int total = static_cast<int>(presets.size()) + 1;
+                    int nextIdx = ((curIdx + 1 + delta + total) % total) - 1;
+                    if (nextIdx < 0) {
+                        selectedPresetId_.clear();
+                    } else {
+                        selectedPresetId_ = presets[nextIdx].id;
+                        SettingsManager::applyProfileToSettings(presets[nextIdx].profile, tempSettings_);
+                        applyLivePreview(board, foley, tempSettings_);
+                    }
+                    foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 } else {
-                    selectedPresetId_ = presets[nextIdx].id;
-                    SettingsManager::applyProfileToSettings(presets[nextIdx].profile, tempSettings_);
-                    applyLivePreview(board, foley, tempSettings_);
+                    std::vector<OptionListItem> items;
+                    items.reserve(presets.size() + 1);
+                    items.push_back(OptionListItem{"Custom", ""});
+                    for (const auto& p : presets) {
+                        items.push_back(OptionListItem{p.name, p.isBuiltin ? "BUILT-IN" : "USER"});
+                    }
+                    openOptionPicker(
+                        "SELECT PRESET",
+                        std::move(items),
+                        curIdx + 1,
+                        [this](int idx, SolitaireBoard& b, AudioFoleyEngine& f) {
+                            const auto& ps = SettingsManager::instance().presets();
+                            if (idx <= 0) {
+                                selectedPresetId_.clear();
+                            } else if (idx - 1 < static_cast<int>(ps.size())) {
+                                selectedPresetId_ = ps[static_cast<size_t>(idx - 1)].id;
+                                SettingsManager::applyProfileToSettings(ps[static_cast<size_t>(idx - 1)].profile, tempSettings_);
+                                applyLivePreview(b, f, tempSettings_);
+                            }
+                            f.triggerSound(FoleySound::WoodClick, 0.75f);
+                        }
+                    );
+                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
                 }
-                foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 return true;
             }
         }
@@ -1766,17 +1860,21 @@ bool SettingsDialog::handleMouseButton(
             mouseX < contentRectX_ || mouseX > contentRectX_ + contentRectW_) {
             // Outside scrollable content bounds — fall through to footer buttons
         } else {
-            if (themeMaxScrollY_ > 1.0f &&
+            if (contentScroller_.maxOffset() > 1.0f &&
                 mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
                 mouseY >= themeSbTrackY_ && mouseY <= themeSbTrackY_ + themeSbTrackH_) {
                 draggingThemeScrollbar_ = true;
                 float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
                 float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
-                themeScrollY_ = frac * themeMaxScrollY_;
+                contentScroller_.setOffsetImmediate(frac * contentScroller_.maxOffset());
+                return true;
+            }
+            if (contentScroller_.maxOffset() > 1.0f && contentScroller_.isAnimating() && std::abs(contentScroller_.velocity()) > 55.0f) {
+                contentScroller_.beginDrag(mouseX, mouseY);
                 return true;
             }
 
-            float curY = tabContentY + 16.0f - themeScrollY_;
+            float curY = tabContentY + 16.0f - contentScroller_.offset();
             curY += 24.0f; // "RENDER RESOLUTION & PIXEL ART MODE" header
             {
                 const float resBtnH = 26.0f;
@@ -1906,11 +2004,8 @@ bool SettingsDialog::handleMouseButton(
                     }
                 }
             }
-            if (themeMaxScrollY_ > 1.0f) {
-                pointerDownInContent_ = true;
-                draggingThemeScroll_ = false;
-                dragStartY_ = mouseY;
-                dragLastY_ = mouseY;
+            if (contentScroller_.maxOffset() > 1.0f) {
+                contentScroller_.beginDrag(mouseX, mouseY);
                 return true;
             }
         }
@@ -1920,13 +2015,17 @@ bool SettingsDialog::handleMouseButton(
             // Outside scrollable content bounds — fall through to footer buttons
         } else {
             // Direct scrollbar track/thumb grab (wide 22px hit zone for mouse & touch)
-            if (themeMaxScrollY_ > 1.0f &&
+            if (contentScroller_.maxOffset() > 1.0f &&
                 mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
                 mouseY >= themeSbTrackY_ && mouseY <= themeSbTrackY_ + themeSbTrackH_) {
                 draggingThemeScrollbar_ = true;
                 float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
                 float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
-                themeScrollY_ = frac * themeMaxScrollY_;
+                contentScroller_.setOffsetImmediate(frac * contentScroller_.maxOffset());
+                return true;
+            }
+            if (contentScroller_.maxOffset() > 1.0f && std::abs(contentScroller_.velocity()) > 55.0f) {
+                contentScroller_.beginDrag(mouseX, mouseY);
                 return true;
             }
             // Track pointer press for touch/empty-space drag scrolling
@@ -1934,13 +2033,10 @@ bool SettingsDialog::handleMouseButton(
                                       mouseY >= devTrackY_ && mouseY <= devTrackY_ + devTrackH_);
             const bool onPfxSlider = (mouseX >= postFxTrackX_ && mouseX <= postFxTrackX_ + postFxTrackW_ &&
                                       mouseY >= postFxTrackY_ && mouseY <= postFxTrackY_ + postFxTrackH_);
-            if (themeMaxScrollY_ > 1.0f && !onDevSlider && !onPfxSlider) {
-                pointerDownInContent_ = true;
-                draggingThemeScroll_ = false;
-                dragStartY_ = mouseY;
-                dragLastY_ = mouseY;
+            if (contentScroller_.maxOffset() > 1.0f && !onDevSlider && !onPfxSlider) {
+                contentScroller_.beginDrag(mouseX, mouseY);
             }
-            float curY = tabContentY + 16.0f - themeScrollY_;
+            float curY = tabContentY + 16.0f - contentScroller_.offset();
             const bool useTwoCol = (dialogW_ >= 420.0f);
             const float col1W = useTwoCol ? (contentW * (dialogW_ < 540.0f ? 0.60f : 0.56f)) : contentW;
             const float rowX = contentX + 16.0f;
@@ -1952,34 +2048,62 @@ bool SettingsDialog::handleMouseButton(
         const float labelW = rowW - 2.0f * (btnW + 6.0f);
         const float nextX = rowX + rowW - btnW;
 
-        auto testStepper = [&](int& delta) -> bool {
+        auto testStepper = [&](int& hitZone) -> bool {
             if (mouseY >= curY && mouseY <= curY + rowH) {
                 if (mouseX >= rowX && mouseX <= rowX + btnW) {
-                    delta = -1; // Previous
+                    hitZone = -1; // Previous
                     return true;
                 }
                 if (mouseX >= nextX && mouseX <= nextX + btnW) {
-                    delta = +1; // Next
+                    hitZone = +1; // Next
                     return true;
                 }
                 if (mouseX >= labelX && mouseX <= labelX + labelW) {
-                    delta = +1; // Center cycles forward
+                    hitZone = 0; // Center label -> open list dialog
                     return true;
                 }
             }
             return false;
         };
 
-        int stepDelta = 0;
+        int stepZone = 0;
 
         // 1. Deck Theme
-        if (testStepper(stepDelta)) {
+        if (testStepper(stepZone)) {
             auto& cache = CardTextureCache::instance();
             const auto& decks = cache.availableDecks();
             if (!decks.empty()) {
                 size_t dIdx = cache.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+                if (stepZone == 0) {
+                    std::vector<OptionListItem> items;
+                    items.reserve(decks.size());
+                    for (const auto& d : decks) {
+                        items.push_back(OptionListItem{d.name, ""});
+                    }
+                    openOptionPicker(
+                        "SELECT DECK",
+                        std::move(items),
+                        static_cast<int>(dIdx),
+                        [this](int idx, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                            auto& c = CardTextureCache::instance();
+                            const auto& ds = c.availableDecks();
+                            if (idx >= 0 && idx < static_cast<int>(ds.size())) {
+                                const auto& chosen = ds[static_cast<size_t>(idx)];
+                                tempSettings_.deckSlug = chosen.id;
+                                tempSettings_.deckTheme = chosen.legacyId;
+                                c.updatePreviewCardByDef(chosen, tempSettings_.cardWear, tempSettings_.cardStock);
+                                if (tempSettings_.cardBackId == "auto") {
+                                    c.setActiveCardBack("auto");
+                                }
+                                f.triggerSound(FoleySound::CardSlide, 0.8f);
+                            }
+                        }
+                    );
+                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                    return true;
+                }
                 size_t count = decks.size();
-                if (stepDelta < 0) {
+                if (stepZone < 0) {
                     dIdx = (dIdx + count - 1u) % count;
                 } else {
                     dIdx = (dIdx + 1u) % count;
@@ -1997,15 +2121,47 @@ bool SettingsDialog::handleMouseButton(
         curY += rowH + rowGap;
 
         // 2. Card Back
-        if (testStepper(stepDelta)) {
-            CardTextureCache::instance().cycleCardBack(tempSettings_.cardBackId, stepDelta);
+        if (testStepper(stepZone)) {
+            if (stepZone == 0) {
+                const std::string slug = CardTextureCache::instance().currentDeckSlug();
+                const auto available = CardBackRegistry::instance().getAvailableBacks(slug);
+                if (!available.empty()) {
+                    int curIdx = 0;
+                    std::vector<OptionListItem> items;
+                    std::vector<std::string> ids;
+                    items.reserve(available.size());
+                    ids.reserve(available.size());
+                    for (size_t i = 0; i < available.size(); ++i) {
+                        if (available[i].id == tempSettings_.cardBackId) {
+                            curIdx = static_cast<int>(i);
+                        }
+                        items.push_back(OptionListItem{available[i].displayName, ""});
+                        ids.push_back(available[i].id);
+                    }
+                    openOptionPicker(
+                        "SELECT CARD BACK",
+                        std::move(items),
+                        curIdx,
+                        [this, ids = std::move(ids)](int idx, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                            if (idx >= 0 && idx < static_cast<int>(ids.size())) {
+                                tempSettings_.cardBackId = ids[static_cast<size_t>(idx)];
+                                CardTextureCache::instance().setActiveCardBack(tempSettings_.cardBackId);
+                                f.triggerSound(FoleySound::CardSlide, 0.8f);
+                            }
+                        }
+                    );
+                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                    return true;
+                }
+            }
+            CardTextureCache::instance().cycleCardBack(tempSettings_.cardBackId, stepZone);
             CardTextureCache::instance().setActiveCardBack(tempSettings_.cardBackId);
             foley.triggerSound(FoleySound::CardSlide, 0.8f);
             return true;
         }
         curY += rowH + rowGap;
 
-        // 2b. Low-Poly Seed (when a low-poly deck or seeded card back is active)
+        // 2b. Low-Poly Seed (when a low-poly deck or seeded card back is active; stays stepper-only)
         const bool isLowPolyDeck = (tempSettings_.deckTheme == DeckThemeId::SolPolyWhite ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyDark ||
                                     tempSettings_.deckTheme == DeckThemeId::ScoundrelLowPoly ||
@@ -2016,8 +2172,9 @@ bool SettingsDialog::handleMouseButton(
         const bool showSeedOption = isLowPolyDeck ||
                                     CardTextureCache::instance().cardBackSupportsSeed(tempSettings_.cardBackId);
         if (showSeedOption) {
-            if (testStepper(stepDelta)) {
-                int nextSeed = static_cast<int>(tempSettings_.lowPolySeed) + stepDelta;
+            if (testStepper(stepZone)) {
+                const int seedDelta = (stepZone < 0) ? -1 : 1;
+                int nextSeed = static_cast<int>(tempSettings_.lowPolySeed) + seedDelta;
                 if (nextSeed < 1) nextSeed = 999;
                 if (nextSeed > 999) nextSeed = 1;
                 tempSettings_.lowPolySeed = static_cast<uint32_t>(nextSeed);
@@ -2034,9 +2191,36 @@ bool SettingsDialog::handleMouseButton(
         curY += 8.0f - rowGap + 24.0f; // Spacing + header
 
         // 3. Stock
-        if (testStepper(stepDelta)) {
+        if (testStepper(stepZone)) {
             constexpr uint8_t count = static_cast<uint8_t>(CardStock::Count);
-            if (stepDelta < 0) {
+            if (stepZone == 0) {
+                std::vector<OptionListItem> items;
+                items.reserve(count);
+                for (uint8_t i = 0; i < count; ++i) {
+                    items.push_back(OptionListItem{CardTextureCache::cardStockName(static_cast<CardStock>(i)), ""});
+                }
+                openOptionPicker(
+                    "SELECT CARD STOCK",
+                    std::move(items),
+                    static_cast<int>(tempSettings_.cardStock),
+                    [this](int idx, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                        if (idx >= 0 && idx < static_cast<int>(CardStock::Count)) {
+                            tempSettings_.cardStock = static_cast<CardStock>(idx);
+                            auto& c = CardTextureCache::instance();
+                            size_t dIdx = c.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+                            if (const auto* def = c.getDeckDef(dIdx)) {
+                                c.updatePreviewCardByDef(*def, tempSettings_.cardWear, tempSettings_.cardStock);
+                            } else {
+                                c.updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+                            }
+                            f.triggerSound(FoleySound::WoodClick, 0.7f);
+                        }
+                    }
+                );
+                foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                return true;
+            }
+            if (stepZone < 0) {
                 tempSettings_.cardStock = static_cast<CardStock>((static_cast<uint8_t>(tempSettings_.cardStock) + count - 1u) % count);
             } else {
                 tempSettings_.cardStock = static_cast<CardStock>((static_cast<uint8_t>(tempSettings_.cardStock) + 1u) % count);
@@ -2054,9 +2238,36 @@ bool SettingsDialog::handleMouseButton(
         curY += rowH + rowGap;
 
         // 4. Wear
-        if (testStepper(stepDelta)) {
+        if (testStepper(stepZone)) {
             constexpr uint8_t count = static_cast<uint8_t>(CardWearLevel::Count);
-            if (stepDelta < 0) {
+            if (stepZone == 0) {
+                std::vector<OptionListItem> items;
+                items.reserve(count);
+                for (uint8_t i = 0; i < count; ++i) {
+                    items.push_back(OptionListItem{CardTextureCache::cardWearLevelName(static_cast<CardWearLevel>(i)), ""});
+                }
+                openOptionPicker(
+                    "SELECT CARD WEAR",
+                    std::move(items),
+                    static_cast<int>(tempSettings_.cardWear),
+                    [this](int idx, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                        if (idx >= 0 && idx < static_cast<int>(CardWearLevel::Count)) {
+                            tempSettings_.cardWear = static_cast<CardWearLevel>(idx);
+                            auto& c = CardTextureCache::instance();
+                            size_t dIdx = c.findDeckIndex(tempSettings_.deckSlug, tempSettings_.deckTheme);
+                            if (const auto* def = c.getDeckDef(dIdx)) {
+                                c.updatePreviewCardByDef(*def, tempSettings_.cardWear, tempSettings_.cardStock);
+                            } else {
+                                c.updatePreviewCard(tempSettings_.deckTheme, tempSettings_.cardWear, tempSettings_.cardStock);
+                            }
+                            f.triggerSound(FoleySound::WoodClick, 0.7f);
+                        }
+                    }
+                );
+                foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                return true;
+            }
+            if (stepZone < 0) {
                 tempSettings_.cardWear = static_cast<CardWearLevel>((static_cast<uint8_t>(tempSettings_.cardWear) + count - 1u) % count);
             } else {
                 tempSettings_.cardWear = static_cast<CardWearLevel>((static_cast<uint8_t>(tempSettings_.cardWear) + 1u) % count);
@@ -2074,9 +2285,30 @@ bool SettingsDialog::handleMouseButton(
         curY += rowH + rowGap;
 
         // 5. Corners
-        if (testStepper(stepDelta)) {
+        if (testStepper(stepZone)) {
             constexpr uint8_t count = static_cast<uint8_t>(CardCornerStyle::Count);
-            if (stepDelta < 0) {
+            if (stepZone == 0) {
+                std::vector<OptionListItem> items;
+                items.reserve(count);
+                for (uint8_t i = 0; i < count; ++i) {
+                    items.push_back(OptionListItem{cornerStyleCleanName(static_cast<CardCornerStyle>(i)), ""});
+                }
+                openOptionPicker(
+                    "SELECT CARD CORNERS",
+                    std::move(items),
+                    static_cast<int>(tempSettings_.cardCorners),
+                    [this](int idx, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                        if (idx >= 0 && idx < static_cast<int>(CardCornerStyle::Count)) {
+                            tempSettings_.cardCorners = static_cast<CardCornerStyle>(idx);
+                            CardTextureCache::instance().setCornerStyle(tempSettings_.cardCorners);
+                            f.triggerSound(FoleySound::WoodClick, 0.7f);
+                        }
+                    }
+                );
+                foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                return true;
+            }
+            if (stepZone < 0) {
                 tempSettings_.cardCorners = static_cast<CardCornerStyle>((static_cast<uint8_t>(tempSettings_.cardCorners) + count - 1u) % count);
             } else {
                 tempSettings_.cardCorners = static_cast<CardCornerStyle>((static_cast<uint8_t>(tempSettings_.cardCorners) + 1u) % count);
@@ -2112,7 +2344,7 @@ bool SettingsDialog::handleMouseButton(
             foley.triggerSound(FoleySound::WoodClick, 0.75f);
             return true;
         }
-        if (pointerDownInContent_) {
+        if (contentScroller_.isPointerDown()) {
             return true;
         }
         } // end else inside scrollable content bounds
@@ -2120,13 +2352,17 @@ bool SettingsDialog::handleMouseButton(
         // --- TAB 2: SCENE HIT-TESTING ---
         if (mouseY >= contentRectY_ && mouseY <= contentRectY_ + contentRectH_ &&
             mouseX >= contentRectX_ && mouseX <= contentRectX_ + contentRectW_) {
-            if (themeMaxScrollY_ > 1.0f &&
+            if (contentScroller_.maxOffset() > 1.0f &&
                 mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
                 mouseY >= themeSbTrackY_ && mouseY <= themeSbTrackY_ + themeSbTrackH_) {
                 draggingThemeScrollbar_ = true;
                 float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
                 float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
-                themeScrollY_ = frac * themeMaxScrollY_;
+                contentScroller_.setOffsetImmediate(frac * contentScroller_.maxOffset());
+                return true;
+            }
+            if (contentScroller_.maxOffset() > 1.0f && std::abs(contentScroller_.velocity()) > 55.0f) {
+                contentScroller_.beginDrag(mouseX, mouseY);
                 return true;
             }
             // Sliders first
@@ -2195,14 +2431,11 @@ bool SettingsDialog::handleMouseButton(
                 return true;
             }
 
-            if (themeMaxScrollY_ > 1.0f) {
-                pointerDownInContent_ = true;
-                draggingThemeScroll_ = false;
-                dragStartY_ = mouseY;
-                dragLastY_ = mouseY;
+            if (contentScroller_.maxOffset() > 1.0f) {
+                contentScroller_.beginDrag(mouseX, mouseY);
             }
 
-            float curY = tabContentY + 16.0f - themeScrollY_;
+            float curY = tabContentY + 16.0f - contentScroller_.offset();
             curY += 24.0f; // "TABLETOP & ENVIRONMENT" section header
             const float rowX = contentX + 16.0f;
             const float rowW = contentW - 38.0f;
@@ -2212,44 +2445,67 @@ bool SettingsDialog::handleMouseButton(
             const float labelX = rowX + btnW + 6.0f;
             const float labelW = rowW - 2.0f * (btnW + 6.0f);
             const float nextX = rowX + rowW - btnW;
-            auto testSceneStepper = [&](int& delta) -> bool {
+            auto testSceneStepper = [&](int& hitZone) -> bool {
                 if (mouseY >= curY && mouseY <= curY + rowH) {
-                    if (mouseX >= rowX && mouseX <= rowX + btnW) { delta = -1; return true; }
-                    if (mouseX >= nextX && mouseX <= nextX + btnW) { delta = +1; return true; }
-                    if (mouseX >= labelX && mouseX <= labelX + labelW) { delta = +1; return true; }
+                    if (mouseX >= rowX && mouseX <= rowX + btnW) { hitZone = -1; return true; }
+                    if (mouseX >= nextX && mouseX <= nextX + btnW) { hitZone = +1; return true; }
+                    if (mouseX >= labelX && mouseX <= labelX + labelW) { hitZone = 0; return true; }
                 }
                 return false;
             };
-            int stepDelta = 0;
+            int stepZone = 0;
+
+            auto applyTableThemeByIndex = [this](size_t idx, SolitaireBoard& b, AudioFoleyEngine& f) {
+                const auto& themes = ProceduralBackgroundSystem::instance().availableThemes();
+                if (idx >= themes.size()) return;
+                tempSettings_.tableThemeSlug = themes[idx].id;
+                tempSettings_.tableTheme = themes[idx].legacyId;
+                b.setTableThemeSlug(tempSettings_.tableThemeSlug);
+                b.setTableTheme(tempSettings_.tableTheme);
+                ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
+                if (!themes[idx].filePath.empty()) {
+                    ProceduralBackgroundSystem::instance().loadCustomEatsTheme(themes[idx].filePath);
+                }
+                const auto& newDef = themes[idx];
+                if (!newDef.options.empty()) {
+                    auto it = tempSettings_.tableThemeOptions.find(newDef.id);
+                    tempSettings_.tableThemeOption = (it != tempSettings_.tableThemeOptions.end()) ? it->second : newDef.options[0].id;
+                    tempSettings_.tableThemeOptions[newDef.id] = tempSettings_.tableThemeOption;
+                } else {
+                    tempSettings_.tableThemeOption.clear();
+                }
+                b.setTableThemeOption(tempSettings_.tableThemeOption);
+                ProceduralBackgroundSystem::instance().setThemeOption(tempSettings_.tableThemeOption);
+                ProceduralBackgroundSystem::instance().invalidateCache();
+                f.triggerSound(FoleySound::WoodClick, 0.8f);
+            };
 
             // 1. Table Theme
-            if (testSceneStepper(stepDelta)) {
+            if (testSceneStepper(stepZone)) {
                 const auto& availableThemes = ProceduralBackgroundSystem::instance().availableThemes();
                 if (!availableThemes.empty()) {
                     size_t count = availableThemes.size();
                     size_t curIdx = ProceduralBackgroundSystem::instance().findThemeIndex(tempSettings_.tableThemeSlug, tempSettings_.tableTheme);
-                    curIdx = (stepDelta < 0) ? ((curIdx + count - 1u) % count) : ((curIdx + 1u) % count);
-                    tempSettings_.tableThemeSlug = availableThemes[curIdx].id;
-                    tempSettings_.tableTheme = availableThemes[curIdx].legacyId;
-                    board.setTableThemeSlug(tempSettings_.tableThemeSlug);
-                    board.setTableTheme(tempSettings_.tableTheme);
-                    ProceduralBackgroundSystem::instance().clearCustomEatsTheme();
-                    if (!availableThemes[curIdx].filePath.empty()) {
-                        ProceduralBackgroundSystem::instance().loadCustomEatsTheme(availableThemes[curIdx].filePath);
+                    if (stepZone == 0) {
+                        std::vector<OptionListItem> items;
+                        items.reserve(count);
+                        for (const auto& t : availableThemes) {
+                            items.push_back(OptionListItem{t.name, ""});
+                        }
+                        openOptionPicker(
+                            "SELECT TABLE THEME",
+                            std::move(items),
+                            static_cast<int>(curIdx),
+                            [applyTableThemeByIndex](int idx, SolitaireBoard& b, AudioFoleyEngine& f) {
+                                if (idx >= 0) applyTableThemeByIndex(static_cast<size_t>(idx), b, f);
+                            }
+                        );
+                        foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                        return true;
                     }
-                    const auto& newDef = availableThemes[curIdx];
-                    if (!newDef.options.empty()) {
-                        auto it = tempSettings_.tableThemeOptions.find(newDef.id);
-                        tempSettings_.tableThemeOption = (it != tempSettings_.tableThemeOptions.end()) ? it->second : newDef.options[0].id;
-                        tempSettings_.tableThemeOptions[newDef.id] = tempSettings_.tableThemeOption;
-                    } else {
-                        tempSettings_.tableThemeOption.clear();
-                    }
-                    board.setTableThemeOption(tempSettings_.tableThemeOption);
-                    ProceduralBackgroundSystem::instance().setThemeOption(tempSettings_.tableThemeOption);
-                    ProceduralBackgroundSystem::instance().invalidateCache();
+                    curIdx = (stepZone < 0) ? ((curIdx + count - 1u) % count) : ((curIdx + 1u) % count);
+                    applyTableThemeByIndex(curIdx, board, foley);
                 }
-                foley.triggerSound(FoleySound::WoodClick, 0.8f);
                 return true;
             }
             curY += rowH + rowGap;
@@ -2258,13 +2514,42 @@ bool SettingsDialog::handleMouseButton(
             size_t curThemeIdxForOpt = ProceduralBackgroundSystem::instance().findThemeIndex(tempSettings_.tableThemeSlug, tempSettings_.tableTheme);
             const TableThemeDef* curThemeDefForOpt = (curThemeIdxForOpt < availableThemesForOpt.size()) ? &availableThemesForOpt[curThemeIdxForOpt] : nullptr;
             if (curThemeDefForOpt != nullptr && !curThemeDefForOpt->options.empty()) {
-                if (testSceneStepper(stepDelta)) {
+                if (testSceneStepper(stepZone)) {
                     const auto& opts = curThemeDefForOpt->options;
                     size_t optIdx = 0;
                     for (size_t i = 0; i < opts.size(); ++i) {
                         if (opts[i].id == tempSettings_.tableThemeOption) { optIdx = i; break; }
                     }
-                    optIdx = (stepDelta < 0) ? ((optIdx + opts.size() - 1u) % opts.size()) : ((optIdx + 1u) % opts.size());
+                    if (stepZone == 0) {
+                        std::vector<OptionListItem> items;
+                        std::vector<std::string> ids;
+                        items.reserve(opts.size());
+                        ids.reserve(opts.size());
+                        for (const auto& o : opts) {
+                            items.push_back(OptionListItem{o.name, ""});
+                            ids.push_back(o.id);
+                        }
+                        std::string themeId = curThemeDefForOpt->id;
+                        std::string title = curThemeDefForOpt->optionLabel.empty() ? "SELECT THEME OPTION" : ("SELECT " + curThemeDefForOpt->optionLabel);
+                        openOptionPicker(
+                            std::move(title),
+                            std::move(items),
+                            static_cast<int>(optIdx),
+                            [this, themeId = std::move(themeId), ids = std::move(ids)](int idx, SolitaireBoard& b, AudioFoleyEngine& f) {
+                                if (idx >= 0 && idx < static_cast<int>(ids.size())) {
+                                    tempSettings_.tableThemeOption = ids[static_cast<size_t>(idx)];
+                                    tempSettings_.tableThemeOptions[themeId] = tempSettings_.tableThemeOption;
+                                    b.setTableThemeOption(tempSettings_.tableThemeOption);
+                                    ProceduralBackgroundSystem::instance().setThemeOption(tempSettings_.tableThemeOption);
+                                    ProceduralBackgroundSystem::instance().invalidateCache();
+                                    f.triggerSound(FoleySound::WoodClick, 0.75f);
+                                }
+                            }
+                        );
+                        foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                        return true;
+                    }
+                    optIdx = (stepZone < 0) ? ((optIdx + opts.size() - 1u) % opts.size()) : ((optIdx + 1u) % opts.size());
                     tempSettings_.tableThemeOption = opts[optIdx].id;
                     tempSettings_.tableThemeOptions[curThemeDefForOpt->id] = opts[optIdx].id;
                     board.setTableThemeOption(tempSettings_.tableThemeOption);
@@ -2278,7 +2563,7 @@ bool SettingsDialog::handleMouseButton(
             curY += 4.0f + 24.0f; // spacing + LIGHTING & ATMOSPHERE header
 
             // Light Mood stepper
-            if (testSceneStepper(stepDelta)) {
+            if (testSceneStepper(stepZone)) {
                 static const LightingPreset kMoodOrder[5] = {
                     LightingPreset::StudioSteady,
                     LightingPreset::MorningWindow,
@@ -2286,11 +2571,34 @@ bool SettingsDialog::handleMouseButton(
                     LightingPreset::Evening,
                     LightingPreset::DarkNight
                 };
+                static const char* kMoodLabels[5] = {
+                    "Studio Steady", "Morning Window", "Golden Hour", "Evening", "Dark Night"
+                };
                 int idx = 0;
                 for (int i = 0; i < 5; ++i) {
                     if (tempSettings_.lightingPreset == kMoodOrder[i]) { idx = i; break; }
                 }
-                idx = (stepDelta < 0) ? ((idx + 4) % 5) : ((idx + 1) % 5);
+                if (stepZone == 0) {
+                    std::vector<OptionListItem> items;
+                    items.reserve(5);
+                    for (int i = 0; i < 5; ++i) {
+                        items.push_back(OptionListItem{kMoodLabels[i], ""});
+                    }
+                    openOptionPicker(
+                        "SELECT LIGHT MOOD",
+                        std::move(items),
+                        idx,
+                        [this](int chosen, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                            if (chosen >= 0 && chosen < 5) {
+                                tempSettings_.lightingPreset = kMoodOrder[chosen];
+                                f.triggerSound(FoleySound::WoodClick, 0.75f);
+                            }
+                        }
+                    );
+                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                    return true;
+                }
+                idx = (stepZone < 0) ? ((idx + 4) % 5) : ((idx + 1) % 5);
                 tempSettings_.lightingPreset = kMoodOrder[idx];
                 foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 return true;
@@ -2298,9 +2606,30 @@ bool SettingsDialog::handleMouseButton(
             curY += rowH + rowGap;
 
             // Light Angle stepper
-            if (testSceneStepper(stepDelta)) {
-                int cur = static_cast<int>(tempSettings_.lightAngle);
-                cur = (stepDelta < 0) ? ((cur + 3) % 4) : ((cur + 1) % 4);
+            if (testSceneStepper(stepZone)) {
+                int cur = std::clamp(static_cast<int>(tempSettings_.lightAngle), 0, 3);
+                if (stepZone == 0) {
+                    static const char* kAngleNames[4] = { "Overhead", "Top-Left Window", "Top-Right Window", "Low Left Sun" };
+                    std::vector<OptionListItem> items;
+                    items.reserve(4);
+                    for (int i = 0; i < 4; ++i) {
+                        items.push_back(OptionListItem{kAngleNames[i], ""});
+                    }
+                    openOptionPicker(
+                        "SELECT LIGHT ANGLE",
+                        std::move(items),
+                        cur,
+                        [this](int chosen, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                            if (chosen >= 0 && chosen < 4) {
+                                tempSettings_.lightAngle = static_cast<LightAngle>(chosen);
+                                f.triggerSound(FoleySound::WoodClick, 0.75f);
+                            }
+                        }
+                    );
+                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                    return true;
+                }
+                cur = (stepZone < 0) ? ((cur + 3) % 4) : ((cur + 1) % 4);
                 tempSettings_.lightAngle = static_cast<LightAngle>(cur);
                 foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 return true;
@@ -2308,9 +2637,30 @@ bool SettingsDialog::handleMouseButton(
             curY += rowH + rowGap;
 
             // Shadow Gobo stepper
-            if (testSceneStepper(stepDelta)) {
+            if (testSceneStepper(stepZone)) {
                 int cur = static_cast<int>(tempSettings_.shadowGobo) % 4;
-                cur = (stepDelta < 0) ? ((cur + 3) % 4) : ((cur + 1) % 4);
+                if (stepZone == 0) {
+                    static const char* kGoboNames[4] = { "None (Open)", "Window Frame", "Venetian Blinds", "Tree Canopy" };
+                    std::vector<OptionListItem> items;
+                    items.reserve(4);
+                    for (int i = 0; i < 4; ++i) {
+                        items.push_back(OptionListItem{kGoboNames[i], ""});
+                    }
+                    openOptionPicker(
+                        "SELECT CAST SHADOWS",
+                        std::move(items),
+                        cur,
+                        [this](int chosen, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                            if (chosen >= 0 && chosen < 4) {
+                                tempSettings_.shadowGobo = static_cast<ShadowGobo>(chosen);
+                                f.triggerSound(FoleySound::WoodClick, 0.75f);
+                            }
+                        }
+                    );
+                    foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                    return true;
+                }
+                cur = (stepZone < 0) ? ((cur + 3) % 4) : ((cur + 1) % 4);
                 tempSettings_.shadowGobo = static_cast<ShadowGobo>(cur);
                 foley.triggerSound(FoleySound::WoodClick, 0.75f);
                 return true;
@@ -2327,10 +2677,39 @@ bool SettingsDialog::handleMouseButton(
             const auto& availablePfx = PostFxSystem::instance().availableEffects();
             size_t curPfxIdx = PostFxSystem::instance().findEffectIndex(tempSettings_.postFxId);
             const PostFxDef* curPfxDef = PostFxSystem::instance().getEffectDef(curPfxIdx);
-            if (testSceneStepper(stepDelta)) {
+            if (testSceneStepper(stepZone)) {
                 if (!availablePfx.empty()) {
+                    if (stepZone == 0) {
+                        std::vector<OptionListItem> items;
+                        items.reserve(availablePfx.size());
+                        for (const auto& fx : availablePfx) {
+                            items.push_back(OptionListItem{fx.name, ""});
+                        }
+                        openOptionPicker(
+                            "SELECT POST-FX",
+                            std::move(items),
+                            static_cast<int>(curPfxIdx),
+                            [this](int chosen, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                                const auto& fxList = PostFxSystem::instance().availableEffects();
+                                if (chosen >= 0 && chosen < static_cast<int>(fxList.size())) {
+                                    const auto& newPfx = fxList[static_cast<size_t>(chosen)];
+                                    tempSettings_.postFxId = newPfx.id;
+                                    if (!newPfx.options.empty()) {
+                                        auto it = tempSettings_.postFxOptions.find(newPfx.id);
+                                        tempSettings_.postFxOption = (it != tempSettings_.postFxOptions.end()) ? it->second : newPfx.options[0].id;
+                                        tempSettings_.postFxOptions[newPfx.id] = tempSettings_.postFxOption;
+                                    } else {
+                                        tempSettings_.postFxOption.clear();
+                                    }
+                                    f.triggerSound(FoleySound::WoodClick, 0.8f);
+                                }
+                            }
+                        );
+                        foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                        return true;
+                    }
                     size_t count = availablePfx.size();
-                    curPfxIdx = (stepDelta < 0) ? ((curPfxIdx + count - 1u) % count) : ((curPfxIdx + 1u) % count);
+                    curPfxIdx = (stepZone < 0) ? ((curPfxIdx + count - 1u) % count) : ((curPfxIdx + 1u) % count);
                     tempSettings_.postFxId = availablePfx[curPfxIdx].id;
                     const auto& newPfx = availablePfx[curPfxIdx];
                     if (!newPfx.options.empty()) {
@@ -2347,13 +2726,39 @@ bool SettingsDialog::handleMouseButton(
             curY += rowH + rowGap;
 
             if (curPfxDef && !curPfxDef->options.empty()) {
-                if (testSceneStepper(stepDelta)) {
+                if (testSceneStepper(stepZone)) {
                     const auto& opts = curPfxDef->options;
                     size_t optIdx = 0;
                     for (size_t i = 0; i < opts.size(); ++i) {
                         if (opts[i].id == tempSettings_.postFxOption) { optIdx = i; break; }
                     }
-                    optIdx = (stepDelta < 0) ? ((optIdx + opts.size() - 1u) % opts.size()) : ((optIdx + 1u) % opts.size());
+                    if (stepZone == 0) {
+                        std::vector<OptionListItem> items;
+                        std::vector<std::string> ids;
+                        items.reserve(opts.size());
+                        ids.reserve(opts.size());
+                        for (const auto& o : opts) {
+                            items.push_back(OptionListItem{o.name, ""});
+                            ids.push_back(o.id);
+                        }
+                        std::string pfxId = curPfxDef->id;
+                        std::string title = curPfxDef->optionLabel.empty() ? "SELECT POST-FX OPTION" : ("SELECT " + curPfxDef->optionLabel);
+                        openOptionPicker(
+                            std::move(title),
+                            std::move(items),
+                            static_cast<int>(optIdx),
+                            [this, pfxId = std::move(pfxId), ids = std::move(ids)](int chosen, SolitaireBoard& /*b*/, AudioFoleyEngine& f) {
+                                if (chosen >= 0 && chosen < static_cast<int>(ids.size())) {
+                                    tempSettings_.postFxOption = ids[static_cast<size_t>(chosen)];
+                                    tempSettings_.postFxOptions[pfxId] = tempSettings_.postFxOption;
+                                    f.triggerSound(FoleySound::WoodClick, 0.75f);
+                                }
+                            }
+                        );
+                        foley.triggerSound(FoleySound::WoodClick, 0.65f);
+                        return true;
+                    }
+                    optIdx = (stepZone < 0) ? ((optIdx + opts.size() - 1u) % opts.size()) : ((optIdx + 1u) % opts.size());
                     tempSettings_.postFxOption = opts[optIdx].id;
                     tempSettings_.postFxOptions[curPfxDef->id] = opts[optIdx].id;
                     foley.triggerSound(FoleySound::WoodClick, 0.75f);
@@ -2370,21 +2775,25 @@ bool SettingsDialog::handleMouseButton(
                     return true;
                 }
             }
-            if (pointerDownInContent_) return true;
+            if (contentScroller_.isPointerDown()) return true;
         }
     } else if (currentTab_ == 3) {
         if (mouseY >= contentRectY_ && mouseY <= contentRectY_ + contentRectH_ &&
             mouseX >= contentRectX_ && mouseX <= contentRectX_ + contentRectW_) {
-            if (themeMaxScrollY_ > 1.0f &&
+            if (contentScroller_.maxOffset() > 1.0f &&
                 mouseX >= contentX + contentW - 22.0f && mouseX <= contentX + contentW &&
                 mouseY >= themeSbTrackY_ && mouseY <= themeSbTrackY_ + themeSbTrackH_) {
                 draggingThemeScrollbar_ = true;
                 float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
                 float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
-                themeScrollY_ = frac * themeMaxScrollY_;
+                contentScroller_.setOffsetImmediate(frac * contentScroller_.maxOffset());
                 return true;
             }
-            float curY = tabContentY + 16.0f - themeScrollY_ + 24.0f;
+            if (contentScroller_.maxOffset() > 1.0f && std::abs(contentScroller_.velocity()) > 55.0f) {
+                contentScroller_.beginDrag(mouseX, mouseY);
+                return true;
+            }
+            float curY = tabContentY + 16.0f - contentScroller_.offset() + 24.0f;
         const ResponsiveLayoutMode layoutVals[3] = {
             ResponsiveLayoutMode::Auto,
             ResponsiveLayoutMode::DesktopStandard,
@@ -2473,11 +2882,8 @@ bool SettingsDialog::handleMouseButton(
                 return true;
             }
         }
-            if (themeMaxScrollY_ > 1.0f) {
-                pointerDownInContent_ = true;
-                draggingThemeScroll_ = false;
-                dragStartY_ = mouseY;
-                dragLastY_ = mouseY;
+            if (contentScroller_.maxOffset() > 1.0f) {
+                contentScroller_.beginDrag(mouseX, mouseY);
                 return true;
             }
         }
@@ -2691,6 +3097,9 @@ bool SettingsDialog::handleMouseMove(
     AudioFoleyEngine& foley
 ) {
     if (!isOpen_) return false;
+    if (optionPicker_.isOpen()) {
+        return optionPicker_.handleMouseMove(mouseX, mouseY);
+    }
     (void)mouseY;
     if (draggingVolume_ && volTrackW_ > 1.0f) {
         float pct = std::clamp((mouseX - volTrackX_) / volTrackW_, 0.0f, 1.0f);
@@ -2749,21 +3158,14 @@ bool SettingsDialog::handleMouseMove(
         tempSettings_.cloudOpacity = std::clamp((mouseX - cloudOpacityTrackX_) / cloudOpacityTrackW_, 0.0f, 1.0f);
         return true;
     }
-    if (draggingThemeScrollbar_ && (currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
+    if (draggingThemeScrollbar_ && (currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && contentScroller_.maxOffset() > 1.0f) {
         float denom = std::max(1.0f, themeSbTrackH_ - themeSbThumbH_);
         float frac = std::clamp((mouseY - themeSbTrackY_ - themeSbThumbH_ * 0.5f) / denom, 0.0f, 1.0f);
-        themeScrollY_ = frac * themeMaxScrollY_;
+        contentScroller_.setOffsetImmediate(frac * contentScroller_.maxOffset());
         return true;
     }
-    if (pointerDownInContent_ && (currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
-        float dy = mouseY - dragLastY_;
-        if (!draggingThemeScroll_ && std::abs(mouseY - dragStartY_) > 4.0f) {
-            draggingThemeScroll_ = true;
-        }
-        if (draggingThemeScroll_) {
-            themeScrollY_ = std::clamp(themeScrollY_ - dy, 0.0f, themeMaxScrollY_);
-        }
-        dragLastY_ = mouseY;
+    if (contentScroller_.isPointerDown() && (currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3)) {
+        contentScroller_.moveDrag(mouseX, mouseY, /*allowAxisLock=*/true);
         return true;
     }
     return false;
@@ -2778,6 +3180,16 @@ bool SettingsDialog::handleKey(
 ) {
     (void)mods;
     if (!isOpen_) return false;
+    if (optionPicker_.isOpen()) {
+        const bool handled = optionPicker_.handleKey(key, action, foley);
+        int pickedIdx = -1;
+        if (optionPicker_.takeSelection(pickedIdx) && pendingOptionApply_) {
+            auto fn = std::move(pendingOptionApply_);
+            pendingOptionApply_ = nullptr;
+            fn(pickedIdx, board, foley);
+        }
+        return handled;
+    }
     if (action != 1 && action != 2) return true; // Press or repeat
 
     if (key == 256) { // GLFW_KEY_ESCAPE
@@ -2804,7 +3216,7 @@ bool SettingsDialog::handleKey(
 
     if (key == 258) { // GLFW_KEY_TAB
         currentTab_ = (currentTab_ + 1) % 5;
-        themeScrollY_ = 0.0f;
+        contentScroller_.reset(0.0f);
         editingSeed_ = false;
         return true;
     }
@@ -2813,7 +3225,9 @@ bool SettingsDialog::handleKey(
 }
 
 bool SettingsDialog::handleChar(unsigned int codepoint) {
-    if (!isOpen_ || !editingSeed_) return false;
+    if (!isOpen_) return false;
+    if (optionPicker_.isOpen()) return true;
+    if (!editingSeed_) return false;
     if (codepoint >= '0' && codepoint <= '9' && seedText_.size() < 10) {
         seedText_.push_back(static_cast<char>(codepoint));
         return true;
@@ -2823,8 +3237,11 @@ bool SettingsDialog::handleChar(unsigned int codepoint) {
 
 bool SettingsDialog::handleScroll(float yoffset) {
     if (!isOpen_) return false;
-    if ((currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) && themeMaxScrollY_ > 1.0f) {
-        themeScrollY_ = std::clamp(themeScrollY_ - yoffset * 28.0f, 0.0f, themeMaxScrollY_);
+    if (optionPicker_.isOpen()) {
+        return optionPicker_.handleScroll(yoffset);
+    }
+    if (currentTab_ == 0 || currentTab_ == 1 || currentTab_ == 2 || currentTab_ == 3) {
+        contentScroller_.handleWheel(yoffset, 42.0f);
         return true;
     }
     return true;

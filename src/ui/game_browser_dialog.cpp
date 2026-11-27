@@ -26,14 +26,13 @@ void GameBrowserDialog::open(const std::string& activeGameId) {
     GameRegistry::instance().initialize();
     isOpen_ = true;
     searchFocused_ = true;
-    isMouseDown_ = false;
-    isDragging_ = false;
+    draggingScrollbar_ = false;
     activeGameId_ = activeGameId;
     searchQuery_ = "";
     selectedCategory_ = "ALL";
     selectedMechanic_ = "ALL";
     selectedVisibility_ = "ALL";
-    scrollOffsetY_ = 0.0f;
+    scroller_.reset(0.0f);
     highlightedIndex_ = 0;
     lastClickedIndex_ = -1;
     cursorBlinkTimer_ = 0.0f;
@@ -54,8 +53,8 @@ void GameBrowserDialog::open(const std::string& activeGameId) {
 
 void GameBrowserDialog::close() noexcept {
     isOpen_ = false;
-    isMouseDown_ = false;
-    isDragging_ = false;
+    draggingScrollbar_ = false;
+    scroller_.cancelDrag();
     previewAutoPlay_.stop();
     previewSolvePending_ = false;
     previewHeuristicMode_ = false;
@@ -159,6 +158,7 @@ bool GameBrowserDialog::stepPreviewHeuristic() {
 void GameBrowserDialog::update(float dt) {
     if (!isOpen_) return;
     const float clampedDt = std::clamp(dt, 0.0f, 0.05f);
+    scroller_.update(clampedDt);
 
     if (!previewHasBoard_) {
         syncPreviewToSelection(false);
@@ -238,23 +238,25 @@ void GameBrowserDialog::update(float dt) {
 
 void GameBrowserDialog::setSearchQuery(const std::string& text) {
     searchQuery_ = text;
-    scrollOffsetY_ = 0.0f;
+    scroller_.reset(0.0f);
     highlightedIndex_ = 0;
     updateFilter();
 }
 
 void GameBrowserDialog::handleMouseMove(float mouseX, float mouseY) {
     if (!isOpen_) return;
-    (void)mouseX;
-    if (isMouseDown_) {
-        float dy = mouseY - dragStartY_;
-        if (!isDragging_ && std::abs(dy) > 4.0f) {
-            isDragging_ = true;
-        }
-        if (isDragging_) {
-            scrollOffsetY_ = std::clamp(initialScrollY_ - dy, 0.0f, maxScrollY_);
-        }
+    if (draggingScrollbar_ && scroller_.maxOffset() > 0.5f) {
+        const float trackY = cardsAreaY_ + 4.0f;
+        const float trackH = std::max(24.0f, cardsAreaH_ - 8.0f);
+        float thumbY = trackY;
+        float thumbH = 24.0f;
+        scroller_.computeThumb(trackY, trackH, thumbY, thumbH);
+        const float denom = std::max(1.0f, trackH - thumbH);
+        const float frac = std::clamp((mouseY - trackY - thumbH * 0.5f) / denom, 0.0f, 1.0f);
+        scroller_.setOffsetImmediate(frac * scroller_.maxOffset());
+        return;
     }
+    scroller_.moveDrag(mouseX, mouseY);
 }
 
 void GameBrowserDialog::updateFilter() {
@@ -273,13 +275,7 @@ void GameBrowserDialog::ensureVisible(int index) {
     const float cardTop = static_cast<float>(index) * (cardH + cardPad);
     const float cardBottom = cardTop + cardH;
     const float visibleH = std::max(10.0f, cardsAreaH_ - cardPad * 2.0f);
-
-    if (cardTop < scrollOffsetY_) {
-        scrollOffsetY_ = cardTop;
-    } else if (cardBottom > scrollOffsetY_ + visibleH) {
-        scrollOffsetY_ = cardBottom - visibleH;
-    }
-    scrollOffsetY_ = std::clamp(scrollOffsetY_, 0.0f, maxScrollY_);
+    scroller_.ensureRangeVisible(cardTop, cardBottom, visibleH, true);
 }
 
 bool GameBrowserDialog::launchSelectedGame(AudioFoleyEngine& foley) {
@@ -760,8 +756,8 @@ void GameBrowserDialog::render(
 
     const size_t totalCards = filteredGames_.size();
     const float totalContentH = static_cast<float>(totalCards) * (cardH + cardPad) + cardPad;
-    maxScrollY_ = std::max(0.0f, totalContentH - cardsAreaH_);
-    scrollOffsetY_ = std::clamp(scrollOffsetY_, 0.0f, maxScrollY_);
+    scroller_.setBounds(totalContentH, cardsAreaH_);
+    const float scrollY = scroller_.offset();
 
     // STRICT SCISSOR CLIPPING: Absolutely no cards can overflow or bleed outside the list bounds
     {
@@ -770,14 +766,14 @@ void GameBrowserDialog::render(
         for (size_t i = 0; i < totalCards; ++i) {
             const auto& g = filteredGames_[i];
             const float cx = listX_ + 8.0f;
-            const float cy = cardsAreaY_ + cardPad + static_cast<float>(i) * (cardH + cardPad) - scrollOffsetY_;
+            const float cy = cardsAreaY_ + cardPad + static_cast<float>(i) * (cardH + cardPad) - scrollY;
 
             // Skip cards outside the visible clipping area
             if (cy + cardH < cardsAreaY_ || cy > cardsAreaY_ + cardsAreaH_) continue;
 
             bool isActive = (g.id == activeGameId_);
             bool isHighlighted = (static_cast<int>(i) == highlightedIndex_);
-            bool isHov = (!isDragging_ && mouseX >= cx && mouseX <= cx + cardW && mouseY >= cy && mouseY <= cy + cardH &&
+            bool isHov = (!scroller_.isDragging() && !draggingScrollbar_ && mouseX >= cx && mouseX <= cx + cardW && mouseY >= cy && mouseY <= cy + cardH &&
                           mouseY >= cardsAreaY_ && mouseY <= cardsAreaY_ + cardsAreaH_);
 
             // Card background
@@ -900,17 +896,21 @@ void GameBrowserDialog::render(
         }
     }
 
-    // Scrollbar indicator
-    if (maxScrollY_ > 0.0f) {
-        const float trackX = listX_ + listW_ - 5.0f;
+    // Scrollbar indicator (auto-brightens on scroll/hover, compresses on iOS overscroll)
+    if (scroller_.maxOffset() > 0.5f) {
         const float trackY = cardsAreaY_ + 4.0f;
-        const float trackW = 4.0f;
-        const float trackH = cardsAreaH_ - 8.0f;
-        r.drawRoundedRect(trackX, trackY, trackW, trackH, 2.0f, 0.08f, 0.07f, 0.06f, 0.50f, 2);
+        const float trackH = std::max(24.0f, cardsAreaH_ - 8.0f);
+        const bool sbHov = (mouseX >= listX_ + listW_ - 14.0f && mouseX <= listX_ + listW_ &&
+                            mouseY >= trackY && mouseY <= trackY + trackH) || draggingScrollbar_;
+        const float activeAlpha = sbHov ? 1.0f : std::max(0.28f, scroller_.indicatorAlpha());
+        const float trackW = sbHov ? 6.0f : 4.0f;
+        const float trackX = listX_ + listW_ - trackW - 2.0f;
+        r.drawRoundedRect(trackX, trackY, trackW, trackH, trackW * 0.5f, 0.08f, 0.07f, 0.06f, 0.45f * activeAlpha, 2);
 
-        const float thumbH = std::max(24.0f, trackH * (cardsAreaH_ / totalContentH));
-        const float thumbY = trackY + (scrollOffsetY_ / maxScrollY_) * (trackH - thumbH);
-        r.drawRoundedRect(trackX, thumbY, trackW, thumbH, 2.0f, pal.accentR, pal.accentG, pal.accentB, 0.70f, 2);
+        float thumbY = trackY;
+        float thumbH = 24.0f;
+        scroller_.computeThumb(trackY, trackH, thumbY, thumbH);
+        r.drawRoundedRect(trackX, thumbY, trackW, thumbH, trackW * 0.5f, pal.accentR, pal.accentG, pal.accentB, 0.88f * activeAlpha, 2);
     }
 
     // 7. Footer bar
@@ -1070,7 +1070,7 @@ bool GameBrowserDialog::handleMouseButton(
                 const float clearBtnY = searchBoxY + 6.0f;
                 if (mouseX >= clearBtnX && mouseX <= clearBtnX + clearBtnW && mouseY >= clearBtnY && mouseY <= clearBtnY + clearBtnW) {
                     searchQuery_.clear();
-                    scrollOffsetY_ = 0.0f;
+                    scroller_.reset(0.0f);
                     highlightedIndex_ = 0;
                     updateFilter();
                     foley.triggerSound(FoleySound::WoodClick, 0.6f);
@@ -1094,7 +1094,7 @@ bool GameBrowserDialog::handleMouseButton(
 
             if (mouseX >= chipX && mouseX <= chipX + chipW && mouseY >= chipY && mouseY <= chipY + chipH) {
                 selectedCategory_ = cat;
-                scrollOffsetY_ = 0.0f;
+                scroller_.reset(0.0f);
                 highlightedIndex_ = 0;
                 updateFilter();
                 foley.triggerSound(FoleySound::WoodClick, 0.75f);
@@ -1130,7 +1130,7 @@ bool GameBrowserDialog::handleMouseButton(
                     if (mx + cw + 10.0f > visStartX) break;
                     if (mouseX >= mx && mouseX <= mx + cw) {
                         selectedMechanic_ = m.value;
-                        scrollOffsetY_ = 0.0f;
+                        scroller_.reset(0.0f);
                         highlightedIndex_ = 0;
                         updateFilter();
                         foley.triggerSound(FoleySound::WoodClick, 0.75f);
@@ -1144,7 +1144,7 @@ bool GameBrowserDialog::handleMouseButton(
                     float cw = eatsbits::ui::glyph::getVectorTextWidth(8.5f, v.label) + subChipPad * 2.0f;
                     if (mouseX >= vx && mouseX <= vx + cw) {
                         selectedVisibility_ = v.value;
-                        scrollOffsetY_ = 0.0f;
+                        scroller_.reset(0.0f);
                         highlightedIndex_ = 0;
                         updateFilter();
                         foley.triggerSound(FoleySound::WoodClick, 0.75f);
@@ -1213,21 +1213,38 @@ bool GameBrowserDialog::handleMouseButton(
             return true;
         }
 
-        // 5. Initiate drag-to-scroll tracking in cards area
+        // 5. Scrollbar drag grab or initiate kinetic drag-to-scroll in cards area
+        if (scroller_.maxOffset() > 0.5f &&
+            mouseX >= listX_ + listW_ - 14.0f && mouseX <= listX_ + listW_ &&
+            mouseY >= cardsAreaY_ && mouseY <= cardsAreaY_ + cardsAreaH_) {
+            draggingScrollbar_ = true;
+            const float trackY = cardsAreaY_ + 4.0f;
+            const float trackH = std::max(24.0f, cardsAreaH_ - 8.0f);
+            float thumbY = trackY;
+            float thumbH = 24.0f;
+            scroller_.computeThumb(trackY, trackH, thumbY, thumbH);
+            const float denom = std::max(1.0f, trackH - thumbH);
+            const float frac = std::clamp((mouseY - trackY - thumbH * 0.5f) / denom, 0.0f, 1.0f);
+            scroller_.setOffsetImmediate(frac * scroller_.maxOffset());
+            return true;
+        }
         if (mouseX >= listX_ && mouseX <= listX_ + listW_ &&
             mouseY >= cardsAreaY_ && mouseY <= cardsAreaY_ + cardsAreaH_) {
-            isMouseDown_ = true;
-            isDragging_ = false;
-            dragStartY_ = mouseY;
-            initialScrollY_ = scrollOffsetY_;
+            if (scroller_.beginDrag(mouseX, mouseY)) {
+                lastClickedIndex_ = -1; // Caught a coasting scroll; don't pair with prior tap
+            }
             return true;
         }
     } else if (action == 0) { // Mouse up / Touch up
-        if (isMouseDown_) {
-            isMouseDown_ = false;
-            if (isDragging_) {
-                isDragging_ = false;
-                return true; // Scroll gesture completed, do not select item
+        if (draggingScrollbar_) {
+            draggingScrollbar_ = false;
+            return true;
+        }
+        if (scroller_.isPointerDown()) {
+            const bool suppressClick = scroller_.endDrag();
+            if (suppressClick) {
+                lastClickedIndex_ = -1;
+                return true; // Scroll or catch-tap completed, do not select item
             }
 
             // Clean click / tap without drag: select the card under cursor
@@ -1237,9 +1254,10 @@ bool GameBrowserDialog::handleMouseButton(
                 const float cardW = listW_ - 16.0f;
                 const float cardH = 50.0f;
                 const float cx = listX_ + 8.0f;
+                const float scrollY = scroller_.offset();
 
                 for (size_t i = 0; i < filteredGames_.size(); ++i) {
-                    const float cy = cardsAreaY_ + cardPad + static_cast<float>(i) * (cardH + cardPad) - scrollOffsetY_;
+                    const float cy = cardsAreaY_ + cardPad + static_cast<float>(i) * (cardH + cardPad) - scrollY;
 
                     if (mouseX >= cx && mouseX <= cx + cardW && mouseY >= cy && mouseY <= cy + cardH) {
                         const auto& sel = filteredGames_[i];
@@ -1297,7 +1315,7 @@ bool GameBrowserDialog::handleKey(
     if (key == 256) { // GLFW_KEY_ESCAPE
         if (!searchQuery_.empty()) {
             searchQuery_.clear();
-            scrollOffsetY_ = 0.0f;
+            scroller_.reset(0.0f);
             highlightedIndex_ = 0;
             updateFilter();
             foley.triggerSound(FoleySound::WoodClick, 0.5f);
@@ -1317,7 +1335,7 @@ bool GameBrowserDialog::handleKey(
     if (key == 259) { // GLFW_KEY_BACKSPACE
         if (!searchQuery_.empty()) {
             searchQuery_.pop_back();
-            scrollOffsetY_ = 0.0f;
+            scroller_.reset(0.0f);
             highlightedIndex_ = 0;
             updateFilter();
             cursorBlinkTimer_ = 0.0f;
@@ -1355,7 +1373,7 @@ bool GameBrowserDialog::handleChar(unsigned int codepoint) {
         searchQuery_ += static_cast<char>(codepoint);
         searchFocused_ = true;
         cursorBlinkTimer_ = 0.0f;
-        scrollOffsetY_ = 0.0f;
+        scroller_.reset(0.0f);
         highlightedIndex_ = 0;
         updateFilter();
         return true;
@@ -1365,7 +1383,7 @@ bool GameBrowserDialog::handleChar(unsigned int codepoint) {
 
 bool GameBrowserDialog::handleScroll(float yoffset) {
     if (!isOpen_) return false;
-    scrollOffsetY_ = std::clamp(scrollOffsetY_ - yoffset * 32.0f, 0.0f, maxScrollY_);
+    scroller_.handleWheel(yoffset, 44.0f);
     return true;
 }
 

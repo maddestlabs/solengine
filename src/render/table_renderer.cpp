@@ -14,6 +14,7 @@
 #include "solengine/ui/loading_dialog.hpp"
 #include "solengine/ui/game_browser_dialog.hpp"
 #include "solengine/ui/command_palette_dialog.hpp"
+#include "solengine/ui/kinetic_scroller.hpp"
 #include "solengine/ui/clockwork_theme.hpp"
 #include "solengine/ui/app_icon_data.hpp"
 #include "solengine/game_definition.hpp"
@@ -2179,7 +2180,7 @@ HelpSidebarLayout buildHelpSidebarLayout(
     const auto& manifest = board.docManifest();
     const float lx = out.sb.x + 12.0f;
     const float maxTextW = std::max(100.0f, out.sb.w - 28.0f);
-    float cy = out.viewY + 4.0f - std::max(0.0f, helpScrollY);
+    float cy = out.viewY + 4.0f - helpScrollY;
     const float startCy = cy;
 
     // 0. Optional Centered YouTube Thumbnail Card (only shown when thumbnail is ready)
@@ -2320,8 +2321,7 @@ void drawHelpSidebar(
     const bool hasVideoThumb = (videoThumb && videoThumb->ready() && videoThumb->videoId == board.docManifest().videoId);
     const HelpSidebarLayout rawHl = buildHelpSidebarLayout(board, width, height, 0.0f, odds, hasVideoThumb);
     const float maxScrollY = std::max(0.0f, rawHl.contentH - rawHl.viewH);
-    const float clampedScrollY = std::clamp(helpScrollY, 0.0f, maxScrollY);
-    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, width, height, clampedScrollY, odds, hasVideoThumb);
+    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, width, height, helpScrollY, odds, hasVideoThumb);
     const HelpSidebarRect& sb = hl.sb;
     r.drawRoundedRectGradient(sb.x, sb.y, sb.w, sb.h, 8.0f,
                               pal.woodR0 * 0.92f, pal.woodG0 * 0.92f, pal.woodB0 * 0.92f,
@@ -2371,7 +2371,7 @@ void drawHelpSidebar(
 
     {
         auto scissor = r.makeScissorScope(sb.x + 2.0f, hl.viewY, sb.w - 4.0f, hl.viewH);
-        float cy = hl.viewY + 4.0f - clampedScrollY;
+        float cy = hl.viewY + 4.0f - helpScrollY;
 
         // 0. Optional Centered YouTube Thumbnail Card (only shown when thumbnail is ready)
         if (hasVideoThumb) {
@@ -2606,15 +2606,24 @@ void drawHelpSidebar(
                        0.20f, 0.22f, 0.28f, pal.accentR, pal.accentG, pal.accentB, 2);
     }
 
-    // Subtle vertical scrollbar indicator when content overflows
+    // Subtle vertical scrollbar indicator when content overflows (compresses on iOS overscroll)
     if (maxScrollY > 1.0f) {
         const float trackX = sb.x + sb.w - 7.0f;
         const float trackY = hl.viewY + 4.0f;
         const float trackW = 4.0f;
         const float trackH = std::max(24.0f, hl.viewH - 8.0f);
-        const float thumbH = std::max(24.0f, trackH * (hl.viewH / std::max(hl.viewH, hl.contentH)));
-        const float scrollFrac = clampedScrollY / maxScrollY;
-        const float thumbY = trackY + scrollFrac * (trackH - thumbH);
+        float thumbH = std::max(24.0f, trackH * (hl.viewH / std::max(hl.viewH, hl.contentH)));
+        float thumbY = trackY;
+        if (helpScrollY < 0.0f) {
+            thumbH = std::max(12.0f, thumbH - (-helpScrollY) * 0.45f);
+            thumbY = trackY;
+        } else if (helpScrollY > maxScrollY) {
+            thumbH = std::max(12.0f, thumbH - (helpScrollY - maxScrollY) * 0.45f);
+            thumbY = trackY + trackH - thumbH;
+        } else {
+            const float scrollFrac = helpScrollY / maxScrollY;
+            thumbY = trackY + scrollFrac * (trackH - thumbH);
+        }
         r.drawRoundedRect(trackX, trackY, trackW, trackH, 2.0f, 0.05f, 0.04f, 0.03f, 0.45f, 2);
         r.drawRoundedRect(trackX, thumbY, trackW, thumbH, 2.0f, pal.accentR, pal.accentG, pal.accentB, 0.85f, 2);
     }
@@ -3618,6 +3627,346 @@ void evaluateActiveVictoryAirborne(
         return a.xf.cz < b.xf.cz - 0.01f;
     });
 }
+
+class VictoryAudioDriver {
+public:
+    void reset() noexcept {
+        wasVictory_ = false;
+        prevVTime_ = -0.001f;
+        envelopeStartVTime_ = 0.0f;
+        tokens_ = kMaxTokens;
+        scheduledCount_ = 0;
+        prevGameId_.clear();
+        prevOverride_ = VictoryAnimOverride::GameDefault;
+    }
+
+    void update(
+        const SolitaireBoard& board,
+        AudioFoleyEngine& foley,
+        float width,
+        float height,
+        float dt,
+        bool gatherActive) {
+        if (!board.isVictory() || gatherActive || width <= 1.0f || height <= 1.0f) {
+            if (wasVictory_) {
+                reset();
+            }
+            return;
+        }
+
+        const float clampedDt = std::clamp(dt, 0.0f, 0.10f);
+        tokens_ = std::min(kMaxTokens, tokens_ + clampedDt * kTokenRefillPerSec);
+        flushScheduled(foley, clampedDt);
+
+        const float vTime = board.victorySeconds();
+        const auto* profVic = SettingsManager::instance().getGameProfile(board.activeGameDef().id);
+        const VictoryAnimOverride vicOverride = (profVic && profVic->victoryAnimOverride)
+            ? *profVic->victoryAnimOverride
+            : SettingsManager::instance().settings().victoryAnimOverride;
+
+        const bool gameChanged = (prevGameId_ != board.activeGameDef().id);
+        const bool overrideChanged = wasVictory_ && (vicOverride != prevOverride_);
+        if (!wasVictory_ || gameChanged || vTime < prevVTime_) {
+            wasVictory_ = true;
+            prevVTime_ = -0.001f;
+            envelopeStartVTime_ = 0.0f;
+            tokens_ = kMaxTokens;
+            scheduledCount_ = 0;
+            prevGameId_ = board.activeGameDef().id;
+            prevOverride_ = vicOverride;
+        } else if (overrideChanged) {
+            prevOverride_ = vicOverride;
+            envelopeStartVTime_ = vTime;
+            scheduledCount_ = 0;
+            tokens_ = kMaxTokens;
+        }
+
+        if (vTime <= prevVTime_) {
+            return;
+        }
+
+        const float env = 1.0f;
+        const float cw = board.cardWidth();
+        const float ch = board.cardHeight();
+
+        VictoryStageSpec overrideSpec{};
+        if (buildVictoryOverrideStage(vicOverride, overrideSpec)) {
+            processStage(overrideSpec, board, foley, prevVTime_, vTime, width, height, cw, ch, env);
+        } else {
+            const auto& stages = board.victoryChoreography().stages;
+            if (stages.empty()) {
+                VictoryStageSpec defaultStage{};
+                processStage(defaultStage, board, foley, prevVTime_, vTime, width, height, cw, ch, env);
+            } else {
+                for (const auto& stage : stages) {
+                    processStage(stage, board, foley, prevVTime_, vTime, width, height, cw, ch, env);
+                }
+            }
+        }
+
+        prevVTime_ = vTime;
+    }
+
+private:
+    static constexpr float kPi = 3.14159265358979323846f;
+    static constexpr float kHalfPi = 1.5707963267948966f;
+    static constexpr float kTwoPi = 6.28318530717958647692f;
+    static constexpr float kMaxTokens = 6.0f;
+    static constexpr float kTokenRefillPerSec = 10.5f;
+    static constexpr size_t kMaxScheduled = 32;
+
+    struct ScheduledHit {
+        float delaySec{0.0f};
+        uint16_t soundId{FoleySound::Snap};
+        float intensity{0.5f};
+        float pan{0.0f};
+        float pitchScale{1.0f};
+    };
+
+    static float panFromX(float x, float width) noexcept {
+        if (width <= 1.0f) return 0.0f;
+        return std::clamp((x / width) * 2.0f - 1.0f, -0.88f, 0.88f);
+    }
+
+    bool consumeToken(float cost = 1.0f) noexcept {
+        if (tokens_ < cost) return false;
+        tokens_ -= cost;
+        return true;
+    }
+
+    void fireNow(AudioFoleyEngine& foley, uint16_t soundId, float intensity, float pan, float pitchScale = 1.0f, float tokenCost = 1.0f) noexcept {
+        if (intensity <= 0.02f) return;
+        if (!consumeToken(tokenCost)) return;
+        foley.triggerSound(soundId, std::clamp(intensity, 0.02f, 1.0f), std::clamp(pan, -0.95f, 0.95f), pitchScale);
+    }
+
+    void scheduleHit(float delaySec, uint16_t soundId, float intensity, float pan, float pitchScale = 1.0f) noexcept {
+        if (intensity <= 0.02f || scheduledCount_ >= kMaxScheduled) return;
+        scheduled_[scheduledCount_++] = {std::max(0.0f, delaySec), soundId, std::clamp(intensity, 0.02f, 1.0f), std::clamp(pan, -0.95f, 0.95f), pitchScale};
+    }
+
+    void flushScheduled(AudioFoleyEngine& foley, float dt) noexcept {
+        size_t writeIdx = 0;
+        for (size_t i = 0; i < scheduledCount_; ++i) {
+            auto h = scheduled_[i];
+            h.delaySec -= dt;
+            if (h.delaySec <= 0.0f) {
+                if (consumeToken(0.55f)) {
+                    foley.triggerSound(h.soundId, h.intensity, h.pan, h.pitchScale);
+                }
+            } else {
+                scheduled_[writeIdx++] = h;
+            }
+        }
+        scheduledCount_ = writeIdx;
+    }
+
+    void processStage(
+        const VictoryStageSpec& spec,
+        const SolitaireBoard& board,
+        AudioFoleyEngine& foley,
+        float prevVTime,
+        float vTime,
+        float width,
+        float height,
+        float cw,
+        float ch,
+        float env) {
+        const float prevStageTime = prevVTime - spec.delay;
+        const float stageTime = vTime - spec.delay;
+        if (stageTime < 0.0f) return;
+        if (spec.duration > 0.0f && prevStageTime > spec.duration) return;
+
+        // Stage intro beat when a stage begins
+        if (prevStageTime < 0.0f && stageTime >= 0.0f) {
+            switch (spec.type) {
+                case VictoryAnimType::FigureEight:
+                    fireNow(foley, FoleySound::Shuffle, 0.72f * env, 0.0f, 1.04f, 0.5f);
+                    break;
+                case VictoryAnimType::SpiralVortex:
+                    fireNow(foley, FoleySound::Shuffle, 0.78f * env, 0.0f, 1.08f, 0.5f);
+                    break;
+                case VictoryAnimType::OrbitRing:
+                    fireNow(foley, FoleySound::TexasPitch, 0.68f * env, 0.0f, 1.05f, 0.5f);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        const float speed = std::max(0.2f, spec.speed);
+
+        if (spec.type == VictoryAnimType::Fireworks) {
+            const int32_t rocketCount = (spec.count > 0) ? spec.count : 4;
+            const float tBurst = 0.68f / speed;
+            const float cycleDur = spec.loop ? (2.55f / speed) : 10000.0f;
+
+            for (int32_t rIdx = 0; rIdx < rocketCount; ++rIdx) {
+                const float tPrev = prevStageTime - static_cast<float>(rIdx) * spec.stagger;
+                const float tCur = stageTime - static_cast<float>(rIdx) * spec.stagger;
+                if (tCur < 0.0f) continue;
+
+                const uint32_t cycleCur = spec.loop ? static_cast<uint32_t>(tCur / cycleDur) : 0u;
+                const uint32_t cyclePrev = (tPrev >= 0.0f && spec.loop) ? static_cast<uint32_t>(tPrev / cycleDur) : 0u;
+                const float localCur = spec.loop ? std::fmod(tCur, cycleDur) : tCur;
+                const float localPrev = (tPrev < 0.0f) ? -1.0f : (spec.loop ? std::fmod(tPrev, cycleDur) : tPrev);
+
+                const uint32_t seedBase = static_cast<uint32_t>(rIdx) * 977u + cycleCur * 7919u + 131u;
+                const float launchX = width * (0.18f + 0.64f * victoryHashFloat(seedBase + 1u));
+                const float apexX = width * (0.20f + 0.60f * victoryHashFloat(seedBase + 2u));
+                const float launchPan = panFromX(launchX, width);
+                const float apexPan = panFromX(apexX, width);
+
+                // Rocket launch crossing (mortar flip + rising wind-drag whooshes)
+                const bool launched = (tPrev < 0.0f && tCur >= 0.0f) || (spec.loop && tPrev >= 0.0f && cycleCur > cyclePrev);
+                if (launched) {
+                    const float pitchVar = 0.92f + 0.18f * victoryHashFloat(seedBase + 5u);
+                    fireNow(foley, FoleySound::Flip, 0.56f * env, launchPan, pitchVar, 0.8f);
+                    scheduleHit(0.06f / speed, FoleySound::Drag, 0.42f * env, launchPan * 0.7f + apexPan * 0.3f, 1.12f * pitchVar);
+                    scheduleHit(0.24f / speed, FoleySound::Drag, 0.38f * env, launchPan * 0.3f + apexPan * 0.7f, 1.38f * pitchVar);
+                }
+
+                // Apex explosion crossing (punchy drop pop + crackling deal/snap starburst + subtle sparkle)
+                const bool burst = (!launched && localPrev < tBurst && localCur >= tBurst) || (launched && localCur >= tBurst);
+                if (burst) {
+                    const float basePitch = 0.86f + 0.16f * victoryHashFloat(seedBase + 7u);
+                    fireNow(foley, FoleySound::Place, 0.92f * env, apexPan, 0.80f * basePitch, 0.8f);
+                    fireNow(foley, FoleySound::Snap, 0.68f * env, apexPan, 1.24f * basePitch, 0.5f);
+
+                    const int crackles = std::clamp(spec.burstCount / 3, 3, 5);
+                    for (int c = 0; c < crackles; ++c) {
+                        const uint32_t cSeed = seedBase + static_cast<uint32_t>(c + 1) * 419u;
+                        const float spread = (victoryHashFloat(cSeed + 1u) - 0.5f) * 0.48f;
+                        const float delay = 0.032f + static_cast<float>(c) * 0.034f + victoryHashFloat(cSeed + 2u) * 0.018f;
+                        const uint16_t sid = (c % 2 == 0) ? FoleySound::Deal : FoleySound::Snap;
+                        const float amp = (0.58f - static_cast<float>(c) * 0.07f) * env;
+                        const float pitch = 0.96f + victoryHashFloat(cSeed + 3u) * 0.40f;
+                        scheduleHit(delay, sid, amp, apexPan + spread, pitch);
+                    }
+                    // Subtle glittering ember tail
+                    scheduleHit(0.095f, FoleySound::MagicTine, 0.16f * env, apexPan - 0.12f, 1.08f + 0.20f * victoryHashFloat(seedBase + 9u));
+                    scheduleHit(0.165f, FoleySound::MagicTine, 0.12f * env, apexPan + 0.14f, 1.26f + 0.22f * victoryHashFloat(seedBase + 11u));
+                }
+            }
+            return;
+        }
+
+        if (spec.type == VictoryAnimType::CascadeBounce) {
+            const auto sourceCards = collectVictorySourceCards(board, spec.source, cw, ch, width, height, spec.count);
+            const float bouncePeriod = 1.45f / speed;
+            const float minX = cw * 0.6f;
+            const float maxX = width - cw * 0.6f;
+            const float spanX = std::max(10.0f, maxX - minX);
+
+            for (size_t i = 0; i < sourceCards.size(); ++i) {
+                const auto& sc = sourceCards[i];
+                const float tLaunch = (spec.source == VictoryCardSource::Foundation)
+                    ? ((12.0f - static_cast<float>(sc.cardIndexInPile)) * 0.16f + static_cast<float>(sc.pileIndex) * 0.06f)
+                    : (static_cast<float>(i) * spec.stagger);
+                if (stageTime < tLaunch) continue;
+
+                const uint32_t cardId = static_cast<uint32_t>(sc.pileIndex * 13 + sc.cardIndexInPile + i);
+
+                // Card launch peel off foundation
+                if (prevStageTime < tLaunch && stageTime >= tLaunch) {
+                    const float launchPan = panFromX(sc.startX, width);
+                    const float rankNorm = static_cast<float>(12u - std::min<size_t>(12u, sc.cardIndexInPile)) / 12.0f;
+                    const float pitch = 0.92f + rankNorm * 0.30f;
+                    const uint16_t sid = (i % 4 == 0) ? FoleySound::Flip : FoleySound::Deal;
+                    fireNow(foley, sid, 0.50f * env, launchPan, pitch, 0.9f);
+                }
+
+                const float dtPrev = std::max(0.0f, prevStageTime - tLaunch);
+                const float dtCur = stageTime - tLaunch;
+                if (dtCur <= 0.0f) continue;
+
+                const float vx = ((static_cast<float>(sc.pileIndex) - 1.5f) * 170.0f) + std::sin(static_cast<float>(cardId) * 2.3f) * 85.0f;
+                const float rawXPrev = sc.startX + vx * dtPrev * speed;
+                const float rawXCur = sc.startX + vx * dtCur * speed;
+
+                // Floor bounce crossing (continues indefinitely at decayed energy until animation stops)
+                const int bouncePrev = static_cast<int>(dtPrev / bouncePeriod);
+                const int bounceCur = static_cast<int>(dtCur / bouncePeriod);
+                if (bounceCur > bouncePrev) {
+                    float normX = std::fmod(std::abs(rawXCur - minX), spanX * 2.0f);
+                    if (normX > spanX) normX = spanX * 2.0f - normX;
+                    const float posX = minX + normX;
+                    const float decay = std::max(0.25f, 1.0f - static_cast<float>(bounceCur) * 0.12f);
+                    const float pitch = std::clamp(1.10f - static_cast<float>(bounceCur) * 0.055f, 0.76f, 1.15f);
+                    fireNow(foley, FoleySound::Place, 0.66f * decay * env, panFromX(posX, width), pitch, 1.0f);
+                }
+
+                // Left/right screen-edge ricochet
+                const int wallPrev = static_cast<int>(std::floor(std::abs(rawXPrev - minX) / spanX));
+                const int wallCur = static_cast<int>(std::floor(std::abs(rawXCur - minX) / spanX));
+                if (wallCur > wallPrev) {
+                    const float decay = std::max(0.35f, 1.0f - static_cast<float>(bounceCur) * 0.10f);
+                    const float wallPan = (wallCur % 2 == 1) ? 0.86f : -0.86f;
+                    fireNow(foley, FoleySound::Snap, 0.34f * decay * env, wallPan, 1.18f, 0.9f);
+                }
+            }
+            return;
+        }
+
+        if (spec.type == VictoryAnimType::FigureEight) {
+            // OrbitRing variant: alternating left-right / right-left Doppler passes matching the figure-8 weave
+            const float phasePrev = std::max(0.0f, prevStageTime) * speed * 1.45f;
+            const float phaseCur = stageTime * speed * 1.45f;
+            const int passPrev = static_cast<int>(std::floor(phasePrev / kHalfPi));
+            const int passCur = static_cast<int>(std::floor(phaseCur / kHalfPi));
+            if (passCur > passPrev) {
+                const float dir = (passCur % 2 == 0) ? 1.0f : -1.0f;
+                const float pitchShift = (passCur % 2 == 0) ? 1.00f : 1.07f;
+                fireNow(foley, FoleySound::Drag, 0.40f * env, -0.46f * dir, 1.02f * pitchShift, 0.8f);
+                scheduleHit(0.055f / speed, FoleySound::Snap, 0.25f * env, 0.0f, 1.12f * pitchShift);
+                scheduleHit(0.110f / speed, FoleySound::Slide, 0.30f * env, 0.46f * dir, 1.22f * pitchShift);
+            }
+            return;
+        }
+
+        if (spec.type == VictoryAnimType::SpiralVortex) {
+            // OrbitRing variant: faster swirling Doppler passes whose pan width and pitch breathe with vortex radius
+            const float thetaPrev = std::max(0.0f, prevStageTime) * speed * 2.2f;
+            const float thetaCur = stageTime * speed * 2.2f;
+            const int passPrev = static_cast<int>(std::floor(thetaPrev / kHalfPi));
+            const int passCur = static_cast<int>(std::floor(thetaCur / kHalfPi));
+            if (passCur > passPrev) {
+                const float dir = (spec.spin >= 0.0f) ? 1.0f : -1.0f;
+                const float radialOsc = 0.22f + 0.78f * (0.5f + 0.5f * std::sin(stageTime * speed * 0.9f));
+                const float panSpan = 0.22f + 0.38f * radialOsc;             // Tight center -> wide sweep
+                const float pitchTight = 1.22f - 0.26f * radialOsc;        // Higher pitch when pulled tight
+                const float sweepScale = 0.78f + 0.34f * radialOsc;        // Faster sweep when pulled tight
+                fireNow(foley, FoleySound::Drag, 0.40f * env, -panSpan * dir, 1.02f * pitchTight, 0.8f);
+                scheduleHit((0.050f * sweepScale) / speed, FoleySound::Snap, 0.26f * env, 0.0f, 1.14f * pitchTight);
+                scheduleHit((0.100f * sweepScale) / speed, FoleySound::Slide, 0.30f * env, panSpan * dir, 1.24f * pitchTight);
+            }
+            return;
+        }
+
+        // OrbitRing: 3D tilted carousel Doppler passes
+        {
+            const float thetaPrev = std::max(0.0f, prevStageTime) * speed * 1.5f;
+            const float thetaCur = stageTime * speed * 1.5f;
+            const int passPrev = static_cast<int>(std::floor(thetaPrev / kHalfPi));
+            const int passCur = static_cast<int>(std::floor(thetaCur / kHalfPi));
+            if (passCur > passPrev) {
+                const float dir = (spec.spin >= 0.0f) ? 1.0f : -1.0f;
+                fireNow(foley, FoleySound::Drag, 0.40f * env, -0.36f * dir, 1.04f, 0.8f);
+                scheduleHit(0.055f / speed, FoleySound::Snap, 0.25f * env, 0.0f, 1.14f);
+                scheduleHit(0.110f / speed, FoleySound::Slide, 0.30f * env, 0.36f * dir, 1.24f);
+            }
+        }
+    }
+
+    bool wasVictory_{false};
+    float prevVTime_{-0.001f};
+    float envelopeStartVTime_{0.0f};
+    float tokens_{kMaxTokens};
+    std::array<ScheduledHit, kMaxScheduled> scheduled_{};
+    size_t scheduledCount_{0};
+    std::string prevGameId_;
+    VictoryAnimOverride prevOverride_{VictoryAnimOverride::GameDefault};
+};
 
 } // namespace
 
@@ -5984,14 +6333,8 @@ struct InteractiveContext {
     bool prevKeyF1 = false;
     bool helpOpen = false;
     int highlightedHelpZone = -1;
-    float helpScrollY = 0.0f;
-    float helpMaxScrollY = 0.0f;
-    bool helpPointerDown = false;
-    bool helpDraggingScroll = false;
+    KineticScroller helpScroller{};
     bool helpDraggingScrollbar = false;
-    float helpDragStartX = 0.0f;
-    float helpDragStartY = 0.0f;
-    float helpInitialScrollY = 0.0f;
     float prevHelpMouseX = -1.0f;
     float prevHelpMouseY = -1.0f;
     std::string lastOddsGameId;
@@ -6418,6 +6761,7 @@ struct InteractiveContext {
     float autoCascadeTimer = 0.0f;
     bool screensaverActive = false;
     VictoryGatherState victoryGather;
+    VictoryAudioDriver victoryAudio;
     bool pendingGatherDeal = false;
     uint32_t pendingGatherSeed = 0;
     bool pendingGatherSeedReady = false;
@@ -8678,9 +9022,7 @@ struct InteractiveContext {
                 helpOpen = !helpOpen;
                 if (!helpOpen) {
                     highlightedHelpZone = -1;
-                    helpScrollY = 0.0f;
-                    helpPointerDown = false;
-                    helpDraggingScroll = false;
+                    helpScroller.reset(0.0f);
                     helpDraggingScrollbar = false;
                 }
                 foley.triggerSound(FoleySound::Flip, 0.75f);
@@ -9176,7 +9518,7 @@ struct InteractiveContext {
                 prevHelpMouseY = fmy;
                 HelpOddsInfo oddsSnap;
                 { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
-                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasHelpVideoThumb());
+                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScroller.offset(), &oddsSnap, hasHelpVideoThumb());
                 int hoveredZ = -1;
                 if (fmx >= hl.sb.x && fmx <= hl.sb.x + hl.sb.w && fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
                     for (const auto& zh : hl.zoneHits) {
@@ -9222,15 +9564,13 @@ struct InteractiveContext {
             } else if (helpOpen && [&]() {
                 HelpOddsInfo oddsSnap;
                 { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
-                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasHelpVideoThumb());
+                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScroller.offset(), &oddsSnap, hasHelpVideoThumb());
                 const HelpSidebarRect& sb = hl.sb;
                 if (fmx < sb.x || fmx > sb.x + sb.w || fmy < sb.y || fmy > sb.y + sb.h) return false;
                 if (fmx >= sb.closeX && fmx <= sb.closeX + sb.closeW && fmy >= sb.closeY && fmy <= sb.closeY + sb.closeH) {
                     helpOpen = false;
                     highlightedHelpZone = -1;
-                    helpScrollY = 0.0f;
-                    helpPointerDown = false;
-                    helpDraggingScroll = false;
+                    helpScroller.reset(0.0f);
                     helpDraggingScrollbar = false;
                     foley.triggerSound(FoleySound::WoodClick, 0.75f);
                     return true;
@@ -9255,20 +9595,20 @@ struct InteractiveContext {
                     return true;
                 }
                 if (fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
-                    helpMaxScrollY = std::max(0.0f, hl.contentH - hl.viewH);
-                    if (helpMaxScrollY > 1.0f && fmx >= sb.x + sb.w - 22.0f) {
+                    helpScroller.setBounds(hl.contentH, hl.viewH);
+                    if (helpScroller.maxOffset() > 1.0f && fmx >= sb.x + sb.w - 22.0f) {
                         helpDraggingScrollbar = true;
                         const float trackY = hl.viewY + 4.0f;
                         const float trackH = std::max(24.0f, hl.viewH - 8.0f);
-                        const float frac = std::clamp((fmy - trackY) / trackH, 0.0f, 1.0f);
-                        helpScrollY = frac * helpMaxScrollY;
+                        float thumbY = trackY;
+                        float thumbH = 24.0f;
+                        helpScroller.computeThumb(trackY, trackH, thumbY, thumbH);
+                        const float denom = std::max(1.0f, trackH - thumbH);
+                        const float frac = std::clamp((fmy - trackY - thumbH * 0.5f) / denom, 0.0f, 1.0f);
+                        helpScroller.setOffsetImmediate(frac * helpScroller.maxOffset());
                         return true;
                     }
-                    helpPointerDown = true;
-                    helpDraggingScroll = false;
-                    helpDragStartX = fmx;
-                    helpDragStartY = fmy;
-                    helpInitialScrollY = std::clamp(helpScrollY, 0.0f, helpMaxScrollY);
+                    helpScroller.beginDrag(fmx, fmy);
                     return true;
                 }
                 return true;
@@ -9441,23 +9781,22 @@ struct InteractiveContext {
                 foley.triggerSound(FoleySound::Drag, 0.32f * speed, screenPan(fmx));
                 dragSoundAccumulator = 0.0f;
             }
-        } else if (leftDown && helpOpen && (helpPointerDown || helpDraggingScrollbar)) {
+        } else if (leftDown && helpOpen && (helpScroller.isPointerDown() || helpDraggingScrollbar)) {
             HelpOddsInfo oddsSnap;
             { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
-            const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasHelpVideoThumb());
-            helpMaxScrollY = std::max(0.0f, hl.contentH - hl.viewH);
-            if (helpDraggingScrollbar && helpMaxScrollY > 1.0f) {
+            const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), 0.0f, &oddsSnap, hasHelpVideoThumb());
+            helpScroller.setBounds(hl.contentH, hl.viewH);
+            if (helpDraggingScrollbar && helpScroller.maxOffset() > 1.0f) {
                 const float trackY = hl.viewY + 4.0f;
                 const float trackH = std::max(24.0f, hl.viewH - 8.0f);
-                const float frac = std::clamp((fmy - trackY) / trackH, 0.0f, 1.0f);
-                helpScrollY = frac * helpMaxScrollY;
-            } else if (helpPointerDown && helpMaxScrollY > 1.0f) {
-                if (!helpDraggingScroll && std::abs(fmy - helpDragStartY) > 5.0f) {
-                    helpDraggingScroll = true;
-                }
-                if (helpDraggingScroll) {
-                    helpScrollY = std::clamp(helpInitialScrollY - (fmy - helpDragStartY), 0.0f, helpMaxScrollY);
-                }
+                float thumbY = trackY;
+                float thumbH = 24.0f;
+                helpScroller.computeThumb(trackY, trackH, thumbY, thumbH);
+                const float denom = std::max(1.0f, trackH - thumbH);
+                const float frac = std::clamp((fmy - trackY - thumbH * 0.5f) / denom, 0.0f, 1.0f);
+                helpScroller.setOffsetImmediate(frac * helpScroller.maxOffset());
+            } else if (helpScroller.isPointerDown()) {
+                helpScroller.moveDrag(fmx, fmy);
             }
         } else if (leftDown && (isGesturing || feltPanning)) {
             gestureCurX = fmx;
@@ -9469,12 +9808,15 @@ struct InteractiveContext {
                 showcaseCam.userPanActive = true;
             }
         } else if (!modalOpen && !leftDown && prevLeftDown) {
-            if (helpPointerDown || helpDraggingScrollbar) {
-                if (helpOpen && !helpDraggingScroll && !helpDraggingScrollbar) {
+            if (helpScroller.isPointerDown() || helpDraggingScrollbar) {
+                const bool wasScrollbar = helpDraggingScrollbar;
+                const bool suppressClick = helpScroller.endDrag();
+                helpDraggingScrollbar = false;
+                if (helpOpen && !suppressClick && !wasScrollbar) {
                     HelpOddsInfo oddsSnap;
                     { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
                     const bool hasThumb = hasHelpVideoThumb();
-                    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScrollY, &oddsSnap, hasThumb);
+                    const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), helpScroller.offset(), &oddsSnap, hasThumb);
                     if (fmy >= hl.viewY && fmy <= hl.viewY + hl.viewH) {
                         if (hasThumb &&
                             fmx >= hl.videoX && fmx <= hl.videoX + hl.videoW &&
@@ -9509,9 +9851,6 @@ struct InteractiveContext {
                         }
                     }
                 }
-                helpPointerDown = false;
-                helpDraggingScroll = false;
-                helpDraggingScrollbar = false;
             } else if (pressedToolbarBtn != BtnNone) {
                 if (!holdTriggered && hoveredBtn == pressedToolbarBtn) {
                     if (pressedToolbarBtn == BtnToolbarResize) {
@@ -9812,8 +10151,7 @@ struct InteractiveContext {
                 helpOpen = !helpOpen;
                 if (!helpOpen) {
                     highlightedHelpZone = -1;
-                    helpPointerDown = false;
-                    helpDraggingScroll = false;
+                    helpScroller.cancelDrag();
                     helpDraggingScrollbar = false;
                 }
                 foley.triggerSound(FoleySound::Flip, 0.75f);
@@ -9822,8 +10160,7 @@ struct InteractiveContext {
                 if (helpOpen) {
                     helpOpen = false;
                     highlightedHelpZone = -1;
-                    helpPointerDown = false;
-                    helpDraggingScroll = false;
+                    helpScroller.cancelDrag();
                     helpDraggingScrollbar = false;
                 } else if (playMenuOpen) {
                     playMenuOpen = false;
@@ -9935,6 +10272,7 @@ struct InteractiveContext {
             }
         }
         board.updateAnimations(dt);
+        victoryAudio.update(board, foley, static_cast<float>(width), static_cast<float>(height), dt, victoryGather.active);
         {
             std::array<float, 32> dealPans{};
             const uint8_t dealSoundCount = board.consumePendingDealPans(dealPans.data(), static_cast<uint8_t>(dealPans.size()));
@@ -10020,8 +10358,15 @@ struct InteractiveContext {
                 cancelOddsAnalysis();
                 { std::lock_guard<std::mutex> lk(oddsMutex); helpOdds = {}; }
                 highlightedHelpZone = -1;
-                helpScrollY = 0.0f;
+                helpScroller.reset(0.0f);
                 lastOddsGameId = board.activeGameDef().id;
+            }
+            if (helpOpen) {
+                HelpOddsInfo oddsSnap;
+                { std::lock_guard<std::mutex> lk(oddsMutex); oddsSnap = helpOdds; }
+                const HelpSidebarLayout hl = buildHelpSidebarLayout(board, static_cast<float>(width), static_cast<float>(height), 0.0f, &oddsSnap, hasHelpVideoThumb());
+                helpScroller.setBounds(hl.contentH, hl.viewH);
+                helpScroller.update(dt);
             }
 
             if (hintHighlight.active) {
@@ -10421,7 +10766,7 @@ struct InteractiveContext {
                                        menuOpen, menuAnchor, menuFlowVertical, isDraggingMenu, dragPreviewAnchor, dragPreviewFlowVertical,
                                        isGesturing, gestureStartX, gestureStartY, gestureCurX, gestureCurY,
                                        &dynamicLight, &autoPlayController,
-                                       helpOpen, activeHighlightZone, helpScrollY, fmx, fmy, &oddsSnap, &magicParticles, &hintHighlight,
+                                       helpOpen, activeHighlightZone, helpScroller.offset(), fmx, fmy, &oddsSnap, &magicParticles, &hintHighlight,
                                        screensaverActive, &showcaseCam, directorHideHud,
                                        dragPivotAngle, dragGrabLocalX, dragGrabLocalY,
                                        dragChainCount > 0 ? dragChainAngles.data() : nullptr, dragChainCount,
@@ -10433,10 +10778,12 @@ struct InteractiveContext {
                 renderer.applyPostFxPass();
             }
             if (settingsDialog.isOpen()) {
+                settingsDialog.update(dt);
                 ThemePalette pal = getPalette(board.tableTheme());
                 settingsDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal, static_cast<float>(now));
             }
             if (seedDialog.isOpen()) {
+                seedDialog.update(dt);
                 ThemePalette pal = getPalette(board.tableTheme());
                 seedDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal, static_cast<float>(now), window);
             }
@@ -10446,6 +10793,7 @@ struct InteractiveContext {
                 gameBrowserDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal);
             }
             if (commandPaletteDialog.isOpen()) {
+                commandPaletteDialog.update(dt);
                 ThemePalette pal = getPalette(board.tableTheme());
                 commandPaletteDialog.render(renderer, static_cast<float>(width), static_cast<float>(height), uiFmx, uiFmy, pal);
             }
@@ -10713,12 +11061,8 @@ int TableRenderer::runInteractiveWindow(
                 &oddsSnap,
                 s_activeContext->hasHelpVideoThumb()
             );
-            s_activeContext->helpMaxScrollY = std::max(0.0f, hl.contentH - hl.viewH);
-            s_activeContext->helpScrollY = std::clamp(
-                s_activeContext->helpScrollY - static_cast<float>(yoffset) * 28.0f,
-                0.0f,
-                s_activeContext->helpMaxScrollY
-            );
+            s_activeContext->helpScroller.setBounds(hl.contentH, hl.viewH);
+            s_activeContext->helpScroller.handleWheel(static_cast<float>(yoffset), 42.0f);
         } else if (!s_activeContext->screensaverActive &&
                    !s_activeContext->loadingDialog.isOpen() &&
                    !s_activeContext->seedDialog.isOpen() &&
