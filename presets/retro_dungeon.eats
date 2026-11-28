@@ -1,35 +1,36 @@
-# SolEngine Scene & Deck Preset: Retro Dungeon
+# SolEngine User Preset (.eats)
 
 sol.define_preset({
     id: "retro_dungeon",
     name: "Retro Dungeon",
     description: "Low-poly Scoundrel deck on dark painted wood with CRT Trinitron scanlines, candlelight, and 8-bit foley.",
     deck: "scoundrel_lowpoly",
+    low_poly_seed: 80,
     card_back: "classic_crimson",
     card_wear: 2,
     card_stock: 1,
     card_corners: 1,
     card_deviation: 0.65,
     theme: "paintedwood",
+    theme_option: "red_cedar",
     table_tint: "auto",
-    postfx: "crt_trinitron",
-    postfx_intensity: 0.70,
+    postfx: "dither",
+    postfx_intensity: 0.7,
     show_table_markings: true,
-    sound_pack: "retro_8bit",
+    sound_pack: "glass_crystal",
     ambience: "fireplace",
-    ambience_volume: 0.50,
+    ambience_volume: 0.5,
     lighting: {
         preset: 1,
         angle: 0,
         shadow_gobo: 1,
         waver: 0.55,
         waver_speed: 0.45,
-        flicker: 0.40,
-        gobo_softness: 0.60,
-        cloud_opacity: 0.0,
-        god_rays: 0.0,
+        flicker: 0.4,
+        gobo_softness: 0.6,
+        cloud_opacity: 0,
         dust_motes: 0.25,
         scene_darkness: 0.34,
-        light_strength: 1.30
+        light_strength: 1.3
     }
 })

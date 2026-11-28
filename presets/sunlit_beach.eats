@@ -1,35 +1,34 @@
-# SolEngine Scene & Deck Preset: Sunlit Beach
+# SolEngine User Preset (.eats)
 
 sol.define_preset({
     id: "sunlit_beach",
     name: "Sunlit Beach",
     description: "Procedural golden sand tabletop with SolPoly Classic cards, crisp morning window light, and gentle wind.",
-    deck: "solpoly_classic",
+    deck: "classic",
     card_back: "classic_sapphire",
     card_wear: 1,
-    card_stock: 0,
-    card_corners: 0,
+    card_stock: 4,
+    card_corners: 3,
     card_deviation: 0.45,
     theme: "sands",
     table_tint: "auto",
     postfx: "none",
-    postfx_intensity: 1.0,
-    show_table_markings: true,
-    sound_pack: "copag_plastic",
-    ambience: "wind",
-    ambience_volume: 0.40,
+    postfx_intensity: 1,
+    show_table_markings: false,
+    sound_pack: "vintage_bicycle",
+    ambience: "ocean_surf",
+    ambience_volume: 0.113475,
     lighting: {
         preset: 5,
         angle: 0,
-        shadow_gobo: 0,
+        shadow_gobo: 3,
         waver: 0.25,
         waver_speed: 0.25,
-        flicker: 0.0,
-        gobo_softness: 0.35,
-        cloud_opacity: 0.30,
-        god_rays: 0.35,
-        dust_motes: 0.20,
-        scene_darkness: 0.12,
-        light_strength: 1.25
+        flicker: 0,
+        gobo_softness: 0.162015,
+        cloud_opacity: 0.334347,
+        dust_motes: 0.410448,
+        scene_darkness: 0.0542553,
+        light_strength: 1.56231
     }
 })

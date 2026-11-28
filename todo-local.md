@@ -6,11 +6,13 @@
 - eatsdither; dither shader + procedural library for easy reuse across eatsbits apps
 - c header style apis from solengine
 - Fairytale Solitaire and similiar videogame board mechanics where some plays unlock other parts of the board
-- PWA logo, not working?
 - LowPoly War should become default deck. We'll name it as SolEngine, overwriting the existing deck. The existing procedural deck could then become SolEngine Classic. We'll maintain our procedural decks and totally remove the curren SolEngine Classic that bundles binary directly (we should gain a little runtime size from this).
 - lowpoly memory deck needs distinct pictures. Currently reuses lowpoly dark so court cards are hard to distinguish.
+- we really need a lowpoly deck that excels on mobile.
 
 - Unsocial Score. Similar to badges in Steam and other platforms, Unsocial Scoring tracks player's use of the engine. Deck config, background choices, etc. Players earn points from being unsocial. Is this worth considering?
+
+- Game library: sort-by and a filter drop-down. It's impossible for a user to type on mobile and still use the filtered list like on desktop. We need a better solution for mobile, maybe providing our own built-in keyboard.
 
 - scrolling lists. Standard mobile scrolling functionality in lists.
 

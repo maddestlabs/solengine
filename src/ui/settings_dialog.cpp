@@ -836,7 +836,8 @@ void SettingsDialog::render(
                                     tempSettings_.deckTheme == DeckThemeId::MemoryLowPoly ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyClassic ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyMobile ||
-                                    tempSettings_.deckTheme == DeckThemeId::LowPolyWar);
+                                    tempSettings_.deckTheme == DeckThemeId::LowPolyWar ||
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyJumbo);
         const bool showSeedOption = isLowPolyDeck ||
                                     CardTextureCache::instance().cardBackSupportsSeed(tempSettings_.cardBackId);
         if (showSeedOption) {
@@ -2168,7 +2169,8 @@ bool SettingsDialog::handleMouseButton(
                                     tempSettings_.deckTheme == DeckThemeId::MemoryLowPoly ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyClassic ||
                                     tempSettings_.deckTheme == DeckThemeId::SolPolyMobile ||
-                                    tempSettings_.deckTheme == DeckThemeId::LowPolyWar);
+                                    tempSettings_.deckTheme == DeckThemeId::LowPolyWar ||
+                                    tempSettings_.deckTheme == DeckThemeId::SolPolyJumbo);
         const bool showSeedOption = isLowPolyDeck ||
                                     CardTextureCache::instance().cardBackSupportsSeed(tempSettings_.cardBackId);
         if (showSeedOption) {

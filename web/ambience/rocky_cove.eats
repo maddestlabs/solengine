@@ -1,0 +1,82 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Rocky Cove (.eats)
+# Heavy cove swell against coastal stone, gusting headland wind, tumbling wet
+# shingle pebbles, crisp sea spray, and sparse draining tidepool droplets.
+# ==============================================================================
+
+sol.define_ambience({
+    id: "rocky_cove",
+    name: "Rocky Cove",
+    master_gain: 1.0,
+    layers: [
+        # 1. Heavy booming cove swell against stone
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 145.0,
+            q: 0.707,
+            gain: 0.42,
+            lfo_rate: 0.072,
+            lfo_depth: 45.0,
+            amp_mod: 0.46
+        },
+        # 2. Surging rocky surf wash
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "lowpass",
+            cutoff: 1450.0,
+            q: 0.75,
+            gain: 0.24,
+            lfo_rate: 0.095,
+            lfo_depth: 620.0,
+            amp_mod: 0.50
+        },
+        # 3. Coastal headland wind
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 380.0,
+            q: 2.1,
+            gain: 0.14,
+            lfo_rate: 0.065,
+            lfo_depth: 160.0,
+            amp_mod: 0.36
+        },
+        # 4. Rolling wet shingle & cove pebbles in the undertow
+        {
+            type: "stochastic_grains",
+            rate: 5.5,
+            freq_min: 380.0,
+            freq_max: 1350.0,
+            decay: 0.022,
+            q: 1.8,
+            gain: 0.18,
+            stereo_spread: 0.85
+        },
+        # 5. Crisp sea spray & surf mist
+        {
+            type: "stochastic_grains",
+            rate: 12.0,
+            freq_min: 2400.0,
+            freq_max: 6400.0,
+            decay: 0.015,
+            q: 1.0,
+            gain: 0.12,
+            stereo_spread: 0.90
+        },
+        # 6. Draining tidepool water drops (high-Q resonant plinks)
+        {
+            type: "stochastic_grains",
+            rate: 0.28,
+            freq_min: 1900.0,
+            freq_max: 4300.0,
+            decay: 0.052,
+            q: 14.0,
+            gain: 0.14,
+            stereo_spread: 0.86
+        }
+    ]
+})

@@ -1,0 +1,36 @@
+# SolEngine User Preset (.eats)
+
+sol.define_preset({
+    id: "mobile_jumbo",
+    name: "Mobile Jumbo",
+    description: "High-contrast oversized Jumbo cards on royal blue gingham for tiny mobile screens and effortless readability.",
+    deck: "solpoly_jumbo",
+    low_poly_seed: 80,
+    card_back: "solpoly_jumbo",
+    card_wear: 0,
+    card_stock: 0,
+    card_corners: 3,
+    card_deviation: 0.5,
+    theme: "gingham",
+    theme_option: "royal_blue",
+    table_tint: "auto",
+    postfx: "none",
+    postfx_intensity: 1,
+    show_table_markings: false,
+    sound_pack: "default",
+    ambience: "woodlands",
+    ambience_volume: 0.039,
+    lighting: {
+        preset: 4,
+        angle: 0,
+        shadow_gobo: 0,
+        waver: 0,
+        waver_speed: 0,
+        flicker: 0,
+        gobo_softness: 0.7122,
+        cloud_opacity: 0,
+        dust_motes: 0.0358,
+        scene_darkness: 0,
+        light_strength: 0.6383
+    }
+})

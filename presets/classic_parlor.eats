@@ -4,7 +4,7 @@ sol.define_preset({
     id: "classic_parlor",
     name: "Classic Parlor",
     description: "Traditional felt tabletop with classic cards, warm golden-hour lighting, and subtle wear.",
-    deck: "low_poly_war",
+    deck: "classic",
     card_back: "classic_atelier",
     card_wear: 3,
     card_stock: 4,

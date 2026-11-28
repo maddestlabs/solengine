@@ -394,12 +394,14 @@ bool EatsPackageLoader::loadSource(const std::string& source,
 
             auto& p = sp.profile;
             if (d.hasKey("deck")) p.deckSlug = d.get("deck").asString();
+            if (d.hasKey("low_poly_seed")) p.lowPolySeed = static_cast<uint32_t>(std::max(1, d.get("low_poly_seed").asInt(42)));
             if (d.hasKey("card_back")) p.cardBackId = d.get("card_back").asString();
             if (d.hasKey("card_wear")) p.cardWear = static_cast<CardWearLevel>(d.get("card_wear").asInt(1));
             if (d.hasKey("card_stock")) p.cardStock = static_cast<CardStock>(d.get("card_stock").asInt(1));
             if (d.hasKey("card_corners")) p.cardCorners = static_cast<CardCornerStyle>(d.get("card_corners").asInt(0));
             if (d.hasKey("card_deviation")) p.cardDeviation = d.get("card_deviation").asFloat(0.35f);
             if (d.hasKey("theme")) p.tableThemeSlug = d.get("theme").asString();
+            if (d.hasKey("theme_option")) p.tableThemeOption = d.get("theme_option").asString();
             if (d.hasKey("postfx")) p.postFxId = d.get("postfx").asString();
             if (d.hasKey("postfx_intensity")) p.postFxIntensity = d.get("postfx_intensity").asFloat(1.0f);
             if (d.hasKey("show_table_markings")) p.showTableMarkings = d.get("show_table_markings").asBoolean(true);

@@ -420,7 +420,23 @@ void addClassicSuitShape(
     float outlineW = 0.0f
 );
 
+uint32_t jumboSuitColor(Suit suit) noexcept {
+    return (suit == Suit::Hearts || suit == Suit::Diamonds) ? 0xFFD1121Fu : 0xFF0F1117u;
+}
+
 void addCornerIndices(VectorImage& img, Rank rank, Suit suit, const LowPolyDeckOptions& opts) {
+    if (opts.style == LowPolyStyle::Jumbo) {
+        // Side-by-side oversized top strip (fits cleanly inside SolEngine's 24% tableau cascade)
+        const uint32_t inkCol = jumboSuitColor(suit);
+        const float rx = 25.0f;
+        const float ry = 21.5f;
+        const float rSize = 32.5f;
+        // Subtle same-color outline thickens strokes for low-vision & tiny-screen legibility
+        addRankGlyphShape(img, rank, rx, ry, rSize, inkCol, false, inkCol, 1.05f);
+        addClassicSuitShape(img, suit, 75.0f, 21.5f, 14.0f, 0.0f, inkCol);
+        return;
+    }
+
     const bool darkBg = (opts.bg == LowPolyBg::Dark);
     const bool isRed = (suit == Suit::Hearts || suit == Suit::Diamonds);
     const uint32_t col = isRed
@@ -581,6 +597,76 @@ void emitClassicCourt(VectorImage& img, Suit suit, Rank rank, DeterministicRng& 
     }
 
     emitTris(img, tris, 50.0f, 72.0f, 1.02f);
+}
+
+void emitJumboCourt(VectorImage& img, Suit suit, Rank rank, DeterministicRng& rng, const LowPolyDeckOptions& /*opts*/) {
+    const Ramp4 skin   = {0xFFB9836Bu, 0xFFCF9982u, 0xFFE2B29Du, 0xFFF0CAB8u};
+    const Ramp4 silver = {0xFF475569u, 0xFF64748Bu, 0xFF94A3B8u, 0xFFCBD5E1u};
+    const Ramp4 gold   = {0xFF92400Eu, 0xFFB45309u, 0xFFD97706u, 0xFFF59E0Bu};
+
+    Ramp4 robe, trim;
+    if (suit == Suit::Hearts || suit == Suit::Diamonds) {
+        robe = {0xFF7F1D1Du, 0xFF9E1B24u, 0xFFC8202Au, 0xFFE11D48u};
+        trim = gold;
+    } else if (suit == Suit::Spades) {
+        robe = {0xFF0F172Au, 0xFF1E293Bu, 0xFF334155u, 0xFF475569u};
+        trim = silver;
+    } else {
+        robe = {0xFF1C1917u, 0xFF292524u, 0xFF44403Cu, 0xFF57534Eu};
+        trim = silver;
+    }
+
+    // Grounded royal mantle extending cleanly to the bottom card edge
+    addPolyShape(img, {{19.0f, 114.0f}, {50.0f, 110.0f}, {50.0f, 139.2f}, {11.0f, 139.2f}}, robe[1]);
+    addPolyShape(img, {{50.0f, 110.0f}, {81.0f, 114.0f}, {89.0f, 139.2f}, {50.0f, 139.2f}}, robe[2]);
+    // Trim hem accent stripe
+    addPolyShape(img, {{44.0f, 112.0f}, {56.0f, 112.0f}, {59.0f, 139.2f}, {41.0f, 139.2f}}, trim[1]);
+
+    std::vector<Tri3> tris;
+    auto sym = [&](Vec3 a, Vec3 b, Vec3 c, const Ramp4& mat) {
+        tris.push_back({a, b, c, mat});
+        tris.push_back({{-a.x, a.y, a.z}, {-c.x, c.y, c.z}, {-b.x, b.y, b.z}, mat});
+    };
+
+    const float shW = 26.5f + randRange(rng, -1.2f, 1.2f);
+    sym({0, 12, 8}, {10, 8, 5}, {shW, 16, 2}, robe);
+    sym({0, 12, 8}, {shW, 16, 2}, {0, 34, 4}, robe);
+
+    const Ramp4& collarMat = (rank == Rank::King) ? gold : ((rank == Rank::Queen) ? silver : trim);
+    sym({0, 10, 9}, {8.5f, 12, 7.5f}, {0, 20, 8.5f}, collarMat);
+
+    const Vec3 forehead{0, -14, 8.5f}, cheek{10.5f, -2, 6}, chin{0, 10, 7.5f}, jaw{8, 5, 5};
+    sym(forehead, cheek, {0, -2, 9.5f}, skin);
+    sym({0, -2, 9.5f}, cheek, chin, skin);
+    sym(cheek, jaw, chin, skin);
+
+    const Vec3 hairTop{13, -14, 4}, hairMid{16.5f, 2, 3};
+    sym(forehead, hairTop, cheek, robe);
+    sym(cheek, hairTop, hairMid, robe);
+    sym(cheek, hairMid, jaw, robe);
+
+    if (rank == Rank::Jack) {
+        sym({0, -25, 7}, {16.5f, -19, 5}, forehead, robe);
+        sym(forehead, {16.5f, -19, 5}, hairTop, trim);
+    } else if (rank == Rank::Queen) {
+        // Darker slate backing behind silver crown points for crisp contrast on white card face
+        sym(forehead, hairTop, {11, -21, 5}, silver);
+        sym({0, -33, 6.5f}, {4.5f, -20, 6}, forehead, silver);
+        sym({4.5f, -20, 6}, {11, -31, 4.5f}, {11, -21, 5}, silver);
+        sym({11, -21, 5}, {17.5f, -27.5f, 3.5f}, hairTop, silver);
+    } else {
+        sym({0, -30, 7}, {5.5f, -21, 6.5f}, forehead, gold);
+        sym({5.5f, -21, 6.5f}, {13, -29, 5}, hairTop, gold);
+        sym(forehead, {5.5f, -21, 6.5f}, hairTop, gold);
+        sym({0, 4, 9}, jaw, {0, 14, 7}, robe);
+        sym(jaw, {12, 9, 4}, {0, 14, 7}, robe);
+    }
+
+    // Place bust lower (cy = 96.5) and larger (1.24x) so crown stays well below y = 44
+    emitTris(img, tris, 50.0f, 96.5f, 1.24f);
+
+    // Crisp chest suit crest for instant visual reinforcement
+    addClassicSuitShape(img, suit, 50.0f, 126.5f, 6.2f, 0.0f, 0xFFFCFCFAu);
 }
 
 // ---------------------------------------------------------------------------
@@ -1718,12 +1804,27 @@ VectorImage buildCardFaceVector(Suit suit, Rank rank, const LowPolyDeckOptions& 
     if (opts.style == LowPolyStyle::War) {
         addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFF4F2E6u);
         addPolyShape(img, {{100, 84}, {56, 140}, {100, 140}}, 0xFFE8E4D4u);
+    } else if (opts.style == LowPolyStyle::Jumbo) {
+        // High-contrast glare-friendly porcelain white plate with crisp perimeter separation
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFFCFCFAu);
     } else {
         addPlateAndBevel(img, opts.bg);
     }
 
     DeterministicRng rng(cardSeed);
-    if (opts.style == LowPolyStyle::War) {
+    if (opts.style == LowPolyStyle::Jumbo) {
+        if (rank == Rank::Jack || rank == Rank::Queen || rank == Rank::King) {
+            emitJumboCourt(img, suit, rank, rng, opts);
+        } else {
+            const uint32_t inkCol = jumboSuitColor(suit);
+            const float pipRadius = (rank == Rank::Ace) ? 41.0f : 38.0f;
+            addClassicSuitShape(img, suit, 50.0f, 91.0f, pipRadius, 0.0f, inkCol);
+        }
+        addCornerIndices(img, rank, suit, opts);
+        // Subtle crisp perimeter border so overlapping white cards separate cleanly in cascades
+        addStrokeRectShape(img, 0.75f, 0.75f, 98.5f, 138.5f, 0xFFCBD5E1u, 1.4f);
+        return img;
+    } else if (opts.style == LowPolyStyle::War) {
         if (rank == Rank::Jack || rank == Rank::Queen || rank == Rank::King) {
             emitWarCourt(img, suit, rank, opts, rng);
         } else {
@@ -1816,6 +1917,18 @@ VectorImage buildJokerVector(bool red, const LowPolyDeckOptions& opts) {
     VectorImage img{};
     img.width = 100.0f;
     img.height = 140.0f;
+
+    if (opts.style == LowPolyStyle::Jumbo) {
+        const uint32_t inkCol = red ? 0xFFD1121Fu : 0xFF0F1117u;
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFFCFCFAu);
+        addRankGlyphShape(img, Rank::Jack, 25.0f, 21.5f, 32.5f, inkCol, false, inkCol, 1.05f);
+        // Large star in top-right + centered jumbo star emblem
+        addPolyShape(img, {{75, 8}, {78.5f, 17.5f}, {88.5f, 21.5f}, {78.5f, 25.5f}, {75, 35}, {71.5f, 25.5f}, {61.5f, 21.5f}, {71.5f, 17.5f}}, inkCol);
+        addPolyShape(img, {{50, 56}, {59, 80}, {84, 90}, {59, 100}, {50, 124}, {41, 100}, {16, 90}, {41, 80}}, inkCol);
+        addPolyShape(img, {{50, 74}, {55, 86}, {67, 90}, {55, 94}, {50, 106}, {45, 94}, {33, 90}, {45, 86}}, 0xFFFCFCFAu);
+        addStrokeRectShape(img, 0.75f, 0.75f, 98.5f, 138.5f, 0xFFCBD5E1u, 1.4f);
+        return img;
+    }
 
     if (opts.style == LowPolyStyle::War) {
         addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFF4F2E6u);
@@ -2074,6 +2187,36 @@ VectorImage buildCardBackVector(const LowPolyDeckOptions& opts) {
 
         addStrokeRectShape(img, 7.0f, 7.0f, 86.0f, 126.0f, brass, 1.1f);
         addStrokeRectShape(img, 10.0f, 10.0f, 80.0f, 120.0f, brassLo, 0.5f);
+        return img;
+    }
+
+    // -----------------------------------------------------------------------
+    // 2b. SolPoly Jumbo (LowPolyStyle::Jumbo): Calm High-Contrast Framed Back
+    // -----------------------------------------------------------------------
+    if (opts.style == LowPolyStyle::Jumbo) {
+        // Seed-selected calm high-contrast classic casino tones (Navy default for seed 42, Burgundy, Forest, Slate)
+        static const Ramp4 kJumboBacks[4] = {
+            {0xFF0F294Au, 0xFF153B6Bu, 0xFF1D4E89u, 0xFF2B6CB0u}, // Classic Casino Navy
+            {0xFF5B121Bu, 0xFF7F1D1Du, 0xFF991B1Bu, 0xFFB91C1Cu}, // Deep Burgundy
+            {0xFF0B3D26u, 0xFF14532Du, 0xFF166534u, 0xFF15803Du}, // Classic Forest
+            {0xFF1E293Bu, 0xFF334155u, 0xFF475569u, 0xFF64748Bu}  // Calm Slate
+        };
+        const int palIdx = (opts.seed == 42u) ? 0 : randInt(rng, 0, 3);
+        const Ramp4& bgRamp = kJumboBacks[palIdx];
+
+        // Crisp white outer border so face-down cards separate cleanly in cascades
+        addPolyShape(img, {{0, 0}, {100, 0}, {100, 140}, {0, 140}}, 0xFFFCFCFAu);
+        // Calm low-poly mirrored panel inside border
+        emitMirroredLowPolyMosaic(img, 6.5f, 6.5f, 93.5f, 133.5f, 3, 4, bgRamp, rng);
+
+        // Subtle centered diamond medallion
+        addPolyEx(img, {{50.0f, 48.0f}, {66.0f, 70.0f}, {50.0f, 92.0f}, {34.0f, 70.0f}}, bgRamp[0], 0xFFE2E8F0u, 1.0f);
+        addPolyShape(img, {{50.0f, 56.0f}, {59.0f, 70.0f}, {50.0f, 84.0f}, {41.0f, 70.0f}}, bgRamp[3]);
+
+        // Crisp double inner frame
+        addStrokeRectShape(img, 6.5f, 6.5f, 87.0f, 127.0f, bgRamp[0], 1.1f);
+        addStrokeRectShape(img, 9.5f, 9.5f, 81.0f, 121.0f, 0xFFE2E8F0u, 0.85f);
+        addStrokeRectShape(img, 0.75f, 0.75f, 98.5f, 138.5f, 0xFFCBD5E1u, 1.2f);
         return img;
     }
 

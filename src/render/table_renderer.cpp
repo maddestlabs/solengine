@@ -7076,7 +7076,8 @@ struct InteractiveContext {
                                           def.legacyId == DeckThemeId::MemoryLowPoly ||
                                           def.legacyId == DeckThemeId::SolPolyClassic ||
                                           def.legacyId == DeckThemeId::SolPolyMobile ||
-                                          def.legacyId == DeckThemeId::LowPolyWar);
+                                          def.legacyId == DeckThemeId::LowPolyWar ||
+                                          def.legacyId == DeckThemeId::SolPolyJumbo);
         if (def.filePath.empty() && !isProceduralBuiltin) {
             std::string jsName = def.id;
             EM_ASM({
@@ -8512,7 +8513,8 @@ struct InteractiveContext {
                                 s.deckTheme == DeckThemeId::MemoryLowPoly ||
                                 s.deckTheme == DeckThemeId::SolPolyClassic ||
                                 s.deckTheme == DeckThemeId::SolPolyMobile ||
-                                s.deckTheme == DeckThemeId::LowPolyWar);
+                                s.deckTheme == DeckThemeId::LowPolyWar ||
+                                s.deckTheme == DeckThemeId::SolPolyJumbo);
         const bool backUsesSeed = cache.cardBackSupportsSeed(s.cardBackId);
         bool deckSeedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
         bool backSeedChanged = backUsesSeed && (s.lowPolySeed != cache.lowPolySeed());
@@ -8559,7 +8561,8 @@ struct InteractiveContext {
                                 s.deckTheme == DeckThemeId::MemoryLowPoly ||
                                 s.deckTheme == DeckThemeId::SolPolyClassic ||
                                 s.deckTheme == DeckThemeId::SolPolyMobile ||
-                                s.deckTheme == DeckThemeId::LowPolyWar);
+                                s.deckTheme == DeckThemeId::LowPolyWar ||
+                                s.deckTheme == DeckThemeId::SolPolyJumbo);
         const bool backUsesSeed = cache.cardBackSupportsSeed(s.cardBackId);
         bool deckSeedChanged = isLowPoly && (s.lowPolySeed != cache.lowPolySeed());
         bool backSeedChanged = backUsesSeed && (s.lowPolySeed != cache.lowPolySeed());

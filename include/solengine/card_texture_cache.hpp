@@ -72,6 +72,7 @@ enum class DeckThemeId : uint8_t {
     SolPolyMobile     = 17,
     MemoryLowPoly     = 18,
     LowPolyWar        = 19,
+    SolPolyJumbo      = 20,
     Count
 };
 

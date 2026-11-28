@@ -700,6 +700,7 @@ void CardBackRegistry::initialize(int cardW, int cardH) {
     registerLowPolyBack("solpoly",         "SolPoly Alabaster", LowPolyStyle::Classic, LowPolyBg::White);
     registerLowPolyBack("solpoly_dark",    "SolPoly Obsidian",  LowPolyStyle::Classic, LowPolyBg::Dark);
     registerLowPolyBack("solpoly_mobile",  "SolPoly Mobile",    LowPolyStyle::Mobile,  LowPolyBg::White);
+    registerLowPolyBack("solpoly_jumbo",   "SolPoly Jumbo",     LowPolyStyle::Jumbo,   LowPolyBg::White);
     registerLowPolyBack("scoundrel_prism", "Scoundrel Prism",   LowPolyStyle::Scoundrel, LowPolyBg::Dark);
 }
 
@@ -815,6 +816,8 @@ const CardBackDescriptor* CardBackRegistry::getDefaultBackForDeck(const std::str
         for (const auto& u : universalBacks_) if (u.id == "solpoly_dark") return &u;
     } else if (deckOrigin == "solpoly_mobile") {
         for (const auto& u : universalBacks_) if (u.id == "solpoly_mobile") return &u;
+    } else if (deckOrigin == "solpoly_jumbo") {
+        for (const auto& u : universalBacks_) if (u.id == "solpoly_jumbo") return &u;
     } else if (deckOrigin == "scoundrel_lowpoly") {
         for (const auto& u : universalBacks_) if (u.id == "scoundrel_prism") return &u;
     } else if (deckOrigin.find("baroque") != std::string::npos) {

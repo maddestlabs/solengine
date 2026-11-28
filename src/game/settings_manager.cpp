@@ -986,12 +986,14 @@ void writePresetEatsFile(const std::filesystem::path& fp, const ScenePreset& sp)
     ofs << "    name: \"" << sp.name << "\",\n";
     ofs << "    description: \"" << sp.description << "\"";
     if (profile.deckSlug) ofs << ",\n    deck: \"" << *profile.deckSlug << "\"";
+    if (profile.lowPolySeed) ofs << ",\n    low_poly_seed: " << *profile.lowPolySeed;
     if (profile.cardBackId) ofs << ",\n    card_back: \"" << *profile.cardBackId << "\"";
     if (profile.cardWear) ofs << ",\n    card_wear: " << static_cast<int>(*profile.cardWear);
     if (profile.cardStock) ofs << ",\n    card_stock: " << static_cast<int>(*profile.cardStock);
     if (profile.cardCorners) ofs << ",\n    card_corners: " << static_cast<int>(*profile.cardCorners);
     if (profile.cardDeviation) ofs << ",\n    card_deviation: " << *profile.cardDeviation;
     if (profile.tableThemeSlug) ofs << ",\n    theme: \"" << *profile.tableThemeSlug << "\"";
+    if (profile.tableThemeOption) ofs << ",\n    theme_option: \"" << *profile.tableThemeOption << "\"";
     if (profile.tableTint) {
         const auto* ti = getTableTintInfo(*profile.tableTint);
         ofs << ",\n    table_tint: \"" << (ti ? ti->id : "auto") << "\"";

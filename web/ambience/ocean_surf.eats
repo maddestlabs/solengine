@@ -1,0 +1,84 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Ocean Surf (.eats)
+# Sunlit sandy shoreline with rolling ocean swells, breaking wave wash,
+# retreating seafoam hiss, warm onshore breeze, and sparse distant seabirds.
+# ==============================================================================
+
+sol.define_ambience({
+    id: "ocean_surf",
+    name: "Ocean Surf",
+    master_gain: 1.0,
+    layers: [
+        # 1. Deep rolling ocean swell
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 190.0,
+            q: 0.707,
+            gain: 0.38,
+            lfo_rate: 0.085,
+            lfo_depth: 55.0,
+            amp_mod: 0.42
+        },
+        # 2. Breaking wave wash cresting onto sand
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "lowpass",
+            cutoff: 1150.0,
+            q: 0.707,
+            gain: 0.28,
+            lfo_rate: 0.11,
+            lfo_depth: 520.0,
+            amp_mod: 0.48
+        },
+        # 3. Retreating seafoam sizzle on wet sand
+        {
+            type: "noise_bed",
+            color: "white",
+            filter: "bandpass",
+            cutoff: 4400.0,
+            q: 0.55,
+            gain: 0.055,
+            lfo_rate: 0.11,
+            lfo_depth: 1200.0,
+            amp_mod: 0.50
+        },
+        # 4. Warm coastal onshore breeze
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 480.0,
+            q: 0.90,
+            gain: 0.11,
+            lfo_rate: 0.06,
+            lfo_depth: 140.0,
+            amp_mod: 0.24
+        },
+        # 5. Fine wet-sand bubble & foam fizz
+        {
+            type: "stochastic_grains",
+            rate: 16.0,
+            freq_min: 3000.0,
+            freq_max: 7600.0,
+            decay: 0.009,
+            q: 1.1,
+            gain: 0.12,
+            stereo_spread: 0.90
+        },
+        # 6. Sparse distant seabirds down the coast
+        {
+            type: "chirp_spawner",
+            tonal: true,
+            rate: 0.075,
+            freq_min: 1550.0,
+            freq_max: 2450.0,
+            freq_sweep: 0.84,
+            decay: 0.24,
+            gain: 0.10,
+            stereo_spread: 0.90
+        }
+    ]
+})

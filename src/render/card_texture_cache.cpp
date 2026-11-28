@@ -1625,6 +1625,7 @@ const char* CardTextureCache::deckThemeName(DeckThemeId theme) noexcept {
         case DeckThemeId::SolPolyClassic:    return "SOLPOLY CLASSIC";
         case DeckThemeId::SolPolyMobile:     return "SOLPOLY MOBILE";
         case DeckThemeId::LowPolyWar:        return "LOW POLY WAR";
+        case DeckThemeId::SolPolyJumbo:      return "SOLPOLY JUMBO";
         case DeckThemeId::Count:       return "DEFAULT";
     }
     return "UNKNOWN";
@@ -1688,6 +1689,7 @@ std::string CardTextureCache::currentDeckSlug() const {
         case DeckThemeId::SolPolyClassic:    return "solpoly_classic";
         case DeckThemeId::SolPolyMobile:     return "solpoly_mobile";
         case DeckThemeId::LowPolyWar:        return "low_poly_war";
+        case DeckThemeId::SolPolyJumbo:      return "solpoly_jumbo";
         default:                             return "solengine";
     }
 }
@@ -2931,7 +2933,8 @@ bool CardTextureCache::loadBaseDeckTheme(
                             theme == DeckThemeId::MemoryLowPoly ||
                             theme == DeckThemeId::SolPolyClassic ||
                             theme == DeckThemeId::SolPolyMobile ||
-                            theme == DeckThemeId::LowPolyWar);
+                            theme == DeckThemeId::LowPolyWar ||
+                            theme == DeckThemeId::SolPolyJumbo);
     if (theme == currentTheme_ && isLoaded_ &&
         (!isLowPoly || loadedLowPolySeed_ == lowPolySeed_) &&
         &outBase != &baseTextures_ &&
@@ -2970,6 +2973,10 @@ bool CardTextureCache::loadBaseDeckTheme(
             lpOpts.style = LowPolyStyle::War;
             lpOpts.bg = LowPolyBg::Ivory;
             lpOpts.clearBottomRight = false;
+        } else if (theme == DeckThemeId::SolPolyJumbo) {
+            lpOpts.style = LowPolyStyle::Jumbo;
+            lpOpts.bg = LowPolyBg::White;
+            lpOpts.clearBottomRight = true;
         } else {
             lpOpts.style = LowPolyStyle::Scoundrel;
             lpOpts.bg = LowPolyBg::Dark;
@@ -3776,12 +3783,14 @@ void CardTextureCache::setLowPolySeed(uint32_t seed) {
     sampleCardCache_.erase(DeckThemeId::SolPolyClassic);
     sampleCardCache_.erase(DeckThemeId::SolPolyMobile);
     sampleCardCache_.erase(DeckThemeId::LowPolyWar);
+    sampleCardCache_.erase(DeckThemeId::SolPolyJumbo);
     sampleDeckCardCache_.erase("solpoly");
     sampleDeckCardCache_.erase("solpoly_dark");
     sampleDeckCardCache_.erase("scoundrel_lowpoly");
     sampleDeckCardCache_.erase("solpoly_classic");
     sampleDeckCardCache_.erase("solpoly_mobile");
     sampleDeckCardCache_.erase("low_poly_war");
+    sampleDeckCardCache_.erase("solpoly_jumbo");
     // Re-bake active card back immediately so seed-randomized low-poly backs update live
     if (isLoaded_) {
         setActiveCardBack(activeCardBackId_, true);
@@ -3893,6 +3902,7 @@ static DeckThemeId mapDeckSlugToLegacyId(const std::string& id) {
     if (low == "solpoly_classic") return DeckThemeId::SolPolyClassic;
     if (low == "solpoly_mobile") return DeckThemeId::SolPolyMobile;
     if (low == "low_poly_war") return DeckThemeId::LowPolyWar;
+    if (low == "solpoly_jumbo") return DeckThemeId::SolPolyJumbo;
     return DeckThemeId::Custom;
 }
 
@@ -3906,6 +3916,7 @@ void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
     scannedDecks_.push_back(DeckDef{ "memory_lowpoly", "MEMORY LOW-POLY", "", DeckThemeId::MemoryLowPoly });
     scannedDecks_.push_back(DeckDef{ "solpoly_mobile", "SOLPOLY MOBILE", "", DeckThemeId::SolPolyMobile });
     scannedDecks_.push_back(DeckDef{ "low_poly_war", "LOW POLY WAR", "", DeckThemeId::LowPolyWar });
+    scannedDecks_.push_back(DeckDef{ "solpoly_jumbo", "SOLPOLY JUMBO", "", DeckThemeId::SolPolyJumbo });
 
     std::error_code ec;
     const std::string searchPaths[] = {
@@ -3934,7 +3945,9 @@ void CardTextureCache::scanDecksFolder(const std::string& decksDir) {
     idToIndex["solpoly"] = 2;
     idToIndex["solpoly_dark"] = 3;
     idToIndex["scoundrel_lowpoly"] = 4;
-    idToIndex["solpoly_mobile"] = 5;
+    idToIndex["solpoly_mobile"] = 6;
+    idToIndex["low_poly_war"] = 7;
+    idToIndex["solpoly_jumbo"] = 8;
 
     if (!targetDir.empty()) {
         std::vector<DeckDef> discovered;

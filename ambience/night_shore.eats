@@ -1,0 +1,71 @@
+# ==============================================================================
+# SolEngine Procedural Ambience: Night Shore (.eats)
+# Hushed, meditative moonlit tide with slow low-passed surf, warm dune breeze,
+# quiet water-edge laps, and gentle swaying beach grass.
+# ==============================================================================
+
+sol.define_ambience({
+    id: "night_shore",
+    name: "Night Shore",
+    master_gain: 1.0,
+    layers: [
+        # 1. Slow midnight ocean swell
+        {
+            type: "noise_bed",
+            color: "brown",
+            filter: "lowpass",
+            cutoff: 160.0,
+            q: 0.707,
+            gain: 0.38,
+            lfo_rate: 0.068,
+            lfo_depth: 38.0,
+            amp_mod: 0.38
+        },
+        # 2. Mellow low-passed shore wash
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "lowpass",
+            cutoff: 680.0,
+            q: 0.707,
+            gain: 0.22,
+            lfo_rate: 0.082,
+            lfo_depth: 260.0,
+            amp_mod: 0.42
+        },
+        # 3. Warm hushed dune breeze
+        {
+            type: "noise_bed",
+            color: "pink",
+            filter: "bandpass",
+            cutoff: 310.0,
+            q: 1.2,
+            gain: 0.10,
+            lfo_rate: 0.052,
+            lfo_depth: 90.0,
+            amp_mod: 0.25
+        },
+        # 4. Soft lapping water edge between swells
+        {
+            type: "stochastic_grains",
+            rate: 2.2,
+            freq_min: 420.0,
+            freq_max: 1050.0,
+            decay: 0.055,
+            q: 1.1,
+            gain: 0.13,
+            stereo_spread: 0.85
+        },
+        # 5. Gentle swaying sea-grass rustle in the night air
+        {
+            type: "stochastic_grains",
+            rate: 0.35,
+            freq_min: 1600.0,
+            freq_max: 3400.0,
+            decay: 0.095,
+            q: 0.85,
+            gain: 0.09,
+            stereo_spread: 0.85
+        }
+    ]
+})
